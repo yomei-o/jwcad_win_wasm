@@ -15,6 +15,7 @@ param(
     [int]$Height = 800,
     [int]$SettleMs = 4000,
     [switch]$Screen,
+    [switch]$Client,
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -32,6 +33,11 @@ public static class Shot {
     [DllImport("user32.dll")] public static extern bool PrintWindow(
         IntPtr h, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
@@ -40,13 +46,20 @@ public static class Shot {
     /// redraw itself.  Jw_cad draws the document through Direct2D, whose
     /// swap chain PrintWindow cannot see: the frame comes back but the
     /// drawing area is blank white.
-    public static Bitmap GrabScreen(IntPtr h) {
-        RECT r; GetWindowRect(h, out r);
-        int w = r.Right - r.Left, c = r.Bottom - r.Top;
+    public static Bitmap GrabScreen(IntPtr h, bool clientOnly) {
+        RECT r; int x, y, w, c;
+        if (clientOnly) {
+            GetClientRect(h, out r);
+            POINT p; p.X = r.Left; p.Y = r.Top; ClientToScreen(h, ref p);
+            x = p.X; y = p.Y; w = r.Right - r.Left; c = r.Bottom - r.Top;
+        } else {
+            GetWindowRect(h, out r);
+            x = r.Left; y = r.Top; w = r.Right - r.Left; c = r.Bottom - r.Top;
+        }
         Bitmap bmp = new Bitmap(w, c,
                                 System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(bmp)) {
-            g.CopyFromScreen(r.Left, r.Top, 0, 0, new Size(w, c),
+            g.CopyFromScreen(x, y, 0, 0, new Size(w, c),
                              CopyPixelOperation.SourceCopy);
         }
         return bmp;
@@ -87,13 +100,18 @@ try {
     }
     $h = $p.MainWindowHandle
     [void][Shot]::ShowWindow($h, 1)            # SW_SHOWNORMAL, undo any maximise
-    [void][Shot]::MoveWindow($h, 0, 0, $Width, $Height, $true)
+    # Clamp to the work area: a window taller than the desktop leaves the
+    # taskbar showing through the bottom of a screen grab.
+    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $w = [math]::Min($Width, $wa.Width)
+    $c = [math]::Min($Height, $wa.Height)
+    [void][Shot]::MoveWindow($h, $wa.X, $wa.Y, $w, $c, $true)
     [void][Shot]::SetForegroundWindow($h)
     Start-Sleep -Milliseconds $SettleMs
 
     $dir = Split-Path -Parent $Out
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    $bmp = if ($Screen) { [Shot]::GrabScreen($h) } else { [Shot]::Grab($h) }
+    $bmp = if ($Screen -or $Client) { [Shot]::GrabScreen($h, $Client) } else { [Shot]::Grab($h) }
     $bmp.Save((Join-Path (Get-Location) $Out), [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
     Write-Host ("wrote {0} ({1} x {2})" -f $Out, $Width, $Height)
