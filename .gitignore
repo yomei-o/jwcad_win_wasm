@@ -1,0 +1,13 @@
+# The originals are Jiro Shimizu & Yoshifumi Tanaka's, not ours to republish,
+# and neither is anything mechanically derived from them.  Everything under
+# orig/ and decomp/ is rebuilt locally from your own copy of the installer --
+# see README.md, "Getting the originals".
+orig/
+decomp/
+jww10036.exe
+install.log
+
+tmp/
+__pycache__/
+*.o
+tests/*.exe
