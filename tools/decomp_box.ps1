@@ -21,6 +21,21 @@ $env:GHIDRA_HEADLESS_MAXMEM = '4G'
 $out = Join-Path $Work 'out\decomp'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
+# Ghidra takes an exclusive lock on a project directory even for -readOnly, so
+# shards cannot share one: the first wins and the other nine die with
+# "Unable to lock project!" while the run still reports DONE.  The analysed
+# project is only ~146 MB, so each shard gets its own copy of it.
+$projs = @()
+for ($i = 0; $i -lt $Shards; $i++) {
+    $p = if ($i -eq 0) { Join-Path $Work 'proj' } else { Join-Path $Work "proj$i" }
+    if ($i -gt 0) {
+        if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+        Write-Host "copying project for shard $i ..."
+        & robocopy.exe (Join-Path $Work 'proj') $p /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    }
+    $projs += $p
+}
+
 $step = [long][math]::Ceiling(($Hi - $Lo) / $Shards)
 $running = @()
 for ($i = 0; $i -lt $Shards; $i++) {
@@ -32,7 +47,7 @@ for ($i = 0; $i -lt $Shards; $i++) {
     $tag = '{0:x8}' -f $rlo
     $log = Join-Path $out "shard_$tag.log"
     $argv = @(
-        "$Work\proj", 'jwwin',
+        $projs[$i], 'jwwin',
         '-process', 'Jw_win.exe', '-noanalysis', '-readOnly',
         '-scriptPath', "$Work\ghidra_scripts",
         '-postScript', 'DecompileRange', $out, ('{0:x}' -f $rlo), ('{0:x}' -f $rhi)

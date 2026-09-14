@@ -188,6 +188,43 @@ CZukei : CObject
 
 `decomp/inventory.csv` が全関数の一覧です（番地・大きさ・呼び元数・呼び先数）。
 
+### 逆コンパイル
+
+```sh
+ssh ... 'powershell -File C:\prog\jwwin\decomp_box.ps1 -Shards 10'
+sh tools/decomp_get.sh
+# 25983 functions, 25921 decompiled (99.8%)
+# 25983 functions -> 654 files
+```
+
+26 MB の C が出ます。`tools/byclass.py` が vtable の割り当てを使って
+**クラスごとのファイル**に仕分けます（`decomp/byclass/CJw_winDoc.c` など)。
+仮想関数から辿れないものは `_unassigned.c` に入ります（20,316 関数）。
+
+**MFC 派生クラスの vtable の並びは `CObject` の宣言順**です。
+
+| スロット | |
+|---|---|
+| 0 | `GetRuntimeClass` |
+| 1 | スカラ削除デストラクタ |
+| **2** | **`Serialize`** |
+| 3, 4 | `AssertValid` / `Dump` |
+
+つまり `decomp/rtti/vftables.csv` で「スロット 2」を引けば、
+どのクラスの読み書きもすぐ出ます。
+
+| クラス | `Serialize` | 大きさ |
+|---|---|---:|
+| `CJw_winDoc` | `0x004d2820` → 本体 `0x00575010` | 22,125 |
+| `CData` | `0x0042e690` | 345 |
+| `CDataSen`（線） | `0x0042ea30` | 446 |
+| `CDataEnko`（円弧） | `0x0042e7f0` | 569 |
+| `CDataTen`（点） | `0x0042f340` | 437 |
+| `CDataMoji`（文字） | `0x0048cff0` | 1,115 |
+| `CDataSolid` | `0x0042ebf0` | 1,302 |
+| `CDataSunpou`（寸法） | `0x0042f110` | 548 |
+| `CDataBlock` | `0x0049b2c0` | 324 |
+
 ### 図面ファイル `.jww`
 
 MFC の `CArchive` によるシリアライズです。先頭は
@@ -200,8 +237,20 @@ MFC の `CArchive` によるシリアライズです。先頭は
 
 続いてレイヤグループ 16 × レイヤ 16 の表（状態と縮尺）、書込線色などの設定、
 それから `CData` 派生オブジェクトの配列が `CArchive` のクラススキーマ付きで
-並びます。読み書きは `CJw_winDoc::Serialize` と各 `CData*::Serialize` が
-持っているので、そこを突き合わせれば形が確定します。
+並びます。`CDataSen::Serialize` を読むと、線の実体はこうです。
+
+| オフセット | |
+|---|---|
+| `+0x08` | `double` x0 |
+| `+0x10` | `double` y0 |
+| `+0x18` | `double` x1 |
+| `+0x20` | `double` y1 |
+| `+0x28` | `byte`。読み込み時に `% 100` される |
+
+**座標はそのままでは入っていません。** 書き出すときに 10 個の表から
+取った値を足し、読むときに引く、という細工が入っています
+（`DAT_00a08ae4` が 1〜10 を巡回する添字、`DAT_00a08ae8` が表）。
+要素を 1 つ読むごとに添字が進むので、**順番どおりに読まないと座標がずれます**。
 
 ## 道具
 
