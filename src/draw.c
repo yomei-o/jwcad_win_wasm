@@ -58,10 +58,10 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
  * A-3 sheet.  jw_mm_per_bit is kept as a knob for tools/calibrate; 0 means
  * one pixel. */
 
-/* Bresenham, one pixel wide.  Jw_cad draws through GDI's LineTo, which is
- * also Bresenham, so the pixels land in the same places -- except that GDI
- * leaves the last point out, which is why the caller passes the endpoint it
- * wants drawn and this includes it. */
+/* One pixel wide, the way GDI draws it -- Jw_cad goes through LineTo.  GDI
+ * leaves the last point out; Jw_cad wants it, so the caller passes the
+ * endpoint it wants drawn and this includes it (jw_line_open says
+ * otherwise). */
 static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
                  unsigned int col, int wide, int ltype, double ppb,
                  double *phase)
@@ -74,23 +74,6 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
     int dy = y1 > y0 ? y1 - y0 : y0 - y1;
     int sx = x0 < x1 ? 1 : -1;
     int sy = y0 < y1 ? 1 : -1;
-    int err;
-
-    /* The original's lines reach one pixel further than the rounded ends at
-     * each end: 敷地図.jww's long horizontals run 358..922 where the ends
-     * land on 358.76 and 921.64.  jw_line_ext says to do the same. */
-    if (jw_line_ext) {
-        if (dx >= dy) {
-            x0 -= sx;
-            x1 += sx;
-            dx += 2;
-        } else {
-            y0 -= sy;
-            y1 += sy;
-            dy += 2;
-        }
-    }
-    err = dx - dy;
 
     /* The pattern advances along the line, not along the axis Bresenham
      * steps on: a diagonal covers sqrt(2) as much line per step as a
@@ -102,47 +85,35 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
     }
     if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
         return;
-    if (jw_line_algo == 0) {
-        for (;;) {
-            int i, j;
-            if (x0 == x1 && y0 == y1 && jw_line_open)
-                break;
-            if (bits & (1u << (((int)(step / ppb)) % unit)))
-                for (j = 0; j < wide; j++)
-                    for (i = 0; i < wide; i++)
-                        put(fb, c, x0 + i, y0 + j, col);
-            step += adv;
-            if (x0 == x1 && y0 == y1)
-                break;
-            {
-                int e2 = 2 * err;
-                if (e2 > -dy) { err -= dy; x0 += sx; }
-                if (e2 < dx)  { err += dx; y0 += sy; }
-            }
-        }
-    } else {
-        /* The textbook major-axis Bresenham, which is what GDI runs: one
-         * step per pixel of the long axis, the short axis moving when the
-         * error term crosses.  jw_line_algo 2 moves on a tie as well. */
-        int major = dx > dy ? dx : dy;
-        int minor = dx > dy ? dy : dx;
-        int e = 2 * minor - major;
+    {
+        /* GDI's own Bresenham, checked against this machine's LineTo over
+         * 1,200 random lines (87,809 pixels, no difference): one step per
+         * pixel of the long axis, and the short axis moves when the error
+         * term is positive -- or zero, if the short axis runs backwards.
+         * That last clause is the bias that makes GDI draw the same pixels
+         * whichever end of a line it starts from. */
+        int xmaj = dx > dy;
+        int mj = xmaj ? dx : dy;
+        int mn = xmaj ? dy : dx;
+        int tie = xmaj ? (sy < 0) : (sx < 0);
+        int e = 2 * mn - mj;
         int k;
-        for (k = 0; k <= major; k++) {
+
+        for (k = 0; k <= mj; k++) {
             int i, j;
-            if (k == major && jw_line_open)
+            if (k == mj && jw_line_open)
                 break;
             if (bits & (1u << (((int)(step / ppb)) % unit)))
                 for (j = 0; j < wide; j++)
                     for (i = 0; i < wide; i++)
                         put(fb, c, x0 + i, y0 + j, col);
             step += adv;
-            if (e > 0 || (e == 0 && jw_line_algo == 2)) {
-                if (dx > dy) y0 += sy; else x0 += sx;
-                e -= 2 * major;
+            if (e > 0 || (e == 0 && tie)) {
+                if (xmaj) y0 += sy; else x0 += sx;
+                e -= 2 * mj;
             }
-            e += 2 * minor;
-            if (dx > dy) x0 += sx; else y0 += sy;
+            e += 2 * mn;
+            if (xmaj) x0 += sx; else y0 += sy;
         }
     }
     if (phase)

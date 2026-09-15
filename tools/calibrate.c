@@ -157,7 +157,6 @@ int main(int argc, char **argv)
         }
         return 0;
     }
-    for (jw_line_algo = 0; jw_line_algo <= 2; jw_line_algo++)
     for (inset = -1.0; inset <= 2.05; inset += 0.5)
         for (dx = -0.4; dx <= 0.45; dx += 0.1)
             for (dy = -0.4; dy <= 0.45; dy += 0.1) {
@@ -171,7 +170,7 @@ int main(int argc, char **argv)
                     app_paint();
                     tot += score(i, mask);
                 }
-                printf("algo %d inset %.2f rx %.2f ry %.2f : %ld\n", jw_line_algo, inset, dx, dy, tot);
+                printf("inset %.2f rx %.2f ry %.2f : %ld\n", inset, dx, dy, tot);
                 fflush(stdout);
                 if ((double)tot < best) {
                     best = (double)tot;

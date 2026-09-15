@@ -12,10 +12,6 @@ double jw_round_y = 0.0;
 int jw_line_open = 0;
 /* How much paper one bit of a line type covers; 0 means one pixel. */
 double jw_mm_per_bit = 0.0;
-/* Draw one pixel beyond each end of a line, along its major axis. */
-int jw_line_ext = 0;
-/* 0 the both-axis Bresenham, 1 the major-axis one, 2 the same stepping on a tie. */
-int jw_line_algo = 2;
 
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh)
 {
