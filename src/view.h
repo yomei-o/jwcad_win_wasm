@@ -43,4 +43,17 @@ static __inline int jw_sy(const jw_view *v, double y)
     return v->by - (int)((y - v->oy) * v->scale + jw_round_y);
 }
 
+/* The same, but before the rounding: how far across and up the point is from
+ * the pinned pixel.  Cutting a line against the view has to happen here, not
+ * after the rounding. */
+static __inline double jw_ux(const jw_view *v, double x)
+{
+    return (x - v->ox) * v->scale;
+}
+
+static __inline double jw_uy(const jw_view *v, double y)
+{
+    return (y - v->oy) * v->scale;
+}
+
 #endif

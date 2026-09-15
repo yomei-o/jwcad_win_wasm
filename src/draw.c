@@ -92,13 +92,9 @@ static int bits_set(int ltype, double step, double ppb)
  *
  * The view reaches two pixels past the drawing area each way: OnDraw takes
  * its extent as the client plus four pixels. */
-static int clip_major(const rect_t *c, int major_x, double *x0, double *y0,
-                      double *x1, double *y1)
+static int clip_major(double lo, double hi, double *p0, double *q0,
+                      double *p1, double *q1)
 {
-    double *p0 = major_x ? x0 : y0, *p1 = major_x ? x1 : y1;
-    double *q0 = major_x ? y0 : x0, *q1 = major_x ? y1 : x1;
-    double lo = (major_x ? c->x : c->y) - 2;
-    double hi = (major_x ? c->x + c->w : c->y + c->h) + 2;
     double d = *p1 - *p0, slope;
 
     if (*p0 > *p1) {
@@ -163,23 +159,35 @@ static void stroke(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
     }
 }
 
-static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
+/* The ends come in as real offsets from the view's pinned pixel -- u across,
+ * w up -- because the original cuts the line against the view in paper
+ * millimetres, before anything is rounded.  Rounding first and cutting after
+ * moves a line that runs off the screen by a pixel. */
+static void line(fb_t *fb, const jw_view *v, double u0, double w0,
+                 double u1, double w1,
                  unsigned int col, int wide, int ltype, double ppb,
                  double *phase)
 {
+    const rect_t *c = &v->clip;
     const unsigned int bits = LTYPE[ltype].bits;
     const int unit = LTYPE[ltype].unit;
-    int dx, dy;
+    int x0, y0, x1, y1, dx, dy;
 
     {
-        double cx0 = x0, cy0 = y0, cx1 = x1, cy1 = y1;
-        int ex = x1 > x0 ? x1 - x0 : x0 - x1;
-        int ey = y1 > y0 ? y1 - y0 : y0 - y1;
-        if (!clip_major(c, ex > ey, &cx0, &cy0, &cx1, &cy1))
+        double eu = u1 > u0 ? u1 - u0 : u0 - u1;
+        double ew = w1 > w0 ? w1 - w0 : w0 - w1;
+        int ok;
+        if (eu > ew)
+            ok = clip_major(c->x - 2 - v->bx, c->x + c->w + 2 - v->bx,
+                            &u0, &w0, &u1, &w1);
+        else
+            ok = clip_major(v->by - (c->y + c->h + 2), v->by - (c->y - 2),
+                            &w0, &u0, &w1, &u1);
+        if (!ok)
             return;
-        x0 = (int)cx0; y0 = (int)cy0;
-        x1 = (int)cx1; y1 = (int)cy1;
     }
+    x0 = v->bx + (int)u0; y0 = v->by - (int)w0;
+    x1 = v->bx + (int)u1; y1 = v->by - (int)w1;
     dx = x1 > x0 ? x1 - x0 : x0 - x1;
     dy = y1 > y0 ? y1 - y0 : y0 - y1;
 
@@ -456,7 +464,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     double sweep, ct, st;
     int lt = line_type(o);
     double phase = 0.0, ppb = pix_per_bit(v);
-    int n, i, idx, px = 0, py = 0;
+    int n, i, idx;
+    double px = 0, py = 0;
 
     if (flat <= 0.0)
         flat = 1.0;
@@ -537,10 +546,10 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     for (i = 0; i <= n; i++) {
         double t = a0 + sweep * i / n;
         double ux = r * cos(t), uy = r * flat * sin(t);
-        int sx = jw_sx(v, cx + ux * ct - uy * st);
-        int sy = jw_sy(v, cy + ux * st + uy * ct);
+        double sx = jw_ux(v, cx + ux * ct - uy * st);
+        double sy = jw_uy(v, cy + ux * st + uy * ct);
         if (i)
-            line(fb, &v->clip, px, py, sx, sy, col, wide, lt, ppb, &phase);
+            line(fb, v, px, py, sx, sy, col, wide, lt, ppb, &phase);
         px = sx;
         py = sy;
     }
@@ -611,8 +620,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
         switch (o->cls) {
         case JW_SEN:
-            line(fb, &v->clip, jw_sx(v, o->d[0]), jw_sy(v, o->d[1]),
-                 jw_sx(v, o->d[2]), jw_sy(v, o->d[3]), col, wide,
+            line(fb, v, jw_ux(v, o->d[0]), jw_uy(v, o->d[1]),
+                 jw_ux(v, o->d[2]), jw_uy(v, o->d[3]), col, wide,
                  line_type(o), pix_per_bit(v), 0);
             break;
         case JW_ENKO:
