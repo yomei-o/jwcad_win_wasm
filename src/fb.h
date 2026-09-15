@@ -40,5 +40,7 @@ void fb_edge(fb_t *fb, int x, int y, int w, int h,
 struct jw_bitmap;
 void fb_blit_cell(fb_t *fb, const struct jw_bitmap *bm, int cell, int cw,
                   int x, int y);
+void fb_blit_cell_ex(fb_t *fb, const struct jw_bitmap *bm, int cell, int cw,
+                     int x, int y, int transparent);
 
 #endif

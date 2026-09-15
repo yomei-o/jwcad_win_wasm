@@ -23,6 +23,11 @@ def main():
                     help='write a diff image here (default: <b>.diff.png)')
     ap.add_argument('-n', '--top', type=int, default=8,
                     help='how many mismatching colour pairs to list')
+    ap.add_argument('-i', '--ignore', default=None,
+                    help='file of "x y w h  # what it is" rectangles to leave '
+                         'out of a second score -- the places where the '
+                         'original draws text with the system font, which the '
+                         'port is not expected to match')
     args = ap.parse_args()
 
     a = Image.open(args.a).convert('RGB')
@@ -32,11 +37,26 @@ def main():
               % (args.a, a.width, a.height, args.b, b.width, b.height))
         return 2
 
+    ignore = []
+    if args.ignore:
+        for line in open(args.ignore, encoding='utf-8'):
+            line = line.split('#')[0].split()
+            if len(line) == 4:
+                ignore.append(tuple(int(v) for v in line))
+
+    def masked(x, y):
+        for rx, ry, rw, rh in ignore:
+            if rx <= x < rx + rw and ry <= y < ry + rh:
+                return True
+        return False
+
     pa, pb = a.load(), b.load()
     w, h = a.size
     diff = Image.new('RGB', (w, h))
     pd = diff.load()
     bad = 0
+    bad_unmasked = 0
+    masked_total = 0
     pairs = collections.Counter()
     rows = collections.Counter()
     cols = collections.Counter()
@@ -50,6 +70,11 @@ def main():
                 pd[x, y] = (g, g, g)
             else:
                 bad += 1
+                if ignore and masked(x, y):
+                    masked_total += 1
+                    pd[x, y] = (255, 190, 190)
+                    continue
+                bad_unmasked += 1
                 pd[x, y] = (255, 0, 0)
                 pairs[(ca, cb)] += 1
                 rows[y] += 1
@@ -58,6 +83,9 @@ def main():
     total = w * h
     print('%s vs %s: %dx%d, %d of %d differ (%.3f%%)'
           % (args.a, args.b, w, h, bad, total, 100.0 * bad / total))
+    if ignore:
+        print('outside the text areas: %d differ (%.3f%%)'
+              % (bad_unmasked, 100.0 * bad_unmasked / total))
     if bad:
         print('worst rows:', ', '.join('y=%d(%d)' % r for r in rows.most_common(6)))
         print('worst cols:', ', '.join('x=%d(%d)' % c for c in cols.most_common(6)))

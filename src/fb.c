@@ -74,6 +74,15 @@ static unsigned int remap(unsigned int rgb)
 void fb_blit_cell(fb_t *fb, const struct jw_bitmap *bmp, int cell, int cw,
                   int x, int y)
 {
+    fb_blit_cell_ex(fb, bmp, cell, cw, x, y, 0);
+}
+
+/* transparent: leave the face colour alone, so whatever is underneath shows
+ * through.  A pressed toolbar button needs that -- its checkerboard is drawn
+ * first and the image sits on top of it. */
+void fb_blit_cell_ex(fb_t *fb, const struct jw_bitmap *bmp, int cell, int cw,
+                     int x, int y, int transparent)
+{
     const jw_bitmap_t *bm = (const jw_bitmap_t *)bmp;
     int i, j, sx;
 
@@ -92,8 +101,13 @@ void fb_blit_cell(fb_t *fb, const struct jw_bitmap *bmp, int cell, int cw,
                 continue;
             n = bm->idx[(size_t)j * bm->w + sx + i];
             p = bm->pal + 3 * n;
-            fb->px[(size_t)dy * fb->w + dx] =
-                remap(((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2]);
+            {
+                unsigned int c =
+                    ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2];
+                if (transparent && c == 0xc0c0c0u)
+                    continue;
+                fb->px[(size_t)dy * fb->w + dx] = remap(c);
+            }
         }
     }
 }

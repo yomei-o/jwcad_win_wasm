@@ -51,7 +51,8 @@ static const bar_t bars[] = {
     { 1188, 371,   37,  14, C_WINDOW,  B_TOP },
     { 1188, 385,   37, 231, C_WINDOW,  B_TOP },
     { 1225, 388,   39, 228, C_WINDOW,  B_TOP | B_LEFT },
-    { 1188, 616,   76, 104, C_WINDOW,  0 },
+    { 1188, 612,   37, 108, C_WINDOW,  B_TOP },
+    { 1225, 615,   39, 105, C_WINDOW,  B_TOP },
 
     /* the status line */
     {    0, 720, 1264,  21, C_BTNFACE, B_TOP },
@@ -114,7 +115,8 @@ static void blit_cell_state(fb_t *fb, const jw_bitmap_t *bm, int cell,
     if (!bm)
         return;
     if (state != 1) {
-        fb_blit_cell(fb, (const struct jw_bitmap *)bm, cell, CELL_W, x, y);
+        fb_blit_cell_ex(fb, (const struct jw_bitmap *)bm, cell, CELL_W, x, y,
+                        state == 2);
         return;
     }
     /* Disabled: the ink once in highlight offset by one, then in shadow on
@@ -122,7 +124,7 @@ static void blit_cell_state(fb_t *fb, const jw_bitmap_t *bm, int cell,
     for (j = 0; j < CELL_H; j++)
         for (i = 0; i < CELL_W; i++)
             if (cellpx(bm, cell, i, j) != 0xc0c0c0u
-                && i + 1 < CELL_W && j + 1 < CELL_H)
+                && x + i + 1 < fb->w && y + j + 1 < fb->h)
                 fb->px[(size_t)(y + j + 1) * fb->w + x + i + 1] = C_BTNHILIGHT;
     for (j = 0; j < CELL_H; j++)
         for (i = 0; i < CELL_W; i++)
@@ -163,7 +165,7 @@ static void paint_bars(fb_t *fb)
 #define LAYER_CELL_W 19
 #define LAYER_CELL_H 21
 
-static void blit_layer_cell(fb_t *fb, int id, int x, int y)
+static void blit_layer_cell(fb_t *fb, int id, int x, int y, int clipright)
 {
     const jw_bitmap_t *bm = jw_bitmap(id);
     int i, j;
@@ -176,7 +178,7 @@ static void blit_layer_cell(fb_t *fb, int id, int x, int y)
         for (i = 0; i < bm->w; i++) {
             const unsigned char *p;
             unsigned int c;
-            if (x + i < 0 || x + i >= fb->w)
+            if (x + i < 0 || x + i >= fb->w || x + i > clipright)
                 continue;
             p = bm->pal + 3 * bm->idx[(size_t)j * bm->w + i];
             c = ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2];
@@ -187,15 +189,24 @@ static void blit_layer_cell(fb_t *fb, int id, int x, int y)
     }
 }
 
-/* Where the two grids sit, measured off the reference screen. */
-static const struct { short x, y; } layer_grids[2] = {
-    { 1188, 394 },      /* layer groups, circled digits   */
-    { 1227, 397 },      /* layers, plain digits           */
+/* GDI's Ellipse() inscribed in a 16x16 box -- the ring that marks the layer
+ * group being written to. */
+static const unsigned short circle16[16] = {
+    0x07e0, 0x0810, 0x300c, 0x2004, 0x4002, 0x8001, 0x8001, 0x8001,
+    0x8001, 0x8001, 0x8001, 0x4002, 0x2004, 0x300c, 0x0810, 0x07e0,
+};
+
+/* Where the two grids sit and how far they may draw, measured off the
+ * reference screen.  The bar clips them: the right-hand column's cell would
+ * otherwise put its black edge over the groove beside it. */
+static const struct { short x, y, clip; } layer_grids[2] = {
+    { 1188, 394, 1224 },        /* layer groups, circled digits */
+    { 1227, 397, 1263 },        /* layers, plain digits         */
 };
 
 static void paint_layer_grids(fb_t *fb)
 {
-    int g, col, row;
+    int g, col, row, i, j;
 
     for (g = 0; g < 2; g++) {
         for (col = 0; col < 2; col++) {
@@ -203,11 +214,157 @@ static void paint_layer_grids(fb_t *fb)
                 int x = layer_grids[g].x + col * LAYER_CELL_W;
                 int y = layer_grids[g].y + row * LAYER_CELL_H;
                 int first = (col == 0 && row == 0);
-                blit_layer_cell(fb, first ? 2652 : 2662, x, y);
+                int write = first;      /* group 0 / layer 0 for now */
+                blit_layer_cell(fb, first ? 2652 : 2662, x, y,
+                                layer_grids[g].clip);
+                if (g == 0) {
+                    /* the group being written to gets a red ring */
+                    if (!write)
+                        continue;
+                    for (j = 0; j < 16; j++)
+                        for (i = 0; i < 16; i++)
+                            if (circle16[j] & (1 << i))
+                                fb_fill(fb, x + 2 + i, y + 4 + j, 1, 1,
+                                        0xff0000u);
+                } else if (write) {
+                    /* and the layer being written to a red box */
+                    fb_edge(fb, x + 2, y + 4, 16, 16, 0xff0000u, 0xff0000u);
+                } else {
+                    fb_edge(fb, x + 1, y + 3, 16, 16, C_BTNTEXT, C_BTNTEXT);
+                }
             }
         }
     }
 }
+
+/* The four square buttons under the layer grids (All / 0 / All / X).  Same
+ * chrome as a toolbar button, but 25x21 and their captions are text. */
+static const struct { short x, y; } small_buttons[4] = {
+    { 1194, 564 }, { 1194, 587 },       /* under the layer-group grid */
+    { 1234, 567 }, { 1234, 590 },       /* under the layer grid       */
+};
+#define SMALL_W 25
+#define SMALL_H 21
+
+/* The line-type sample: a white box with a hand-drawn frame in raw greys
+ * (0xc0c0c0 and 0x8c8c8c), not system colours, and the current line drawn
+ * across the middle. */
+static const struct { short x, y; } samples[2] = {
+    {   41, 493 },      /* left bar  */
+    { 1190, 346 },      /* right bar */
+};
+#define SAMPLE_W 33
+#define SAMPLE_H 19
+
+static void paint_samples(fb_t *fb)
+{
+    int k;
+
+    for (k = 0; k < 2; k++) {
+        int x = samples[k].x, y = samples[k].y;
+
+        fb_fill(fb, x + 1, y + 1, SAMPLE_W - 2, SAMPLE_H - 2, C_WINDOW);
+        fb_edge(fb, x, y, SAMPLE_W, SAMPLE_H, 0xc0c0c0u, 0x8c8c8cu);
+        /* the black shadow is an L, not a box: right edge and underside */
+        fb_vline(fb, x + SAMPLE_W, y - 1, SAMPLE_H + 2, C_BTNTEXT);
+        fb_hline(fb, x - 1, y + SAMPLE_H, SAMPLE_W + 2, C_BTNTEXT);
+        /* the current line type, drawn across the middle */
+        fb_hline(fb, x + 1, y + 9, SAMPLE_W - 2, C_BTNTEXT);
+    }
+}
+
+/* The status line: a face-coloured bar with a row of panes and a size grip. */
+static const struct { short x0, x1; } panes[5] = {
+    {  987, 1022 }, { 1025, 1086 }, { 1089, 1153 },
+    { 1156, 1185 }, { 1188, 1244 },
+};
+#define PANE_T 724
+
+static void paint_status(fb_t *fb)
+{
+    int k, i, j;
+    int bottom = fb->h - 1;
+
+    for (k = 0; k < 5; k++)
+        fb_edge(fb, panes[k].x0, PANE_T, panes[k].x1 - panes[k].x0 + 1,
+                bottom - PANE_T + 1, C_BTNHILIGHT, C_BTNSHADOW);
+
+    /* The size grip in the corner: three diagonals of highlight-shadow-shadow
+     * running up and to the right from one pixel inside the bottom right. */
+    for (i = 0; i < 12; i++) {
+        int y = bottom - 1 - i;
+        int x0 = fb->w - 2 - 11 + i;
+        for (k = 0; k < 3; k++) {
+            int x = x0 + 4 * k;
+            if (x > fb->w - 2)
+                break;
+            fb->px[(size_t)y * fb->w + x] = C_BTNHILIGHT;
+            for (j = 1; j <= 2; j++)
+                if (x + j <= fb->w - 2)
+                    fb->px[(size_t)y * fb->w + x + j] = C_BTNSHADOW;
+        }
+    }
+}
+
+/* The command bar across the top is a CDialogBar, so its contents are
+ * ordinary Windows controls.  Positions are measured off the reference; the
+ * dialog template (DIALOG 280 for the line command) gives them in dialog
+ * units, which only convert to pixels once the dialog font is known. */
+static const short checkboxes[] = { 18, 71, 435, 501, 587, 678, 750 };
+#define NCHECKBOX ((int)(sizeof checkboxes / sizeof checkboxes[0]))
+#define CHECK_Y 11
+#define CHECK_W 13
+#define CHECK_H 12
+
+static void paint_checkbox(fb_t *fb, int x, int y)
+{
+    fb_hline(fb, x, y, CHECK_W - 1, C_BTNSHADOW);
+    fb_vline(fb, x, y, CHECK_H, C_BTNSHADOW);
+    fb_vline(fb, x + CHECK_W - 1, y, CHECK_H, C_BTNHILIGHT);
+    fb_hline(fb, x + 1, y + 1, CHECK_W - 3, C_3DDKSHADOW);
+    fb_vline(fb, x + 1, y + 1, CHECK_H - 2, C_3DDKSHADOW);
+    fb_vline(fb, x + CHECK_W - 2, y + 1, CHECK_H - 1, C_3DLIGHT);
+    fb_hline(fb, x + 1, y + CHECK_H - 1, CHECK_W - 2, C_3DLIGHT);
+    fb_fill(fb, x + 2, y + 2, CHECK_W - 4, CHECK_H - 3, C_WINDOW);
+}
+
+static const struct { short x, w; } combos[] = {
+    { 185,  98 },
+    { 319, 110 },
+};
+#define NCOMBO ((int)(sizeof combos / sizeof combos[0]))
+#define COMBO_Y 8
+#define COMBO_H 20
+#define DROP_W 17
+#define DROP_H 16
+
+static void paint_combo(fb_t *fb, int x, int w)
+{
+    int y = COMBO_Y, h = COMBO_H;
+    int dx = x + w - 19, dy = y + 2;
+    int i;
+
+    fb_edge(fb, x, y, w, h, C_BTNSHADOW, C_BTNHILIGHT);
+    fb_edge(fb, x + 1, y + 1, w - 2, h - 2, C_3DDKSHADOW, C_3DLIGHT);
+    fb_fill(fb, x + 2, y + 2, w - 4, h - 4, C_WINDOW);
+
+    /* the drop-down button, with the arrow drawn as four shrinking rows */
+    fb_edge(fb, dx, dy, DROP_W, DROP_H, C_3DLIGHT, C_3DDKSHADOW);
+    fb_edge(fb, dx + 1, dy + 1, DROP_W - 2, DROP_H - 2,
+            C_BTNHILIGHT, C_BTNSHADOW);
+    fb_fill(fb, dx + 2, dy + 2, DROP_W - 4, DROP_H - 4, C_BTNFACE);
+    for (i = 0; i < 4; i++)
+        fb_hline(fb, dx + 4 + i, dy + 6 + i, 7 - 2 * i, C_BTNTEXT);
+}
+
+/* The two wide buttons that show the current line type: an ordinary raised
+ * button sitting in a one-pixel sunken groove. */
+static const struct { short x, w; } linebuttons[] = {
+    { 517, 63 },
+    { 603, 65 },
+};
+#define LINEBTN_Y 5
+#define LINEBTN_H 24
 
 static void paint_buttons(fb_t *fb)
 {
@@ -241,6 +398,31 @@ void ui_paint(fb_t *fb)
     fb_edge(fb, v.x - 1, v.y - 1, v.w + 2, v.h + 2, C_3DDKSHADOW, C_3DLIGHT);
     fb_fill(fb, v.x, v.y, v.w, v.h, C_WINDOW);
 
+    {
+        int k;
+        for (k = 0; k < NCHECKBOX; k++)
+            paint_checkbox(fb, checkboxes[k], CHECK_Y);
+        for (k = 0; k < NCOMBO; k++)
+            paint_combo(fb, combos[k].x, combos[k].w);
+        for (k = 0; k < 2; k++) {
+            int x = linebuttons[k].x, w = linebuttons[k].w;
+            fb_edge(fb, x, LINEBTN_Y, w, LINEBTN_H,
+                    C_BTNSHADOW, C_BTNHILIGHT);
+            button_frame(fb, x + 1, LINEBTN_Y + 1, w - 2, LINEBTN_H - 2, 0);
+            fb_fill(fb, x + 3, LINEBTN_Y + 3, w - 6, LINEBTN_H - 6, C_BTNFACE);
+        }
+    }
     paint_layer_grids(fb);
+    paint_samples(fb);
+    paint_status(fb);
     paint_buttons(fb);
+
+    {
+        int k;
+        for (k = 0; k < 4; k++) {
+            int x = small_buttons[k].x, y = small_buttons[k].y;
+            button_frame(fb, x, y, SMALL_W, SMALL_H, 0);
+            fb_fill(fb, x + 2, y + 2, SMALL_W - 4, SMALL_H - 4, C_BTNFACE);
+        }
+    }
 }

@@ -1,0 +1,18 @@
+# Where the original draws text with a Windows font.  The port cannot match
+# those pixels -- it has no licence to the same typeface -- so tools/cmp.py
+# scores them separately when given this file:
+#
+#   python tools/cmp.py docs/ref_start.png tests/out/frame.png -i docs/textareas.txt
+#
+# Everything else has to match exactly.  Rectangles are "x y w h" in client
+# coordinates of the 1264x741 reference.
+#
+# x     y     w     h      what
+0       9     830   16   # command bar: the labels beside the checkboxes
+518     6     61    22   # command bar: the line-type sample button (not text,
+604     6     63    22   #   but the sample itself is not drawn yet)
+1188    396   38    170  # layer group grid: the circled digits
+1229    399   36    170  # layer grid: the digits
+1194    564   26    45   # All / 0 under the layer group grid
+1234    567   26    45   # All / X under the layer grid
+0       722   1264  19   # the status line
