@@ -6,6 +6,10 @@
 # This one has to run in the foreground (-Screen), which takes the screen for
 # a few seconds per drawing, so do not run it while someone is working.
 #
+# -StableMs waits until the window stops changing rather than guessing a
+# delay: Jw_cad paints a big drawing slowly here (it is an x86 binary under
+# emulation) and a fixed five-second wait catches a third of Test1.jww.
+#
 # Background capture (PrintWindow) is not good enough for drawings.  It is
 # exact for the frame, but the drawing area comes back stale or half drawn:
 # 日影図.jww gives 7,979 ink pixels that way against 46,283 in the foreground,
@@ -23,6 +27,6 @@ for f in orig/*.jww; do
     cp "$f" "tmp/d$n.jww"
     powershell -ExecutionPolicy Bypass -File tools/shot.ps1 \
         -Exe orig/Jw_win.exe -Open "tmp/d$n.jww" -Out "$out/d$n.png" \
-        -Client -Screen -SettleMs 5000 >/dev/null
+        -Client -Screen -SettleMs 2000 -StableMs 60000 >/dev/null
     echo "$out/d$n.png  <-  $f"
 done

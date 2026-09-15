@@ -18,6 +18,8 @@ param(
     [switch]$Client,
     [switch]$Foreground,
     [switch]$NoResize,
+    [switch]$Repaint,
+    [int]$StableMs = 0,
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -75,6 +77,22 @@ public static class Shot {
     /// be on top, or even visible, so this does not disturb whoever is using
     /// the machine -- but it only works with Direct2D off, because a D2D swap
     /// chain is not part of what WM_PRINT redraws.
+    /// A cheap checksum of a bitmap, to tell whether the window has stopped
+    /// changing.
+    public static long Sum(Bitmap b) {
+        System.Drawing.Imaging.BitmapData d = b.LockBits(
+            new Rectangle(0, 0, b.Width, b.Height),
+            System.Drawing.Imaging.ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        int n = Math.Abs(d.Stride) * b.Height;
+        byte[] buf = new byte[n];
+        Marshal.Copy(d.Scan0, buf, 0, n);
+        b.UnlockBits(d);
+        long s = 1469598103934665603L;
+        for (int i = 0; i < n; i++) { s ^= buf[i]; s *= 1099511628211L; }
+        return s;
+    }
+
     public static Bitmap Grab(IntPtr h, bool clientOnly) {
         RECT wr; GetWindowRect(h, out wr);
         Bitmap full = new Bitmap(wr.Right - wr.Left, wr.Bottom - wr.Top,
@@ -143,12 +161,52 @@ try {
         [void][Shot]::SetForegroundWindow($h)
         [void][Shot]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0003)
     }
+    if ($Repaint) {
+        # Jw_cad paints the drawing lazily, and a grab taken soon after it
+        # opens a file catches a half-finished picture -- サンプル.jww came
+        # out with 3,580 ink pixels that way against 15,492 once it had
+        # settled.  Shrinking the window and restoring it forces the lot,
+        # and the count then stops changing.
+        # Minimise and restore.  Not a resize: resizing re-wraps the
+        # toolbars, which moves the whole frame and makes the shot
+        # incomparable with the others.
+        [void][Shot]::ShowWindow($h, 6)     # SW_MINIMIZE
+        Start-Sleep -Milliseconds 1200
+        [void][Shot]::ShowWindow($h, 9)     # SW_RESTORE
+        Start-Sleep -Milliseconds 1200
+        [void][Shot]::SetForegroundWindow($h)
+        [void][Shot]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0003)
+    }
     # Ask for a full repaint of the window and every child before grabbing.
     # Without it PrintWindow can hand back a stale or half-drawn view: the
     # shadow diagram of 日影図.jww came out with a sixth of its ink.
     # 0x0001 RDW_INVALIDATE | 0x0100 RDW_UPDATENOW | 0x0080 RDW_ALLCHILDREN
     [void][Shot]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, 0x0181)
     Start-Sleep -Milliseconds $SettleMs
+
+    if ($StableMs -gt 0) {
+        # Jw_cad draws a big drawing slowly -- on this machine it is an x86
+        # binary under emulation -- and a grab taken too early catches a half
+        # finished picture.  Test1.jww gives 6,467 ink pixels after five
+        # seconds and 16,597 once it has finished.  So wait until two grabs
+        # in a row are the same instead of guessing a delay.
+        # Five samples in a row have to agree: the painting comes in phases
+        # with a pause between them, so "the same twice" fires in the gap
+        # before the text is drawn.
+        $prev = -1
+        $same = 0
+        $deadline = (Get-Date).AddMilliseconds($StableMs)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 2000
+            $b = if ($Screen) { [Shot]::GrabScreen($h, $Client) }
+                 else { [Shot]::Grab($h, $Client) }
+            $sum = [Shot]::Sum($b)
+            $b.Dispose()
+            if ($sum -eq $prev) { $same++ } else { $same = 0 }
+            $prev = $sum
+            if ($same -ge 4) { break }
+        }
+    }
 
     $dir = Split-Path -Parent $Out
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
