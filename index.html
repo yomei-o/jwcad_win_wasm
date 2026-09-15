@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jw_cad for Windows — WASM 移植</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #202020; color: #ddd;
+               font: 13px/1.5 "Segoe UI", "Meiryo", sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 6px 10px; background: #2b2b2b; border-bottom: 1px solid #000; }
+  header a { color: #8cf; }
+  #wrap { flex: 1; overflow: auto; }
+  canvas { display: block; image-rendering: pixelated; }
+  #note { padding: 4px 10px; color: #999; }
+</style>
+</head>
+<body>
+<header>
+  <b>Jw_cad for Windows 10.03.6</b> — 実行ファイルを逆コンパイルして C に書き直した移植。
+  <a href="https://github.com/yomei-o/jwcad_win_wasm">ソース</a>
+</header>
+<div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
+<div id="note">枠を描くところまで。原典の画面とは、フォントで描かれる文字を除いて 1 画素も違いません。</div>
+<script src="jwcad.js"></script>
+<script>
+(async function () {
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const mod = await createJwcad();
+
+  const resize = mod.cwrap('jw_resize', 'number', ['number', 'number']);
+  const width  = mod.cwrap('jw_width',  'number', []);
+  const height = mod.cwrap('jw_height', 'number', []);
+  const rgba   = mod.cwrap('jw_rgba',   'number', []);
+
+  function present() {
+    const w = width(), h = height();
+    canvas.width = w;
+    canvas.height = h;
+    const p = rgba();
+    // A view on the heap, not a copy: ALLOW_MEMORY_GROWTH can move the
+    // buffer, so it has to be taken again after every call into wasm.
+    const bytes = new Uint8ClampedArray(mod.HEAPU8.buffer, p, w * h * 4);
+    ctx.putImageData(new ImageData(bytes, w, h), 0, 0);
+  }
+
+  function fit() {
+    const wrap = document.getElementById('wrap');
+    resize(Math.max(320, wrap.clientWidth), Math.max(240, wrap.clientHeight));
+    present();
+  }
+
+  window.addEventListener('resize', fit);
+  fit();
+})();
+</script>
+</body>
+</html>

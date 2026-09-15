@@ -17,6 +17,7 @@ param(
     [switch]$Screen,
     [switch]$Client,
     [switch]$Foreground,
+    [switch]$NoResize,
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -119,10 +120,12 @@ try {
     [void][Shot]::ShowWindow($h, 4)
     # Clamp to the work area: a window taller than the desktop leaves the
     # taskbar showing through the bottom of a screen grab.
-    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-    $w = [math]::Min($Width, $wa.Width)
-    $c = [math]::Min($Height, $wa.Height)
-    [void][Shot]::MoveWindow($h, $wa.X, $wa.Y, $w, $c, $true)
+    if (-not $NoResize) {
+        $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $w = [math]::Min($Width, $wa.Width)
+        $c = [math]::Min($Height, $wa.Height)
+        [void][Shot]::MoveWindow($h, $wa.X, $wa.Y, $w, $c, $true)
+    }
     # A screen grab returns whatever is actually on the glass, so anything
     # overlapping the window ends up in the picture -- a terminal sitting on
     # top once produced a "reference" that was mostly scrollback.

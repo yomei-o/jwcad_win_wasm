@@ -292,8 +292,12 @@ sh tools/check.sh
 ```
 
 ```
+=== the frame against the original
 docs/ref_start.png vs tests/out/frame.png: 1264x741, 3378 of 936624 differ (0.361%)
 outside the text areas: 0 differ (0.000%)
+
+=== native against WASM, pixel for pixel
+tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 ```
 
 **枠は原典と 1 画素も違いません。** 残る 0.361% は全部、原典が Windows の
@@ -305,13 +309,24 @@ outside the text areas: 0 differ (0.000%)
 | | |
 |---|---|
 | `src/fb.c` | 32bit のフレームバッファ。矩形塗り・3D 枠・4bpp 転送だけ |
+| `src/app.c` | 両方の入口が共有する画面。大きさを受け取って描くだけ |
+| `src/main_win32.c` | ネイティブの窓。`SetDIBitsToDevice` を 1 回呼ぶだけ |
+| `src/main_wasm.c` | ブラウザ側。`putImageData` するだけ |
 | `src/ui.c` | 枠を描く。ドックバー・ボタン・レイヤ升目・ステータス行 |
 | `src/gen/` | `.rsrc` から焼いたビットマップと、ボタンの配置表（生成物、非コミット） |
 | `tests/frame.c` | 窓を開かずに PNG に落とす |
 | `tools/cmp.py` | 原典と 1 画素ずつ比べて差分画像を出す |
 
 ネイティブと WASM が**同じ `src/*.c` を通る**ので、両者が食い違ったら
-それは移植が環境に依存した印になります。
+それは移植が環境に依存した印になります。いまのところ**差は 0 画素**です。
+
+ネイティブの窓（`jw_port.exe`）そのものを撮って原典と比べても同じ結果になります。
+
+```sh
+sh tools/build_native.sh
+powershell -File tools/shot.ps1 -Exe jw_port.exe -Out tests/out/native.png -Client -NoResize
+python tools/cmp.py docs/ref_start.png tests/out/native.png -i docs/textareas.txt
+```
 
 ### 分かったこと
 

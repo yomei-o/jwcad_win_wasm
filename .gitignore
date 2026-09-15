@@ -16,3 +16,4 @@ tests/*.exe
 # tools/btnmap.py -- machine output from someone else's program
 src/gen/
 tests/out/
+jw_port.exe
