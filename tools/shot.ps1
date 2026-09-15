@@ -22,6 +22,7 @@ param(
     [int]$StableMs = 0,
     [int]$Cmd = 0,
     [int]$CmdRepeat = 1,
+    [int]$Tries = 1,
     [int]$Key = 0,
     [int]$KeyRepeat = 1,
     [string]$Keys = '',
@@ -86,6 +87,18 @@ public static class Shot {
     /// chain is not part of what WM_PRINT redraws.
     /// A cheap checksum of a bitmap, to tell whether the window has stopped
     /// changing.
+    /// How many pixels of the drawing area are not white.  A paint that
+    /// stopped early leaves some of them out, so the fullest of several
+    /// grabs is the one that finished.
+    public static int Ink(Bitmap b) {
+        int n = 0;
+        int x1 = Math.Min(1186, b.Width), y1 = Math.Min(720, b.Height);
+        for (int y = 34; y < y1; y++)
+            for (int x = 78; x < x1; x++)
+                if ((b.GetPixel(x, y).ToArgb() & 0xffffff) != 0xffffff) n++;
+        return n;
+    }
+
     public static long Sum(Bitmap b) {
         System.Drawing.Imaging.BitmapData d = b.LockBits(
             new Rectangle(0, 0, b.Width, b.Height),
@@ -241,9 +254,41 @@ try {
 
     $dir = Split-Path -Parent $Out
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    $bmp = if ($Screen) { [Shot]::GrabScreen($h, $Client) } else { [Shot]::Grab($h, $Client) }
-    $bmp.Save((Join-Path (Get-Location) $Out), [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
+    # Jw_cad's paint is not reliable: the same drawing comes out whole on one
+    # run and stops a third of the way through on the next, with nothing to
+    # tell them apart.  So take several and keep the fullest -- ink only ever
+    # goes missing, never appears where it should not.
+    $best = $null
+    $bestInk = -1
+    for ($t = 0; $t -lt [math]::Max(1, $Tries); $t++) {
+        if ($t -gt 0) {
+            [void][Shot]::SendMessage($h, 0x0111, [IntPtr]32835, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 2000
+            $prevCpu = -1.0
+            $idle = 0
+            $deadline = (Get-Date).AddMilliseconds(30000)
+            while ((Get-Date) -lt $deadline) {
+                Start-Sleep -Milliseconds 1000
+                $p.Refresh()
+                $cpu = $p.TotalProcessorTime.TotalSeconds
+                if ([math]::Abs($cpu - $prevCpu) -lt 0.02) { $idle++ } else { $idle = 0 }
+                $prevCpu = $cpu
+                if ($idle -ge 3) { break }
+            }
+        }
+        $bmp = if ($Screen) { [Shot]::GrabScreen($h, $Client) }
+               else { [Shot]::Grab($h, $Client) }
+        $ink = [Shot]::Ink($bmp)
+        if ($ink -gt $bestInk) {
+            if ($best) { $best.Dispose() }
+            $best = $bmp
+            $bestInk = $ink
+        } else {
+            $bmp.Dispose()
+        }
+    }
+    $best.Save((Join-Path (Get-Location) $Out), [System.Drawing.Imaging.ImageFormat]::Png)
+    $best.Dispose()
     Write-Host ("wrote {0} ({1} x {2})" -f $Out, $Width, $Height)
 } finally {
     if (-not $Keep -and -not $p.HasExited) {
