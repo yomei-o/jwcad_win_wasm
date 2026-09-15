@@ -138,26 +138,54 @@ static int pen_wide(const jw_drawing *d, int pen)
     return 1;
 }
 
-/* A layer that is shown but not editable (state 1) is drawn in one flat grey
- * whatever the element's own colour is -- 0xc0c0c0, which is pen 9.  It is
- * how the original tells "you can see this but not touch it": 日影図.jww
- * keeps nine of its layers that way, and drawing them in their own colours
- * makes the screen look nothing like the original's. */
-static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
+/* How an element is shown, exactly as FUN_0043b460 works it out:
+ *
+ *      0  not shown
+ *      1  shown but not editable -- drawn in one flat grey
+ *      3  shown normally
+ *
+ * The group's state and the layer's state are each folded to 0, 1 or 3 and
+ * ANDed, so "display only" anywhere wins; and bit 0 of the element's own
+ * flags at +0x44 knocks a visible element down to "display only" on its own.
+ *
+ * Which layer an element is on is +0x2e and its group +0x2f -- not the long
+ * at +0x04, which is a serial number.  The same function indexes the state
+ * arrays with exactly those two bytes. */
+static int shown(const jw_drawing *d, const jw_obj *o)
 {
     int g = o->lgroup & 15, l = o->layer & 15;
+    int gs = d->group[g].state, ls = d->group[g].layer[l].state;
+    int v;
 
-    if (d->group[g].layer[l].state == 1)
+    {   /* debugging hooks: draw just one layer, or just one flag value */
+        const char *e = getenv("JW_ONLY_LAYER");
+        const char *f = getenv("JW_ONLY_FLAG");
+        if (f)
+            return o->flags == (unsigned short)strtoul(f, 0, 0) ? 3 : 0;
+        if (e)
+            return l == atoi(e) ? 3 : 0;
+    }
+    gs = gs == 0 ? 0 : gs == 1 ? 1 : 3;
+    ls = ls == 0 ? 0 : ls == 1 ? 1 : 3;
+    v = gs & ls;
+    if (v && (o->flags & 1))
+        v = 1;
+    return v;
+}
+
+/* Shown-but-not-editable is drawn in one flat grey whatever the element's own
+ * colour is -- 0xc0c0c0, which is pen 9.  日影図.jww keeps nine of its
+ * sixteen layers that way, and drawing them in their own colours makes the
+ * screen look nothing like the original's. */
+static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
+{
+    if (shown(d, o) == 1)
         return d->pen_rgb[9];
     return pen_colour(d, o->color);
 }
 
 static int obj_wide(const jw_drawing *d, const jw_obj *o)
 {
-    int g = o->lgroup & 15, l = o->layer & 15;
-
-    if (d->group[g].layer[l].state == 1)
-        return 1;
     return pen_wide(d, o->color);
 }
 
@@ -199,26 +227,6 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         px = sx;
         py = sy;
     }
-}
-
-/* Which layer an object is on is +0x2e, and its group +0x2f -- not the long
- * at +0x04, which is a serial number.  The layer bar of the original settles
- * it: Test1.jww marks layers 0, 1, 2 and 4, which is exactly the set of
- * +0x2e values in it, and nothing like the +0x04 values (0, 8, 16).
- * State 0 is "not shown"; 1 is shown, 2 editable, 3 the one written to. */
-static int visible(const jw_drawing *d, const jw_obj *o)
-{
-    int g = o->lgroup & 15, l = o->layer & 15;
-
-    {   /* a debugging hook: JW_ONLY_LAYER=n draws just that layer */
-        const char *e = getenv("JW_ONLY_LAYER");
-        const char *f = getenv("JW_ONLY_FLAG");
-        if (f)
-            return o->flags == (unsigned short)strtoul(f, 0, 0);
-        if (e)
-            return l == atoi(e);
-    }
-    return d->group[g].state != 0 && d->group[g].layer[l].state != 0;
 }
 
 /* A solid is four corners, filled.  The fourth repeats the third when it is
@@ -279,7 +287,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
-        if (!visible(d, o))
+        if (!shown(d, o))
             continue;
         unsigned int col = obj_colour(d, o);
         int wide = obj_wide(d, o);
