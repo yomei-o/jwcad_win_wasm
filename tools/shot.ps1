@@ -20,6 +20,7 @@ param(
     [switch]$NoResize,
     [switch]$Repaint,
     [int]$StableMs = 0,
+    [int]$Cmd = 0,
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,8 @@ public static class Shot {
     [DllImport("user32.dll")] public static extern bool SetWindowPos(
         IntPtr h, IntPtr after, int x, int y, int w, int c, uint flags);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(
+        IntPtr h, uint msg, IntPtr w, IntPtr l);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int X, Y; }
@@ -167,12 +170,13 @@ try {
         # out with 3,580 ink pixels that way against 15,492 once it had
         # settled.  Shrinking the window and restoring it forces the lot,
         # and the count then stops changing.
-        # Minimise and restore.  Not a resize: resizing re-wraps the
-        # toolbars, which moves the whole frame and makes the shot
-        # incomparable with the others.
-        [void][Shot]::ShowWindow($h, 6)     # SW_MINIMIZE
-        Start-Sleep -Milliseconds 1200
-        [void][Shot]::ShowWindow($h, 9)     # SW_RESTORE
+        # Hide and show.  Not a resize and not a minimise: resizing
+        # re-wraps the toolbars and MFC saves the wrapped layout back to
+        # HKCU, and minimising does the same at the restored size -- one
+        # run that way left every later reference with a different frame.
+        [void][Shot]::ShowWindow($h, 0)     # SW_HIDE
+        Start-Sleep -Milliseconds 800
+        [void][Shot]::ShowWindow($h, 4)     # SW_SHOWNOACTIVATE
         Start-Sleep -Milliseconds 1200
         [void][Shot]::SetForegroundWindow($h)
         [void][Shot]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0003)
@@ -181,6 +185,11 @@ try {
     # Without it PrintWindow can hand back a stale or half-drawn view: the
     # shadow diagram of 日影図.jww came out with a sixth of its ink.
     # 0x0001 RDW_INVALIDATE | 0x0100 RDW_UPDATENOW | 0x0080 RDW_ALLCHILDREN
+    if ($Cmd -ne 0) {
+        # A menu command, by id from decomp/res/menu.txt -- 32835 is
+        # 全体再表示, "redraw the lot".
+        [void][Shot]::SendMessage($h, 0x0111, [IntPtr]$Cmd, [IntPtr]::Zero)
+    }
     [void][Shot]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, 0x0181)
     Start-Sleep -Milliseconds $SettleMs
 
@@ -190,21 +199,20 @@ try {
         # finished picture.  Test1.jww gives 6,467 ink pixels after five
         # seconds and 16,597 once it has finished.  So wait until two grabs
         # in a row are the same instead of guessing a delay.
-        # Five samples in a row have to agree: the painting comes in phases
-        # with a pause between them, so "the same twice" fires in the gap
-        # before the text is drawn.
-        $prev = -1
-        $same = 0
+        # Watch the process, not the picture.  The painting comes in phases
+        # with a pause between them, so "the picture stopped changing" fires
+        # in the gap before the text is drawn; the CPU time, on the other
+        # hand, only stops climbing when Jw_cad is really finished.
+        $prevCpu = -1.0
+        $idle = 0
         $deadline = (Get-Date).AddMilliseconds($StableMs)
         while ((Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 2000
-            $b = if ($Screen) { [Shot]::GrabScreen($h, $Client) }
-                 else { [Shot]::Grab($h, $Client) }
-            $sum = [Shot]::Sum($b)
-            $b.Dispose()
-            if ($sum -eq $prev) { $same++ } else { $same = 0 }
-            $prev = $sum
-            if ($same -ge 4) { break }
+            Start-Sleep -Milliseconds 1000
+            $p.Refresh()
+            $cpu = $p.TotalProcessorTime.TotalSeconds
+            if ([math]::Abs($cpu - $prevCpu) -lt 0.02) { $idle++ } else { $idle = 0 }
+            $prevCpu = $cpu
+            if ($idle -ge 4) { break }
         }
     }
 

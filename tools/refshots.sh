@@ -6,9 +6,18 @@
 # This one has to run in the foreground (-Screen), which takes the screen for
 # a few seconds per drawing, so do not run it while someone is working.
 #
-# -StableMs waits until the window stops changing rather than guessing a
-# delay: Jw_cad paints a big drawing slowly here (it is an x86 binary under
-# emulation) and a fixed five-second wait catches a third of Test1.jww.
+# -StableMs waits until Jw_cad's CPU time stops climbing rather than guessing
+# a delay: it paints a big drawing slowly here (an x86 binary under emulation)
+# and a fixed five-second wait catches a third of Test1.jww.  Watching the
+# picture instead of the process does not work -- the paint comes in phases
+# with a pause between them, so "the picture stopped changing" fires in the
+# gap before the text is drawn.
+#
+# -Cmd 32835 is the 全体再表示 menu command.  The paint Jw_cad does when it
+# first opens a file can stop part way -- 木造平面例.jww came out with 5,341
+# ink pixels of its 13,613 however long the wait -- and asking for the redraw
+# finishes it.  -Repaint (minimise and restore) is needed as well: Test6.jww
+# stops at 8,903 of its 18,213 without it.
 #
 # Background capture (PrintWindow) is not good enough for drawings.  It is
 # exact for the frame, but the drawing area comes back stale or half drawn:
@@ -27,6 +36,6 @@ for f in orig/*.jww; do
     cp "$f" "tmp/d$n.jww"
     powershell -ExecutionPolicy Bypass -File tools/shot.ps1 \
         -Exe orig/Jw_win.exe -Open "tmp/d$n.jww" -Out "$out/d$n.png" \
-        -Client -Screen -SettleMs 2000 -StableMs 60000 >/dev/null
+        -Client -Screen -SettleMs 1500 -Repaint -Cmd 32835 -StableMs 120000 >/dev/null
     echo "$out/d$n.png  <-  $f"
 done
