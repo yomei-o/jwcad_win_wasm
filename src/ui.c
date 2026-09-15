@@ -441,22 +441,29 @@ static const struct { short x, w; } linebuttons[] = {
 #define LINEBTN_Y 5
 #define LINEBTN_H 24
 
-static void paint_buttons(fb_t *fb)
+static void paint_buttons(fb_t *fb, const jw_drawing *d)
 {
     int k;
 
     for (k = 0; k < JW_NBUTTONS; k++) {
         const jw_btn_t *b = &jw_buttons[k];
         const jw_bitmap_t *bm = jw_bitmap(b->strip);
-        int dx = CELL_DX + (b->state == 2);
-        int dy = CELL_DY + (b->state == 2);
+        int state = b->state;
+        int dx, dy;
 
-        button_frame(fb, b->x, b->y, BTN_W, BTN_H, b->state == 2);
-        if (b->state == 2)
+        /* 上書 comes alive once there is a file to write back to.  The
+         * layout was read off the reference screen, which has none. */
+        if (b->strip == 464 && b->cell == 2 && d)
+            state = 0;
+        dx = CELL_DX + (state == 2);
+        dy = CELL_DY + (state == 2);
+
+        button_frame(fb, b->x, b->y, BTN_W, BTN_H, state == 2);
+        if (state == 2)
             checker(fb, b->x + 2, b->y + 2, BTN_W - 4, BTN_H - 4);
         else
             fb_fill(fb, b->x + 2, b->y + 2, BTN_W - 4, BTN_H - 4, C_BTNFACE);
-        blit_cell_state(fb, bm, b->cell, b->x + dx, b->y + dy, b->state);
+        blit_cell_state(fb, bm, b->cell, b->x + dx, b->y + dy, state);
     }
 }
 
@@ -491,7 +498,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom)
     paint_samples(fb);
     paint_status(fb);
     status_text(fb, d, zoom);
-    paint_buttons(fb);
+    paint_buttons(fb, d);
 
     {
         int k;
