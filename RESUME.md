@@ -342,3 +342,20 @@ Windows 11 の既定のシステム色がそのまま出ています。移植側
 `.ini` ではなく**レジストリ** `HKCU\Software\Jw_cad\jw_win` です
 （`AutoMode`、`View` などのサブキー）。`View\Direct2d` が描画経路の切り替え。
 移植側が同じ絵を出すには、色や線幅の設定もここから読む必要があります。
+
+## 日本語入力の方針（まだ作っていない）
+
+いまの移植は閲覧だけで文字を入力する経路がないので、作図コマンド
+（`CZukeiMoji`）を入れる段で手を付けること。方針だけ決めてある。
+
+* **ブラウザ**：canvas に IME は出せないので、入力位置に透明な `<input>` を
+  重ねて `focus()` し、`compositionstart` / `compositionupdate` /
+  `compositionend` を拾う。変換候補ウィンドウはその要素の位置に出るので、
+  キャレットに合わせて置けば位置も合う。未確定文字列は
+  `compositionupdate` の値を下線付きで canvas に描く。
+* **ネイティブ**：`ImmSetCompositionWindow` で位置を指定して `WM_IME_CHAR` /
+  `WM_CHAR`。CP932 のバイトがそのまま来る。
+* **内部は CP932 のまま**。`.jww` の文字列は CString の MBCS バイト列だし、
+  東雲フォントも JIS X 0208 なので表示系と一貫する。ブラウザから来る
+  UTF-8 だけ変換が要るので、Python の `cp932` コーデックから表を吐いて
+  `src/gen/cp932.c` にする。
