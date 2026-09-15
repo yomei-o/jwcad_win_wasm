@@ -150,10 +150,14 @@ static void read_header(ar_t *a, jw_drawing *d)
          * took the last two doubles of the 0x3d block for the sheet's corner
          * because they are -297,-210 in Test1.jww -- which is the A2 corner,
          * but only by coincidence: they are zero in most drawings. */
+        /* Straight out of the original's own tables, at 0x009ffbb8 (width)
+         * and 0x009ffc58 (height), indexed by this very field: A0..A4, then
+         * B4..B6, then 2A..5A, then the three metric rolls. */
         static const struct { double w, h; } SHEET[] = {
             { 1189, 841 }, { 841, 594 }, { 594, 420 }, { 420, 297 },
-            { 297, 210 }, { 1682, 1189 }, { 2378, 1682 }, { 3364, 2378 },
-            { 4756, 3364 }, { 10000, 7000 },
+            { 297, 210 }, { 514, 364 }, { 364, 257 }, { 257, 182 },
+            { 1682, 1189 }, { 2378, 1682 }, { 3364, 2378 }, { 4756, 3364 },
+            { 10000, 7073 }, { 50000, 35366 }, { 100000, 70732 },
         };
         int n;
         d->paper_size = ar_l(a);

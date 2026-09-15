@@ -326,7 +326,8 @@ static const struct { short x0, x1; } panes[5] = {
 static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
 {
     static const char *PAPER[] = { "A-0", "A-1", "A-2", "A-3", "A-4",
-                                   "A-5", "2A", "3A", "4A", "5A" };
+                                   "B-4", "B-5", "B-6", "2A", "3A",
+                                   "4A", "5A", "10m", "50m", "100m" };
     char buf[64];
     int wg = 0, i;
 
@@ -343,7 +344,7 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
         if (d->group[i].state == 3)
             wg = i;
     jw_text_px(fb, panes[0].x0 + 4, 726,
-               d->paper_size >= 0 && d->paper_size < 10
+               d->paper_size >= 0 && d->paper_size < 15
                ? PAPER[d->paper_size] : "?", C_BTNTEXT);
     sprintf(buf, "S=1/%g", d->group[wg].scale);
     jw_text_px(fb, panes[1].x0 + 4, 726, buf, C_BTNTEXT);
