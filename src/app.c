@@ -33,19 +33,19 @@ void app_zoom(double factor, int sx, int sy)
 
     if (!view_ready || factor <= 0.0)
         return;
-    wx = (sx - view.cx) / view.scale;
-    wy = (view.cy - sy) / view.scale;
+    wx = view.ox + (sx - view.bx) / view.scale;
+    wy = view.oy + (view.by - sy) / view.scale;
     view.scale *= factor;
-    view.cx = sx - wx * view.scale;
-    view.cy = sy + wy * view.scale;
+    view.ox = wx - (sx - view.bx) / view.scale;
+    view.oy = wy + (view.by - sy) / view.scale;
 }
 
 void app_pan(int dx, int dy)
 {
     if (!view_ready)
         return;
-    view.cx += dx;
-    view.cy += dy;
+    view.ox -= dx / view.scale;
+    view.oy += dy / view.scale;
 }
 
 const jw_view *app_view(void)

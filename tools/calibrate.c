@@ -128,9 +128,39 @@ int main(int argc, char **argv)
     /* jw_fit_dx and jw_round_x shift the same way, so only the rounding
      * bias is swept. */
     (void)mmpb;
-    for (inset = 1.0; inset <= 3.05; inset += 0.5)
-        for (dx = 0.05; dx <= 0.95; dx += 0.05)
-            for (dy = 0.05; dy <= 0.95; dy += 0.05) {
+    if (argc > 3 && !strcmp(argv[3], "-each")) {
+        /* the best fit for each drawing on its own: if a sheet size wants a
+         * different one, the formula is still wrong */
+        for (i = 0; i < NSAMP; i++) {
+            double bi = 2, bx = 0.3, by = 0.5, bs2 = 1e18;
+            for (inset = 0.0; inset <= 3.05; inset += 0.5)
+                for (dx = 0.05; dx <= 0.95; dx += 0.05)
+                    for (dy = 0.05; dy <= 0.95; dy += 0.05) {
+                        long t;
+                        jw_fit_inset = inset;
+                        jw_round_x = dx;
+                        jw_round_y = dy;
+                        if (!app_open(bytes[i], nbytes[i]))
+                            continue;
+                        app_paint();
+                        t = score(i, mask);
+                        if ((double)t < bs2) {
+                            bs2 = (double)t; bi = inset; bx = dx; by = dy;
+                        }
+                    }
+            jw_fit_inset = 2.0; jw_round_x = 0.3; jw_round_y = 0.5;
+            app_open(bytes[i], nbytes[i]);
+            app_paint();
+            printf("d%02d: best inset %.1f rx %.2f ry %.2f -> %.0f   (at 2.0/0.30/0.50: %ld)\n",
+                   i + 1, bi, bx, by, bs2, score(i, mask));
+            fflush(stdout);
+        }
+        return 0;
+    }
+    for (jw_line_algo = 0; jw_line_algo <= 2; jw_line_algo++)
+    for (inset = 1.5; inset <= 2.55; inset += 0.5)
+        for (dx = 0.1; dx <= 0.95; dx += 0.1)
+            for (dy = 0.1; dy <= 0.95; dy += 0.1) {
                 long tot = 0;
                 jw_fit_inset = inset;
                 jw_round_x = dx;
@@ -141,7 +171,7 @@ int main(int argc, char **argv)
                     app_paint();
                     tot += score(i, mask);
                 }
-                printf("inset %.2f rx %.2f ry %.2f : %ld\n", inset, dx, dy, tot);
+                printf("algo %d inset %.2f rx %.2f ry %.2f : %ld\n", jw_line_algo, inset, dx, dy, tot);
                 fflush(stdout);
                 if ((double)tot < best) {
                     best = (double)tot;
