@@ -158,9 +158,9 @@ int main(int argc, char **argv)
         return 0;
     }
     for (jw_line_algo = 0; jw_line_algo <= 2; jw_line_algo++)
-    for (inset = 1.5; inset <= 2.55; inset += 0.5)
-        for (dx = 0.1; dx <= 0.95; dx += 0.1)
-            for (dy = 0.1; dy <= 0.95; dy += 0.1) {
+    for (inset = -1.0; inset <= 2.05; inset += 0.5)
+        for (dx = -0.4; dx <= 0.45; dx += 0.1)
+            for (dy = -0.4; dy <= 0.45; dy += 0.1) {
                 long tot = 0;
                 jw_fit_inset = inset;
                 jw_round_x = dx;
