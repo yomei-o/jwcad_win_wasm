@@ -2,8 +2,13 @@
 
 #include "app.h"
 #include "ui.h"
+#include "draw.h"
+#include "view.h"
 
 static fb_t fb;
+static jw_drawing drawing;
+static int have_drawing;
+static const char *last_error = "";
 static unsigned char *rgba;
 static int rgba_n;
 
@@ -24,6 +29,33 @@ int app_resize(int w, int h)
     return rgba != 0;
 }
 
+int app_open(const unsigned char *b, long n)
+{
+    jw_drawing d;
+
+    if (!jw_parse(&d, b, n)) {
+        last_error = d.error;
+        jw_free(&d);
+        return 0;
+    }
+    if (have_drawing)
+        jw_free(&drawing);
+    drawing = d;
+    have_drawing = 1;
+    last_error = "";
+    return 1;
+}
+
+const char *app_error(void)
+{
+    return last_error;
+}
+
+const jw_drawing *app_drawing(void)
+{
+    return have_drawing ? &drawing : 0;
+}
+
 void app_paint(void)
 {
     int i, n;
@@ -31,6 +63,13 @@ void app_paint(void)
     if (!fb.px)
         return;
     ui_paint(&fb);
+    if (have_drawing) {
+        jw_view v;
+        rect_t r;
+        ui_view_rect(fb.w, fb.h, &r);
+        jw_view_fit(&v, &r, drawing.paper_hw, drawing.paper_hh);
+        jw_draw(&fb, &v, &drawing);
+    }
     if (!rgba)
         return;
     n = fb.w * fb.h;

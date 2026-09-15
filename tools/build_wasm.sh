@@ -9,7 +9,8 @@ EMCC="$EMSDK/upstream/emscripten/emcc.exe"
 [ -f "$EMCC" ] || { echo "emcc not found at $EMCC" >&2; exit 1; }
 
 EXPORTS=_main,_jw_resize,_jw_width,_jw_height,_jw_rgba,_malloc,_free
-SRC="src/main_wasm.c src/app.c src/ui.c src/fb.c src/gen/jwres.c"
+EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj
+SRC="src/main_wasm.c src/app.c src/ui.c src/fb.c src/jww.c src/view.c src/draw.c src/gen/jwres.c"
 
 # `cmd /c start /WAIT` does not hand emcc's exit status back, so without the
 # check at the end a compile error is announced as a successful build and the
@@ -22,7 +23,7 @@ sh tools/lowpri.sh "$EMCC" -O2 -Wall -Wextra -Isrc \
    -o jwcad.js \
    $SRC \
    -s MODULARIZE=1 -s EXPORT_NAME=createJwcad \
-   -s EXPORTED_RUNTIME_METHODS=HEAPU8,ccall,cwrap \
+   -s EXPORTED_RUNTIME_METHODS=HEAPU8,ccall,cwrap,UTF8ToString \
    -s ALLOW_MEMORY_GROWTH=1 -s ENVIRONMENT=web,node \
    -s EXPORTED_FUNCTIONS="$EXPORTS"
 

@@ -21,7 +21,10 @@
   <a href="https://github.com/yomei-o/jwcad_win_wasm">ソース</a>
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
-<div id="note">枠を描くところまで。原典の画面とは、フォントで描かれる文字を除いて 1 画素も違いません。</div>
+<div id="note">
+  <label><input type="file" id="pick" accept=".jww"> .jww を開く</label>
+  <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
+</div>
 <script src="jwcad.js"></script>
 <script>
 (async function () {
@@ -50,6 +53,30 @@
     resize(Math.max(320, wrap.clientWidth), Math.max(240, wrap.clientHeight));
     present();
   }
+
+  const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
+  const nobj  = mod.cwrap('jw_nobj',  'number', []);
+  const error = mod.cwrap('jw_error', 'string', []);
+
+  async function load(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const p = mod._malloc(bytes.length);
+    mod.HEAPU8.set(bytes, p);
+    const ok = open(p, bytes.length);
+    mod._free(p);
+    document.getElementById('msg').textContent =
+      ok ? `${file.name} — ${nobj()} 個の要素` : `${file.name}: ${error()}`;
+    present();
+  }
+
+  document.getElementById('pick').addEventListener('change', e => {
+    if (e.target.files[0]) load(e.target.files[0]);
+  });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]);
+  });
 
   window.addEventListener('resize', fit);
   fit();

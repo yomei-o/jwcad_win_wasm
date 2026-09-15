@@ -9,8 +9,12 @@
 #define JW_APP_H
 
 #include "fb.h"
+#include "jww.h"
 
 int  app_resize(int w, int h);          /* 0 if the allocation failed */
+int  app_open(const unsigned char *b, long n);   /* 0 and sets app_error() */
+const char *app_error(void);
+const jw_drawing *app_drawing(void);
 void app_paint(void);                   /* redraw into the framebuffer */
 const fb_t *app_fb(void);
 

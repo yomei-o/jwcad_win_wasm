@@ -332,6 +332,17 @@ ssh -i ~/.claude/keys/ort_build_key yomei@192.168.6.14 \
 `-process -noanalysis -readOnly` で同じプロジェクトを開き直すので、
 何度やり直しても解析し直しになりません。
 
+## いまできること
+
+**枠を描き、`.jww` を読み、線・円弧・点・ソリッドを線色と線種つきで描きます。**
+ネイティブの窓（`jw_port.exe`）とブラウザ（`index.html`）が同じ C を通ります。
+
+![移植側で Test1.jww を開いたところ](docs/port_test1.png)
+
+同じ図面を原典で開いたのが下です。**違うのは文字だけ**です。
+
+![原典](docs/ref_test1.png)
+
 ## いまの一致具合
 
 ```sh
@@ -345,6 +356,9 @@ outside the text areas: 0 differ (0.000%)
 
 === native against WASM, pixel for pixel
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
+
+=== a drawing against the original (text is not drawn yet)
+docs/ref_test1.png vs tests/out/test1.png: 1264x741, 22287 of 936624 differ (2.380%)
 ```
 
 **枠は原典と 1 画素も違いません。** 残る 0.361% は全部、原典が Windows の
@@ -359,6 +373,9 @@ tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 | `src/app.c` | 両方の入口が共有する画面。大きさを受け取って描くだけ |
 | `src/main_win32.c` | ネイティブの窓。`SetDIBitsToDevice` を 1 回呼ぶだけ |
 | `src/main_wasm.c` | ブラウザ側。`putImageData` するだけ |
+| `src/jww.c` | `.jww` を読む。`tools/jww.py` がその読みやすい版 |
+| `src/view.c` | 用紙のミリを画面の画素へ |
+| `src/draw.c` | 線・円弧・点・ソリッド。線種は 32 ビットのパターン |
 | `src/ui.c` | 枠を描く。ドックバー・ボタン・レイヤ升目・ステータス行 |
 | `src/gen/` | `.rsrc` から焼いたビットマップと、ボタンの配置表（生成物、非コミット） |
 | `tests/frame.c` | 窓を開かずに PNG に落とす |
@@ -392,10 +409,9 @@ python tools/cmp.py docs/ref_start.png tests/out/native.png -i docs/textareas.tx
 規模からして一気には終わりません。原典の画面に近い側から順に積みます。
 
 1. ~~**枠。**~~ 済み。文字以外は 1 画素も違いません。
-2. **`.jww` を読む。** `CJw_winDoc::Serialize` と `CData*::Serialize` を
-   突き合わせて、同梱の 14 枚が全部読めるところまで。
-3. **描画。** `CJw_winView::OnDraw` から `CData*::Draw`。線種・線色・線幅と
-   クリップを合わせる。ここが画素一致の本体です。
+2. ~~**`.jww` を読む。**~~ 済み。同梱 15 枚すべて末尾ぴったり。
+3. **描画。** 線・円弧・点・ソリッドは描けています。残りは**文字**と、
+   用紙の合わせ方（原典は 1.63125 px/mm、素直に合わせると 1.63333）。
 4. **マウスとコマンド。** `CZukei*` を 1 つずつ。クロックメニューも。
 5. **WASM。** ネイティブと同じ `src/*.c` を Emscripten で。
 

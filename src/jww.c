@@ -1,0 +1,470 @@
+#include <stdlib.h>
+#include <string.h>
+
+#include "jww.h"
+
+/* CArchive, reading.  Every read is bounds checked; a short file sets `bad`
+ * and every later read returns zero, so the caller only has to test once. */
+typedef struct {
+    const unsigned char *b;
+    long n, o;
+    int bad;
+} ar_t;
+
+static const unsigned char *ar_raw(ar_t *a, long n)
+{
+    const unsigned char *p;
+
+    if (a->bad || n < 0 || a->o + n > a->n) {
+        a->bad = 1;
+        return 0;
+    }
+    p = a->b + a->o;
+    a->o += n;
+    return p;
+}
+
+static unsigned ar_b(ar_t *a)
+{
+    const unsigned char *p = ar_raw(a, 1);
+    return p ? p[0] : 0;
+}
+
+static unsigned ar_w(ar_t *a)
+{
+    const unsigned char *p = ar_raw(a, 2);
+    return p ? (unsigned)p[0] | ((unsigned)p[1] << 8) : 0;
+}
+
+static int ar_l(ar_t *a)
+{
+    const unsigned char *p = ar_raw(a, 4);
+    return p ? (int)((unsigned)p[0] | ((unsigned)p[1] << 8)
+                     | ((unsigned)p[2] << 16) | ((unsigned)p[3] << 24)) : 0;
+}
+
+static double ar_d(ar_t *a)
+{
+    const unsigned char *p = ar_raw(a, 8);
+    double v = 0.0;
+
+    if (p)
+        memcpy(&v, p, 8);       /* the file is little-endian IEEE, as we are */
+    return v;
+}
+
+static void ar_skipd(ar_t *a, int n)
+{
+    while (n-- > 0)
+        ar_d(a);
+}
+
+static void ar_skipl(ar_t *a, int n)
+{
+    while (n-- > 0)
+        ar_l(a);
+}
+
+/* MFC's ReadStringLength: the count, and whether the text is UTF-16. */
+static long ar_strlen(ar_t *a, int *unicode)
+{
+    unsigned n = ar_b(a);
+
+    *unicode = 0;
+    if (n < 0xff)
+        return n;
+    n = ar_w(a);
+    if (n == 0xfffe) {
+        *unicode = 1;
+        n = ar_b(a);
+        if (n < 0xff)
+            return n;
+        n = ar_w(a);
+    }
+    if (n == 0xffff)
+        return (long)(unsigned)ar_l(a);
+    return n;
+}
+
+static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
+{
+    int off = d->npool;
+    long i, need = (unicode ? n : n) + 1;
+
+    if (d->npool + need > d->cpool) {
+        int c = d->cpool ? d->cpool * 2 : 4096;
+        char *p;
+        while (c < d->npool + need)
+            c *= 2;
+        p = (char *)realloc(d->pool, (size_t)c);
+        if (!p)
+            return -1;
+        d->pool = p;
+        d->cpool = c;
+    }
+    if (unicode) {
+        /* No converter here: keep the low byte, which is right for ASCII and
+         * marks the rest.  Jw_cad writes CP932 for everything the samples
+         * contain, so this branch has not been exercised. */
+        for (i = 0; i < n; i++)
+            d->pool[off + i] = (char)s[2 * i];
+        d->npool = off + (int)n;
+    } else {
+        memcpy(d->pool + off, s, (size_t)n);
+        d->npool = off + (int)n;
+    }
+    d->pool[d->npool++] = 0;
+    return off;
+}
+
+static int ar_s(ar_t *a, jw_drawing *d)
+{
+    int unicode;
+    long n = ar_strlen(a, &unicode);
+    const unsigned char *p = ar_raw(a, unicode ? n * 2 : n);
+
+    if (!p)
+        return -1;
+    return pool_put(d, p, n, unicode);
+}
+
+static void ar_skips(ar_t *a)
+{
+    int unicode;
+    long n = ar_strlen(a, &unicode);
+    ar_raw(a, unicode ? n * 2 : n);
+}
+
+/* ---------------------------------------------------------------- header */
+
+static void read_header(ar_t *a, jw_drawing *d)
+{
+    int v, g, l, i;
+
+    d->version = v = ar_l(a);
+    d->name = v > 0x40 ? ar_s(a, d) : -1;
+
+    if (v > 9) {
+        d->paper_size = ar_l(a);
+        ar_l(a);
+        for (g = 0; g < 16; g++) {
+            jw_group *gr = &d->group[g];
+            gr->a = ar_l(a);
+            gr->b = ar_l(a);
+            gr->scale = ar_d(a);
+            gr->c = v > 0xd3 ? ar_l(a) : 0;
+            for (l = 0; l < 16; l++) {
+                gr->layer[l].state = ar_l(a);
+                gr->layer[l].state2 = v > 0xd3 ? ar_l(a) : 0;
+            }
+        }
+    }
+    if (v > 0xd3) {
+        ar_skipl(a, 1 + 13 + 5 + 1 + 1);
+    }
+    if (v > 0x3b)
+        ar_skipd(a, 2);
+    if (v > 0xc9) {
+        ar_d(a);
+        ar_l(a);
+    }
+    if (v > 0x3d) {
+        ar_l(a);
+        ar_skipd(a, 3);
+        d->paper_hw = -ar_d(a);
+        d->paper_hh = -ar_d(a);
+    }
+    if (v > 0x3f) {
+        for (g = 0; g < 16; g++)
+            for (l = 0; l < 16; l++)
+                d->group[g].layer_name[l] = ar_s(a, d);
+        for (g = 0; g < 16; g++)
+            d->group[g].name = ar_s(a, d);
+    }
+    if (v > 99) {
+        ar_skipd(a, 2);
+        ar_l(a);
+    }
+    if (v > 100) {
+        ar_d(a);
+        if (v > 299)
+            ar_skipd(a, 2);
+        ar_l(a);
+    }
+    if (v > 199) {
+        ar_skipd(a, 6);
+        if (v < 300) {
+            ar_skipd(a, 12);
+        } else {
+            for (i = 0; i < 10; i++) {
+                ar_skipd(a, 3);
+                ar_l(a);
+            }
+        }
+        ar_skipd(a, 11);
+    }
+    if (v > 200) {
+        for (i = 0; i < 10; i++) {
+            unsigned c = (unsigned)ar_l(a);
+            /* COLORREF is 0x00bbggrr; the framebuffer wants 0x00rrggbb */
+            d->pen_rgb[i] = ((c & 0xff) << 16) | (c & 0xff00)
+                            | ((c >> 16) & 0xff);
+            d->pen_width[i] = ar_l(a);
+        }
+        for (i = 0; i < 10; i++) {
+            ar_skipl(a, 2);
+            ar_d(a);
+        }
+        for (i = 2; i < 10; i++)
+            ar_skipl(a, 4);
+        for (i = 0xb; i < 0x10; i++)
+            ar_skipl(a, 5);
+        for (i = 0x10; i < 0x14; i++)
+            ar_skipl(a, 4);
+        ar_skipl(a, 2);
+        if (v > 0xd8)
+            ar_skipl(a, 9);
+        if (v >= 0xdf) {
+            ar_skipl(a, 5);
+            ar_skipd(a, 5);
+        }
+        if (v >= 0xe1)
+            ar_skipd(a, 4);
+        if (v > 0xe1)
+            ar_skipl(a, 2);
+        if (v > 0x1a3) {
+            for (i = 0; i < 0x101; i++)
+                ar_skipl(a, 2);
+            for (i = 0; i < 0x101; i++) {     /* the colour names */
+                ar_skips(a);
+                ar_skipl(a, 2);
+                ar_d(a);
+            }
+            for (i = 0; i < 0x21; i++)
+                ar_skipl(a, 4);
+            for (i = 0; i < 0x21; i++) {      /* the line type names */
+                ar_skips(a);
+                ar_l(a);
+                ar_skipd(a, 10);
+            }
+        }
+    }
+    /* FUN_004eee80: the hatch and dimension settings, read from
+     * CJw_winDoc::Serialize just before the object list. */
+    if (v > 0x14) {
+        for (i = 0; i < 10; i++) {
+            ar_skipd(a, 3);
+            ar_l(a);
+        }
+        ar_skipd(a, 3);
+        ar_skipl(a, 2);
+        ar_skipd(a, 2);
+    }
+    if (v > 0xd5) {
+        ar_l(a);
+        ar_skipd(a, 6);
+    }
+}
+
+/* --------------------------------------------------------------- objects */
+
+static const struct {
+    const char *name;
+    int cls;
+} CLASSES[] = {
+    { "CDataSen",   JW_SEN   },
+    { "CDataEnko",  JW_ENKO  },
+    { "CDataTen",   JW_TEN   },
+    { "CDataMoji",  JW_MOJI  },
+    { "CDataSolid", JW_SOLID },
+};
+#define NCLASSES ((int)(sizeof CLASSES / sizeof CLASSES[0]))
+
+static jw_obj *obj_new(jw_drawing *d)
+{
+    if (d->nobj == d->cobj) {
+        int c = d->cobj ? d->cobj * 2 : 256;
+        jw_obj *p = (jw_obj *)realloc(d->obj, (size_t)c * sizeof *p);
+        if (!p)
+            return 0;
+        d->obj = p;
+        d->cobj = c;
+    }
+    memset(&d->obj[d->nobj], 0, sizeof d->obj[0]);
+    d->obj[d->nobj].text = d->obj[d->nobj].face = -1;
+    return &d->obj[d->nobj++];
+}
+
+static void read_base(ar_t *a, int v, jw_obj *o)
+{
+    if (v > 0x13)
+        o->id = ar_l(a);
+    o->ltype = (unsigned char)ar_b(a);
+    o->color = (unsigned short)ar_w(a);
+    if (v > 0x15e)
+        o->width = (unsigned short)ar_w(a);
+    o->f2e = (unsigned short)ar_w(a);
+    o->f2f = (unsigned short)ar_w(a);
+    if (v > 0x13)
+        o->flags = (unsigned short)ar_w(a);
+}
+
+static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o)
+{
+    int i;
+
+    switch (o->cls) {
+    case JW_SEN:
+        for (i = 0; i < 4; i++)
+            o->d[i] = ar_d(a);
+        break;
+    case JW_ENKO:
+        for (i = 0; i < 7; i++)
+            o->d[i] = ar_d(a);
+        o->n = ar_l(a);
+        break;
+    case JW_TEN:
+        o->d[0] = ar_d(a);
+        o->d[1] = ar_d(a);
+        if (v > 0x15)
+            o->n = ar_l(a);
+        if (v == 0xfc || (v > 299 && o->ltype == 100)) {
+            ar_l(a);
+            ar_skipd(a, 2);
+        }
+        break;
+    case JW_MOJI:
+        for (i = 0; i < 4; i++)
+            o->d[i] = ar_d(a);
+        if (v > 0x13)
+            o->n = ar_l(a);
+        o->d[4] = ar_d(a);
+        o->d[5] = ar_d(a);
+        if (v > 0x13)
+            o->d[6] = ar_d(a);
+        o->d[7] = ar_d(a);
+        if (v > 0x27)
+            o->face = ar_s(a, d);
+        o->text = ar_s(a, d);
+        break;
+    case JW_SOLID:
+        for (i = 0; i < 8; i++)
+            o->d[i] = ar_d(a);
+        if (o->color == 10)
+            o->n = ar_l(a);
+        break;
+    }
+}
+
+/* CObList::Serialize, then CArchive's tagged objects.  Classes and objects
+ * share one numbering: 0xffff introduces a class, 0x8000 refers back to one,
+ * anything else refers back to an object already read. */
+static void read_list(ar_t *a, jw_drawing *d)
+{
+    /* the load array holds -1 for an object and the class index for a class */
+    static const int LOADMAX = 1 << 16;
+    short *load;
+    int nload = 1, i;
+    long n = ar_w(a);
+
+    if (n == 0xffff)
+        n = (long)(unsigned)ar_l(a);
+    load = (short *)calloc((size_t)LOADMAX, sizeof *load);
+    if (!load) {
+        a->bad = 1;
+        return;
+    }
+    for (i = 0; i < n && !a->bad; i++) {
+        unsigned tag = ar_w(a);
+        int cls = -1;
+        jw_obj *o;
+
+        if (tag == 0)
+            continue;
+        if (tag == 0xffff) {
+            unsigned len;
+            const unsigned char *nm;
+            int k;
+            ar_w(a);                            /* schema */
+            len = ar_w(a);
+            nm = ar_raw(a, (long)len);
+            if (!nm)
+                break;
+            for (k = 0; k < NCLASSES; k++)
+                if (strlen(CLASSES[k].name) == len
+                    && !memcmp(CLASSES[k].name, nm, len))
+                    cls = CLASSES[k].cls;
+            if (cls < 0) {
+                d->error = "a class this reader does not know";
+                a->bad = 1;
+                break;
+            }
+            if (nload < LOADMAX)
+                load[nload++] = (short)cls;
+        } else if (tag & 0x8000) {
+            unsigned ix = tag & 0x7fff;
+            if (ix >= (unsigned)nload) {
+                a->bad = 1;
+                break;
+            }
+            cls = load[ix];
+        } else {
+            continue;           /* a second reference to an object we have */
+        }
+        if (nload < LOADMAX)
+            load[nload++] = -1;
+        o = obj_new(d);
+        if (!o) {
+            a->bad = 1;
+            break;
+        }
+        o->cls = (unsigned char)cls;
+        read_base(a, d->version, o);
+        read_body(a, d, d->version, o);
+    }
+    free(load);
+}
+
+int jw_parse(jw_drawing *d, const unsigned char *b, long n)
+{
+    ar_t a;
+    const unsigned char *sig;
+
+    memset(d, 0, sizeof *d);
+    a.b = b;
+    a.n = n;
+    a.o = 0;
+    a.bad = 0;
+
+    sig = ar_raw(&a, 8);
+    if (!sig || memcmp(sig, "JwwData.", 8)) {
+        d->error = "not a .jww";
+        return 0;
+    }
+    read_header(&a, d);
+    read_list(&a, d);
+    if (d->version > 0x13)
+        read_list(&a, d);       /* the block definitions */
+    if (a.bad) {
+        if (!d->error)
+            d->error = "the file ends in the middle of a record";
+        return 0;
+    }
+    if (a.o != n) {
+        d->error = "the parse did not land on the end of the file";
+        return 0;
+    }
+    return 1;
+}
+
+const char *jw_str(const jw_drawing *d, int off)
+{
+    return off < 0 ? "" : d->pool + off;
+}
+
+void jw_free(jw_drawing *d)
+{
+    free(d->obj);
+    free(d->pool);
+    memset(d, 0, sizeof *d);
+}

@@ -9,10 +9,48 @@
  * the browser build could not match it.
  */
 #include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "app.h"
 
 static const wchar_t CLASS_NAME[] = L"JwWinWasmPort";
+
+/* jw_port.exe [drawing.jww] -- opening one on the command line is enough for
+ * comparing against the original; there is no File menu yet. */
+static void open_arg(PWSTR cmd)
+{
+    wchar_t path[MAX_PATH];
+    FILE *f;
+    unsigned char *b;
+    long n;
+    int i = 0, j = 0;
+
+    while (cmd[i] == L' ')
+        i++;
+    if (cmd[i] == L'"') {
+        i++;
+        while (cmd[i] && cmd[i] != L'"' && j < MAX_PATH - 1)
+            path[j++] = cmd[i++];
+    } else {
+        while (cmd[i] && cmd[i] != L' ' && j < MAX_PATH - 1)
+            path[j++] = cmd[i++];
+    }
+    path[j] = 0;
+    if (!j)
+        return;
+    f = _wfopen(path, L"rb");
+    if (!f)
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)n);
+    if (b && fread(b, 1, (size_t)n, f) == (size_t)n)
+        app_open(b, n);
+    fclose(f);
+    free(b);
+}
 
 static void present(HDC dc)
 {
@@ -63,7 +101,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     MSG msg;
 
     (void)prev;
-    (void)cmd;
+    open_arg(cmd);
     ZeroMemory(&wc, sizeof wc);
     wc.cbSize = sizeof wc;
     wc.lpfnWndProc = wndproc;
