@@ -12,6 +12,8 @@ double jw_round_y = 0.0;
 int jw_line_open = 0;
 /* How much paper one bit of a line type covers; 0 means one pixel. */
 double jw_mm_per_bit = 0.0;
+/* Fit a whole number of line-type repeats to each line (FUN_004bbef0). */
+int jw_stretch = 1;
 
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh)
 {

@@ -59,33 +59,113 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
  * leaves the last point out; Jw_cad wants it, so the caller passes the
  * endpoint it wants drawn and this includes it (jw_line_open says
  * otherwise). */
-/* Is the pattern lit this far along the line? */
+/* Is the pattern lit at this pixel?  The original puts bit i at pixel
+ * (int)(i * ppb) and fills up to the next one (FUN_004bbef0 accumulates the
+ * step and truncates), so the bit a pixel belongs to is the LAST one whose
+ * pixel is at or before it -- ceiling arithmetic, not floor.  Getting that
+ * backwards moves every dash one pixel along. */
 static int bits_set(int ltype, double step, double ppb)
 {
-    return (LTYPE[ltype].bits
-            & (1u << (((int)(step / ppb)) % LTYPE[ltype].unit))) != 0;
+    int i = (int)ceil((step + 1.0) / ppb) - 1;
+    if (i < 0)
+        i = 0;
+    return (LTYPE[ltype].bits & (1u << (i % LTYPE[ltype].unit))) != 0;
+}
+
+/* Cut the line down to what is on screen before anything is rounded.  The
+ * original does this too, and it matters because the line type is fitted to
+ * the piece that is actually drawn -- but it only cuts along the LONG axis
+ * (FUN_004280f0 clamps the major coordinate against the view and carries the
+ * other one along the slope), so that is all this does.  Whatever is left
+ * off the sides is thrown away a pixel at a time.
+ *
+ * The view reaches two pixels past the drawing area each way: OnDraw takes
+ * its extent as the client plus four pixels. */
+static int clip_major(const rect_t *c, int major_x, double *x0, double *y0,
+                      double *x1, double *y1)
+{
+    double *p0 = major_x ? x0 : y0, *p1 = major_x ? x1 : y1;
+    double *q0 = major_x ? y0 : x0, *q1 = major_x ? y1 : x1;
+    double lo = (major_x ? c->x : c->y) - 2;
+    double hi = (major_x ? c->x + c->w : c->y + c->h) + 2;
+    double d = *p1 - *p0, slope;
+
+    if (*p0 > *p1) {
+        double *t;
+        t = p0; p0 = p1; p1 = t;
+        t = q0; q0 = q1; q1 = t;
+        d = -d;
+    }
+    if (*p1 < lo || *p0 > hi)
+        return 0;
+    if (d < 1e-9)
+        return 1;
+    slope = (*q1 - *q0) / d;
+    if (*p0 < lo) {
+        *q0 += (lo - *p0) * slope;
+        *p0 = lo;
+    }
+    if (*p1 > hi) {
+        *q1 += (hi - *p1) * slope;
+        *p1 = hi;
+    }
+    return 1;
 }
 
 static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
                  unsigned int col, int wide, int ltype, double ppb,
                  double *phase)
 {
-    const unsigned int bits = LTYPE[ltype].bits;
     const int unit = LTYPE[ltype].unit;
     double step = phase ? *phase : 0.0;
     double adv;
-    int dx = x1 > x0 ? x1 - x0 : x0 - x1;
-    int dy = y1 > y0 ? y1 - y0 : y0 - y1;
-    int sx = x0 < x1 ? 1 : -1;
-    int sy = y0 < y1 ? 1 : -1;
+    int dx, dy, sx, sy;
 
-    /* The pattern advances along the line, not along the axis Bresenham
-     * steps on: a diagonal covers sqrt(2) as much line per step as a
-     * horizontal one, and a drawing full of diagonals goes visibly out of
-     * phase if that is ignored. */
     {
+        double cx0 = x0, cy0 = y0, cx1 = x1, cy1 = y1;
+        int ex = x1 > x0 ? x1 - x0 : x0 - x1;
+        int ey = y1 > y0 ? y1 - y0 : y0 - y1;
+        if (!clip_major(c, ex > ey, &cx0, &cy0, &cx1, &cy1))
+            return;
+        x0 = (int)cx0; y0 = (int)cy0;
+        x1 = (int)cx1; y1 = (int)cy1;
+    }
+    dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    dy = y1 > y0 ? y1 - y0 : y0 - y1;
+
+    /* The original puts the ends in order before it draws: FUN_004280f0
+     * takes whichever of the two extents is longer -- the taller one on a
+     * tie -- and swaps the points so that coordinate increases.  It does
+     * that in paper millimetres, where y runs UP, so on screen the taller
+     * sort runs the other way.  That is what decides which end a line type
+     * starts from: Test1.jww's 道路中心線 is stored right to left and comes
+     * out with its first dash at the left. */
+    if (phase == 0 && (dx > dy ? x0 > x1 : y1 > y0)) {
+        int t;
+        t = x0; x0 = x1; x1 = t;
+        t = y0; y0 = y1; y1 = t;
+    }
+    sx = x0 < x1 ? 1 : -1;
+    sy = y0 < y1 ? 1 : -1;
+
+    /* The original stretches the pattern so a whole number of repeats fits
+     * the line (FUN_004bbef0): it counts how many fit, then steps the
+     * pattern along the LONG AXIS by one repeat divided by that count.  So
+     * the pattern is measured across the axis Bresenham steps on, not along
+     * the line, and it always ends flush with the far end. */
+    adv = 1.0;
+    if (jw_stretch) {
         int major = dx > dy ? dx : dy;
-        adv = major ? sqrt((double)dx * dx + (double)dy * dy) / major : 1.0;
+        if (major && unit > 0) {
+            double len = sqrt((double)dx * dx + (double)dy * dy);
+            double reps = jw_stretch == 2 ? len / (unit * ppb)
+                        : (double)(int)(len / (unit * ppb));
+            if (reps < 1)
+                reps = 1;
+            ppb = (double)major / (unit * reps);
+            if (ppb < 0.1)
+                ppb = 0.1;
+        }
     }
     if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
         return;
@@ -107,7 +187,7 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
             int i, j;
             if (k == mj && jw_line_open)
                 break;
-            if (bits & (1u << (((int)(step / ppb)) % unit)))
+            if (bits_set(ltype, step, ppb))
                 for (j = 0; j < wide; j++)
                     for (i = 0; i < wide; i++)
                         put(fb, c, x0 + i, y0 + j, col);
@@ -447,13 +527,11 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
         int wide = obj_wide(d, o);
 
         switch (o->cls) {
-        case JW_SEN: {
-            double phase = 0.0;
+        case JW_SEN:
             line(fb, &v->clip, jw_sx(v, o->d[0]), jw_sy(v, o->d[1]),
                  jw_sx(v, o->d[2]), jw_sy(v, o->d[3]), col, wide,
-                 line_type(o), pix_per_bit(v), &phase);
+                 line_type(o), pix_per_bit(v), 0);
             break;
-        }
         case JW_ENKO:
             arc(fb, v, d, o);
             break;
