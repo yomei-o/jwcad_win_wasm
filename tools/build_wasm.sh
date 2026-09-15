@@ -10,7 +10,7 @@ EMCC="$EMSDK/upstream/emscripten/emcc.exe"
 
 EXPORTS=_main,_jw_resize,_jw_width,_jw_height,_jw_rgba,_malloc,_free
 EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj
-SRC="src/main_wasm.c src/app.c src/ui.c src/fb.c src/jww.c src/view.c src/draw.c src/gen/jwres.c"
+SRC="src/main_wasm.c src/app.c src/ui.c src/fb.c src/jww.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c"
 
 # `cmd /c start /WAIT` does not hand emcc's exit status back, so without the
 # check at the end a compile error is announced as a successful build and the

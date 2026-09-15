@@ -4,6 +4,9 @@ Windows 用の 2 次元汎用 CAD **Jw_cad Version 10.03.6**（Jiro Shimizu &
 Yoshifumi Tanaka、2026-09-05 版）を、実行ファイルを Ghidra で逆コンパイルして
 解析し、C に書き直して最終的に WASM で動かすためのリポジトリです。
 
+**動かす: https://yomei-o.github.io/jwcad_win_wasm/** （手元の `.jww` を開けます。
+読むだけで、どこにも送られません）
+
 進め方は [lord_monarch_online_wasm](https://github.com/yomei-o/lord_monarch_online_wasm)
 と [jwcad_dos_wasm](https://github.com/yomei-o/jwcad_dos_wasm) と同じ
 ——逆コンパイル出力と突き合わせて C に書き直し、ネイティブと WASM を同じ
@@ -334,12 +337,13 @@ ssh -i ~/.claude/keys/ort_build_key yomei@192.168.6.14 \
 
 ## いまできること
 
-**枠を描き、`.jww` を読み、線・円弧・点・ソリッドを線色と線種つきで描きます。**
+**枠を描き、`.jww` を読み、線・円弧・点・ソリッド・文字を描きます。**
 ネイティブの窓（`jw_port.exe`）とブラウザ（`index.html`）が同じ C を通ります。
 
 ![移植側で Test1.jww を開いたところ](docs/port_test1.png)
 
-同じ図面を原典で開いたのが下です。**違うのは文字だけ**です。
+同じ図面を原典で開いたのが下です。**違うのは字形だけ**です
+（原典は Windows の書体、こちらは東雲フォント）。
 
 ![原典](docs/ref_test1.png)
 
@@ -357,9 +361,14 @@ outside the text areas: 0 differ (0.000%)
 === native against WASM, pixel for pixel
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 
-=== a drawing against the original (text is not drawn yet)
-docs/ref_test1.png vs tests/out/test1.png: 1264x741, 22287 of 936624 differ (2.380%)
+=== drawings against the original
+    Test1  outside the text areas: 6795 differ (0.725%)
+    Test7  outside the text areas: 12400 differ (1.324%)
 ```
+
+図面のほうは、**字形の入る矩形を別勘定**にしてこの数字です
+（`tests/shot.exe` が図面から矩形を書き出し、`tools/cmp.py` がそれを外します）。
+残りは線種の刻みの位相と、端の 1 画素、それとレイヤバーの印です。
 
 **枠は原典と 1 画素も違いません。** 残る 0.361% は全部、原典が Windows の
 フォントで描いている文字です（`docs/textareas.txt` に列挙）。そこは
@@ -376,6 +385,7 @@ docs/ref_test1.png vs tests/out/test1.png: 1264x741, 22287 of 936624 differ (2.3
 | `src/jww.c` | `.jww` を読む。`tools/jww.py` がその読みやすい版 |
 | `src/view.c` | 用紙のミリを画面の画素へ |
 | `src/draw.c` | 線・円弧・点・ソリッド。線種は 32 ビットのパターン |
+| `src/text.c` `src/fontx.c` | 文字。字形は東雲フォント（Public Domain、`font/`） |
 | `src/ui.c` | 枠を描く。ドックバー・ボタン・レイヤ升目・ステータス行 |
 | `src/gen/` | `.rsrc` から焼いたビットマップと、ボタンの配置表（生成物、非コミット） |
 | `tests/frame.c` | 窓を開かずに PNG に落とす |

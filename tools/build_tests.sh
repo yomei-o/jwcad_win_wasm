@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")/.."
 CC=${CC:-/c/prog/w64devkit/bin/gcc}
 CFLAGS="-O2 -Wall -Wextra -Wno-unused-parameter -std=c99 -Isrc -Itests"
-COMMON="src/fb.c src/ui.c src/app.c src/jww.c src/view.c src/draw.c src/gen/jwres.c"
+COMMON="src/fb.c src/ui.c src/app.c src/jww.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c"
 mkdir -p tests/out
 $CC $CFLAGS -o tests/frame.exe    tests/frame.c    tests/png.c src/fb.c src/ui.c src/gen/jwres.c
 $CC $CFLAGS -o tests/shot.exe     tests/shot.c     tests/png.c $COMMON -lm

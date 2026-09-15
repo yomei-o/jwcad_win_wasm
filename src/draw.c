@@ -2,6 +2,7 @@
 #include <stddef.h>
 
 #include "draw.h"
+#include "text.h"
 
 /* Cohen-Sutherland, so a drawing bigger than the window does not run off the
  * end of the framebuffer. */
@@ -134,12 +135,24 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     }
 }
 
+/* An object's id is the group in the high nibble and the layer in the low
+ * one.  State 0 is "not shown"; 1 is shown, 2 editable, 3 the one being
+ * written to. */
+static int visible(const jw_drawing *d, const jw_obj *o)
+{
+    int g = (o->id >> 4) & 15, l = o->id & 15;
+
+    return d->group[g].a != 0 && d->group[g].layer[l].state != 0;
+}
+
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
 
     for (i = 0; i < d->nobj; i++) {
         const jw_obj *o = &d->obj[i];
+        if (!visible(d, o))
+            continue;
         unsigned int col = pen_colour(d, o->color);
         int wide = pen_wide(d, o->color);
 
@@ -172,8 +185,12 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             }
             break;
         }
+        case JW_MOJI:
+            jw_text(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
+                    o->d[2], o->d[3], o->d[4], o->d[5], col);
+            break;
         default:
-            break;      /* text is not drawn yet */
+            break;
         }
     }
 }
