@@ -77,6 +77,39 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
     }
 }
 
+int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)
+{
+    const unsigned char *p = (const unsigned char *)s;
+
+    want_fonts();
+    while (*p) {
+        unsigned code = p[0];
+        const fontx_t *f = &ank;
+        const unsigned char *g;
+        int stride, i, j;
+
+        if (is_lead(p[0]) && p[1]) {
+            code = ((unsigned)p[0] << 8) | p[1];
+            f = &kanji;
+            p += 2;
+        } else {
+            p += 1;
+        }
+        g = fontx_glyph(f, code);
+        if (g) {
+            stride = (f->width + 7) / 8;
+            for (j = 0; j < f->height; j++)
+                for (i = 0; i < f->width; i++)
+                    if ((g[j * stride + (i >> 3)] & (0x80 >> (i & 7)))
+                        && x + i >= 0 && x + i < fb->w
+                        && y + j >= 0 && y + j < fb->h)
+                        fb->px[(size_t)(y + j) * fb->w + x + i] = col;
+        }
+        x += f->width;
+    }
+    return x;
+}
+
 void jw_text(fb_t *fb, const jw_view *v, const char *s,
              double x0, double y0, double x1, double y1,
              double cw, double ch, unsigned int col)

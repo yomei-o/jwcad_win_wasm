@@ -9,7 +9,7 @@ EMCC="$EMSDK/upstream/emscripten/emcc.exe"
 [ -f "$EMCC" ] || { echo "emcc not found at $EMCC" >&2; exit 1; }
 
 EXPORTS=_main,_jw_resize,_jw_width,_jw_height,_jw_rgba,_malloc,_free
-EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj
+EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj,_jw_zoom,_jw_pan,_jw_fit
 SRC="src/main_wasm.c src/app.c src/ui.c src/fb.c src/jww.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c"
 
 # `cmd /c start /WAIT` does not hand emcc's exit status back, so without the

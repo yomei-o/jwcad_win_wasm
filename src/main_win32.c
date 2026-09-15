@@ -72,7 +72,48 @@ static void present(HDC dc)
 
 static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    static int dragging, lastx, lasty;
+
     switch (msg) {
+    case WM_MOUSEWHEEL: {
+        POINT p;
+        p.x = (short)LOWORD(lp);
+        p.y = (short)HIWORD(lp);
+        ScreenToClient(wnd, &p);
+        app_zoom((short)HIWORD(wp) > 0 ? 1.25 : 1.0 / 1.25, p.x, p.y);
+        app_paint();
+        InvalidateRect(wnd, NULL, FALSE);
+        return 0;
+    }
+    case WM_MBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+        dragging = 1;
+        lastx = (short)LOWORD(lp);
+        lasty = (short)HIWORD(lp);
+        SetCapture(wnd);
+        return 0;
+    case WM_MBUTTONUP:
+    case WM_RBUTTONUP:
+        dragging = 0;
+        ReleaseCapture();
+        return 0;
+    case WM_MOUSEMOVE:
+        if (dragging) {
+            int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
+            app_pan(x - lastx, y - lasty);
+            lastx = x;
+            lasty = y;
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
+        return 0;
+    case WM_KEYDOWN:
+        if (wp == VK_HOME) {
+            app_fit();
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
+        return 0;
     case WM_SIZE:
         if (app_resize(LOWORD(lp), HIWORD(lp)))
             app_paint();

@@ -23,6 +23,10 @@ def main():
                     help='write a diff image here (default: <b>.diff.png)')
     ap.add_argument('-n', '--top', type=int, default=8,
                     help='how many mismatching colour pairs to list')
+    ap.add_argument('-1', '--near', action='store_true',
+                    help='also count how many of the mismatches are a single '
+                         'pixel away from being right -- a line one pixel off '
+                         'is a different thing from a line in the wrong place')
     ap.add_argument('-i', '--ignore', default=None,
                     help='file of "x y w h  # what it is" rectangles to leave '
                          'out of a second score -- the places where the '
@@ -92,6 +96,27 @@ def main():
         print('commonest mismatches (want -> got):')
         for (ca, cb), n in pairs.most_common(args.top):
             print('  %-16s -> %-16s %d' % (ca, cb, n))
+    if args.near and bad_unmasked:
+        jitter = 0
+        for y in range(h):
+            for x in range(w):
+                if pa[x, y] == pb[x, y] or (ignore and masked(x, y)):
+                    continue
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        nx, ny = x + dx, y + dy
+                        if (0 <= nx < w and 0 <= ny < h
+                                and pa[nx, ny] == pb[x, y]
+                                and pb[nx, ny] == pa[x, y]):
+                            jitter += 1
+                            dy = dx = 2
+                            break
+                    else:
+                        continue
+                    break
+        print('of those, %d are one pixel out (%.0f%%) and %d are somewhere '
+              'else entirely' % (jitter, 100.0 * jitter / bad_unmasked,
+                                 bad_unmasked - jitter))
     out = args.diff or (args.b + '.diff.png')
     diff.save(out)
     print('diff -> %s' % out)

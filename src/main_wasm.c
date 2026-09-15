@@ -36,6 +36,24 @@ EMSCRIPTEN_KEEPALIVE int jw_nobj(void)
     return d ? d->nobj : 0;
 }
 
+EMSCRIPTEN_KEEPALIVE void jw_zoom(double factor, int sx, int sy)
+{
+    app_zoom(factor, sx, sy);
+    app_paint();
+}
+
+EMSCRIPTEN_KEEPALIVE void jw_pan(int dx, int dy)
+{
+    app_pan(dx, dy);
+    app_paint();
+}
+
+EMSCRIPTEN_KEEPALIVE void jw_fit(void)
+{
+    app_fit();
+    app_paint();
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_width(void)  { return app_fb()->w; }
 EMSCRIPTEN_KEEPALIVE int jw_height(void) { return app_fb()->h; }
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_rgba(void) { return app_rgba(); }

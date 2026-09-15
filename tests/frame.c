@@ -18,7 +18,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "out of memory\n");
         return 1;
     }
-    ui_paint(&fb, 0);
+    ui_paint(&fb, 0, 0.0);
     if (!png_rgb(out, fb.w, fb.h, fb.px)) {
         fprintf(stderr, "cannot write %s\n", out);
         return 1;

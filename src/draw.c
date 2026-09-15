@@ -1,6 +1,11 @@
 #include <math.h>
 #include <stddef.h>
 
+/* GDI's LineTo draws from the current point up to, but not including, the
+ * point given.  Jw_cad draws every line that way, so the port does too --
+ * it is worth about sixty pixels of Test1.jww. */
+#define JW_LINE_OPEN 1
+
 #include "draw.h"
 #include "text.h"
 
@@ -72,6 +77,8 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
         return;
     for (;;) {
         int i, j;
+        if (x0 == x1 && y0 == y1 && JW_LINE_OPEN)
+            break;
         if (bits & (1u << (((int)(step / ppb)) % unit)))
             for (j = 0; j < wide; j++)
                 for (i = 0; i < wide; i++)

@@ -44,6 +44,7 @@ for n in 1 7; do
     ./tests/shot.exe tests/out/test$n.png orig/Test$n.jww >/dev/null
     cat docs/textareas.txt tests/out/test$n.png.mask > tests/out/mask$n.txt
     printf '    Test%s  ' $n
-    python tools/cmp.py docs/ref_test$n.png tests/out/test$n.png \
-        -i tests/out/mask$n.txt -d tests/out/test$n.diff.png | sed -n '2p'
+    python tools/cmp.py docs/ref_test$n.png tests/out/test$n.png --near \
+        -i tests/out/mask$n.txt -d tests/out/test$n.diff.png \
+        | sed -n '2p;s/^of those/           --/p'
 done

@@ -4,6 +4,9 @@
 #include "theme.h"
 #include "gen/jwres.h"
 #include "gen/layout.h"
+#include "text.h"
+
+#include <stdio.h>
 
 /* The window is a stack of docked bars round the drawing area.  Each bar
  * paints its face and, where it meets another, a two-pixel border: a shadow
@@ -316,6 +319,41 @@ static const struct { short x0, x1; } panes[5] = {
 };
 #define PANE_T 724
 
+/* What the original puts in the status line: a prompt on the left, then the
+ * sheet size, the scale of the group being written to, which layer that is,
+ * the current angle and the zoom.  The glyphs come out of the port's own
+ * font, so they do not match the original's -- only where they sit does. */
+static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
+{
+    static const char *PAPER[] = { "A-0", "A-1", "A-2", "A-3", "A-4",
+                                   "A-5", "2A", "3A", "4A", "5A" };
+    char buf[64];
+    int wg = 0, i;
+
+    /* CP932, which is how the font is indexed.  Spelled out in hex so the
+       file stays one encoding: the prompt is the original's
+       "始点を指示してください". */
+    jw_text_px(fb, 8, 726,
+               "\x8e\x6e\x93\x5f\x82\xf0\x8e\x77\x8e\xa6\x82\xb5\x82\xc4"
+               "\x82\xad\x82\xbe\x82\xb3\x82\xa2  (L)free  (R)Read",
+               C_BTNTEXT);
+    if (!d)
+        return;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    jw_text_px(fb, panes[0].x0 + 4, 726,
+               d->paper_size >= 0 && d->paper_size < 10
+               ? PAPER[d->paper_size] : "?", C_BTNTEXT);
+    sprintf(buf, "S=1/%g", d->group[wg].scale);
+    jw_text_px(fb, panes[1].x0 + 4, 726, buf, C_BTNTEXT);
+    sprintf(buf, "[%X-%X]", wg, d->group[wg].write_layer & 15);
+    jw_text_px(fb, panes[2].x0 + 4, 726, buf, C_BTNTEXT);
+    jw_text_px(fb, panes[3].x0 + 4, 726, "\x81\xda 0", C_BTNTEXT);
+    sprintf(buf, "x %.2f", zoom);
+    jw_text_px(fb, panes[4].x0 + 4, 726, buf, C_BTNTEXT);
+}
+
 static void paint_status(fb_t *fb)
 {
     int k, i, j;
@@ -421,7 +459,7 @@ static void paint_buttons(fb_t *fb)
     }
 }
 
-void ui_paint(fb_t *fb, const jw_drawing *d)
+void ui_paint(fb_t *fb, const jw_drawing *d, double zoom)
 {
     rect_t v;
 
@@ -451,6 +489,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d)
     paint_layer_grids(fb, d);
     paint_samples(fb);
     paint_status(fb);
+    status_text(fb, d, zoom);
     paint_buttons(fb);
 
     {

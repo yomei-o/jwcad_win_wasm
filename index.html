@@ -24,6 +24,7 @@
 <div id="note">
   <label><input type="file" id="pick" accept=".jww"> .jww を開く</label>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
+  <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
 <script src="jwcad.js"></script>
 <script>
@@ -54,6 +55,9 @@
     present();
   }
 
+  const zoom  = mod.cwrap('jw_zoom',  null, ['number', 'number', 'number']);
+  const pan   = mod.cwrap('jw_pan',   null, ['number', 'number']);
+  const fitv  = mod.cwrap('jw_fit',   null, []);
   const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
@@ -76,6 +80,34 @@
   document.addEventListener('drop', e => {
     e.preventDefault();
     if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]);
+  });
+
+  // Wheel zooms about the pointer, dragging moves the sheet, Home refits --
+  // the original does it with both mouse buttons, which a browser cannot see
+  // reliably, so this is the nearest thing.
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    zoom(e.deltaY < 0 ? 1.25 : 1 / 1.25,
+         Math.round(e.clientX - r.left), Math.round(e.clientY - r.top));
+    present();
+  }, { passive: false });
+
+  let drag = null;
+  canvas.addEventListener('pointerdown', e => {
+    drag = { x: e.clientX, y: e.clientY };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!drag) return;
+    pan(e.clientX - drag.x, e.clientY - drag.y);
+    drag = { x: e.clientX, y: e.clientY };
+    present();
+  });
+  canvas.addEventListener('pointerup', e => { drag = null; });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Home') { fitv(); present(); }
   });
 
   window.addEventListener('resize', fit);

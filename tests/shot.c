@@ -62,11 +62,9 @@ int main(int argc, char **argv)
             fprintf(m, "# text rectangles of %s, from tests/shot.c\n",
                     argc > 2 ? argv[2] : "(no drawing)");
             if (d) {
-                jw_view v;
-                rect_t r;
+                const jw_view *vp = app_view();
+                jw_view v = *vp;
                 int i;
-                ui_view_rect(fb->w, fb->h, &r);
-                jw_view_fit(&v, &r, d->paper_hw, d->paper_hh);
                 for (i = 0; i < d->nobj; i++) {
                     const jw_obj *o = &d->obj[i];
                     int x0, y0, x1, y1, pad;

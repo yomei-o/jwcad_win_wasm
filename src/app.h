@@ -10,11 +10,18 @@
 
 #include "fb.h"
 #include "jww.h"
+#include "view.h"
 
 int  app_resize(int w, int h);          /* 0 if the allocation failed */
 int  app_open(const unsigned char *b, long n);   /* 0 and sets app_error() */
 const char *app_error(void);
 const jw_drawing *app_drawing(void);
+
+/* The view.  Zooming keeps the drawing under the point the user aimed at. */
+void app_fit(void);
+void app_zoom(double factor, int sx, int sy);
+void app_pan(int dx, int dy);
+const jw_view *app_view(void);
 void app_paint(void);                   /* redraw into the framebuffer */
 const fb_t *app_fb(void);
 
