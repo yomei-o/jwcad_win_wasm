@@ -36,6 +36,8 @@ public static class Shot {
         IntPtr h, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool RedrawWindow(
+        IntPtr h, IntPtr r, IntPtr rgn, uint flags);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(
         IntPtr h, IntPtr after, int x, int y, int w, int c, uint flags);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
@@ -141,6 +143,11 @@ try {
         [void][Shot]::SetForegroundWindow($h)
         [void][Shot]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0003)
     }
+    # Ask for a full repaint of the window and every child before grabbing.
+    # Without it PrintWindow can hand back a stale or half-drawn view: the
+    # shadow diagram of 日影図.jww came out with a sixth of its ink.
+    # 0x0001 RDW_INVALIDATE | 0x0100 RDW_UPDATENOW | 0x0080 RDW_ALLCHILDREN
+    [void][Shot]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, 0x0181)
     Start-Sleep -Milliseconds $SettleMs
 
     $dir = Split-Path -Parent $Out

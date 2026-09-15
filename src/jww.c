@@ -145,7 +145,23 @@ static void read_header(ar_t *a, jw_drawing *d)
     d->name = v > 0x40 ? ar_s(a, d) : -1;
 
     if (v > 9) {
+        /* The sheet is an index, not a size: 0 is A0 and 4 is A4, and the
+         * status line of the original spells it "A-3".  An earlier reading
+         * took the last two doubles of the 0x3d block for the sheet's corner
+         * because they are -297,-210 in Test1.jww -- which is the A2 corner,
+         * but only by coincidence: they are zero in most drawings. */
+        static const struct { double w, h; } SHEET[] = {
+            { 1189, 841 }, { 841, 594 }, { 594, 420 }, { 420, 297 },
+            { 297, 210 }, { 1682, 1189 }, { 2378, 1682 }, { 3364, 2378 },
+            { 4756, 3364 }, { 10000, 7000 },
+        };
+        int n;
         d->paper_size = ar_l(a);
+        n = d->paper_size;
+        if (n < 0 || n >= (int)(sizeof SHEET / sizeof SHEET[0]))
+            n = 2;
+        d->paper_hw = SHEET[n].w / 2.0;
+        d->paper_hh = SHEET[n].h / 2.0;
         ar_l(a);
         for (g = 0; g < 16; g++) {
             jw_group *gr = &d->group[g];
@@ -170,9 +186,7 @@ static void read_header(ar_t *a, jw_drawing *d)
     }
     if (v > 0x3d) {
         ar_l(a);
-        ar_skipd(a, 3);
-        d->paper_hw = -ar_d(a);
-        d->paper_hh = -ar_d(a);
+        ar_skipd(a, 5);
     }
     if (v > 0x3f) {
         for (g = 0; g < 16; g++)
@@ -395,7 +409,16 @@ static void read_list(ar_t *a, jw_drawing *d)
                     && !memcmp(CLASSES[k].name, nm, len))
                     cls = CLASSES[k].cls;
             if (cls < 0) {
-                d->error = "a class this reader does not know";
+                /* Say which one: the reader knows the five element classes
+                 * the shipped drawings use, but a real drawing can also hold
+                 * dimensions (CDataSunpou), blocks and 3D elements, and
+                 * those are nested objects this does not walk yet. */
+                static char why[64];
+                unsigned k = len < 40 ? len : 40;
+                memcpy(why, "unknown element class ", 22);
+                memcpy(why + 22, nm, k);
+                why[22 + k] = 0;
+                d->error = why;
                 a->bad = 1;
                 break;
             }

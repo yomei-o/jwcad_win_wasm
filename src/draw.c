@@ -54,7 +54,9 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
  * The line is 503.409 mm long and holds 25.16 repeats, so one repeat is
  * 20.0 mm of paper and one bit is 20/32.  Stepping the pattern per pixel
  * instead makes the dashes drift by about 1% along a long line. */
+#ifndef MM_PER_BIT
 #define MM_PER_BIT 0.625
+#endif
 
 /* Bresenham, one pixel wide.  Jw_cad draws through GDI's LineTo, which is
  * also Bresenham, so the pixels land in the same places -- except that GDI
@@ -67,12 +69,21 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
     const unsigned int bits = LTYPE[ltype].bits;
     const int unit = LTYPE[ltype].unit;
     double step = phase ? *phase : 0.0;
+    double adv;
     int dx = x1 > x0 ? x1 - x0 : x0 - x1;
     int dy = y1 > y0 ? y1 - y0 : y0 - y1;
     int sx = x0 < x1 ? 1 : -1;
     int sy = y0 < y1 ? 1 : -1;
     int err = dx - dy;
 
+    /* The pattern advances along the line, not along the axis Bresenham
+     * steps on: a diagonal covers sqrt(2) as much line per step as a
+     * horizontal one, and a drawing full of diagonals goes visibly out of
+     * phase if that is ignored. */
+    {
+        int major = dx > dy ? dx : dy;
+        adv = major ? sqrt((double)dx * dx + (double)dy * dy) / major : 1.0;
+    }
     if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
         return;
     for (;;) {
@@ -83,7 +94,7 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
             for (j = 0; j < wide; j++)
                 for (i = 0; i < wide; i++)
                     put(fb, c, x0 + i, y0 + j, col);
-        step += 1.0;
+        step += adv;
         if (x0 == x1 && y0 == y1)
             break;
         {
@@ -173,6 +184,58 @@ static int visible(const jw_drawing *d, const jw_obj *o)
     return d->group[g].state != 0 && d->group[g].layer[l].state != 0;
 }
 
+/* A solid is four corners, filled.  The fourth repeats the third when it is
+ * a triangle.  Colour 10 means "any colour", and then the RGB sits in the
+ * trailing long as a COLORREF. */
+static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
+                  const jw_obj *o)
+{
+    int px[4], py[4], n = 4, i, j, y, ymin, ymax;
+    unsigned int col;
+
+    if (o->color == 10) {
+        unsigned c = (unsigned)o->n;
+        col = ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff);
+    } else {
+        col = pen_colour(d, o->color);
+    }
+    for (i = 0; i < 4; i++) {
+        px[i] = jw_sx(v, o->d[2 * i]);
+        py[i] = jw_sy(v, o->d[2 * i + 1]);
+    }
+    if (px[3] == px[2] && py[3] == py[2])
+        n = 3;
+    ymin = ymax = py[0];
+    for (i = 1; i < n; i++) {
+        if (py[i] < ymin) ymin = py[i];
+        if (py[i] > ymax) ymax = py[i];
+    }
+    if (ymin < v->clip.y) ymin = v->clip.y;
+    if (ymax >= v->clip.y + v->clip.h) ymax = v->clip.y + v->clip.h - 1;
+    for (y = ymin; y <= ymax; y++) {
+        int xs[8], m = 0;
+        for (i = 0, j = n - 1; i < n; j = i++) {
+            int y0 = py[j], y1 = py[i];
+            if ((y0 <= y) == (y1 <= y))
+                continue;
+            xs[m++] = px[j] + (int)((double)(y - y0) * (px[i] - px[j])
+                                    / (y1 - y0) + 0.5);
+        }
+        for (i = 1; i < m; i++) {
+            int k = xs[i], q = i - 1;
+            while (q >= 0 && xs[q] > k) { xs[q + 1] = xs[q]; q--; }
+            xs[q + 1] = k;
+        }
+        for (i = 0; i + 1 < m; i += 2) {
+            int a = xs[i], b = xs[i + 1];
+            if (a < v->clip.x) a = v->clip.x;
+            if (b > v->clip.x + v->clip.w - 1) b = v->clip.x + v->clip.w - 1;
+            for (; a <= b; a++)
+                fb->px[(size_t)y * fb->w + a] = col;
+        }
+    }
+}
+
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
@@ -200,19 +263,9 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             put(fb, &v->clip, x, y, col);
             break;
         }
-        case JW_SOLID: {
-            /* four corners; the fourth repeats the third for a triangle */
-            int k;
-            for (k = 0; k < 4; k++) {
-                int a = k, b = (k + 1) & 3;
-                double phase = 0.0;
-                line(fb, &v->clip,
-                     jw_sx(v, o->d[2 * a]), jw_sy(v, o->d[2 * a + 1]),
-                     jw_sx(v, o->d[2 * b]), jw_sy(v, o->d[2 * b + 1]),
-                     col, wide, 1, 1.0, &phase);
-            }
+        case JW_SOLID:
+            solid(fb, v, d, o);
             break;
-        }
         case JW_MOJI:
             jw_text(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
                     o->d[2], o->d[3], o->d[4], o->d[5], col);
