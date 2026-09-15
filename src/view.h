@@ -16,6 +16,10 @@ typedef struct {
     rect_t clip;        /* the drawing area */
 } jw_view;
 
+extern double jw_fit_inset, jw_fit_dx, jw_fit_dy;
+extern double jw_round_x, jw_round_y;
+extern int jw_line_open;
+
 /* Fit a sheet of half-width hw and half-height hh into r. */
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh);
 
@@ -23,12 +27,12 @@ void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh);
    puts about 500 more pixels of Test1.jww in the right place. */
 static __inline int jw_sx(const jw_view *v, double x)
 {
-    return (int)(v->cx + x * v->scale + 0.5);
+    return (int)(v->cx + x * v->scale + jw_round_x);
 }
 
 static __inline int jw_sy(const jw_view *v, double y)
 {
-    return (int)(v->cy - y * v->scale + 0.5);
+    return (int)(v->cy - y * v->scale + jw_round_y);
 }
 
 #endif

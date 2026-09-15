@@ -21,6 +21,7 @@ param(
     [switch]$Repaint,
     [int]$StableMs = 0,
     [int]$Cmd = 0,
+    [int]$CmdRepeat = 1,
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -188,7 +189,10 @@ try {
     if ($Cmd -ne 0) {
         # A menu command, by id from decomp/res/menu.txt -- 32835 is
         # 全体再表示, "redraw the lot".
-        [void][Shot]::SendMessage($h, 0x0111, [IntPtr]$Cmd, [IntPtr]::Zero)
+        for ($k = 0; $k -lt $CmdRepeat; $k++) {
+            [void][Shot]::SendMessage($h, 0x0111, [IntPtr]$Cmd, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 2500
+        }
     }
     [void][Shot]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, 0x0181)
     Start-Sleep -Milliseconds $SettleMs
