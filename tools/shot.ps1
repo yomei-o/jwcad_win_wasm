@@ -16,6 +16,7 @@ param(
     [int]$SettleMs = 4000,
     [switch]$Screen,
     [switch]$Client,
+    [switch]$Foreground,
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -34,6 +35,8 @@ public static class Shot {
         IntPtr h, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(
+        IntPtr h, IntPtr after, int x, int y, int w, int c, uint flags);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -65,17 +68,30 @@ public static class Shot {
         return bmp;
     }
 
-    public static Bitmap Grab(IntPtr h) {
-        RECT r; GetWindowRect(h, out r);
-        Bitmap bmp = new Bitmap(r.Right - r.Left, r.Bottom - r.Top,
+    /// Ask the window to paint itself into an off-screen DC.  Nothing has to
+    /// be on top, or even visible, so this does not disturb whoever is using
+    /// the machine -- but it only works with Direct2D off, because a D2D swap
+    /// chain is not part of what WM_PRINT redraws.
+    public static Bitmap Grab(IntPtr h, bool clientOnly) {
+        RECT wr; GetWindowRect(h, out wr);
+        Bitmap full = new Bitmap(wr.Right - wr.Left, wr.Bottom - wr.Top,
                                 System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using (Graphics g = Graphics.FromImage(bmp)) {
+        using (Graphics g = Graphics.FromImage(full)) {
             IntPtr dc = g.GetHdc();
-            // 2 = PW_RENDERFULLCONTENT: without it a Direct2D or layered
-            // surface comes back blank.
+            // 2 = PW_RENDERFULLCONTENT.
             PrintWindow(h, dc, 2);
             g.ReleaseHdc(dc);
         }
+        if (!clientOnly) {
+            return full;
+        }
+        RECT cr; GetClientRect(h, out cr);
+        POINT p; p.X = 0; p.Y = 0; ClientToScreen(h, ref p);
+        Bitmap bmp = full.Clone(
+            new Rectangle(p.X - wr.Left, p.Y - wr.Top,
+                          cr.Right - cr.Left, cr.Bottom - cr.Top),
+            full.PixelFormat);
+        full.Dispose();
         return bmp;
     }
 }
@@ -99,19 +115,34 @@ try {
         $p.Refresh()
     }
     $h = $p.MainWindowHandle
-    [void][Shot]::ShowWindow($h, 1)            # SW_SHOWNORMAL, undo any maximise
+    # 4 = SW_SHOWNOACTIVATE: show it at its normal size without taking focus.
+    [void][Shot]::ShowWindow($h, 4)
     # Clamp to the work area: a window taller than the desktop leaves the
     # taskbar showing through the bottom of a screen grab.
     $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
     $w = [math]::Min($Width, $wa.Width)
     $c = [math]::Min($Height, $wa.Height)
     [void][Shot]::MoveWindow($h, $wa.X, $wa.Y, $w, $c, $true)
-    [void][Shot]::SetForegroundWindow($h)
+    # A screen grab returns whatever is actually on the glass, so anything
+    # overlapping the window ends up in the picture -- a terminal sitting on
+    # top once produced a "reference" that was mostly scrollback.
+    # SetForegroundWindow alone is not enough; Windows refuses it when the
+    # caller is not the foreground process.  HWND_TOPMOST always works.
+    if ($Foreground -or $Screen) {
+        # A screen grab returns whatever is actually on the glass, so anything
+        # overlapping the window ends up in the picture -- a terminal sitting
+        # on top once produced a "reference" that was mostly scrollback.
+        # SetForegroundWindow alone is not enough; Windows refuses it when the
+        # caller is not the foreground process.  HWND_TOPMOST always works,
+        # but it steals the screen from whoever is using the machine.
+        [void][Shot]::SetForegroundWindow($h)
+        [void][Shot]::SetWindowPos($h, [IntPtr](-1), 0, 0, 0, 0, 0x0003)
+    }
     Start-Sleep -Milliseconds $SettleMs
 
     $dir = Split-Path -Parent $Out
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    $bmp = if ($Screen -or $Client) { [Shot]::GrabScreen($h, $Client) } else { [Shot]::Grab($h) }
+    $bmp = if ($Screen) { [Shot]::GrabScreen($h, $Client) } else { [Shot]::Grab($h, $Client) }
     $bmp.Save((Join-Path (Get-Location) $Out), [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
     Write-Host ("wrote {0} ({1} x {2})" -f $Out, $Width, $Height)

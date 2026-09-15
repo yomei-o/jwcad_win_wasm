@@ -11,3 +11,8 @@ tmp/
 __pycache__/
 *.o
 tests/*.exe
+
+# generated from your own copy of Jw_win.exe by tools/mkres.py and
+# tools/btnmap.py -- machine output from someone else's program
+src/gen/
+tests/out/
