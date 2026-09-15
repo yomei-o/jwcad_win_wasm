@@ -123,14 +123,53 @@ static int clip_major(const rect_t *c, int major_x, double *x0, double *y0,
     return 1;
 }
 
+/* One pixel wide, the way GDI draws it -- Jw_cad goes through LineTo.  GDI
+ * leaves the last point out; `open` says whether to do the same. */
+static void stroke(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
+                   unsigned int col, int wide, int open)
+{
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    int dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    int sx = x0 < x1 ? 1 : -1;
+    int sy = y0 < y1 ? 1 : -1;
+    /* GDI's own Bresenham, checked against this machine's LineTo over 1,200
+     * random lines (87,809 pixels, no difference): one step per pixel of the
+     * long axis, and the short axis moves when the error term is positive --
+     * or zero, if the short axis runs backwards.  That last clause is the
+     * bias that makes GDI draw the same pixels whichever end it starts
+     * from. */
+    int xmaj = dx > dy;
+    int mj = xmaj ? dx : dy;
+    int mn = xmaj ? dy : dx;
+    int tie = xmaj ? (sy < 0) : (sx < 0);
+    int e = 2 * mn - mj;
+    int k;
+
+    if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
+        return;
+    for (k = 0; k <= mj; k++) {
+        int i, j;
+        if (k == mj && open)
+            break;
+        for (j = 0; j < wide; j++)
+            for (i = 0; i < wide; i++)
+                put(fb, c, x0 + i, y0 + j, col);
+        if (e > 0 || (e == 0 && tie)) {
+            if (xmaj) y0 += sy; else x0 += sx;
+            e -= 2 * mj;
+        }
+        e += 2 * mn;
+        if (xmaj) x0 += sx; else y0 += sy;
+    }
+}
+
 static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
                  unsigned int col, int wide, int ltype, double ppb,
                  double *phase)
 {
+    const unsigned int bits = LTYPE[ltype].bits;
     const int unit = LTYPE[ltype].unit;
-    double step = phase ? *phase : 0.0;
-    double adv;
-    int dx, dy, sx, sy;
+    int dx, dy;
 
     {
         double cx0 = x0, cy0 = y0, cx1 = x1, cy1 = y1;
@@ -156,53 +195,23 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
         t = x0; x0 = x1; x1 = t;
         t = y0; y0 = y1; y1 = t;
     }
-    sx = x0 < x1 ? 1 : -1;
-    sy = y0 < y1 ? 1 : -1;
-
-    /* The original stretches the pattern so a whole number of repeats fits
-     * the line (FUN_004bbef0): it counts how many fit, then steps the
-     * pattern along the LONG AXIS by one repeat divided by that count.  So
-     * the pattern is measured across the axis Bresenham steps on, not along
-     * the line, and it always ends flush with the far end. */
-    adv = 1.0;
-    if (jw_stretch) {
-        int major = dx > dy ? dx : dy;
-        if (major && unit > 0) {
-            double len = sqrt((double)dx * dx + (double)dy * dy);
-            double reps = jw_stretch == 2 ? len / (unit * ppb)
-                        : (double)(int)(len / (unit * ppb));
-            if (reps < 1)
-                reps = 1;
-            ppb = (double)major / (unit * reps);
-            if (ppb < 0.1)
-                ppb = 0.1;
-        }
-    }
-    if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
-        return;
-    {
-        /* GDI's own Bresenham, checked against this machine's LineTo over
-         * 1,200 random lines (87,809 pixels, no difference): one step per
-         * pixel of the long axis, and the short axis moves when the error
-         * term is positive -- or zero, if the short axis runs backwards.
-         * That last clause is the bias that makes GDI draw the same pixels
-         * whichever end of a line it starts from. */
-        int xmaj = dx > dy;
-        int mj = xmaj ? dx : dy;
-        int mn = xmaj ? dy : dx;
+    if (bits == 0xffffffffu || phase) {
+        /* a solid line, or a chord of an ellipse, which is walked whole so
+         * the pattern can run on from one chord to the next */
+        double step = phase ? *phase : 0.0;
+        int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        int xmaj = dx > dy, mj = xmaj ? dx : dy, mn = xmaj ? dy : dx;
         int tie = xmaj ? (sy < 0) : (sx < 0);
-        int e = 2 * mn - mj;
-        int k;
-
+        int e = 2 * mn - mj, k;
+        if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
+            return;
         for (k = 0; k <= mj; k++) {
             int i, j;
-            if (k == mj && jw_line_open)
-                break;
             if (bits_set(ltype, step, ppb))
                 for (j = 0; j < wide; j++)
                     for (i = 0; i < wide; i++)
                         put(fb, c, x0 + i, y0 + j, col);
-            step += adv;
+            step += 1.0;
             if (e > 0 || (e == 0 && tie)) {
                 if (xmaj) y0 += sy; else x0 += sx;
                 e -= 2 * mj;
@@ -210,9 +219,72 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
             e += 2 * mn;
             if (xmaj) x0 += sx; else y0 += sy;
         }
+        if (phase)
+            *phase = step;
+        return;
     }
-    if (phase)
-        *phase = step;
+
+    /* A line type is not a mask over the line: the original walks the
+     * pattern and draws each run of set bits as its own short line
+     * (FUN_004bbef0).  Bit i sits at (int)(i * step) along the long axis and
+     * the other axis follows the slope, truncated the same way, so a dashed
+     * line does not take quite the same staircase as a solid one.
+     *
+     * The pattern is also stretched so a whole number of repeats fits: count
+     * how many do, then divide the long axis by that many.  It therefore
+     * always ends flush with the far end. */
+    {
+        int xmaj = dx > dy;
+        int m0 = xmaj ? x0 : y0, m1 = xmaj ? x1 : y1;
+        int n0 = xmaj ? y0 : x0, n1 = xmaj ? y1 : x1;
+        int major = m1 > m0 ? m1 - m0 : m0 - m1;
+        double stepm, stepn;
+        int nbits, i;
+
+        if (!major) {
+            stroke(fb, c, x0, y0, x1, y1, col, wide, 0);
+            return;
+        }
+        if (unit > 0) {
+            double len = sqrt((double)dx * dx + (double)dy * dy);
+            int reps = (int)(len / (unit * ppb));
+            if (reps < 1)
+                reps = 1;
+            ppb = (double)major / (double)(unit * reps);
+            if (ppb < 0.1)
+                ppb = 0.1;
+        }
+        stepm = m1 > m0 ? ppb : -ppb;
+        stepn = (double)(n1 - n0) / major * ppb;
+        nbits = (int)(major / ppb) + 2;
+        for (i = 0; i <= nbits; ) {
+            int b, am, an, bm, bn, open;
+            if (!(bits & (1u << (i % unit)))) {
+                i++;
+                continue;
+            }
+            b = i;
+            while (b < nbits && (bits & (1u << ((b + 1) % unit))))
+                b++;
+            am = m0 + (int)(i * stepm);
+            an = n0 + (int)(i * stepn);
+            bm = m0 + (int)((b + 1) * stepm);
+            bn = n0 + (int)((b + 1) * stepn);
+            /* The last run stops at the end of the line, and that end is
+             * drawn -- a solid line gets its far pixel too. */
+            open = am != bm || an != bn;
+            if (m1 > m0 ? bm >= m1 : bm <= m1) {
+                bm = m1;
+                bn = n1;
+                open = 0;
+            }
+            if (xmaj)
+                stroke(fb, c, am, an, bm, bn, col, wide, open);
+            else
+                stroke(fb, c, an, am, bn, bm, col, wide, open);
+            i = b + 1;
+        }
+    }
 }
 
 /* How many pixels one bit of the pattern covers at this zoom.  Below one the
