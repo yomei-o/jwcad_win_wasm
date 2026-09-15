@@ -209,9 +209,12 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     if (flat <= 0.0)
         flat = 1.0;
     sweep = sw;
-    if (sweep <= 0.0)
+    /* A negative sweep runs clockwise -- the door swings of
+     * Ａマンション平面例.jww are stored that way.  Only a sweep of nothing
+     * means the whole circle. */
+    if (sweep == 0.0)
         sweep = 2 * 3.14159265358979323846;
-    n = (int)(r * v->scale * sweep) + 8;
+    n = (int)(r * v->scale * (sweep < 0 ? -sweep : sweep)) + 8;
     if (n > 8192)
         n = 8192;
     ct = cos(tilt);
