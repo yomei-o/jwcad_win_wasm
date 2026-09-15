@@ -14,6 +14,7 @@ int jw_line_open = 0;
 double jw_mm_per_bit = 0.0;
 /* Fit a whole number of line-type repeats to each line (FUN_004bbef0). */
 int jw_stretch = 1;
+int jw_bitpick = 2;
 
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh)
 {

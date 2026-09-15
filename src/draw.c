@@ -59,14 +59,25 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
  * leaves the last point out; Jw_cad wants it, so the caller passes the
  * endpoint it wants drawn and this includes it (jw_line_open says
  * otherwise). */
-/* Is the pattern lit at this pixel?  The original puts bit i at pixel
- * (int)(i * ppb) and fills up to the next one (FUN_004bbef0 accumulates the
- * step and truncates), so the bit a pixel belongs to is the LAST one whose
- * pixel is at or before it -- ceiling arithmetic, not floor.  Getting that
- * backwards moves every dash one pixel along. */
+/* Is the pattern lit at this pixel?
+ *
+ * The original walks the pattern, not the pixels: bit i sits at pixel
+ * (int)(i * step) and a run of set bits is drawn as one segment from the
+ * first of them to where the bit after the run sits (FUN_004bbef0
+ * accumulates the step in a double and truncates).  So the bit a pixel
+ * belongs to is the LAST one that starts at or before it -- ceiling
+ * arithmetic, not floor.  Getting that backwards moves every dash one pixel
+ * along, which is most of what was left of Test7.jww.
+ *
+ * When the step is under a pixel several bits land on the same one.  Taking
+ * the first of them, or lighting the pixel if any of them is set, both score
+ * worse over the fifteen samples (28,088 and 27,838 against 27,544), so the
+ * last one it is.
+ */
 static int bits_set(int ltype, double step, double ppb)
 {
     int i = (int)ceil((step + 1.0) / ppb) - 1;
+
     if (i < 0)
         i = 0;
     return (LTYPE[ltype].bits & (1u << (i % LTYPE[ltype].unit))) != 0;
