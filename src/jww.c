@@ -470,6 +470,7 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     }
     read_header(&a, d);
     read_list(&a, d);
+    d->ndrawn = d->nobj;
     if (d->version > 0x13)
         read_list(&a, d);       /* the block definitions */
     if (a.bad) {

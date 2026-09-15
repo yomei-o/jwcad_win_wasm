@@ -64,6 +64,10 @@ typedef struct {
 
     jw_obj *obj;
     int nobj, cobj;
+    /* The file holds two lists: the drawing itself, then the block
+       definitions.  Only the first is drawn -- a definition only appears
+       through a reference to it. */
+    int ndrawn;
 
     char *pool;                 /* NUL-separated CP932 strings            */
     int npool, cpool;

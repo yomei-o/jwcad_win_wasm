@@ -43,7 +43,8 @@ static int one(const char *path)
     memset(count, 0, sizeof count);
     for (i = 0; i < d.nobj; i++)
         count[d.obj[i].cls]++;
-    printf("ok    %-30s v%d  %5d objects ", path, d.version, d.nobj);
+    printf("ok    %-30s v%d  %5d objects (%d in blocks)", path, d.version,
+           d.nobj, d.nobj - d.ndrawn);
     for (i = 0; i < JW_NCLASS; i++)
         if (count[i])
             printf(" %s %d", NAMES[i], count[i]);

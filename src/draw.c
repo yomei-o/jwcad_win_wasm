@@ -9,6 +9,8 @@
 #include "draw.h"
 #include "text.h"
 
+#include <stdlib.h>
+
 /* Cohen-Sutherland, so a drawing bigger than the window does not run off the
  * end of the framebuffer. */
 enum { L = 1, R = 2, B = 4, T = 8 };
@@ -126,10 +128,37 @@ static unsigned int pen_colour(const jw_drawing *d, int pen)
     return d->pen_rgb[pen >= 1 && pen <= 9 ? pen : 2];
 }
 
+/* One pixel, always.  The file carries a width per pen and the original
+ * honours it when printing, but not on the screen: Test1.jww's 道路中心線 is
+ * pen 6, whose width is 2, and the original draws it one row high. */
 static int pen_wide(const jw_drawing *d, int pen)
 {
-    int w = d->pen_width[pen >= 1 && pen <= 9 ? pen : 2];
-    return w < 1 ? 1 : w;
+    (void)d;
+    (void)pen;
+    return 1;
+}
+
+/* A layer that is shown but not editable (state 1) is drawn in one flat grey
+ * whatever the element's own colour is -- 0xc0c0c0, which is pen 9.  It is
+ * how the original tells "you can see this but not touch it": 日影図.jww
+ * keeps nine of its layers that way, and drawing them in their own colours
+ * makes the screen look nothing like the original's. */
+static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
+{
+    int g = o->lgroup & 15, l = o->layer & 15;
+
+    if (d->group[g].layer[l].state == 1)
+        return d->pen_rgb[9];
+    return pen_colour(d, o->color);
+}
+
+static int obj_wide(const jw_drawing *d, const jw_obj *o)
+{
+    int g = o->lgroup & 15, l = o->layer & 15;
+
+    if (d->group[g].layer[l].state == 1)
+        return 1;
+    return pen_wide(d, o->color);
 }
 
 /* An arc: centre, radius, flattening, start and end angle, tilt.  Stepped
@@ -143,8 +172,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
      * Test1.jww come out as (90 deg, 90 deg) and (0, 90 deg). */
     double cx = o->d[0], cy = o->d[1], r = o->d[2];
     double a0 = o->d[3], sw = o->d[4], tilt = o->d[5], flat = o->d[6];
-    unsigned int col = pen_colour(d, o->color);
-    int wide = pen_wide(d, o->color);
+    unsigned int col = obj_colour(d, o);
+    int wide = obj_wide(d, o);
     double sweep, ct, st;
     int lt = line_type(o);
     double phase = 0.0, ppb = pix_per_bit(v);
@@ -181,6 +210,14 @@ static int visible(const jw_drawing *d, const jw_obj *o)
 {
     int g = o->lgroup & 15, l = o->layer & 15;
 
+    {   /* a debugging hook: JW_ONLY_LAYER=n draws just that layer */
+        const char *e = getenv("JW_ONLY_LAYER");
+        const char *f = getenv("JW_ONLY_FLAG");
+        if (f)
+            return o->flags == (unsigned short)strtoul(f, 0, 0);
+        if (e)
+            return l == atoi(e);
+    }
     return d->group[g].state != 0 && d->group[g].layer[l].state != 0;
 }
 
@@ -197,7 +234,7 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
         unsigned c = (unsigned)o->n;
         col = ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff);
     } else {
-        col = pen_colour(d, o->color);
+        col = obj_colour(d, o);
     }
     for (i = 0; i < 4; i++) {
         px[i] = jw_sx(v, o->d[2 * i]);
@@ -240,12 +277,12 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
 
-    for (i = 0; i < d->nobj; i++) {
+    for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
         if (!visible(d, o))
             continue;
-        unsigned int col = pen_colour(d, o->color);
-        int wide = pen_wide(d, o->color);
+        unsigned int col = obj_colour(d, o);
+        int wide = obj_wide(d, o);
 
         switch (o->cls) {
         case JW_SEN: {
