@@ -149,8 +149,8 @@ static void read_header(ar_t *a, jw_drawing *d)
         ar_l(a);
         for (g = 0; g < 16; g++) {
             jw_group *gr = &d->group[g];
-            gr->a = ar_l(a);
-            gr->b = ar_l(a);
+            gr->state = ar_l(a);
+            gr->write_layer = ar_l(a);
             gr->scale = ar_d(a);
             gr->c = v > 0xd3 ? ar_l(a) : 0;
             for (l = 0; l < 16; l++) {
@@ -303,8 +303,8 @@ static void read_base(ar_t *a, int v, jw_obj *o)
     o->color = (unsigned short)ar_w(a);
     if (v > 0x15e)
         o->width = (unsigned short)ar_w(a);
-    o->f2e = (unsigned short)ar_w(a);
-    o->f2f = (unsigned short)ar_w(a);
+    o->layer = (unsigned short)ar_w(a);
+    o->lgroup = (unsigned short)ar_w(a);
     if (v > 0x13)
         o->flags = (unsigned short)ar_w(a);
 }

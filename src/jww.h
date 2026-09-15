@@ -25,8 +25,10 @@ typedef struct {
     unsigned char ltype;        /* +0x28 */
     unsigned short color;       /* +0x2a */
     unsigned short width;       /* +0x2c */
-    unsigned short f2e, f2f, flags;
-    int id;                     /* +0x04                                  */
+    unsigned short layer;       /* +0x2e  which layer, 0..15              */
+    unsigned short lgroup;      /* +0x2f  which layer group, 0..15        */
+    unsigned short flags;       /* +0x44                                  */
+    int id;                     /* +0x04  a serial number, not the layer  */
     double d[8];                /* the geometry, class by class           */
     int n;                      /* the trailing long some classes carry   */
     int text, face;             /* byte offsets into the string pool, -1  */
@@ -37,7 +39,9 @@ typedef struct {
 } jw_layer;
 
 typedef struct {
-    int a, b, c;
+    int state;                  /* 0 hidden, 1 shown, 2 editable, 3 write */
+    int write_layer;            /* which of the 16 is being written to    */
+    int c;
     double scale;
     jw_layer layer[16];
     int name;                   /* offset into the pool                   */

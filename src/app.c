@@ -62,7 +62,7 @@ void app_paint(void)
 
     if (!fb.px)
         return;
-    ui_paint(&fb);
+    ui_paint(&fb, have_drawing ? &drawing : 0);
     if (have_drawing) {
         jw_view v;
         rect_t r;

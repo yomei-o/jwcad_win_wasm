@@ -198,39 +198,75 @@ static const unsigned short circle16[16] = {
 
 /* Where the two grids sit and how far they may draw, measured off the
  * reference screen.  The bar clips them: the right-hand column's cell would
- * otherwise put its black edge over the groove beside it. */
+ * otherwise put its black edge over the groove beside it.
+ *
+ * The left grid is the sixteen layers, the right the sixteen layer groups;
+ * a cell's column is the index over eight and its row the index under it,
+ * so layer 10 is the third cell of the second column. */
 static const struct { short x, y, clip; } layer_grids[2] = {
-    { 1188, 394, 1224 },        /* layer groups, circled digits */
-    { 1227, 397, 1263 },        /* layers, plain digits         */
+    { 1188, 394, 1224 },        /* layers, circled digits   */
+    { 1227, 397, 1263 },        /* layer groups, plain ones */
 };
 
-static void paint_layer_grids(fb_t *fb)
+/* The mark for "there is something on this one", two rows across the top. */
+#define C_HASDATA  0xd700d7u
+
+static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
 {
-    int g, col, row, i, j;
+    int used[2][16];
+    int write[2];
+    int g, col, row, i, j, k;
+
+    for (g = 0; g < 2; g++) {
+        write[g] = 0;
+        for (i = 0; i < 16; i++)
+            used[g][i] = 0;
+    }
+    if (d) {
+        int wg = 0;
+        for (i = 0; i < 16; i++)
+            if (d->group[i].state == 3)
+                wg = i;
+        write[1] = wg;
+        write[0] = d->group[wg].write_layer & 15;
+        for (k = 0; k < d->nobj; k++) {
+            const jw_obj *o = &d->obj[k];
+            used[1][o->lgroup & 15] = 1;
+            if ((o->lgroup & 15) == wg)
+                used[0][o->layer & 15] = 1;
+        }
+    }
 
     for (g = 0; g < 2; g++) {
         for (col = 0; col < 2; col++) {
             for (row = 0; row < 8; row++) {
+                int n = col * 8 + row;
                 int x = layer_grids[g].x + col * LAYER_CELL_W;
                 int y = layer_grids[g].y + row * LAYER_CELL_H;
-                int first = (col == 0 && row == 0);
-                int write = first;      /* group 0 / layer 0 for now */
-                blit_layer_cell(fb, first ? 2652 : 2662, x, y,
-                                layer_grids[g].clip);
-                if (g == 0) {
-                    /* the group being written to gets a red ring */
-                    if (!write)
-                        continue;
-                    for (j = 0; j < 16; j++)
-                        for (i = 0; i < 16; i++)
-                            if (circle16[j] & (1 << i))
-                                fb_fill(fb, x + 2 + i, y + 4 + j, 1, 1,
-                                        0xff0000u);
-                } else if (write) {
-                    /* and the layer being written to a red box */
-                    fb_edge(fb, x + 2, y + 4, 16, 16, 0xff0000u, 0xff0000u);
+
+                blit_layer_cell(fb, (col == 0 && row == 0) ? 2652 : 2662,
+                                x, y, layer_grids[g].clip);
+                if (n == write[g]) {
+                    /* a red bar if it holds anything, then the mark: a ring
+                     * for the layer, a box for the group */
+                    if (used[g][n])
+                        fb_fill(fb, x + 2, y + 2, 16, 2, 0xff0000u);
+                    if (g == 0) {
+                        for (j = 0; j < 16; j++)
+                            for (i = 0; i < 16; i++)
+                                if (circle16[j] & (1 << i))
+                                    fb_fill(fb, x + 2 + i, y + 4 + j, 1, 1,
+                                            0xff0000u);
+                    } else {
+                        fb_edge(fb, x + 2, y + 4, 16, 16, 0xff0000u, 0xff0000u);
+                    }
                 } else {
-                    fb_edge(fb, x + 1, y + 3, 16, 16, C_BTNTEXT, C_BTNTEXT);
+                    /* every group cell carries a black box round its digit */
+                    if (g == 1)
+                        fb_edge(fb, x + 1, y + 3, 16, 16,
+                                C_BTNTEXT, C_BTNTEXT);
+                    if (used[g][n])
+                        fb_fill(fb, x + 1, y + 1, 16, 2, C_HASDATA);
                 }
             }
         }
@@ -385,7 +421,7 @@ static void paint_buttons(fb_t *fb)
     }
 }
 
-void ui_paint(fb_t *fb)
+void ui_paint(fb_t *fb, const jw_drawing *d)
 {
     rect_t v;
 
@@ -412,7 +448,7 @@ void ui_paint(fb_t *fb)
             fb_fill(fb, x + 3, LINEBTN_Y + 3, w - 6, LINEBTN_H - 6, C_BTNFACE);
         }
     }
-    paint_layer_grids(fb);
+    paint_layer_grids(fb, d);
     paint_samples(fb);
     paint_status(fb);
     paint_buttons(fb);

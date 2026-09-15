@@ -42,16 +42,26 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
     { 0x22222222u,  4 },        /* 9 補助線     */
 };
 
+/* One bit of a line type pattern is this much paper, not one pixel.
+ *
+ * Measured off the reference: Test1.jww's 道路中心線 is 一点鎖2, whose
+ * pattern is 32 bits, and its dashes repeat every 32.71 pixels -- not 32.
+ * The line is 503.409 mm long and holds 25.16 repeats, so one repeat is
+ * 20.0 mm of paper and one bit is 20/32.  Stepping the pattern per pixel
+ * instead makes the dashes drift by about 1% along a long line. */
+#define MM_PER_BIT 0.625
+
 /* Bresenham, one pixel wide.  Jw_cad draws through GDI's LineTo, which is
  * also Bresenham, so the pixels land in the same places -- except that GDI
  * leaves the last point out, which is why the caller passes the endpoint it
  * wants drawn and this includes it. */
 static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
-                 unsigned int col, int wide, int ltype, int *phase)
+                 unsigned int col, int wide, int ltype, double ppb,
+                 double *phase)
 {
     const unsigned int bits = LTYPE[ltype].bits;
     const int unit = LTYPE[ltype].unit;
-    int step = phase ? *phase : 0;
+    double step = phase ? *phase : 0.0;
     int dx = x1 > x0 ? x1 - x0 : x0 - x1;
     int dy = y1 > y0 ? y1 - y0 : y0 - y1;
     int sx = x0 < x1 ? 1 : -1;
@@ -62,11 +72,11 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
         return;
     for (;;) {
         int i, j;
-        if (bits & (1u << (step % unit)))
+        if (bits & (1u << (((int)(step / ppb)) % unit)))
             for (j = 0; j < wide; j++)
                 for (i = 0; i < wide; i++)
                     put(fb, c, x0 + i, y0 + j, col);
-        step++;
+        step += 1.0;
         if (x0 == x1 && y0 == y1)
             break;
         {
@@ -77,6 +87,14 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
     }
     if (phase)
         *phase = step;
+}
+
+/* How many pixels one bit of the pattern covers at this zoom.  Below one the
+ * dashes would fall between pixels and the line would vanish. */
+static double pix_per_bit(const jw_view *v)
+{
+    double p = MM_PER_BIT * v->scale;
+    return p < 1.0 ? 1.0 : p;
 }
 
 static int line_type(const jw_obj *o)
@@ -110,7 +128,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     unsigned int col = pen_colour(d, o->color);
     int wide = pen_wide(d, o->color);
     double sweep, ct, st;
-    int lt = line_type(o), phase = 0;
+    int lt = line_type(o);
+    double phase = 0.0, ppb = pix_per_bit(v);
     int n, i, px = 0, py = 0;
 
     if (flat <= 0.0)
@@ -129,20 +148,22 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         int sx = jw_sx(v, cx + ux * ct - uy * st);
         int sy = jw_sy(v, cy + ux * st + uy * ct);
         if (i)
-            line(fb, &v->clip, px, py, sx, sy, col, wide, lt, &phase);
+            line(fb, &v->clip, px, py, sx, sy, col, wide, lt, ppb, &phase);
         px = sx;
         py = sy;
     }
 }
 
-/* An object's id is the group in the high nibble and the layer in the low
- * one.  State 0 is "not shown"; 1 is shown, 2 editable, 3 the one being
- * written to. */
+/* Which layer an object is on is +0x2e, and its group +0x2f -- not the long
+ * at +0x04, which is a serial number.  The layer bar of the original settles
+ * it: Test1.jww marks layers 0, 1, 2 and 4, which is exactly the set of
+ * +0x2e values in it, and nothing like the +0x04 values (0, 8, 16).
+ * State 0 is "not shown"; 1 is shown, 2 editable, 3 the one written to. */
 static int visible(const jw_drawing *d, const jw_obj *o)
 {
-    int g = (o->id >> 4) & 15, l = o->id & 15;
+    int g = o->lgroup & 15, l = o->layer & 15;
 
-    return d->group[g].a != 0 && d->group[g].layer[l].state != 0;
+    return d->group[g].state != 0 && d->group[g].layer[l].state != 0;
 }
 
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
@@ -158,10 +179,10 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
         switch (o->cls) {
         case JW_SEN: {
-            int phase = 0;
+            double phase = 0.0;
             line(fb, &v->clip, jw_sx(v, o->d[0]), jw_sy(v, o->d[1]),
                  jw_sx(v, o->d[2]), jw_sy(v, o->d[3]), col, wide,
-                 line_type(o), &phase);
+                 line_type(o), pix_per_bit(v), &phase);
             break;
         }
         case JW_ENKO:
@@ -177,11 +198,11 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             int k;
             for (k = 0; k < 4; k++) {
                 int a = k, b = (k + 1) & 3;
-                int phase = 0;
+                double phase = 0.0;
                 line(fb, &v->clip,
                      jw_sx(v, o->d[2 * a]), jw_sy(v, o->d[2 * a + 1]),
                      jw_sx(v, o->d[2 * b]), jw_sy(v, o->d[2 * b + 1]),
-                     col, wide, 1, &phase);
+                     col, wide, 1, 1.0, &phase);
             }
             break;
         }
