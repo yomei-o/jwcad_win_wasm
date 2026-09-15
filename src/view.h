@@ -19,6 +19,7 @@ typedef struct {
 extern double jw_fit_inset, jw_fit_dx, jw_fit_dy;
 extern double jw_round_x, jw_round_y;
 extern int jw_line_open;
+extern double jw_mm_per_bit;
 
 /* Fit a sheet of half-width hw and half-height hh into r. */
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh);

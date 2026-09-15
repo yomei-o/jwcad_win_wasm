@@ -22,6 +22,9 @@ param(
     [int]$StableMs = 0,
     [int]$Cmd = 0,
     [int]$CmdRepeat = 1,
+    [int]$Key = 0,
+    [int]$KeyRepeat = 1,
+    [string]$Keys = '',
     [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
@@ -192,6 +195,22 @@ try {
         for ($k = 0; $k -lt $CmdRepeat; $k++) {
             [void][Shot]::SendMessage($h, 0x0111, [IntPtr]$Cmd, [IntPtr]::Zero)
             Start-Sleep -Milliseconds 2500
+        }
+    }
+    if ($Keys) {
+        # Real keystrokes, to the focused window: posting WM_KEYDOWN to the
+        # frame does not reach Jw_cad's view.
+        [void][Shot]::SetForegroundWindow($h)
+        Start-Sleep -Milliseconds 500
+        [System.Windows.Forms.SendKeys]::SendWait($Keys)
+        Start-Sleep -Milliseconds 2000
+    }
+    if ($Key -ne 0) {
+        # A virtual key, for panning (arrows) and zooming (PageUp/Down).
+        for ($k = 0; $k -lt $KeyRepeat; $k++) {
+            [void][Shot]::SendMessage($h, 0x0100, [IntPtr]$Key, [IntPtr]1)
+            [void][Shot]::SendMessage($h, 0x0101, [IntPtr]$Key, [IntPtr]1)
+            Start-Sleep -Milliseconds 1500
         }
     }
     [void][Shot]::RedrawWindow($h, [IntPtr]::Zero, [IntPtr]::Zero, 0x0181)

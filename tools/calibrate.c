@@ -96,7 +96,7 @@ int main(int argc, char **argv)
     const char *refdir = argc > 1 ? argv[1] : "tmp/refs";
     const char *jwwdir = argc > 2 ? argv[2] : "tmp";
     unsigned char *mask;
-    double inset, dx, dy;
+    double inset, dx, dy, mmpb;
     double best = 1e18, binset = 2, bdx = 0, bdy = 0;
     int bopen = 1;
     int i;
@@ -127,10 +127,10 @@ int main(int argc, char **argv)
 
     /* jw_fit_dx and jw_round_x shift the same way, so only the rounding
      * bias is swept. */
-    for (jw_line_open = 0; jw_line_open <= 1; jw_line_open++)
-    for (inset = 1.0; inset <= 2.55; inset += 0.5)
-        for (dx = 0.1; dx <= 0.85; dx += 0.1)
-            for (dy = 0.1; dy <= 0.85; dy += 0.1) {
+    (void)mmpb;
+    for (inset = 1.0; inset <= 3.05; inset += 0.5)
+        for (dx = 0.05; dx <= 0.95; dx += 0.05)
+            for (dy = 0.05; dy <= 0.95; dy += 0.05) {
                 long tot = 0;
                 jw_fit_inset = inset;
                 jw_round_x = dx;
@@ -141,7 +141,7 @@ int main(int argc, char **argv)
                     app_paint();
                     tot += score(i, mask);
                 }
-                printf("inset %.1f dx %+.1f dy %+.1f : %ld\n", inset, dx, dy, tot);
+                printf("inset %.2f rx %.2f ry %.2f : %ld\n", inset, dx, dy, tot);
                 fflush(stdout);
                 if ((double)tot < best) {
                     best = (double)tot;
@@ -151,6 +151,6 @@ int main(int argc, char **argv)
                     bopen = jw_line_open;
                 }
             }
-    printf("best: inset %.1f dx %+.1f dy %+.1f : %.0f\n", binset, bdx, bdy, best);
+    printf("best: inset %.2f rx %.2f ry %.2f : %.0f\n", binset, bdx, bdy, best);
     return 0;
 }

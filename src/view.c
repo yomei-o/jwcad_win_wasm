@@ -10,6 +10,8 @@ double jw_round_x = 0.3;
 double jw_round_y = 0.5;
 /* GDI's LineTo leaves the last point out; 1 says do the same. */
 int jw_line_open = 0;
+/* How much paper one bit of a line type covers; 0 means one pixel. */
+double jw_mm_per_bit = 0.0;
 
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh)
 {

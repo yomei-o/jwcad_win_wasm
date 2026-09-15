@@ -48,16 +48,15 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
     { 0x22222222u,  4 },        /* 9 補助線     */
 };
 
-/* One bit of a line type pattern is this much paper, not one pixel.
+/* One bit of a line type pattern is one pixel along the line.
  *
- * Measured off the reference: Test1.jww's 道路中心線 is 一点鎖2, whose
- * pattern is 32 bits, and its dashes repeat every 32.71 pixels -- not 32.
- * The line is 503.409 mm long and holds 25.16 repeats, so one repeat is
- * 20.0 mm of paper and one bit is 20/32.  Stepping the pattern per pixel
- * instead makes the dashes drift by about 1% along a long line. */
-#ifndef MM_PER_BIT
-#define MM_PER_BIT 0.625
-#endif
+ * 敷地図.jww settles it: its 一点鎖1 lines are 0xf99ff99f over 16 bits, and
+ * the original draws 10 on, 2 off, 2 on, 2 off, repeating every 16 pixels at
+ * 2.303 px/mm.  An earlier reading of Test1.jww's 道路中心線 put one bit at
+ * 0.625 mm of paper, which comes to 1.02 px there -- near enough to 1 that
+ * the measurement could not tell them apart, and wrong by half again on an
+ * A-3 sheet.  jw_mm_per_bit is kept as a knob for tools/calibrate; 0 means
+ * one pixel. */
 
 /* Bresenham, one pixel wide.  Jw_cad draws through GDI's LineTo, which is
  * also Bresenham, so the pixels land in the same places -- except that GDI
@@ -112,7 +111,7 @@ static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
  * dashes would fall between pixels and the line would vanish. */
 static double pix_per_bit(const jw_view *v)
 {
-    double p = MM_PER_BIT * v->scale;
+    double p = jw_mm_per_bit > 0.0 ? jw_mm_per_bit * v->scale : 1.0;
     return p < 1.0 ? 1.0 : p;
 }
 
