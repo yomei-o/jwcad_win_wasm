@@ -4,8 +4,9 @@ Windows 用の 2 次元汎用 CAD **Jw_cad Version 10.03.6**（Jiro Shimizu &
 Yoshifumi Tanaka、2026-09-05 版）を、実行ファイルを Ghidra で逆コンパイルして
 解析し、C に書き直して最終的に WASM で動かすためのリポジトリです。
 
-**動かす: https://yomei-o.github.io/jwcad_win_wasm/** （手元の `.jww` を開けます。
-読むだけで、どこにも送られません）
+**動かす: https://yomei-o.github.io/jwcad_win_wasm/**
+手元の `.jww` を開けます（読むだけで、どこにも送られません）。
+ホイールで拡大縮小、ドラッグで移動、Home で全体。
 
 進め方は [lord_monarch_online_wasm](https://github.com/yomei-o/lord_monarch_online_wasm)
 と [jwcad_dos_wasm](https://github.com/yomei-o/jwcad_dos_wasm) と同じ
@@ -362,13 +363,16 @@ outside the text areas: 0 differ (0.000%)
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 
 === drawings against the original
-    Test1  outside the text areas: 6795 differ (0.725%)
-    Test7  outside the text areas: 12400 differ (1.324%)
+    Test1  outside the text areas: 6709 differ (0.716%)
+           --, 6166 are one pixel out (92%) and 543 are somewhere else entirely
+    Test7  outside the text areas: 12834 differ (1.370%)
+           --, 10386 are one pixel out (81%) and 2448 are somewhere else entirely
 ```
 
 図面のほうは、**字形の入る矩形を別勘定**にしてこの数字です
 （`tests/shot.exe` が図面から矩形を書き出し、`tools/cmp.py` がそれを外します）。
-残りは線種の刻みの位相と、端の 1 画素、それとレイヤバーの印です。
+**残りの 9 割は「1 画素ずれ」**——線は正しい場所にあって、画素の丸めだけが
+違うものです。`tools/cmp.py --near` がそれと「別の場所にある」ものを分けます。
 
 **枠は原典と 1 画素も違いません。** 残る 0.361% は全部、原典が Windows の
 フォントで描いている文字です（`docs/textareas.txt` に列挙）。そこは
