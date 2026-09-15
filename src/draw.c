@@ -1,14 +1,11 @@
 #include <math.h>
 #include <stddef.h>
-
-/* GDI's LineTo draws from the current point up to, but not including, the
- * point given.  Jw_cad draws every line that way, so the port does too --
- * it is worth about sixty pixels of Test1.jww. */
+#include <stdlib.h>
 
 #include "draw.h"
 #include "text.h"
 
-#include <stdlib.h>
+#define PI 3.14159265358979323846
 
 /* Cohen-Sutherland, so a drawing bigger than the window does not run off the
  * end of the framebuffer. */
@@ -62,6 +59,13 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
  * leaves the last point out; Jw_cad wants it, so the caller passes the
  * endpoint it wants drawn and this includes it (jw_line_open says
  * otherwise). */
+/* Is the pattern lit this far along the line? */
+static int bits_set(int ltype, double step, double ppb)
+{
+    return (LTYPE[ltype].bits
+            & (1u << (((int)(step / ppb)) % LTYPE[ltype].unit))) != 0;
+}
+
 static void line(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
                  unsigned int col, int wide, int ltype, double ppb,
                  double *phase)
@@ -200,6 +204,79 @@ static int obj_wide(const jw_drawing *d, const jw_obj *o)
     return pen_wide(d, o->color);
 }
 
+/* A circle, the way GDI draws it.  Jw_cad hands Arc the box
+ * (cx-r, cy-r)-(cx+r, cy+r); those corners are exclusive, so the circle sits
+ * half a pixel up and to the left of the centre pixel -- drawing it centred
+ * on the pixel puts every pixel of it in the wrong place.  The boundary is
+ * the textbook midpoint ellipse, which is the family GDI's own is from.
+ *
+ * The points come out in order round the circle so a line type can advance
+ * along it, and so an arc can start where it is told to.
+ */
+#define ARC_MAX 65536
+
+static int circle_points(int rp, int odd, short *out)
+{
+    /* the first quadrant, from (0, r) to (r, 0) */
+    static short qx[ARC_MAX / 8], qy[ARC_MAX / 8];
+    long rx2 = (long)rp * rp, ry2 = (long)rp * rp;
+    long px = 0, py = 2 * rx2 * rp;
+    double p;
+    int x = 0, y = rp, nq = 0, n = 0, i;
+
+    if (rp <= 0 || rp >= ARC_MAX / 8 - 2)
+        return 0;
+    qx[nq] = (short)x; qy[nq] = (short)y; nq++;
+    p = (double)ry2 - (double)rx2 * rp + 0.25 * rx2;
+    while (px < py) {
+        x++;
+        px += 2 * ry2;
+        if (p < 0) {
+            p += ry2 + px;
+        } else {
+            y--;
+            py -= 2 * rx2;
+            p += (double)ry2 + px - py;
+        }
+        qx[nq] = (short)x; qy[nq] = (short)y; nq++;
+    }
+    p = (double)ry2 * (x + 0.5) * (x + 0.5)
+      + (double)rx2 * (y - 1) * (y - 1) - (double)rx2 * ry2;
+    while (y > 0) {
+        y--;
+        py -= 2 * rx2;
+        if (p > 0) {
+            p += (double)rx2 - py;
+        } else {
+            x++;
+            px += 2 * ry2;
+            p += (double)rx2 - py + px;
+        }
+        qx[nq] = (short)x; qy[nq] = (short)y; nq++;
+    }
+
+    /* Round the circle, starting at three o'clock and going anticlockwise on
+     * screen (which is the direction the file's angles run).  An odd box is
+     * centred on the pixel, an even one half a pixel up and to the left, so
+     * the two sides of each axis come from different offsets. */
+    {
+        int lo = odd ? 0 : -1;               /* the right and bottom sides  */
+        for (i = nq - 1; i >= 0; i--) {      /* 0 to 90 degrees   */
+            out[2 * n] = (short)(qx[i] + lo); out[2 * n + 1] = (short)(-qy[i]); n++;
+        }
+        for (i = 0; i < nq; i++) {           /* 90 to 180         */
+            out[2 * n] = (short)(-qx[i]); out[2 * n + 1] = (short)(-qy[i]); n++;
+        }
+        for (i = nq - 1; i >= 0; i--) {      /* 180 to 270        */
+            out[2 * n] = (short)(-qx[i]); out[2 * n + 1] = (short)(qy[i] + lo); n++;
+        }
+        for (i = 0; i < nq; i++) {           /* 270 to 360        */
+            out[2 * n] = (short)(qx[i] + lo); out[2 * n + 1] = (short)(qy[i] + lo); n++;
+        }
+    }
+    return n;
+}
+
 /* An arc: centre, radius, flattening, start and end angle, tilt.  Stepped
  * finely enough that the chords are under a pixel. */
 static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
@@ -216,7 +293,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     double sweep, ct, st;
     int lt = line_type(o);
     double phase = 0.0, ppb = pix_per_bit(v);
-    int n, i, px = 0, py = 0;
+    int n, i, idx, px = 0, py = 0;
 
     if (flat <= 0.0)
         flat = 1.0;
@@ -225,7 +302,70 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
      * Ａマンション平面例.jww are stored that way.  Only a sweep of nothing
      * means the whole circle. */
     if (sweep == 0.0)
-        sweep = 2 * 3.14159265358979323846;
+        sweep = 2 * PI;
+
+    /* A true circle goes through GDI's Arc; anything squashed does not, so
+     * that keeps the chord walk below. */
+    if (flat == 1.0) {
+        static short pts[2 * ARC_MAX];
+        int rp = (int)(r * v->scale + 0.5);
+        int cxp = jw_sx(v, cx), cyp = jw_sy(v, cy);
+        /* A whole circle goes into a box 2r across, a part of one into a box
+         * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
+         * cx+r in the first.  So a whole circle is half a pixel off centre
+         * and an arc is not. */
+        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI);
+        int n = circle_points(rp, odd, pts);
+        if (n > 0) {
+            int full = !odd;
+            double a = a0 + tilt;
+            int step = sweep < 0 ? -1 : 1;
+            double span = sweep < 0 ? -sweep : sweep;
+            int start = 0, i, j;
+            double bestd = 1e9;
+
+            /* Which boundary pixel the arc starts on.  The pixels are not
+             * spaced evenly in angle, so ask each one rather than working
+             * the index out from the fraction of a turn.  A pixel at offset
+             * (a, b) has its centre at (a + 1, b + 1) from the middle of the
+             * circle, which sits half a pixel up and left. */
+            for (idx = 0; idx < n; idx++) {
+                double t = atan2(-(double)pts[2 * idx + 1] - (odd ? 0.0 : 1.0),
+                                 (double)pts[2 * idx] + (odd ? 0.0 : 1.0));
+                double dd = t - a;
+                while (dd <= -PI) dd += 2 * PI;
+                while (dd > PI) dd -= 2 * PI;
+                if (dd < 0) dd = -dd;
+                if (dd < bestd) { bestd = dd; start = idx; }
+            }
+            if (full)
+                span = 2 * PI;
+            for (idx = 0; idx < n; idx++) {
+                int m = (start + step * idx) % n;
+                int sx, sy;
+                if (m < 0) m += n;
+                if (!full && idx) {
+                    /* stop once the walk has covered the sweep */
+                    double t = atan2(-(double)pts[2 * m + 1] - (odd ? 0.0 : 1.0),
+                                     (double)pts[2 * m] + (odd ? 0.0 : 1.0));
+                    double dd = step > 0 ? t - a : a - t;
+                    while (dd < 0) dd += 2 * PI;
+                    while (dd >= 2 * PI) dd -= 2 * PI;
+                    if (dd > span)
+                        break;
+                }
+                sx = cxp + pts[2 * m];
+                sy = cyp + pts[2 * m + 1];
+                if (bits_set(lt, phase, ppb))
+                    for (j = 0; j < wide; j++)
+                        for (i = 0; i < wide; i++)
+                            put(fb, &v->clip, sx + i, sy + j, col);
+                phase += 1.0;
+            }
+            return;
+        }
+    }
+
     n = (int)(r * v->scale * (sweep < 0 ? -sweep : sweep)) + 8;
     if (n > 8192)
         n = 8192;
