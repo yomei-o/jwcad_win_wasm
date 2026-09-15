@@ -174,35 +174,61 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
     int x0, y0, x1, y1, dx, dy;
 
     {
+        /* FUN_004280f0 has three cases, and which one a line falls into
+         * decides both whether its ends get put in order and whether it is
+         * cut against the view:
+         *
+         *   - dead level (the two y in millimetres exactly equal): the ends
+         *     are always put in order so x increases, then cut across;
+         *   - dead upright (the two x equal): likewise so y increases --
+         *     in millimetres, where y runs up, so on screen it decreases;
+         *   - anything else: only if the line runs off the view along its
+         *     long axis, and then in that axis.
+         *
+         * A sloping line that fits on the screen is therefore drawn from the
+         * end the file happens to store first, and its line type starts
+         * there.  日影図.jww has a nearly level dotted line stored right to
+         * left -- 0.008 mm out of level over 150 mm -- and the original
+         * starts its dashes at the right-hand end.
+         */
+        double lo_u = c->x - 2 - v->bx, hi_u = c->x + c->w + 2 - v->bx;
+        double lo_w = v->by - (c->y + c->h + 2), hi_w = v->by - (c->y - 2);
+        int level = w0 == w1, upright = u0 == u1;
         double eu = u1 > u0 ? u1 - u0 : u0 - u1;
         double ew = w1 > w0 ? w1 - w0 : w0 - w1;
-        int ok;
-        if (eu > ew)
-            ok = clip_major(c->x - 2 - v->bx, c->x + c->w + 2 - v->bx,
-                            &u0, &w0, &u1, &w1);
-        else
-            ok = clip_major(v->by - (c->y + c->h + 2), v->by - (c->y - 2),
-                            &w0, &u0, &w1, &u1);
-        if (!ok)
-            return;
+        int xmaj = level ? 1 : upright ? 0 : eu > ew;
+        int act = level || upright;
+
+        if (!act) {
+            double lo = xmaj ? (u0 < u1 ? u0 : u1) : (w0 < w1 ? w0 : w1);
+            double hi = xmaj ? (u0 > u1 ? u0 : u1) : (w0 > w1 ? w0 : w1);
+            act = xmaj ? (lo < lo_u || hi >= hi_u) : (lo < lo_w || hi >= hi_w);
+        }
+        if (act) {
+            if (xmaj) {
+                if (u1 < u0) {
+                    double t;
+                    t = u0; u0 = u1; u1 = t;
+                    t = w0; w0 = w1; w1 = t;
+                }
+                if (!clip_major(lo_u, hi_u, &u0, &w0, &u1, &w1))
+                    return;
+            } else {
+                if (w1 < w0) {
+                    double t;
+                    t = u0; u0 = u1; u1 = t;
+                    t = w0; w0 = w1; w1 = t;
+                }
+                if (!clip_major(lo_w, hi_w, &w0, &u0, &w1, &u1))
+                    return;
+            }
+        }
     }
     x0 = v->bx + (int)u0; y0 = v->by - (int)w0;
     x1 = v->bx + (int)u1; y1 = v->by - (int)w1;
     dx = x1 > x0 ? x1 - x0 : x0 - x1;
     dy = y1 > y0 ? y1 - y0 : y0 - y1;
 
-    /* The original puts the ends in order before it draws: FUN_004280f0
-     * takes whichever of the two extents is longer -- the taller one on a
-     * tie -- and swaps the points so that coordinate increases.  It does
-     * that in paper millimetres, where y runs UP, so on screen the taller
-     * sort runs the other way.  That is what decides which end a line type
-     * starts from: Test1.jww's 道路中心線 is stored right to left and comes
-     * out with its first dash at the left. */
-    if (phase == 0 && (dx > dy ? x0 > x1 : y1 > y0)) {
-        int t;
-        t = x0; x0 = x1; x1 = t;
-        t = y0; y0 = y1; y1 = t;
-    }
     if (bits == 0xffffffffu || phase) {
         /* a solid line, or a chord of an ellipse, which is walked whole so
          * the pattern can run on from one chord to the next */
