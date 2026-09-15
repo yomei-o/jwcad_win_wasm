@@ -363,11 +363,16 @@ outside the text areas: 0 differ (0.000%)
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 
 === drawings against the original
-    Test1  outside the text areas: 6709 differ (0.716%)
-           --, 6166 are one pixel out (92%) and 543 are somewhere else entirely
-    Test7  outside the text areas: 12834 differ (1.370%)
-           --, 10386 are one pixel out (81%) and 2448 are somewhere else entirely
+    Test1  outside the text areas: 4597 differ (0.491%)
+           --, 3864 are one pixel out (84%) and 733 are somewhere else entirely
+    Test7  outside the text areas: 10315 differ (1.101%)
+           --, 7964 are one pixel out (77%) and 2351 are somewhere else entirely
 ```
+
+同梱 15 枚ぶんは `sh tools/refshots.sh && sh tools/scoreall.sh`
+（基準画像は**前面で**撮る必要があります。背景の `PrintWindow` では
+作図領域が当てになりません）。いまは画布に対して 0.10%〜1.67%、
+一番よいのが `Test5.jww` の 0.104%、悪いのが下の「原典が一部を描かない」3 枚です。
 
 図面のほうは、**字形の入る矩形を別勘定**にしてこの数字です
 （`tests/shot.exe` が図面から矩形を書き出し、`tools/cmp.py` がそれを外します）。
