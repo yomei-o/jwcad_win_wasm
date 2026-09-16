@@ -18,7 +18,8 @@
 /* The ids are the resource ids the toolbars send; src/gen/cmds.h has the one
    for each button on the screen. */
 enum {
-    JW_CMD_SEN = 0x8003             /* 線 -- the one the original starts in */
+    JW_CMD_SEN = 0x8003,            /* 線 -- the one the original starts in */
+    JW_CMD_TEN = 0x8011             /* 点 */
 };
 
 int  jw_cmd(void);                  /* the current command */

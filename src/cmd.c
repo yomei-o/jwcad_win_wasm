@@ -30,6 +30,8 @@ const char *jw_cmd_prompt(void)
 {
     if (current == JW_CMD_SEN)
         return step == 0 ? JW_STR_5320 : JW_STR_5321;
+    if (current == JW_CMD_TEN)
+        return JW_STR_5376;
     /* Every other command puts its own string there; which one is in that
        command's class and has not been read out of the binary yet, so rather
        than make one up the line keeps what it had. */
@@ -58,6 +60,18 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button)
 {
     if (button != 0)
         return;                 /* (R) is Read -- snapping, not done yet */
+    if (current == JW_CMD_TEN) {
+        /* CZukeiTen: one point and it is placed.  Its own prompt never
+           changes while it waits (FUN_004efbb0(0x1500)). */
+        if (d) {
+            jw_obj *o = jw_add(d, JW_TEN);
+            if (o) {
+                o->d[0] = x;
+                o->d[1] = y;
+            }
+        }
+        return;
+    }
     if (current != JW_CMD_SEN)
         return;
     if (step == 0) {

@@ -9,7 +9,8 @@
  *     the original's ON_UPDATE_COMMAND_UI handler does (FUN_00511c20);
  *   - a disabled button does nothing;
  *   - two clicks in the drawing area add one line, with the ends where they
- *     were clicked and the attributes CData's constructor gives it.
+ *     were clicked and the attributes CData's constructor gives it;
+ *   - 点 puts one down with a single click.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -138,9 +139,32 @@ int main(int argc, char **argv)
         ck(fabs(o->d[0] - mx0) < 1e-9 && fabs(o->d[1] - my0) < 1e-9
            && fabs(o->d[2] - mx1) < 1e-9 && fabs(o->d[3] - my1) < 1e-9,
            "with the ends where they were clicked");
-        ck(jw_sx(v, o->d[0]) == 300 && jw_sy(v, o->d[1]) == 200,
-           "and those millimetres map back to the pixel clicked");
+        /* Back within a pixel: both ways round truncate towards zero, which
+           is what the original's cast does too (FUN_004b6d60 forward, and
+           the inverse beside it), so a point left of the pinned pixel comes
+           back one to the right. */
+        ck(abs(jw_sx(v, o->d[0]) - 300) <= 1 && abs(jw_sy(v, o->d[1]) - 200) <= 1,
+           "and those millimetres map back to within a pixel of the click");
     }
+    /* 点: one click and it is there */
+    k = find_btn(0x8011);
+    ck(k >= 0, "点 has a button");
+    btn_mid(k, &x, &y);
+    app_press(x, y, 0);
+    ck(jw_cmd() == 0x8011, "the command is now 点");
+    d = app_drawing();
+    before = d ? d->ndrawn : 0;
+    app_press(400, 300, 0);
+    d = app_drawing();
+    ck(d && d->ndrawn == before + 1, "one click adds one element");
+    if (d && d->ndrawn == before + 1) {
+        const jw_obj *o = &d->obj[before];
+        ck(o->cls == JW_TEN, "and it is a point");
+        ck(abs(jw_sx(app_view(), o->d[0]) - 400) <= 1
+           && abs(jw_sy(app_view(), o->d[1]) - 300) <= 1,
+           "within a pixel of where it was clicked");
+    }
+
     app_paint();
     if (argc > 2)
         png_rgb(argv[2], app_fb()->w, app_fb()->h, app_fb()->px);
