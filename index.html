@@ -26,12 +26,17 @@
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
-<script src="jwcad.js"></script>
+<script src="jwcad.js?v=7"></script>
 <script>
 (async function () {
   const canvas = document.getElementById('screen');
   const ctx = canvas.getContext('2d', { alpha: false });
-  const mod = await createJwcad();
+  // While this is being worked on, ask for the wasm with a fresh query each
+  // time: GitHub Pages caches it for ten minutes, and a stale one looks
+  // exactly like a bug in the page.
+  const mod = await createJwcad({
+    locateFile: p => p + '?v=' + Date.now()
+  });
 
   const resize = mod.cwrap('jw_resize', 'number', ['number', 'number']);
   const width  = mod.cwrap('jw_width',  'number', []);
@@ -112,6 +117,31 @@
     if (composing) return;
     if (e.key === 'Backspace') { if (key(8)) present(); e.preventDefault(); }
   });
+  // The hidden input is only needed for a kanji conversion, which has to go
+  // through a real element.  Plain characters are taken off the window as
+  // well, so typing works whether or not the focus ended up where it was
+  // meant to -- clicking the canvas moves the focus back to the page, and
+  // the 文字 command would otherwise take nothing.
+  window.addEventListener('keydown', e => {
+    if (composing || cmdid() !== 0x8026) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key === 'Backspace') {
+      if (key(8)) present();
+      e.preventDefault();
+    } else if (e.key.length === 1 && e.key.charCodeAt(0) >= 0x20) {
+      if (e.key.charCodeAt(0) < 0x80) {
+        if (key(e.key.charCodeAt(0))) present();
+      } else {
+        send(e.key);            /* a single character from outside ASCII */
+      }
+      e.preventDefault();
+    }
+  });
+  // and keep the input focused while the 文字 command is on, so the IME has
+  // somewhere to put its candidates
+  ime.addEventListener('blur', () => {
+    if (cmdid() === 0x8026) setTimeout(aim, 0);
+  });
   const move  = mod.cwrap('jw_move',  'number', ['number', 'number']);
   const save      = mod.cwrap('jw_save', 'number', []);
   const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
@@ -186,7 +216,7 @@
       if (r === 2) document.getElementById('pick').click();
       else if (r === 3) download();
       else if (r) present();
-      aim();
+      setTimeout(aim, 0);     /* after the browser has moved the focus */
       return;
     }
     drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY,
