@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jw_cad for Windows — WASM 移植</title>
@@ -97,6 +99,21 @@
                      + 'background:#fee;color:#900;font:12px monospace;'
                      + 'padding:2px 6px;display:none';
   document.body.appendChild(oops);
+  // Which build is running, so a stale page can be told from a bug.  The
+  // last line says what the text command is doing right now.
+  const ver = document.createElement('div');
+  ver.style.cssText = 'position:fixed;right:0;bottom:0;z-index:3;'
+                    + 'background:#eef;color:#446;font:11px monospace;'
+                    + 'padding:1px 5px';
+  document.body.appendChild(ver);
+  const VERSION = 8;
+  let lastnote = '';
+  const note = t => {
+    if (t === lastnote) return;
+    lastnote = t;
+    ver.textContent = 'build ' + VERSION + (t ? '  ' + t : '');
+  };
+  note('');
   const complain = e => {
     oops.textContent = String(e && (e.message || e));
     oops.style.display = 'block';
@@ -128,6 +145,9 @@
       ime.style.display = 'none';   /* out of the way of the drawing */
     }
     ime.focus({ preventScroll: true });
+    note(cmdid() === 0x8026
+         ? 'text box ready, focus=' + (document.activeElement === ime)
+         : '');
   };
   // What the IME is still converting is shown in the box, underlined, until
   // it is confirmed -- otherwise typing looks like nothing is happening.
@@ -136,8 +156,12 @@
     for (let i = 0; i < s.length; i++) compu(s.charCodeAt(i));
     present();
   };
-  ime.addEventListener('compositionstart', guard(() => { composing = true; }));
+  ime.addEventListener('compositionstart', guard(() => {
+    composing = true;
+    note('composing');
+  }));
   ime.addEventListener('compositionupdate', guard(e => {
+    note('composing ' + JSON.stringify(e.data || ''));
     showComposing(e.data || '');
   }));
   ime.addEventListener('compositionend', guard(e => {
@@ -145,6 +169,7 @@
     const v = e.data || ime.value;   /* some IMEs leave data empty */
     ime.value = '';
     showComposing('');
+    note('committed ' + JSON.stringify(v || ''));
     send(v);
   }));
   ime.addEventListener('input', guard(e => {
