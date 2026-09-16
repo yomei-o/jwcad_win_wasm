@@ -440,26 +440,41 @@ static const struct { short x, w; } linebuttons[] = {
 #define LINEBTN_Y 5
 #define LINEBTN_H 24
 
-static void paint_buttons(fb_t *fb, int saveable)
+/* What state a toolbar button is in right now.  Both the painting and the
+ * hit test go through this so they cannot disagree.
+ *
+ * A button is pressed when it is the command in force -- that is all the
+ * original's ON_UPDATE_COMMAND_UI handler does for a mode
+ * (pCmdUI->SetCheck(view->current == id), FUN_00511c20 and friends).  The
+ * reference screen was taken in 線, which is why that one came out pressed.
+ * The two buttons that come alive are 上書, once there is a file to write
+ * back to, and 元に戻る, once there is something to take back; both are grey
+ * on the reference screen because neither was true there.
+ */
+int ui_button_state(int k, int saveable, int undoable)
+{
+    const jw_btn_t *b = &jw_buttons[k];
+    int state = b->state;
+
+    if (state != 1)
+        return jw_btn_mode[k] && jw_btn_cmd[k] == jw_cmd() ? 2 : 0;
+    if (b->strip == 464 && b->cell == 2 && saveable)
+        return 0;
+    if (jw_btn_cmd[k] == 0xe12b && undoable)
+        return 0;
+    return 1;
+}
+
+static void paint_buttons(fb_t *fb, int saveable, int undoable)
 {
     int k;
 
     for (k = 0; k < JW_NBUTTONS; k++) {
         const jw_btn_t *b = &jw_buttons[k];
         const jw_bitmap_t *bm = jw_bitmap(b->strip);
-        int state = b->state;
+        int state = ui_button_state(k, saveable, undoable);
         int dx, dy;
 
-        /* A button is pressed when it is the command in force -- that is all
-         * the original's ON_UPDATE_COMMAND_UI handler does (FUN_00511c20:
-         * pCmdUI->SetCheck(view->current == id)).  The reference screen was
-         * taken in 線, which is why that one came out pressed. */
-        if (state != 1)
-            state = jw_btn_cmd[k] == jw_cmd() ? 2 : 0;
-        /* 上書 comes alive once there is a file to write back to.  The
-         * layout was read off the reference screen, which has none. */
-        if (b->strip == 464 && b->cell == 2 && saveable)
-            state = 0;
         dx = CELL_DX + (state == 2);
         dy = CELL_DY + (state == 2);
 
@@ -472,7 +487,8 @@ static void paint_buttons(fb_t *fb, int saveable)
     }
 }
 
-void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable)
+void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
+              int undoable)
 {
     rect_t v;
 
@@ -503,7 +519,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable)
     paint_samples(fb);
     paint_status(fb);
     status_text(fb, d, zoom);
-    paint_buttons(fb, saveable);
+    paint_buttons(fb, saveable, undoable);
 
     {
         int k;

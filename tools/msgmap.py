@@ -82,8 +82,18 @@ def main():
         i += 4
 
     want = None
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and sys.argv[1] != '--update':
         want = int(sys.argv[1], 0)
+    if len(sys.argv) > 1 and sys.argv[1] == '--update':
+        # "which function updates the look of this command", for
+        # tools/mkcmd.py: the view's SetCheck handler means the command is a
+        # mode and the button that sends it is drawn pressed while it is on
+        for addr, run in sorted(entries.items()):
+            for m, c, n, l, s, p in run:
+                if m == 0x0111 and c == 0xffffffff:
+                    for i in range(n, l + 1):
+                        print('%d %08x' % (i, p))
+        return
     total = 0
     for addr, run in sorted(entries.items()):
         rows = []
@@ -92,7 +102,11 @@ def main():
                 continue
             name = WM.get(m, SPECIAL.get(m, '0x%04x' % m))
             rng = '%d' % n if n == l else '%d..%d' % (n, l)
-            rows.append('  %-14s %-12s sig %2d  %08x' % (name, rng, s, p))
+            # MFC puts CN_COMMAND (0) in nCode for ON_COMMAND and
+            # CN_UPDATE_COMMAND_UI (0xffff) for ON_UPDATE_COMMAND_UI
+            kind = 'UPDATE' if c == 0xffffffff else 'CMD   ' if c == 0 else '%-6d' % c
+            rows.append('  %-14s %s %-12s sig %2d  %08x'
+                        % (name, kind, rng, s, p))
         if rows:
             total += len(rows)
             print('map at %08x, %d entries' % (addr, len(run)))

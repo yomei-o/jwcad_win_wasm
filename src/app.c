@@ -96,10 +96,20 @@ int app_press(int x, int y, int button)
     int k = hit_button(x, y);
 
     if (k >= 0) {
-        if (button != 0 || jw_buttons[k].state == 1)
+        int cmd = jw_btn_cmd[k];
+        if (button != 0
+            || ui_button_state(k, have_file, jw_cmd_can_undo()) == 1)
             return 0;           /* a disabled button does nothing */
-        jw_cmd_set(jw_btn_cmd[k]);
-        return 1;
+        if (jw_btn_mode[k]) {
+            jw_cmd_set(cmd);
+            return 1;
+        }
+        /* an action: it runs, and never becomes "the command" */
+        if (cmd == JW_CMD_UNDO && jw_cmd_can_undo()) {
+            jw_cmd_undo(have_drawing ? &drawing : 0);
+            return 1;
+        }
+        return 0;
     }
     if (view_ready && in_view(x, y)) {
         double mx, my;
@@ -185,6 +195,7 @@ void app_new(void)
     have_drawing = 1;
     have_file = 0;
     last_error = "";
+    jw_cmd_reset();
     app_fit();
 }
 
@@ -203,6 +214,7 @@ int app_open(const unsigned char *b, long n)
     have_drawing = 1;
     have_file = 1;
     last_error = "";
+    jw_cmd_reset();
     app_fit();
     return 1;
 }
@@ -224,7 +236,8 @@ void app_paint(void)
     if (!fb.px)
         return;
     ui_paint(&fb, have_drawing ? &drawing : 0,
-             view_ready ? view.scale * JW_SCREEN_MM_PER_PX : 0.0, have_file);
+             view_ready ? view.scale * JW_SCREEN_MM_PER_PX : 0.0,
+             have_file, jw_cmd_can_undo());
     if (have_drawing) {
         if (!view_ready)
             app_fit();

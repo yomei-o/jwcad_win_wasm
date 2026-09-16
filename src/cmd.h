@@ -20,11 +20,13 @@
 enum {
     JW_CMD_SEN = 0x8003,            /* 線 -- the one the original starts in */
     JW_CMD_TEN = 0x8011,            /* 点 */
-    JW_CMD_ENKO = 0x8005            /* 円 */
+    JW_CMD_ENKO = 0x8005,           /* 円 */
+    JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
 int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
+void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */
 
 /* The left-hand text of the status line, in CP932.  Each command puts its
    own prompt there as it goes (FUN_004efbb0 with a string id). */
@@ -36,6 +38,13 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button);
 
 /* The mouse moved to here, in paper millimetres. */
 void jw_cmd_track(double x, double y);
+
+/* Undoing.  The view enables 元に戻る when there is something to undo --
+   its ON_UPDATE_COMMAND_UI (FUN_00511a50) is Enable(list is not empty) --
+   and the button is greyed out on docs/ref_start.png because there is not.
+   What this can take back is the elements the commands here have added. */
+int  jw_cmd_can_undo(void);
+void jw_cmd_undo(jw_drawing *d);
 
 /* The element the command is part way through, if any: 1, and the element
    filled in ready to draw.  It is worked out the same way as the one that

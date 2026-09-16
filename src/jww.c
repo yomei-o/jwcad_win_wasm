@@ -495,6 +495,17 @@ jw_obj *jw_add(jw_drawing *d, int cls)
     return o;
 }
 
+void jw_remove(jw_drawing *d, int i)
+{
+    if (i < 0 || i >= d->nobj)
+        return;
+    memmove(&d->obj[i], &d->obj[i + 1],
+            (size_t)(d->nobj - 1 - i) * sizeof d->obj[0]);
+    d->nobj--;
+    if (i < d->ndrawn)
+        d->ndrawn--;
+}
+
 int jw_parse(jw_drawing *d, const unsigned char *b, long n)
 {
     ar_t a;

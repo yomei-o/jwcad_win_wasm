@@ -21,6 +21,9 @@
  * and 0.13163, and 1/7.62 sits in the middle. */
 #define JW_SCREEN_MM_PER_PX (1.0 / 7.62)
 
+/* What state toolbar button `k` is in: 0 normal, 1 disabled, 2 pressed. */
+int ui_button_state(int k, int saveable, int undoable);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 
@@ -28,7 +31,10 @@ void ui_view_rect(int cw, int ch, rect_t *r);
    not, the layer bars show which layers the drawing uses and which one it is
    written to.  `saveable` is whether 上書 is drawn enabled: the original
    greys it out until there is a file to write back to, which is why it is
-   grey on docs/ref_start.png and black once a drawing has been opened. */
-void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable);
+   grey on docs/ref_start.png and black once a drawing has been opened.
+   `undoable` is the same for 元に戻る, which the view enables when there is
+   something to take back (FUN_00511a50). */
+void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
+              int undoable);
 
 #endif

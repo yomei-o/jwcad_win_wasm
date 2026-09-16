@@ -85,6 +85,9 @@ void jw_free(jw_drawing *d);
    array could not grow. */
 jw_obj *jw_add(jw_drawing *d, int cls);
 
+/* Take element `i` out of the drawing. */
+void jw_remove(jw_drawing *d, int i);
+
 /* The text of an object, as CP932 bytes. */
 const char *jw_str(const jw_drawing *d, int off);
 

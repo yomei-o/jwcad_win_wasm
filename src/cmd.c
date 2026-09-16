@@ -18,6 +18,10 @@ static double sx, sy;           /* the first point, in paper millimetres */
 static double tx, ty;           /* where the mouse is now */
 static int tracking;
 
+/* How many elements the commands here have put in, which is what 元に戻る
+   can take back out.  Adding is all they do so far, so a count is enough. */
+static int added;
+
 #define PI 3.14159265358979323846
 
 int jw_cmd(void)
@@ -29,6 +33,29 @@ void jw_cmd_set(int id)
 {
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
+    step = 0;
+    tracking = 0;
+}
+
+void jw_cmd_reset(void)
+{
+    jw_cmd_set(JW_CMD_SEN);
+    added = 0;
+}
+
+int jw_cmd_can_undo(void)
+{
+    return added > 0;
+}
+
+void jw_cmd_undo(jw_drawing *d)
+{
+    if (!d || added <= 0 || d->ndrawn <= 0)
+        return;
+    /* Everything is added at the end of the drawn elements, so the last one
+       is the one to take back. */
+    jw_remove(d, d->ndrawn - 1);
+    added--;
     step = 0;
     tracking = 0;
 }
@@ -116,6 +143,7 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button)
             if (o) {
                 o->d[0] = x;
                 o->d[1] = y;
+                added++;
             }
         }
         return;
@@ -139,6 +167,7 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button)
                 for (i = 0; i < 8; i++)
                     o->d[i] = tmp.d[i];
                 o->n = tmp.n;
+                added++;
             }
         }
     }

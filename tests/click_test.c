@@ -190,6 +190,19 @@ int main(int argc, char **argv)
         ck(o->n == 1, "with the trailing 1 every whole circle in the samples has");
     }
 
+    /* 元に戻る is an action, not a mode: it runs and the command stays put */
+    k = find_btn(0xe12b);
+    ck(k >= 0 && !jw_btn_mode[k], "元に戻る is an action, not a mode");
+    d = app_drawing();
+    before = d->ndrawn;
+    btn_mid(k, &x, &y);
+    app_press(x, y, 0);
+    d = app_drawing();
+    ck(jw_cmd() == 0x8005, "pressing it leaves the command alone");
+    ck(d->ndrawn == before - 1, "and takes the last element back out");
+    ck(find_btn(0x8003) >= 0 && jw_btn_mode[find_btn(0x8003)],
+       "線 on the other hand is a mode");
+
     app_paint();
     if (argc > 2)
         png_rgb(argv[2], app_fb()->w, app_fb()->h, app_fb()->px);
