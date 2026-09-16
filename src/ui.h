@@ -34,6 +34,10 @@ void ui_view_rect(int cw, int ch, rect_t *r);
    grey on docs/ref_start.png and black once a drawing has been opened.
    `undoable` is the same for 元に戻る, which the view enables when there is
    something to take back (FUN_00511a50). */
+/* The floating box the 文字 command types into.  Drawn over the drawing, so
+   it goes on after it. */
+void ui_textbox(fb_t *fb, const char *line);
+
 void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
               int undoable);
 

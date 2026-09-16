@@ -305,6 +305,9 @@ void app_paint(void)
             jw_draw(&fb, &view, &one);
         }
     }
+    /* the 文字 command's box goes over the drawing */
+    if (jw_cmd() == JW_CMD_MOJI)
+        ui_textbox(&fb, jw_cmd_line());
     if (!rgba)
         return;
     n = fb.w * fb.h;

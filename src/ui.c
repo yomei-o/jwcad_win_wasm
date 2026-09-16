@@ -459,6 +459,52 @@ static void paint_barbutton(fb_t *fb, int x, int y, int w, int h)
     fb_fill(fb, x + 3, y + 3, w - 6, h - 6, C_BTNFACE);
 }
 
+/* The 文字 command's floating box.
+ *
+ * Where it sits and what is on it were read out of the running original the
+ * same way the command bars were (tmp/jwdraw.ps1, the `box` step): it is a
+ * #32770 popup 700x65 with a 684x26 client, at 81,39 in the frame's client
+ * area, carrying a combo box for the text at 3,1 461x26, one for the font at
+ * 471,3 120x20, and a フォント読取 button at 596,3 90x20.
+ *
+ * The frame and the caption are the only part of this port that is not
+ * pixel for pixel: they are a themed window frame -- rounded corners and a
+ * gradient -- rather than something MFC draws flat, and baking those pixels
+ * would cost more than a decoration is worth.  Everything inside is where
+ * the original puts it.
+ */
+#define BOX_X 81
+#define BOX_Y 39
+#define BOX_W 700
+#define BOX_H 65
+#define BOX_CX 8                /* the client's corner inside the box */
+#define BOX_CY 31
+#define BOX_CW 684
+#define BOX_CH 26
+#define C_CAPTION 0x99b4d1u     /* what DrawCaption fills an active one with */
+
+void ui_textbox(fb_t *fb, const char *line)
+{
+    int x = BOX_X, y = BOX_Y, th = jw_text_height();
+
+    fb_fill(fb, x, y, BOX_W, BOX_H, C_BTNFACE);
+    fb_edge(fb, x, y, BOX_W, BOX_H, C_3DLIGHT, C_3DDKSHADOW);
+    fb_fill(fb, x + 2, y + 2, BOX_W - 4, BOX_CY - 4, C_CAPTION);
+    fb_fill(fb, x + BOX_CX, y + BOX_CY, BOX_CW, BOX_CH, C_BTNFACE);
+
+    x += BOX_CX;
+    y += BOX_CY;
+    paint_combo(fb, x + 3, y + 1, 461, 26);
+    paint_combo(fb, x + 471, y + 3, 120, 20);
+    paint_barbutton(fb, x + 596, y + 3, 90, 20);
+    jw_text_px(fb, x + 601, y + 3 + (20 - th) / 2,
+               /* フォント読取, in CP932 */
+               "\x83" "\x74" "\x83" "\x48" "\x83" "\x93" "\x83" "\x67" "\x93" "\xc7" "\x8e" "\xe6", C_BTNTEXT);
+    /* what has been typed, in the first combo's edit */
+    if (line && *line)
+        jw_text_px(fb, x + 6, y + 4 + (20 - th) / 2, line, C_BTNTEXT);
+}
+
 /* The bar for the command in force.  Which controls each one has, and where
  * they sit, was read out of the running original -- see tools/mkbars.py. */
 static void paint_bar(fb_t *fb)
