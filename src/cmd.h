@@ -42,6 +42,13 @@ void jw_cmd_reset(void);            /* back to how it starts, for a new drawing 
 const char *jw_cmd_line(void);
 void jw_cmd_key(int c);             /* a character, or 8 for backspace */
 
+/* What an IME is still converting, shown after the line but not part of it.
+   The original's box is a real edit control and shows it as a matter of
+   course; this port draws its own box, so it has to be told. */
+const char *jw_cmd_compose(void);
+void jw_cmd_compose_clear(void);
+void jw_cmd_compose_key(int c);
+
 /* Whether 線's 水平・垂直 is on.  Pressing 線 while already in 線 flips it,
    which is all that arm of FUN_004fdc40 does when the command before was 線
    as well; with it on a line keeps whichever way the drag went further. */

@@ -71,6 +71,7 @@
   const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
   const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
   const keyu = mod.cwrap('jw_key_u', 'number', ['number']);
+  const compu = mod.cwrap('jw_compose_u', 'number', ['number']);
 
   // A canvas cannot host an IME, so a transparent input is kept over it and
   // focused: the candidate window then appears where the input is, and what
@@ -113,11 +114,22 @@
     }
     ime.focus({ preventScroll: true });
   };
+  // What the IME is still converting is shown in the box, underlined, until
+  // it is confirmed -- otherwise typing looks like nothing is happening.
+  const showComposing = s => {
+    compu(-1);
+    for (let i = 0; i < s.length; i++) compu(s.charCodeAt(i));
+    present();
+  };
   ime.addEventListener('compositionstart', guard(() => { composing = true; }));
+  ime.addEventListener('compositionupdate', guard(e => {
+    showComposing(e.data || '');
+  }));
   ime.addEventListener('compositionend', guard(e => {
     composing = false;
     const v = e.data || ime.value;   /* some IMEs leave data empty */
     ime.value = '';
+    showComposing('');
     send(v);
   }));
   ime.addEventListener('input', guard(e => {

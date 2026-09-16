@@ -237,6 +237,22 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_IME_COMPOSITION:
+        if (lp & GCS_COMPSTR) {
+            /* what is still being converted: shown in the box, underlined */
+            HIMC imc = ImmGetContext(wnd);
+            app_compose(-1);
+            if (imc) {
+                char buf[512];
+                LONG n = ImmGetCompositionStringA(imc, GCS_COMPSTR,
+                                                  buf, sizeof buf);
+                LONG i;
+                for (i = 0; i < n; i++)
+                    app_compose((unsigned char)buf[i]);
+                ImmReleaseContext(wnd, imc);
+            }
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
         if (lp & GCS_RESULTSTR) {
             HIMC imc = ImmGetContext(wnd);
             if (imc) {
@@ -247,6 +263,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                 for (i = 0; i < n; i++)
                     app_key((unsigned char)buf[i]);
                 ImmReleaseContext(wnd, imc);
+                app_compose(-1);
                 if (n > 0) {
                     app_paint();
                     InvalidateRect(wnd, NULL, FALSE);

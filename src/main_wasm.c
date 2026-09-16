@@ -91,6 +91,23 @@ EMSCRIPTEN_KEEPALIVE int jw_key_u(int c)
     return m > 0;
 }
 
+/* The same for what an IME is still converting: -1 clears it, otherwise one
+   UTF-16 unit is added. */
+EMSCRIPTEN_KEEPALIVE int jw_compose_u(int c)
+{
+    unsigned short u;
+    char buf[4];
+    long m, i;
+
+    if (c < 0)
+        return app_compose(-1);
+    u = (unsigned short)c;
+    m = jw_from_utf16(&u, 1, buf, sizeof buf);
+    for (i = 0; i < m && i < (long)sizeof buf; i++)
+        app_compose((unsigned char)buf[i]);
+    return 1;
+}
+
 /* UTF-16 straight from the page, converted here. */
 EMSCRIPTEN_KEEPALIVE int jw_text_in(const unsigned short *s, int n)
 {

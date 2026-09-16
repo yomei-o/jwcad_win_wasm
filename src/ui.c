@@ -483,7 +483,7 @@ static void paint_barbutton(fb_t *fb, int x, int y, int w, int h)
 #define BOX_CH 26
 #define C_CAPTION 0x99b4d1u     /* what DrawCaption fills an active one with */
 
-void ui_textbox(fb_t *fb, const char *line)
+void ui_textbox(fb_t *fb, const char *line, const char *composing)
 {
     int x = BOX_X, y = BOX_Y, th = jw_text_height();
 
@@ -500,9 +500,18 @@ void ui_textbox(fb_t *fb, const char *line)
     jw_text_px(fb, x + 601, y + 3 + (20 - th) / 2,
                /* フォント読取, in CP932 */
                "\x83" "\x74" "\x83" "\x48" "\x83" "\x93" "\x83" "\x67" "\x93" "\xc7" "\x8e" "\xe6", C_BTNTEXT);
-    /* what has been typed, in the first combo's edit */
-    if (line && *line)
-        jw_text_px(fb, x + 6, y + 4 + (20 - th) / 2, line, C_BTNTEXT);
+    /* what has been typed, in the first combo's edit, and after it whatever
+       an IME is still converting -- underlined, the way one is shown in an
+       edit control */
+    {
+        int tx = x + 6, ty = y + 4 + (20 - th) / 2;
+        if (line && *line)
+            tx = jw_text_px(fb, tx, ty, line, C_BTNTEXT);
+        if (composing && *composing) {
+            int end = jw_text_px(fb, tx, ty, composing, C_BTNTEXT);
+            fb_hline(fb, tx, ty + th - 1, end - tx, C_BTNTEXT);
+        }
+    }
 }
 
 /* The bar for the command in force.  Which controls each one has, and where

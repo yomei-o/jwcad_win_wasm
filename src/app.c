@@ -141,11 +141,27 @@ int app_press(int x, int y, int button)
     return 0;
 }
 
+/* Typing changes what is on the screen, so the picture is made again here.
+   A front end that forgets to would show nothing until something else --
+   a mouse move, say -- happened to redraw. */
 int app_key(int c)
 {
     if (jw_cmd() != JW_CMD_MOJI)
         return 0;
     jw_cmd_key(c);
+    app_paint();
+    return 1;
+}
+
+int app_compose(int c)
+{
+    if (jw_cmd() != JW_CMD_MOJI)
+        return 0;
+    if (c < 0)
+        jw_cmd_compose_clear();
+    else
+        jw_cmd_compose_key(c);
+    app_paint();
     return 1;
 }
 
@@ -327,7 +343,7 @@ void app_paint(void)
     }
     /* the 文字 command's box goes over the drawing */
     if (jw_cmd() == JW_CMD_MOJI)
-        ui_textbox(&fb, jw_cmd_line());
+        ui_textbox(&fb, jw_cmd_line(), jw_cmd_compose());
     if (!rgba)
         return;
     n = fb.w * fb.h;

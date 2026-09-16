@@ -25,6 +25,9 @@ const jw_drawing *app_drawing(void);
    Returns 1 when the screen has to be repainted. */
 int app_key(int c);
 
+/* What an IME is still converting: -1 clears it, otherwise a CP932 byte. */
+int app_compose(int c);
+
 /* The view.  Zooming keeps the drawing under the point the user aimed at. */
 void app_fit(void);
 void app_zoom(double factor, int sx, int sy);

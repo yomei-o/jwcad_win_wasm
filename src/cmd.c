@@ -68,6 +68,9 @@ static int line_n;
 /* the typed line put in the drawing's pool, so the preview can be drawn
    without putting it there again on every mouse move */
 static int line_off = -1, line_gen, line_shown = -1;
+/* what an IME is still converting */
+static char comp_buf[256];
+static int comp_n;
 
 /* 複線: the line, and how far to one side the copy goes. */
 static int para_step;
@@ -160,6 +163,23 @@ const char *jw_cmd_line(void)
     return line_buf;
 }
 
+const char *jw_cmd_compose(void)
+{
+    comp_buf[comp_n] = 0;
+    return comp_buf;
+}
+
+void jw_cmd_compose_clear(void)
+{
+    comp_n = 0;
+}
+
+void jw_cmd_compose_key(int c)
+{
+    if (c >= 0 && c < 256 && comp_n < (int)sizeof comp_buf - 2)
+        comp_buf[comp_n++] = (char)c;
+}
+
 void jw_cmd_key(int c)
 {
     line_gen++;
@@ -245,6 +265,7 @@ void jw_cmd_set(int id)
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
     step = 0;
+    comp_n = 0;
     cut_step = 0;
     corner_step = 0;
     stretch_step = 0;
