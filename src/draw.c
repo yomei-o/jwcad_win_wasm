@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "draw.h"
+#include "gen/circle.h"
 #include "text.h"
 
 #define PI 3.14159265358979323846
@@ -409,8 +410,45 @@ static int obj_wide(const jw_drawing *d, const jw_obj *o)
  *
  * The points come out in order round the circle so a line type can advance
  * along it, and so an arc can start where it is told to.
+ *
+ * Up to radius 256 the quadrant is GDI's own, written down by asking it
+ * (src/gen/circle.h, tools/gdicirc.c).  GDI's circle is not the textbook
+ * midpoint one -- for radius 5 the textbook walk goes (0,5) (1,5) (2,5)
+ * (3,4) and GDI's goes (0,5) (1,5) (2,4) (3,4) -- and nothing as simple as a
+ * fudged radius reproduces it.  Past 256 the midpoint ellipse below is used
+ * instead, which is the right family but not the same curve.
  */
 #define ARC_MAX 65536
+
+/* Fill the quadrant from GDI's own walk.  Returns how many points, or 0 if
+   that radius is not in the table. */
+static int circle_table(int rp, int odd, short *qx, short *qy)
+{
+    const unsigned short *off = odd ? jw_circ_off1 : jw_circ_off0;
+    const unsigned short *len = odd ? jw_circ_len1 : jw_circ_len0;
+    const unsigned char *bits = odd ? jw_circ_bits1 : jw_circ_bits0;
+    int n = 0, x = 0, y = rp, i, base, steps;
+
+    if (rp < 1 || rp > JW_CIRC_RMAX || len[rp] == 0)
+        return 0;
+    base = off[rp];
+    steps = len[rp];
+    qx[n] = 0;
+    qy[n] = (short)rp;
+    n++;
+    for (i = 0; i < steps; i++) {
+        int k = base + i;
+        int c = (bits[k >> 2] >> ((k & 3) * 2)) & 3;
+        if (c != 1)
+            x++;
+        if (c != 0)
+            y--;
+        qx[n] = (short)x;
+        qy[n] = (short)y;
+        n++;
+    }
+    return n;
+}
 
 static int circle_points(int rp, int odd, short *out)
 {
@@ -423,6 +461,9 @@ static int circle_points(int rp, int odd, short *out)
 
     if (rp <= 0 || rp >= ARC_MAX / 8 - 2)
         return 0;
+    nq = circle_table(rp, odd, qx, qy);
+    if (nq > 0)
+        goto mirror;
     qx[nq] = (short)x; qy[nq] = (short)y; nq++;
     p = (double)ry2 - (double)rx2 * rp + 0.25 * rx2;
     while (px < py) {
@@ -456,6 +497,7 @@ static int circle_points(int rp, int odd, short *out)
      * screen (which is the direction the file's angles run).  An odd box is
      * centred on the pixel, an even one half a pixel up and to the left, so
      * the two sides of each axis come from different offsets. */
+mirror:
     {
         int lo = odd ? 0 : -1;               /* the right and bottom sides  */
         for (i = nq - 1; i >= 0; i--) {      /* 0 to 90 degrees   */

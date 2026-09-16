@@ -4,6 +4,7 @@
 #include "theme.h"
 #include "gen/jwres.h"
 #include "gen/layout.h"
+#include "gen/bars.h"
 #include "gen/cmds.h"
 #include "cmd.h"
 #include "text.h"
@@ -384,13 +385,35 @@ static void paint_status(fb_t *fb)
  * ordinary Windows controls.  Positions are measured off the reference; the
  * dialog template (DIALOG 280 for the line command) gives them in dialog
  * units, which only convert to pixels once the dialog font is known. */
-static const short checkboxes[] = { 18, 71, 435, 501, 587, 678, 750 };
-#define NCHECKBOX ((int)(sizeof checkboxes / sizeof checkboxes[0]))
 #define CHECK_Y 11
 #define CHECK_W 13
 #define CHECK_H 12
 
-static void paint_checkbox(fb_t *fb, int x, int y)
+/* The tick Windows itself puts in a checked box.  Taken from a real
+ * BS_AUTOCHECKBOX printed into a memory bitmap with WM_PRINTCLIENT
+ * (tmp/dfc2.c -- no window is ever shown), so it is the button control's own
+ * glyph, not a drawing of one.  Rows and columns are from the box's corner. */
+static void paint_tick(fb_t *fb, int x, int y)
+{
+    /* col ranges per row, from the control's own bitmap */
+    static const signed char run[7][4] = {
+        { 9, 9, -1, -1 },
+        { 8, 9, -1, -1 },
+        { 3, 3,  7,  9 },
+        { 3, 4,  6,  8 },
+        { 3, 7, -1, -1 },
+        { 4, 6, -1, -1 },
+        { 5, 5, -1, -1 }
+    };
+    int r, i, c;
+
+    for (r = 0; r < 7; r++)
+        for (i = 0; i < 4; i += 2)
+            for (c = run[r][i]; run[r][i] >= 0 && c <= run[r][i + 1]; c++)
+                fb_fill(fb, x + c, y + 3 + r, 1, 1, C_BTNTEXT);
+}
+
+static void paint_checkbox(fb_t *fb, int x, int y, int checked)
 {
     fb_hline(fb, x, y, CHECK_W - 1, C_BTNSHADOW);
     fb_vline(fb, x, y, CHECK_H, C_BTNSHADOW);
@@ -400,21 +423,17 @@ static void paint_checkbox(fb_t *fb, int x, int y)
     fb_vline(fb, x + CHECK_W - 2, y + 1, CHECK_H - 1, C_3DLIGHT);
     fb_hline(fb, x + 1, y + CHECK_H - 1, CHECK_W - 2, C_3DLIGHT);
     fb_fill(fb, x + 2, y + 2, CHECK_W - 4, CHECK_H - 3, C_WINDOW);
+    if (checked)
+        paint_tick(fb, x, y);
 }
 
-static const struct { short x, w; } combos[] = {
-    { 185,  98 },
-    { 319, 110 },
-};
-#define NCOMBO ((int)(sizeof combos / sizeof combos[0]))
 #define COMBO_Y 8
 #define COMBO_H 20
 #define DROP_W 17
 #define DROP_H 16
 
-static void paint_combo(fb_t *fb, int x, int w)
+static void paint_combo(fb_t *fb, int x, int y, int w, int h)
 {
-    int y = COMBO_Y, h = COMBO_H;
     int dx = x + w - 19, dy = y + 2;
     int i;
 
@@ -431,14 +450,61 @@ static void paint_combo(fb_t *fb, int x, int w)
         fb_hline(fb, dx + 4 + i, dy + 6 + i, 7 - 2 * i, C_BTNTEXT);
 }
 
-/* The two wide buttons that show the current line type: an ordinary raised
- * button sitting in a one-pixel sunken groove. */
-static const struct { short x, w; } linebuttons[] = {
-    { 517, 63 },
-    { 603, 65 },
-};
-#define LINEBTN_Y 5
-#define LINEBTN_H 24
+/* A raised button sitting in a one-pixel sunken groove, the way the command
+   bar's wide buttons look. */
+static void paint_barbutton(fb_t *fb, int x, int y, int w, int h)
+{
+    fb_edge(fb, x, y, w, h, C_BTNSHADOW, C_BTNHILIGHT);
+    button_frame(fb, x + 1, y + 1, w - 2, h - 2, 0);
+    fb_fill(fb, x + 3, y + 3, w - 6, h - 6, C_BTNFACE);
+}
+
+/* The bar for the command in force.  Which controls each one has, and where
+ * they sit, was read out of the running original -- see tools/mkbars.py. */
+static void paint_bar(fb_t *fb)
+{
+    const jw_ctl_t *c = jw_bar_32771;
+    int n = (int)(sizeof jw_bar_32771 / sizeof jw_bar_32771[0]);
+    int cmd = jw_cmd(), i;
+    /* the labels are centred in their control the way Windows centres them;
+       the port's glyphs are taller than the original's, and without this the
+       bottom rows of them fall outside the bar's text area */
+    int th = jw_text_height();
+
+    for (i = 0; i < JW_NBARS; i++)
+        if (jw_bars[i].cmd == cmd) {
+            c = jw_bars[i].c;
+            n = jw_bars[i].n;
+            break;
+        }
+    for (i = 0; i < n; i++) {
+        int on = 0;
+        switch (c[i].kind) {
+        case JW_CTL_CHECK:
+            /* how the original has it on entering the command, read out
+               with BM_GETCHECK, and then whatever the port itself changes */
+            on = c[i].checked;
+            if (cmd == JW_CMD_SEN && c[i].x == 71)
+                on = jw_cmd_hv();
+            paint_checkbox(fb, c[i].x, c[i].y, on);
+            jw_text_px(fb, c[i].x + CHECK_W + 3, c[i].y + (c[i].h - th) / 2,
+                       c[i].text, c[i].enabled ? C_BTNTEXT : C_GRAYTEXT);
+            break;
+        case JW_CTL_BUTTON:
+            paint_barbutton(fb, c[i].x, c[i].y, c[i].w, c[i].h);
+            jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                       c[i].text, c[i].enabled ? C_BTNTEXT : C_GRAYTEXT);
+            break;
+        case JW_CTL_STATIC:
+            jw_text_px(fb, c[i].x, c[i].y + (c[i].h - th) / 2, c[i].text,
+                       c[i].enabled ? C_BTNTEXT : C_GRAYTEXT);
+            break;
+        case JW_CTL_COMBO:
+            paint_combo(fb, c[i].x, c[i].y, c[i].w, c[i].h);
+            break;
+        }
+    }
+}
 
 /* What state a toolbar button is in right now.  Both the painting and the
  * hit test go through this so they cannot disagree.
@@ -501,20 +567,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
     fb_edge(fb, v.x - 1, v.y - 1, v.w + 2, v.h + 2, C_3DDKSHADOW, C_3DLIGHT);
     fb_fill(fb, v.x, v.y, v.w, v.h, C_WINDOW);
 
-    {
-        int k;
-        for (k = 0; k < NCHECKBOX; k++)
-            paint_checkbox(fb, checkboxes[k], CHECK_Y);
-        for (k = 0; k < NCOMBO; k++)
-            paint_combo(fb, combos[k].x, combos[k].w);
-        for (k = 0; k < 2; k++) {
-            int x = linebuttons[k].x, w = linebuttons[k].w;
-            fb_edge(fb, x, LINEBTN_Y, w, LINEBTN_H,
-                    C_BTNSHADOW, C_BTNHILIGHT);
-            button_frame(fb, x + 1, LINEBTN_Y + 1, w - 2, LINEBTN_H - 2, 0);
-            fb_fill(fb, x + 3, LINEBTN_Y + 3, w - 6, LINEBTN_H - 6, C_BTNFACE);
-        }
-    }
+    paint_bar(fb);
     paint_layer_grids(fb, d);
     paint_samples(fb);
     paint_status(fb);

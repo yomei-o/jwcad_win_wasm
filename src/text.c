@@ -23,7 +23,7 @@ static int is_lead(unsigned char c)
 }
 
 /* How many characters, counting a Shift-JIS pair as one. */
-static int count(const char *s)
+int jw_text_count(const char *s)
 {
     int n = 0;
 
@@ -77,6 +77,12 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
     }
 }
 
+int jw_text_height(void)
+{
+    want_fonts();
+    return ank.height;
+}
+
 int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)
 {
     const unsigned char *p = (const unsigned char *)s;
@@ -117,7 +123,7 @@ void jw_text(fb_t *fb, const jw_view *v, const char *s,
     double dx = x1 - x0, dy = y1 - y0;
     double len = sqrt(dx * dx + dy * dy);
     double ux, uy, vx, vy, step;
-    int n = count(s), i;
+    int n = jw_text_count(s), i;
     const unsigned char *p = (const unsigned char *)s;
 
     want_fonts();
