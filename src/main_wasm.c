@@ -8,6 +8,8 @@
  */
 #include <emscripten/emscripten.h>
 
+#include <stdlib.h>
+
 #include "app.h"
 
 EMSCRIPTEN_KEEPALIVE int jw_resize(int w, int h)
@@ -56,17 +58,47 @@ EMSCRIPTEN_KEEPALIVE void jw_fit(void)
 
 /* A click: on a toolbar button it changes the command, in the drawing area
    it gives the command a point. */
-/* Returns 1 when the page should repaint, 2 when the button pressed was one
-   the page has to answer -- 開く, which needs its file picker. */
+/* Returns 1 when the page should repaint, or what the button asked the page
+   to do: 2 to pick a file to open, 3 to hand one back to be saved. */
 EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
 {
     int redraw = app_press(x, y, button);
 
+    switch (app_take_action()) {
+    case JW_ACT_OPEN:
+        return 2;
+    case JW_ACT_SAVE:
+    case JW_ACT_SAVE_AS:
+        return 3;
+    }
     if (redraw)
         app_paint();
-    if (app_take_action() == JW_ACT_OPEN)
-        return 2;
     return redraw;
+}
+
+/* The drawing as a .jww, for the page to hand to the browser as a download.
+   jw_saved_len() is how long it is; the page copies it out and then calls
+   jw_saved_free(). */
+static unsigned char *saved;
+static long saved_n;
+
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_save(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_saved_len(void) { return (int)saved_n; }
+
+EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)

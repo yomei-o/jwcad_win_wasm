@@ -118,6 +118,14 @@ int app_press(int x, int y, int button)
             action = JW_ACT_OPEN;
             return 0;
         }
+        if (cmd == 57603) {             /* 上書 (ID_FILE_SAVE) */
+            action = JW_ACT_SAVE;
+            return 0;
+        }
+        if (cmd == 57604) {             /* 名前を付けて保存 (ID_FILE_SAVE_AS) */
+            action = JW_ACT_SAVE_AS;
+            return 0;
+        }
         return 0;
     }
     if (view_ready && in_view(x, y)) {
@@ -135,6 +143,13 @@ int app_take_action(void)
 
     action = JW_ACT_NONE;
     return a;
+}
+
+int app_save(unsigned char **out, long *n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_write(&drawing, out, n);
 }
 
 int app_move(int x, int y)

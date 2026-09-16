@@ -17,6 +17,9 @@
 
 static const wchar_t CLASS_NAME[] = L"JwWinWasmPort";
 
+/* The file the drawing came from, so 上書 knows where to put it back. */
+static wchar_t current_path[MAX_PATH];
+
 static int load_file(const wchar_t *path)
 {
     FILE *f = _wfopen(path, L"rb");
@@ -34,7 +37,51 @@ static int load_file(const wchar_t *path)
         ok = app_open(b, n);
     fclose(f);
     free(b);
+    if (ok)
+        lstrcpynW(current_path, path, MAX_PATH);
     return ok;
+}
+
+static int save_file(const wchar_t *path)
+{
+    unsigned char *b;
+    long n;
+    FILE *f;
+    int ok;
+
+    if (!app_save(&b, &n))
+        return 0;
+    f = _wfopen(path, L"wb");
+    if (!f) {
+        free(b);
+        return 0;
+    }
+    ok = fwrite(b, 1, (size_t)n, f) == (size_t)n;
+    fclose(f);
+    free(b);
+    if (ok)
+        lstrcpynW(current_path, path, MAX_PATH);
+    return ok;
+}
+
+static int ask_save(HWND wnd)
+{
+    static const wchar_t filter[] = L"Jw_cad (*.jww)\0*.jww\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH];
+
+    lstrcpynW(path, current_path, MAX_PATH);
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.lpstrDefExt = L"jww";
+    o.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&o))
+        return 0;
+    return save_file(path);
 }
 
 /* jw_port.exe [drawing.jww] -- opening one on the command line, as well as
@@ -116,8 +163,20 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     }
     case WM_LBUTTONDOWN: {
         int redraw = app_press((short)LOWORD(lp), (short)HIWORD(lp), 0);
-        if (app_take_action() == JW_ACT_OPEN)
+        switch (app_take_action()) {
+        case JW_ACT_OPEN:
             redraw |= ask_open(wnd);
+            break;
+        case JW_ACT_SAVE:
+            if (current_path[0])
+                save_file(current_path);
+            else
+                ask_save(wnd);
+            break;
+        case JW_ACT_SAVE_AS:
+            ask_save(wnd);
+            break;
+        }
         if (redraw) {
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);

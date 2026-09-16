@@ -72,6 +72,15 @@ typedef struct {
     char *pool;                 /* NUL-separated CP932 strings            */
     int npool, cpool;
 
+    /* Everything before the element list, kept exactly as it came in so it
+       can be written back untouched.  There is far more in the header than
+       this reader looks at, and copying it is the only way to save a drawing
+       without inventing the parts it does not understand. */
+    unsigned char *head;
+    long nhead;
+    /* the schema number CArchive wrote with each class name */
+    unsigned short schema[JW_NCLASS];
+
     const char *error;
 } jw_drawing;
 
@@ -84,6 +93,10 @@ void jw_free(jw_drawing *d);
    and on the write layer of the write layer group.  Returns NULL if the
    array could not grow. */
 jw_obj *jw_add(jw_drawing *d, int cls);
+
+/* Write the drawing back out, header and all.  The caller frees *out.
+   Returns 0 if it could not (no header kept, or out of memory). */
+int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 
 /* Take element `i` out of the drawing. */
 void jw_remove(jw_drawing *d, int i);

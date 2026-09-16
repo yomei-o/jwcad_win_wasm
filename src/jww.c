@@ -403,7 +403,7 @@ static void read_list(ar_t *a, jw_drawing *d)
             unsigned len;
             const unsigned char *nm;
             int k;
-            ar_w(a);                            /* schema */
+            unsigned schema = (unsigned)ar_w(a);
             len = ar_w(a);
             nm = ar_raw(a, (long)len);
             if (!nm)
@@ -426,6 +426,8 @@ static void read_list(ar_t *a, jw_drawing *d)
                 a->bad = 1;
                 break;
             }
+            if (cls >= 0 && cls < JW_NCLASS)
+                d->schema[cls] = (unsigned short)schema;
             if (nload < LOADMAX)
                 load[nload++] = (short)cls;
         } else if (tag & 0x8000) {
@@ -523,6 +525,12 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
         return 0;
     }
     read_header(&a, d);
+    /* everything up to here goes back out untouched when the drawing is
+       saved: the reader understands only part of it */
+    d->nhead = a.o;
+    d->head = (unsigned char *)malloc((size_t)d->nhead);
+    if (d->head)
+        memcpy(d->head, b, (size_t)d->nhead);
     read_list(&a, d);
     d->ndrawn = d->nobj;
     if (d->version > 0x13)
@@ -546,6 +554,8 @@ const char *jw_str(const jw_drawing *d, int off)
 
 void jw_free(jw_drawing *d)
 {
+    free(d->head);
+    d->head = 0;
     free(d->obj);
     free(d->pool);
     memset(d, 0, sizeof *d);

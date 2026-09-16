@@ -63,6 +63,25 @@
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
   const move  = mod.cwrap('jw_move',  'number', ['number', 'number']);
+  const save      = mod.cwrap('jw_save', 'number', []);
+  const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
+  const savedFree = mod.cwrap('jw_saved_free', null, []);
+
+  // 上書 and 名前を付けて保存 both come out here: a browser cannot write
+  // back to the file it was given, so it offers the result as a download.
+  let openedName = 'drawing.jww';
+  function download() {
+    const p = save();
+    if (!p) return;
+    const bytes = mod.HEAPU8.slice(p, p + savedLen());
+    savedFree();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([bytes],
+      { type: 'application/octet-stream' }));
+    a.download = openedName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
 
   async function load(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -70,6 +89,7 @@
     mod.HEAPU8.set(bytes, p);
     const ok = open(p, bytes.length);
     mod._free(p);
+    if (ok) openedName = file.name;
     document.getElementById('msg').textContent =
       ok ? `${file.name} — ${nobj()} 個の要素` : `${file.name}: ${error()}`;
     present();
@@ -109,6 +129,7 @@
     if (e.button === 0) {
       const r = press(x, y, 0);
       if (r === 2) document.getElementById('pick').click();
+      else if (r === 3) download();
       else if (r) present();
       return;
     }

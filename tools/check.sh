@@ -24,6 +24,11 @@ printf '    %s of %s\n' "$(./tests/jww_test.exe orig/*.jww | grep -c '^ok')" \
 ./tests/jww_test.exe orig/*.jww | grep '^BAD' || true
 
 echo
+echo "=== writing a drawing back out: the bytes have to be identical"
+./tests/write_test.exe orig/*.jww | grep -c '^ok' | sed 's/^/    /'
+./tests/write_test.exe orig/*.jww | grep '^BAD' || true
+
+echo
 echo "=== pressing things"
 ./tests/click_test.exe orig/Test1.jww | sed 's/^/    /'
 
