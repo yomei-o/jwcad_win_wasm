@@ -10,8 +10,8 @@
  */
 #include <windows.h>
 #include <commdlg.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "app.h"
 
@@ -146,9 +146,15 @@ static void present(HDC dc)
                       fb->px, &bi, DIB_RGB_COLORS);
 }
 
+/* The right button does two jobs: dragged it moves the drawing, clicked it is
+ * a point for the command in force -- which is what the original's status
+ * line means by "(R)".  Which one it was is settled on the way up, by whether
+ * it moved: a couple of pixels of shake while clicking should not count. */
+#define DRAG_SLOP 3
+
 static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    static int dragging, lastx, lasty;
+    static int dragging, moved, lastx, lasty, downx, downy;
 
     switch (msg) {
     case WM_MOUSEWHEEL: {
@@ -186,18 +192,26 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
         dragging = 1;
-        lastx = (short)LOWORD(lp);
-        lasty = (short)HIWORD(lp);
+        moved = 0;
+        lastx = downx = (short)LOWORD(lp);
+        lasty = downy = (short)HIWORD(lp);
         SetCapture(wnd);
         return 0;
     case WM_MBUTTONUP:
     case WM_RBUTTONUP:
         dragging = 0;
         ReleaseCapture();
+        if (msg == WM_RBUTTONUP && !moved
+            && app_press((short)LOWORD(lp), (short)HIWORD(lp), 1)) {
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
         return 0;
     case WM_MOUSEMOVE: {
         int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
         if (dragging) {
+            if (abs(x - downx) > DRAG_SLOP || abs(y - downy) > DRAG_SLOP)
+                moved = 1;
             app_pan(x - lastx, y - lasty);
             lastx = x;
             lasty = y;

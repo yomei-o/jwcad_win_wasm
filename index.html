@@ -133,7 +133,8 @@
       else if (r) present();
       return;
     }
-    drag = { x: e.clientX, y: e.clientY };
+    drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY,
+             right: e.button === 2, moved: false };
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', e => {
@@ -142,11 +143,23 @@
       if (move(x, y)) present();
       return;
     }
+    if (Math.abs(e.clientX - drag.x0) > 3 || Math.abs(e.clientY - drag.y0) > 3)
+      drag.moved = true;
     pan(e.clientX - drag.x, e.clientY - drag.y);
-    drag = { x: e.clientX, y: e.clientY };
+    drag.x = e.clientX;
+    drag.y = e.clientY;
     present();
   });
-  canvas.addEventListener('pointerup', e => { drag = null; });
+  // A right click that did not move is a point for the command in force --
+  // the "(R)" the original's status line talks about.  A right drag moves
+  // the sheet, as it did before.
+  canvas.addEventListener('pointerup', e => {
+    if (drag && drag.right && !drag.moved) {
+      const [x, y] = at(e);
+      if (press(x, y, 1)) present();
+    }
+    drag = null;
+  });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('keydown', e => {
     if (e.key === 'Home') { fitv(); present(); }

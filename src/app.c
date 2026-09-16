@@ -101,7 +101,11 @@ int app_press(int x, int y, int button)
         if (button != 0
             || ui_button_state(k, have_file, jw_cmd_can_undo()) == 1)
             return 0;           /* a disabled button does nothing */
-        if (jw_btn_mode[k]) {
+        if (jw_btn_mode[k] || cmd == JW_CMD_ZOKUSEI) {
+            /* 属性取得 is not a mode in the drawn sense -- the original has
+               no ON_UPDATE_COMMAND_UI for it, so its button is never shown
+               pressed -- but it does become the command: the click after it
+               is what picks the element to take the pen from. */
             jw_cmd_set(cmd);
             return 1;
         }
@@ -131,7 +135,7 @@ int app_press(int x, int y, int button)
     if (view_ready && in_view(x, y)) {
         double mx, my;
         to_paper(x, y, &mx, &my);
-        jw_cmd_point(have_drawing ? &drawing : 0, mx, my, button);
+        jw_cmd_point(have_drawing ? &drawing : 0, &view, mx, my, button);
         return 1;
     }
     return 0;
@@ -155,13 +159,13 @@ int app_save(unsigned char **out, long *n)
 int app_move(int x, int y)
 {
     double mx, my;
-    jw_obj o;
+    jw_obj o[JW_CMD_MAXFIG];
 
     if (!view_ready || !in_view(x, y))
         return 0;
     to_paper(x, y, &mx, &my);
     jw_cmd_track(mx, my);
-    return jw_cmd_pending(&o);
+    return jw_cmd_pending(o, JW_CMD_MAXFIG) > 0;
 }
 
 int app_resize(int w, int h)
@@ -281,12 +285,14 @@ void app_paint(void)
            its provisional figure through a raster op (it has a SetROP2
            wrapper at FUN_0079f1b8) which has not been traced yet, so this
            just draws the element that is about to exist. */
-        jw_obj o;
-        if (view_ready && have_drawing && jw_cmd_pending(&o)) {
+        jw_obj o[JW_CMD_MAXFIG];
+        int n;
+        if (view_ready && have_drawing
+            && (n = jw_cmd_pending(o, JW_CMD_MAXFIG)) > 0) {
             jw_drawing one = drawing;
             ui_view_rect(fb.w, fb.h, &view.clip);
-            one.obj = &o;
-            one.nobj = one.ndrawn = 1;
+            one.obj = o;
+            one.nobj = one.ndrawn = n;
             jw_draw(&fb, &view, &one);
         }
     }

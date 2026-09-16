@@ -6,7 +6,10 @@ The status line's prompts are string-table entries: the 線 command shows
 5320 while it waits for the first point and 5321 while it waits for the
 second (CZukeiSen calls FUN_004efbb0(0x14c8) and (0x14c9) at those two
 points), 点 shows 5376 (CZukeiTen, FUN_004efbb0(0x1500)), and 円 shows 5309
-then 5301 (CZukeiEnko, FUN_004efbb0(0x14bd) and (0x14b5)).  They are written out as CP932 bytes because that is how the font
+then 5301 (CZukeiEnko, FUN_004efbb0(0x14bd) and (0x14b5)), and 消去 shows
+10111 (CZukeiShoukyo, FUN_004efbb0(0x277f)), which is also where the two
+buttons' jobs are written down: (L) is a partial erase, (R) deletes the
+whole element.  They are written out as CP932 bytes because that is how the font
 is indexed, and as escapes so this file stays plain ASCII.
 """
 WANT = [
@@ -15,6 +18,18 @@ WANT = [
     (5376, 'where to put a point'),
     (5309, 'the centre of a circle'),
     (5301, 'a point the circle passes through'),
+    (10111, 'what the two buttons do when erasing'),
+    (10112, 'the first end of the piece to take out of a line'),
+    (10113, 'the second end of it'),
+    (10114, 'the first end of the piece to take out of a circle'),
+    (10115, 'the second end of it'),
+    (5340, 'the first line of a corner'),
+    (5341, 'the second line of it'),
+    (5336, 'the line to stretch or shorten'),
+    (5338, 'where its end should go'),
+    (5305, 'the line to make a parallel of'),
+    (5366, 'which side to put it'),
+    (5263, 'the element to take the pen and layer from'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

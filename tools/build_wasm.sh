@@ -12,7 +12,7 @@ EXPORTS=_main,_jw_resize,_jw_width,_jw_height,_jw_rgba,_malloc,_free
 EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj,_jw_zoom,_jw_pan,_jw_fit
 EXPORTS=$EXPORTS,_jw_press,_jw_move
 EXPORTS=$EXPORTS,_jw_save,_jw_saved_len,_jw_saved_free
-SRC="src/main_wasm.c src/app.c src/cmd.c src/ui.c src/fb.c src/jww.c src/jwwrite.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c"
+SRC="src/main_wasm.c src/cp932.c src/pick.c src/app.c src/cmd.c src/ui.c src/fb.c src/jww.c src/jwwrite.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c"
 
 # `cmd /c start /WAIT` does not hand emcc's exit status back, so without the
 # check at the end a compile error is announced as a successful build and the

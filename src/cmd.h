@@ -14,13 +14,21 @@
 #define JW_CMD_H
 
 #include "jww.h"
+#include "view.h"
 
 /* The ids are the resource ids the toolbars send; src/gen/cmds.h has the one
    for each button on the screen. */
 enum {
     JW_CMD_SEN = 0x8003,            /* 線 -- the one the original starts in */
     JW_CMD_TEN = 0x8011,            /* 点 */
+    JW_CMD_KUKEI = 0x8004,          /* 矩形 -- CZukeiSen's other mode */
     JW_CMD_ENKO = 0x8005,           /* 円 */
+    JW_CMD_RENZOKU = 0x8073,        /* 連続線 */
+    JW_CMD_SHOUKYO = 0x801a,        /* 消去 */
+    JW_CMD_CORNER = 0x8012,         /* コーナー処理 */
+    JW_CMD_SHINSHUKU = 0x8017,      /* 線伸縮 */
+    JW_CMD_FUKUSEN = 0x8020,        /* 複線 */
+    JW_CMD_ZOKUSEI = 0x80a3,        /* 属性取得 */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -28,13 +36,22 @@ int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */
 
+/* Whether 線's 水平・垂直 is on.  Pressing 線 while already in 線 flips it,
+   which is all that arm of FUN_004fdc40 does when the command before was 線
+   as well; with it on a line keeps whichever way the drag went further. */
+int  jw_cmd_hv(void);
+
 /* The left-hand text of the status line, in CP932.  Each command puts its
    own prompt there as it goes (FUN_004efbb0 with a string id). */
 const char *jw_cmd_prompt(void);
 
 /* A click in the drawing area, in paper millimetres.  `button` is 0 for the
    left and 1 for the right. */
-void jw_cmd_point(jw_drawing *d, double x, double y, int button);
+/* A click in the drawing area.  `button` is 0 for the left and 1 for the
+   right; the view is needed because 消去 has to work out what is under the
+   point, and how near "under" is depends on the zoom. */
+void jw_cmd_point(jw_drawing *d, const jw_view *v,
+                  double x, double y, int button);
 
 /* The mouse moved to here, in paper millimetres. */
 void jw_cmd_track(double x, double y);
@@ -46,9 +63,10 @@ void jw_cmd_track(double x, double y);
 int  jw_cmd_can_undo(void);
 void jw_cmd_undo(jw_drawing *d);
 
-/* The element the command is part way through, if any: 1, and the element
-   filled in ready to draw.  It is worked out the same way as the one that
-   gets added, so what is shown is what will be made. */
-int  jw_cmd_pending(jw_obj *o);
+/* The elements the command is part way through, if any: how many, filled in
+   ready to draw (a rectangle is four lines).  They are worked out the same
+   way as the ones that get added, so what is shown is what will be made. */
+#define JW_CMD_MAXFIG 4         /* a rectangle, the biggest so far */
+int  jw_cmd_pending(jw_obj *o, int max);
 
 #endif

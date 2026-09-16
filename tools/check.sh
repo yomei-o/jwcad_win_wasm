@@ -29,6 +29,18 @@ echo "=== writing a drawing back out: the bytes have to be identical"
 ./tests/write_test.exe orig/*.jww | grep '^BAD' || true
 
 echo
+echo "=== what is under the mouse"
+for f in orig/*.jww; do
+    ./tests/pick_test.exe "$f" | grep '^BAD' | sed "s|^|    $(basename "$f") |"
+done
+printf '    %s of %s drawings
+'     "$(for f in orig/*.jww; do ./tests/pick_test.exe "$f" | tail -1; done | grep -c '^all ok')"     "$(ls orig/*.jww | wc -l)"
+
+echo
+echo "=== the (R) read point, against Jw_cad's own answers"
+./tests/read_test.exe orig/Test5.jww | sed 's/^/    /'
+
+echo
 echo "=== pressing things"
 ./tests/click_test.exe orig/Test1.jww | sed 's/^/    /'
 
