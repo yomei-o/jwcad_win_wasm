@@ -64,6 +64,7 @@
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
   const key = mod.cwrap('jw_key', 'number', ['number']);
   const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
+  const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
 
   // A canvas cannot host an IME, so a transparent input is kept over it and
   // focused: the candidate window then appears where the input is, and what
@@ -81,6 +82,19 @@
     textin(p, n);
     mod._free(p);
     present();
+  };
+  // In the 文字 command put the hidden input over the box the port draws,
+  // so the candidate list comes up by the text being typed rather than
+  // wherever the mouse last was.  81,39 is where the original's own box
+  // sits in the frame, and 8,31 is its client corner.
+  const aim = () => {
+    const r = canvas.getBoundingClientRect();
+    const s = r.width / canvas.width;
+    if (cmdid() === 0x8026) {
+      ime.style.left = (r.left + (81 + 8 + 6) * s) + 'px';
+      ime.style.top = (r.top + (39 + 31 + 4) * s) + 'px';
+    }
+    ime.focus({ preventScroll: true });
   };
   ime.addEventListener('compositionstart', () => { composing = true; });
   ime.addEventListener('compositionend', e => {
@@ -172,6 +186,7 @@
       if (r === 2) document.getElementById('pick').click();
       else if (r === 3) download();
       else if (r) present();
+      aim();
       return;
     }
     drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY,

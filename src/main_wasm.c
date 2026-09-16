@@ -12,6 +12,7 @@
 
 #include "app.h"
 #include "cp932.h"
+#include "cmd.h"
 
 EMSCRIPTEN_KEEPALIVE int jw_resize(int w, int h)
 {
@@ -64,6 +65,13 @@ EMSCRIPTEN_KEEPALIVE void jw_fit(void)
 /* A character for the 文字 command, in CP932.  The page converts what the
    browser gives it (UTF-16, and a whole run at a time when an IME finishes)
    with jw_from_utf16 before calling this. */
+/* Which command is in force, so the page can tell when to put its hidden
+   input where the 文字 box is and keep it focused. */
+EMSCRIPTEN_KEEPALIVE int jw_cmd_id(void)
+{
+    return jw_cmd();
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_key(int c)
 {
     return app_key(c);
