@@ -77,8 +77,18 @@
   // focused: the candidate window then appears where the input is, and what
   // comes back is handed to the port as UTF-16 for it to turn into CP932.
   const ime = document.createElement('input');
-  ime.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;'
-                    + 'opacity:0;border:0;padding:0;z-index:2';
+  // Not hidden, just invisible: a one pixel transparent box is something
+  // browsers will refuse to put an IME on, and without a real editable area
+  // under the cursor a conversion has nowhere to happen.  This one sits
+  // exactly over the edit of the box the port draws, with nothing of its own
+  // showing through.
+  ime.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:20px;'
+                    + 'background:transparent;border:0;outline:0;padding:0;'
+                    + 'color:transparent;caret-color:transparent;'
+                    + 'font:13px sans-serif;z-index:2;display:none;'
+                    /* clicks have to reach the drawing underneath; being
+                       focused is enough for an IME */
+                    + 'pointer-events:none';
   document.body.appendChild(ime);
   // Anything that goes wrong in here would otherwise be invisible: the page
   // would simply stop taking what is typed.  Say so on the page instead.
@@ -111,6 +121,11 @@
     if (cmdid() === 0x8026) {
       ime.style.left = (r.left + (81 + 8 + 6) * s) + 'px';
       ime.style.top = (r.top + (39 + 31 + 4) * s) + 'px';
+      ime.style.width = (438 * s) + 'px';
+      ime.style.height = (20 * s) + 'px';
+      ime.style.display = 'block';
+    } else {
+      ime.style.display = 'none';   /* out of the way of the drawing */
     }
     ime.focus({ preventScroll: true });
   };
@@ -148,6 +163,8 @@
   // meant to -- clicking the canvas moves the focus back to the page, and
   // the 文字 command would otherwise take nothing.
   window.addEventListener('keydown', e => {
+    /* while an IME is converting, the keys are its business */
+    if (e.isComposing || e.key === 'Process') return;
     if (composing || cmdid() !== 0x8026) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === 'Backspace') {
@@ -265,6 +282,7 @@
   // the "(R)" the original's status line talks about.  A right drag moves
   // the sheet, as it did before.
   canvas.addEventListener('pointerup', e => {
+    setTimeout(aim, 0);
     if (drag && drag.right && !drag.moved) {
       const [x, y] = at(e);
       if (press(x, y, 1)) present();
