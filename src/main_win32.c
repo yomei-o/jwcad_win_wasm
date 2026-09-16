@@ -9,6 +9,7 @@
  * the browser build could not match it.
  */
 #include <windows.h>
+#include <commdlg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -16,14 +17,31 @@
 
 static const wchar_t CLASS_NAME[] = L"JwWinWasmPort";
 
-/* jw_port.exe [drawing.jww] -- opening one on the command line is enough for
- * comparing against the original; there is no File menu yet. */
+static int load_file(const wchar_t *path)
+{
+    FILE *f = _wfopen(path, L"rb");
+    unsigned char *b;
+    long n;
+    int ok = 0;
+
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)n);
+    if (b && fread(b, 1, (size_t)n, f) == (size_t)n)
+        ok = app_open(b, n);
+    fclose(f);
+    free(b);
+    return ok;
+}
+
+/* jw_port.exe [drawing.jww] -- opening one on the command line, as well as
+ * through the 開く button. */
 static void open_arg(PWSTR cmd)
 {
     wchar_t path[MAX_PATH];
-    FILE *f;
-    unsigned char *b;
-    long n;
     int i = 0, j = 0;
 
     while (cmd[i] == L' ')
@@ -37,19 +55,30 @@ static void open_arg(PWSTR cmd)
             path[j++] = cmd[i++];
     }
     path[j] = 0;
-    if (!j)
-        return;
-    f = _wfopen(path, L"rb");
-    if (!f)
-        return;
-    fseek(f, 0, SEEK_END);
-    n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    b = (unsigned char *)malloc((size_t)n);
-    if (b && fread(b, 1, (size_t)n, f) == (size_t)n)
-        app_open(b, n);
-    fclose(f);
-    free(b);
+    if (j)
+        load_file(path);
+}
+
+/* What the 開く button asks for.  The dialog is the operating system's: the
+ * original's own is a Windows common dialog too, and nothing of the frame
+ * this port draws comes from Windows. */
+static int ask_open(HWND wnd)
+{
+    static const wchar_t filter[] = L"Jw_cad (*.jww)\0*.jww\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH];
+
+    path[0] = 0;
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&o))
+        return 0;
+    return load_file(path);
 }
 
 static void present(HDC dc)
@@ -85,12 +114,16 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         InvalidateRect(wnd, NULL, FALSE);
         return 0;
     }
-    case WM_LBUTTONDOWN:
-        if (app_press((short)LOWORD(lp), (short)HIWORD(lp), 0)) {
+    case WM_LBUTTONDOWN: {
+        int redraw = app_press((short)LOWORD(lp), (short)HIWORD(lp), 0);
+        if (app_take_action() == JW_ACT_OPEN)
+            redraw |= ask_open(wnd);
+        if (redraw) {
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
         }
         return 0;
+    }
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
         dragging = 1;

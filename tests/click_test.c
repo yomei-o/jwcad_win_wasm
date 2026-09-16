@@ -203,6 +203,22 @@ int main(int argc, char **argv)
     ck(find_btn(0x8003) >= 0 && jw_btn_mode[find_btn(0x8003)],
        "線 on the other hand is a mode");
 
+    /* 新規 starts an empty drawing, 開く asks the front end for a file */
+    k = find_btn(57600);
+    ck(k >= 0 && !jw_btn_mode[k], "新規 is an action");
+    btn_mid(k, &x, &y);
+    ck(app_press(x, y, 0) == 1, "pressing it is taken");
+    d = app_drawing();
+    ck(d && d->ndrawn == 0, "and the drawing is empty again");
+    ck(d && d->paper_size == 2, "an A-2 one, as the reference screen shows");
+    ck(!jw_cmd_can_undo(), "with nothing to undo");
+    k = find_btn(57601);
+    ck(k >= 0 && !jw_btn_mode[k], "開く is an action too");
+    btn_mid(k, &x, &y);
+    app_press(x, y, 0);
+    ck(app_take_action() == JW_ACT_OPEN, "and it asks for a file");
+    ck(app_take_action() == JW_ACT_NONE, "once");
+
     app_paint();
     if (argc > 2)
         png_rgb(argv[2], app_fb()->w, app_fb()->h, app_fb()->px);

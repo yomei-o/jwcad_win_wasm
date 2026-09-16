@@ -16,6 +16,7 @@ static int view_ready;
 static jw_drawing drawing;
 static int have_drawing;
 static int have_file;      /* 上書 is grey until there is one */
+static int action;         /* what the front end has been asked to do */
 static const char *last_error = "";
 static unsigned char *rgba;
 static int rgba_n;
@@ -109,6 +110,14 @@ int app_press(int x, int y, int button)
             jw_cmd_undo(have_drawing ? &drawing : 0);
             return 1;
         }
+        if (cmd == 57600) {             /* 新規 (ID_FILE_NEW) */
+            app_new();
+            return 1;
+        }
+        if (cmd == 57601) {             /* 開く (ID_FILE_OPEN) */
+            action = JW_ACT_OPEN;
+            return 0;
+        }
         return 0;
     }
     if (view_ready && in_view(x, y)) {
@@ -118,6 +127,14 @@ int app_press(int x, int y, int button)
         return 1;
     }
     return 0;
+}
+
+int app_take_action(void)
+{
+    int a = action;
+
+    action = JW_ACT_NONE;
+    return a;
 }
 
 int app_move(int x, int y)

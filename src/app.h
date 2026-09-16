@@ -29,11 +29,16 @@ const jw_view *app_view(void);
 void app_paint(void);                   /* redraw into the framebuffer */
 const fb_t *app_fb(void);
 
+/* Something the front end has to do, because it needs the file system or a
+   dialog: app_press leaves one behind and app_take_action hands it over. */
+enum { JW_ACT_NONE = 0, JW_ACT_OPEN };
+
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the
    window wants repainting. */
 int  app_press(int x, int y, int button);
 int  app_move(int x, int y);
+int  app_take_action(void);
 
 /* RGBA bytes for a canvas, in the buffer app_rgba() returns. */
 unsigned char *app_rgba(void);

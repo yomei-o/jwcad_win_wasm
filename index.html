@@ -107,7 +107,9 @@
   canvas.addEventListener('pointerdown', e => {
     const [x, y] = at(e);
     if (e.button === 0) {
-      if (press(x, y, 0)) present();
+      const r = press(x, y, 0);
+      if (r === 2) document.getElementById('pick').click();
+      else if (r) present();
       return;
     }
     drag = { x: e.clientX, y: e.clientY };

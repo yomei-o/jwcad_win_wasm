@@ -56,12 +56,17 @@ EMSCRIPTEN_KEEPALIVE void jw_fit(void)
 
 /* A click: on a toolbar button it changes the command, in the drawing area
    it gives the command a point. */
+/* Returns 1 when the page should repaint, 2 when the button pressed was one
+   the page has to answer -- 開く, which needs its file picker. */
 EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
 {
-    if (!app_press(x, y, button))
-        return 0;
-    app_paint();
-    return 1;
+    int redraw = app_press(x, y, button);
+
+    if (redraw)
+        app_paint();
+    if (app_take_action() == JW_ACT_OPEN)
+        return 2;
+    return redraw;
 }
 
 EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)
