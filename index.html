@@ -28,7 +28,7 @@
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
-<script src="jwcad.js?v=7"></script>
+<script src="jwcad.js?v=9"></script>
 <script>
 (async function () {
   const canvas = document.getElementById('screen');
@@ -74,6 +74,8 @@
   const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
   const keyu = mod.cwrap('jw_key_u', 'number', ['number']);
   const compu = mod.cwrap('jw_compose_u', 'number', ['number']);
+  const missing = ['_jw_key_u', '_jw_compose_u', '_jw_cmd_id']
+                  .filter(f => typeof mod[f] !== 'function');
 
   // A canvas cannot host an IME, so a transparent input is kept over it and
   // focused: the candidate window then appears where the input is, and what
@@ -106,7 +108,7 @@
                     + 'background:#eef;color:#446;font:11px monospace;'
                     + 'padding:1px 5px';
   document.body.appendChild(ver);
-  const VERSION = 8;
+  const VERSION = 9;
   let lastnote = '';
   const note = t => {
     if (t === lastnote) return;
@@ -151,6 +153,8 @@
   };
   // What the IME is still converting is shown in the box, underlined, until
   // it is confirmed -- otherwise typing looks like nothing is happening.
+  if (missing.length)
+    complain('this jwcad.js is out of date, it has no ' + missing.join(', '));
   const showComposing = s => {
     compu(-1);
     for (let i = 0; i < s.length; i++) compu(s.charCodeAt(i));
