@@ -69,7 +69,7 @@ typedef struct {
        through a reference to it. */
     int ndrawn;
 
-    char *pool;                 /* NUL-separated CP932 strings            */
+    char *pool;                 /* flag byte, CP932 text, NUL, repeated   */
     int npool, cpool;
 
     /* Everything before the element list, kept exactly as it came in so it
@@ -78,8 +78,20 @@ typedef struct {
        without inventing the parts it does not understand. */
     unsigned char *head;
     long nhead;
+    /* The pen new elements get.  Jw_cad starts every session with line type
+       1 and colour 2 -- it is not kept in the file: saving a drawing with
+       the pen set to line type 6 and opening it again gives 1 back, while
+       the write layer, which is in the file, comes back as it was.  属性取得
+       is what changes it. */
+    unsigned char write_ltype;
+    unsigned short write_color;
+    unsigned short write_width;
+
     /* the schema number CArchive wrote with each class name */
     unsigned short schema[JW_NCLASS];
+    /* version 700 only: the count of embedded images that follows the two
+       lists.  Only 0 is understood, and it is written back as it came. */
+    int nimage;
 
     const char *error;
 } jw_drawing;
@@ -103,5 +115,8 @@ void jw_remove(jw_drawing *d, int i);
 
 /* The text of an object, as CP932 bytes. */
 const char *jw_str(const jw_drawing *d, int off);
+
+/* Whether the file held that string as UTF-16 (version 700 does). */
+int jw_str_wide(const jw_drawing *d, int off);
 
 #endif

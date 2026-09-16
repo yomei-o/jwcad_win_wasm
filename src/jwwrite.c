@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "cp932.h"
 
 typedef struct {
     unsigned char *b;
@@ -88,12 +89,10 @@ static void w_count(wbuf *w, long n)
     }
 }
 
-/* CString: a byte length, or 0xff and a word, or that and 0xffff and a
-   dword.  Everything here is CP932, the way the samples store it. */
-static void w_str(wbuf *w, const char *s)
+/* MFC's WriteStringLength: the count as a byte, or 0xff and a word, or that
+   and 0xffff and a dword. */
+static void w_strlen(wbuf *w, long n)
 {
-    long n = s ? (long)strlen(s) : 0;
-
     if (n < 0xff) {
         w_b(w, (unsigned)n);
     } else if (n < 0xffff) {
@@ -104,7 +103,35 @@ static void w_str(wbuf *w, const char *s)
         w_w(w, 0xffff);
         w_l(w, n);
     }
-    w_raw(w, s, n);
+}
+
+/* CString.  Up to version 600 that is CP932 bytes; version 700 puts every
+   string in as UTF-16, behind MFC's 0xff 0xfffe marker.  Which one this
+   string came in as is remembered with it, so it goes back the same. */
+static void w_str(wbuf *w, const char *s, int wide)
+{
+    long n = s ? (long)strlen(s) : 0;
+
+    if (!wide) {
+        w_strlen(w, n);
+        w_raw(w, s, n);
+        return;
+    }
+    {
+        long m = jw_to_utf16(s, n, 0, 0), i;
+        unsigned short *u = (unsigned short *)malloc((size_t)(m ? m : 1) * 2);
+        if (!u) {
+            w->bad = 1;
+            return;
+        }
+        jw_to_utf16(s, n, u, m);
+        w_b(w, 0xff);
+        w_w(w, 0xfffe);
+        w_strlen(w, m);
+        for (i = 0; i < m; i++)
+            w_w(w, u[i]);
+        free(u);
+    }
 }
 
 static const char *CLASS_NAME[JW_NCLASS] = {
@@ -157,8 +184,8 @@ static void w_body(wbuf *w, const jw_drawing *d, int v, const jw_obj *o)
             w_d(w, o->d[6]);
         w_d(w, o->d[7]);
         if (v > 0x27)
-            w_str(w, jw_str(d, o->face));
-        w_str(w, jw_str(d, o->text));
+            w_str(w, jw_str(d, o->face), jw_str_wide(d, o->face));
+        w_str(w, jw_str(d, o->text), jw_str_wide(d, o->text));
         break;
     case JW_SOLID:
         for (i = 0; i < 8; i++)
@@ -213,6 +240,8 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n)
     w_raw(&w, d->head, d->nhead);
     w_list(&w, d, 0, d->ndrawn);
     w_list(&w, d, d->ndrawn, d->nobj);
+    if (d->version > 0x275)
+        w_l(&w, d->nimage);     /* the embedded image count, always 0 here */
     if (w.bad) {
         free(w.b);
         return 0;

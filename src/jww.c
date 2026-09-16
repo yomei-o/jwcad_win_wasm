@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "cp932.h"
 
 /* CArchive, reading.  Every read is bounds checked; a short file sets `bad`
  * and every later read returns zero, so the caller only has to test once. */
@@ -86,11 +87,17 @@ static long ar_strlen(ar_t *a, int *unicode)
     return n;
 }
 
+/* A string in the pool is a flag byte, the CP932 text, and a NUL; the offset
+   handed out points at the text, so the flag is the byte before it.  The flag
+   says the file held it as UTF-16, which is how version 700 writes every
+   string, and it has to go back out that way. */
 static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
 {
-    int off = d->npool;
-    long i, need = (unicode ? n : n) + 1;
+    long need, m;
+    int off;
 
+    m = unicode ? jw_from_utf16((const unsigned short *)s, n, 0, 0) : n;
+    need = m + 2;
     if (d->npool + need > d->cpool) {
         int c = d->cpool ? d->cpool * 2 : 4096;
         char *p;
@@ -102,17 +109,13 @@ static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
         d->pool = p;
         d->cpool = c;
     }
-    if (unicode) {
-        /* No converter here: keep the low byte, which is right for ASCII and
-         * marks the rest.  Jw_cad writes CP932 for everything the samples
-         * contain, so this branch has not been exercised. */
-        for (i = 0; i < n; i++)
-            d->pool[off + i] = (char)s[2 * i];
-        d->npool = off + (int)n;
-    } else {
+    d->pool[d->npool++] = (char)unicode;
+    off = d->npool;
+    if (unicode)
+        jw_from_utf16((const unsigned short *)s, n, d->pool + off, m);
+    else
         memcpy(d->pool + off, s, (size_t)n);
-        d->npool = off + (int)n;
-    }
+    d->npool = off + (int)m;
     d->pool[d->npool++] = 0;
     return off;
 }
@@ -487,9 +490,9 @@ jw_obj *jw_add(jw_drawing *d, int cls)
         if (d->group[g].state == 3)
             wg = g;
     o->cls = (unsigned char)cls;
-    o->ltype = 1;
-    o->color = 2;
-    o->width = 0;
+    o->ltype = d->write_ltype ? d->write_ltype : 1;
+    o->color = d->write_ltype ? d->write_color : 2;
+    o->width = d->write_ltype ? d->write_width : 0;
     o->layer = (unsigned short)(d->group[wg].write_layer & 15);
     o->lgroup = (unsigned short)wg;
     o->flags = 0;
@@ -535,6 +538,19 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     d->ndrawn = d->nobj;
     if (d->version > 0x13)
         read_list(&a, d);       /* the block definitions */
+    if (d->version > 0x275) {
+        /* Jw_cad 10 writes version 700, and after the two lists it puts the
+         * embedded image files: a count, then that many names, each unpacked
+         * into %temp% (FUN_00575010, the arm guarded by 0x275 < version).
+         * Every drawing to hand has none of them, and what one of those
+         * records holds has not been read out of the binary, so rather than
+         * guess at it the parse stops. */
+        d->nimage = ar_l(&a);
+        if (d->nimage != 0 && !a.bad) {
+            d->error = "the drawing has embedded images, which are not read yet";
+            return 0;
+        }
+    }
     if (a.bad) {
         if (!d->error)
             d->error = "the file ends in the middle of a record";
@@ -550,6 +566,11 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
 const char *jw_str(const jw_drawing *d, int off)
 {
     return off < 0 ? "" : d->pool + off;
+}
+
+int jw_str_wide(const jw_drawing *d, int off)
+{
+    return off > 0 ? d->pool[off - 1] : 0;
 }
 
 void jw_free(jw_drawing *d)
