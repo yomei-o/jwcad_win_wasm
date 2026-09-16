@@ -4,6 +4,7 @@
 
 #include "cmd.h"
 #include "pick.h"
+#include "text.h"
 #include "gen/prompts.h"
 
 /* view+0x8564 in the original, and +0x8568 for the one before.  Entering a
@@ -58,6 +59,15 @@ static double corner_x, corner_y;
 /* 線伸縮: the line, while its end is being moved. */
 static int stretch_step;
 static int stretch_obj;
+
+/* 文字: what has been typed but not placed yet.  The original wants it that
+   way round -- type into its floating box first, then click where it goes;
+   pressing Enter does not place anything. */
+static char line_buf[256];
+static int line_n;
+/* the typed line put in the drawing's pool, so the preview can be drawn
+   without putting it there again on every mouse move */
+static int line_off = -1, line_gen, line_shown = -1;
 
 /* 複線: the line, and how far to one side the copy goes. */
 static int para_step;
@@ -134,9 +144,92 @@ static void op_push(int n)
 
 #define PI 3.14159265358979323846
 
+/* The font name Jw_cad writes with a new text.  It is whatever its font box
+   has, and every text in the drawings to hand has this one; the port draws
+   with a bitmap font of its own and has no font list to choose from. */
+#define JW_MOJI_FACE "lr SVbN" 
+
 int jw_cmd(void)
 {
     return current;
+}
+
+const char *jw_cmd_line(void)
+{
+    line_buf[line_n] = 0;
+    return line_buf;
+}
+
+void jw_cmd_key(int c)
+{
+    line_gen++;
+    if (c == 8) {
+        /* back over a whole character, lead byte and all */
+        if (line_n > 0) {
+            int i = 0, last = 0;
+            while (i < line_n) {
+                last = i;
+                i += (jw_is_lead((unsigned char)line_buf[i]) && i + 1 < line_n)
+                     ? 2 : 1;
+            }
+            line_n = last;
+        }
+        return;
+    }
+    if (c >= 0 && c < 256 && line_n < (int)sizeof line_buf - 2)
+        line_buf[line_n++] = (char)c;
+}
+
+static void blank(jw_obj *o);
+
+/* What the line is worth in paper millimetres, and how the text element for
+   it is laid out.  Shared by the preview and the one that gets placed. */
+static int moji(jw_drawing *d, jw_obj *o, double x, double y)
+{
+    const char *p = line_buf;
+    double len = 0.0, cw, ch, sp;
+    int nch = 0, i;
+
+    if (!d || line_n == 0)
+        return 0;
+    cw = d->cur_style.w;
+    ch = d->cur_style.h;
+    sp = d->cur_style.sp;
+    if (cw <= 0.0 || ch <= 0.0)
+        return 0;
+    line_buf[line_n] = 0;
+    while (*p) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            len += wide ? sp : sp / 2;
+        len += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    blank(o);
+    o->cls = JW_MOJI;
+    o->color = (unsigned short)d->cur_style.color;
+    o->ltype = 1;
+    o->d[0] = x;
+    o->d[1] = y;
+    o->d[2] = x + len;
+    o->d[3] = y;
+    o->d[4] = cw;
+    o->d[5] = ch;
+    o->d[6] = sp;
+    o->d[7] = 0.0;
+    o->n = 0;
+    for (i = 0; i < 10; i++)
+        if (d->style[i].w == cw && d->style[i].h == ch
+            && d->style[i].sp == sp)
+            o->n = i + 1;
+    if (line_shown != line_gen) {
+        line_off = jw_add_str(d, line_buf);
+        line_shown = line_gen;
+    }
+    o->text = line_off;
+    o->face = -1;
+    return 1;
 }
 
 int jw_cmd_hv(void)
@@ -227,6 +320,10 @@ const char *jw_cmd_prompt(void)
         return step == 0 ? JW_STR_5320 : JW_STR_5321;
     case JW_CMD_TEN:
         return JW_STR_5376;
+    case JW_CMD_MOJI:
+        /* 「文字を入力するか…」 until something is typed, then
+           「文字の位置を指示して下さい」 */
+        return line_n ? JW_STR_5318 : JW_STR_5316;
     case JW_CMD_ZOKUSEI:
         return JW_STR_5263;
     case JW_CMD_FUKUSEN:
@@ -353,8 +450,10 @@ static int figure(jw_obj *o, int max, double x, double y)
     return 0;
 }
 
-int jw_cmd_pending(jw_obj *o, int max)
+int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 {
+    if (current == JW_CMD_MOJI)
+        return tracking ? moji(d, o, tx, ty) : 0;
     if (current == JW_CMD_RENZOKU) {
         int n = 0;
         /* the segment that is drawn but not yet in the drawing */
@@ -607,6 +706,32 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (current == JW_CMD_MOJI) {
+        /* Place what has been typed.  Everything about the text comes from
+         * the drawing's current style, which sits just after the ten in the
+         * header: the size, the spacing and the colour.  A text placed in
+         * Jw_cad has exactly those, and the run is as long as the characters
+         * make it -- half width ones advance cw/2 and the gaps are sp/2, and
+         * the last gap is not counted (six of them at cw 10 sp 1 came to
+         * 32.5, not 30). */
+        jw_obj tmp, *o;
+
+        if (button != 0 || !d || line_n == 0)
+            return;
+        if (!moji(d, &tmp, x, y))
+            return;
+        o = jw_add(d, JW_MOJI);
+        if (!o)
+            return;
+        tmp.layer = o->layer;
+        tmp.lgroup = o->lgroup;
+        *o = tmp;
+        o->face = jw_add_str(d, JW_MOJI_FACE);
+        op_push(1);
+        line_n = 0;
+        line_gen++;
+        return;
+    }
     if (current == JW_CMD_ZOKUSEI) {
         /* Take the pen and the layer off an element and make them the ones
          * new elements get.  Driving Jw_cad bears both out: after 属性取得 on

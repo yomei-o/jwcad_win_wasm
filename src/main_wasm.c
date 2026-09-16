@@ -11,6 +11,7 @@
 #include <stdlib.h>
 
 #include "app.h"
+#include "cp932.h"
 
 EMSCRIPTEN_KEEPALIVE int jw_resize(int w, int h)
 {
@@ -60,6 +61,25 @@ EMSCRIPTEN_KEEPALIVE void jw_fit(void)
    it gives the command a point. */
 /* Returns 1 when the page should repaint, or what the button asked the page
    to do: 2 to pick a file to open, 3 to hand one back to be saved. */
+/* A character for the 文字 command, in CP932.  The page converts what the
+   browser gives it (UTF-16, and a whole run at a time when an IME finishes)
+   with jw_from_utf16 before calling this. */
+EMSCRIPTEN_KEEPALIVE int jw_key(int c)
+{
+    return app_key(c);
+}
+
+/* UTF-16 straight from the page, converted here. */
+EMSCRIPTEN_KEEPALIVE int jw_text_in(const unsigned short *s, int n)
+{
+    char buf[512];
+    long m = jw_from_utf16(s, n, buf, sizeof buf), i;
+
+    for (i = 0; i < m && i < (long)sizeof buf; i++)
+        app_key((unsigned char)buf[i]);
+    return m > 0;
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
 {
     int redraw = app_press(x, y, button);

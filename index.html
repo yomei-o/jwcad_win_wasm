@@ -62,6 +62,42 @@
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
+  const key = mod.cwrap('jw_key', 'number', ['number']);
+  const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
+
+  // A canvas cannot host an IME, so a transparent input is kept over it and
+  // focused: the candidate window then appears where the input is, and what
+  // comes back is handed to the port as UTF-16 for it to turn into CP932.
+  const ime = document.createElement('input');
+  ime.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;'
+                    + 'opacity:0;border:0;padding:0;z-index:2';
+  document.body.appendChild(ime);
+  let composing = false;
+  const send = s => {
+    if (!s) return;
+    const n = s.length;
+    const p = mod._malloc(n * 2);
+    for (let i = 0; i < n; i++) mod.HEAPU16[(p >> 1) + i] = s.charCodeAt(i);
+    textin(p, n);
+    mod._free(p);
+    present();
+  };
+  ime.addEventListener('compositionstart', () => { composing = true; });
+  ime.addEventListener('compositionend', e => {
+    composing = false;
+    ime.value = '';
+    send(e.data);
+  });
+  ime.addEventListener('input', e => {
+    if (composing) return;          // still being converted
+    const v = ime.value;
+    ime.value = '';
+    send(v);
+  });
+  ime.addEventListener('keydown', e => {
+    if (composing) return;
+    if (e.key === 'Backspace') { if (key(8)) present(); e.preventDefault(); }
+  });
   const move  = mod.cwrap('jw_move',  'number', ['number', 'number']);
   const save      = mod.cwrap('jw_save', 'number', []);
   const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
@@ -126,6 +162,11 @@
   let drag = null;
   canvas.addEventListener('pointerdown', e => {
     const [x, y] = at(e);
+    // keep the hidden input focused so typing goes to the 文字 command, and
+    // put it where the mouse is so the IME's candidates come up there
+    ime.style.left = e.clientX + 'px';
+    ime.style.top = e.clientY + 'px';
+    ime.focus({ preventScroll: true });
     if (e.button === 0) {
       const r = press(x, y, 0);
       if (r === 2) document.getElementById('pick').click();

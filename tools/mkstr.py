@@ -30,6 +30,8 @@ WANT = [
     (5305, 'the line to make a parallel of'),
     (5366, 'which side to put it'),
     (5263, 'the element to take the pen and layer from'),
+    (5316, 'before anything is typed'),
+    (5318, 'where the typed text goes'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

@@ -610,6 +610,54 @@ int main(int argc, char **argv)
         app_press(ux, uy, 0);
     }
 
+    /* 文字: type first, then click where it goes -- that is the order Jw_cad
+     * wants (pressing Enter in its box places nothing).  Everything about
+     * the text comes from the drawing's current style, which sits just after
+     * the ten in the header.  Placing "ABCDEF" in Test5 gives Jw_cad
+     * (-219.936,123.822)-(-159.936,123.822), colour 1, size 20, spacing 0,
+     * style 0; in Test1 it gives (-155.510,87.551)-(-123.010,87.551),
+     * colour 5, size 10, spacing 1, style 10.  The run is as long as the
+     * characters make it: half width ones advance cw/2 with gaps of sp/2,
+     * and the last gap is not counted. */
+    k = find_btn(0x8026);
+    ck(k >= 0 && jw_btn_mode[k], "文字 has a button and is a mode");
+    btn_mid(k, &x, &y);
+    app_press(x, y, 0);
+    ck(jw_cmd() == 0x8026, "the command is now 文字");
+    d = app_drawing();
+    before = d->ndrawn;
+    app_press(300 + 78, 200 + 34, 0);
+    d = app_drawing();
+    ck(d->ndrawn == before, "clicking with nothing typed places nothing");
+    {
+        const char *t = "ABCDEF";
+        while (*t)
+            app_key((unsigned char)*t++);
+    }
+    ck(app_move(500, 400) == 1, "and what is typed follows the mouse");
+    app_press(300 + 78, 200 + 34, 0);
+    d = app_drawing();
+    ck(d->ndrawn == before + 1, "the click places it");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *o = &d->obj[before];
+        v = app_view();
+        ck(o->cls == JW_MOJI && o->d[6] == d->cur_style.sp
+           && o->d[4] == d->cur_style.w && o->d[5] == d->cur_style.h
+           && o->color == d->cur_style.color,
+           "with the drawing's own text style");
+        ck(fabs((o->d[2] - o->d[0])
+                - (6 * d->cur_style.w / 2 + 5 * d->cur_style.sp / 2)) < 1e-9,
+           "and a run as long as six half width characters make it");
+        ck(abs(jw_sx(v, o->d[0]) - (300 + 78)) <= 1
+           && abs(jw_sy(v, o->d[1]) - (200 + 34)) <= 1,
+           "starting where it was clicked");
+    }
+    {
+        int u = find_btn(0xe12b), ux, uy;
+        btn_mid(u, &ux, &uy);
+        app_press(ux, uy, 0);
+    }
+
     /* 元に戻る is an action, not a mode: it runs and the command stays put */
     k = find_btn(0xe12b);
     ck(k >= 0 && !jw_btn_mode[k], "元に戻る is an action, not a mode");
@@ -618,7 +666,7 @@ int main(int argc, char **argv)
     btn_mid(k, &x, &y);
     app_press(x, y, 0);
     d = app_drawing();
-    ck(jw_cmd() == 0x8003, "pressing it leaves the command alone");
+    ck(jw_cmd() == 0x8026, "pressing it leaves the command alone");
     ck(d->ndrawn == before - 1, "and takes the last command's line back out");
     ck(find_btn(0x8003) >= 0 && jw_btn_mode[find_btn(0x8003)],
        "線 on the other hand is a mode");

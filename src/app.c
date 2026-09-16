@@ -141,6 +141,14 @@ int app_press(int x, int y, int button)
     return 0;
 }
 
+int app_key(int c)
+{
+    if (jw_cmd() != JW_CMD_MOJI)
+        return 0;
+    jw_cmd_key(c);
+    return 1;
+}
+
 int app_take_action(void)
 {
     int a = action;
@@ -165,7 +173,8 @@ int app_move(int x, int y)
         return 0;
     to_paper(x, y, &mx, &my);
     jw_cmd_track(mx, my);
-    return jw_cmd_pending(o, JW_CMD_MAXFIG) > 0;
+    return jw_cmd_pending(have_drawing ? &drawing : 0, o,
+                          JW_CMD_MAXFIG) > 0;
 }
 
 int app_resize(int w, int h)
@@ -288,7 +297,7 @@ void app_paint(void)
         jw_obj o[JW_CMD_MAXFIG];
         int n;
         if (view_ready && have_drawing
-            && (n = jw_cmd_pending(o, JW_CMD_MAXFIG)) > 0) {
+            && (n = jw_cmd_pending(&drawing, o, JW_CMD_MAXFIG)) > 0) {
             jw_drawing one = drawing;
             ui_view_rect(fb.w, fb.h, &view.clip);
             one.obj = o;

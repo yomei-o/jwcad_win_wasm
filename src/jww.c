@@ -273,12 +273,18 @@ static void read_header(ar_t *a, jw_drawing *d)
     /* FUN_004eee80: the hatch and dimension settings, read from
      * CJw_winDoc::Serialize just before the object list. */
     if (v > 0x14) {
+        /* the ten text styles, then the one in force */
         for (i = 0; i < 10; i++) {
-            ar_skipd(a, 3);
-            ar_l(a);
+            d->style[i].w = ar_d(a);
+            d->style[i].h = ar_d(a);
+            d->style[i].sp = ar_d(a);
+            d->style[i].color = ar_l(a);
         }
-        ar_skipd(a, 3);
-        ar_skipl(a, 2);
+        d->cur_style.w = ar_d(a);
+        d->cur_style.h = ar_d(a);
+        d->cur_style.sp = ar_d(a);
+        d->cur_style.color = ar_l(a);
+        ar_l(a);
         ar_skipd(a, 2);
     }
     if (v > 0xd5) {
@@ -561,6 +567,16 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
         return 0;
     }
     return 1;
+}
+
+int jw_add_str(jw_drawing *d, const char *s)
+{
+    long n = 0;
+    const char *p = s;
+
+    while (*p++)
+        n++;
+    return pool_put(d, (const unsigned char *)s, n, 0);
 }
 
 const char *jw_str(const jw_drawing *d, int off)

@@ -78,6 +78,18 @@ typedef struct {
        without inventing the parts it does not understand. */
     unsigned char *head;
     long nhead;
+    /* The ten text styles (文字種 1..10) and the one in force.  They sit
+       just before the hatch and dimension settings at the end of the header
+       -- ten records of three doubles and a long, then one more of the same
+       shape, which is the current one (FUN_004eee80).  A text placed in
+       Jw_cad comes out with exactly those numbers: Test1's current style is
+       10/10/1 colour 5 and that is what its new text got, Test5's is
+       20/20/0 colour 1 and so was its. */
+    struct {
+        double w, h, sp;
+        int color;
+    } style[10], cur_style;
+
     /* The pen new elements get.  Jw_cad starts every session with line type
        1 and colour 2 -- it is not kept in the file: saving a drawing with
        the pen set to line type 6 and opening it again gives 1 back, while
@@ -112,6 +124,10 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 
 /* Take element `i` out of the drawing. */
 void jw_remove(jw_drawing *d, int i);
+
+/* Put a string in the drawing's pool and return its offset, for a new text.
+   Returns -1 if it could not. */
+int jw_add_str(jw_drawing *d, const char *s);
 
 /* The text of an object, as CP932 bytes. */
 const char *jw_str(const jw_drawing *d, int off);

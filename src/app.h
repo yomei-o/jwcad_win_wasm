@@ -21,6 +21,10 @@ void app_new(void);
 const char *app_error(void);
 const jw_drawing *app_drawing(void);
 
+/* A character typed for the 文字 command, in CP932 (8 is backspace).
+   Returns 1 when the screen has to be repainted. */
+int app_key(int c);
+
 /* The view.  Zooming keeps the drawing under the point the user aimed at. */
 void app_fit(void);
 void app_zoom(double factor, int sx, int sy);

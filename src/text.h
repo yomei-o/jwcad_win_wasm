@@ -17,6 +17,9 @@
    CP932; returns where the next character would start. */
 int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col);
 
+/* Whether that byte starts a two byte CP932 character. */
+int jw_is_lead(unsigned char c);
+
 /* How tall a line of jw_text_px is, in pixels. */
 int jw_text_height(void);
 

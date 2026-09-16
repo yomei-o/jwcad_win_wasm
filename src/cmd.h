@@ -29,12 +29,18 @@ enum {
     JW_CMD_SHINSHUKU = 0x8017,      /* 線伸縮 */
     JW_CMD_FUKUSEN = 0x8020,        /* 複線 */
     JW_CMD_ZOKUSEI = 0x80a3,        /* 属性取得 */
+    JW_CMD_MOJI = 0x8026,           /* 文字 */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
 int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */
+
+/* The 文字 command's line, as CP932 bytes.  Jw_cad wants the text typed
+   first and then the place clicked, so this is what has been typed so far. */
+const char *jw_cmd_line(void);
+void jw_cmd_key(int c);             /* a character, or 8 for backspace */
 
 /* Whether 線's 水平・垂直 is on.  Pressing 線 while already in 線 flips it,
    which is all that arm of FUN_004fdc40 does when the command before was 線
@@ -67,6 +73,6 @@ void jw_cmd_undo(jw_drawing *d);
    ready to draw (a rectangle is four lines).  They are worked out the same
    way as the ones that get added, so what is shown is what will be made. */
 #define JW_CMD_MAXFIG 4         /* a rectangle, the biggest so far */
-int  jw_cmd_pending(jw_obj *o, int max);
+int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
 
 #endif

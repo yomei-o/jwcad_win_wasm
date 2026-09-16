@@ -77,6 +77,11 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
     }
 }
 
+int jw_is_lead(unsigned char c)
+{
+    return is_lead(c);
+}
+
 int jw_text_height(void)
 {
     want_fonts();

@@ -10,6 +10,7 @@
  */
 #include <windows.h>
 #include <commdlg.h>
+#include <imm.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -223,6 +224,37 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     }
+    /* Typing for the 文字 command.  Plain bytes arrive as WM_CHAR already in
+     * the system code page, which here is CP932 -- the same bytes the drawing
+     * stores -- so nothing has to be converted.  A kanji conversion comes in
+     * one piece as the IME's result string, in the same code page. */
+    case WM_CHAR:
+        if (wp >= 0x20 || wp == 8) {
+            if (app_key((int)wp)) {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+        }
+        return 0;
+    case WM_IME_COMPOSITION:
+        if (lp & GCS_RESULTSTR) {
+            HIMC imc = ImmGetContext(wnd);
+            if (imc) {
+                char buf[512];
+                LONG n = ImmGetCompositionStringA(imc, GCS_RESULTSTR,
+                                                  buf, sizeof buf);
+                LONG i;
+                for (i = 0; i < n; i++)
+                    app_key((unsigned char)buf[i]);
+                ImmReleaseContext(wnd, imc);
+                if (n > 0) {
+                    app_paint();
+                    InvalidateRect(wnd, NULL, FALSE);
+                }
+            }
+            return 0;
+        }
+        break;
     case WM_KEYDOWN:
         if (wp == VK_HOME) {
             app_fit();
