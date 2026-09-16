@@ -112,13 +112,14 @@ int app_press(int x, int y, int button)
 
 int app_move(int x, int y)
 {
-    double mx, my, a, b, c, e;
+    double mx, my;
+    jw_obj o;
 
     if (!view_ready || !in_view(x, y))
         return 0;
     to_paper(x, y, &mx, &my);
     jw_cmd_track(mx, my);
-    return jw_cmd_pending(&a, &b, &c, &e);
+    return jw_cmd_pending(&o);
 }
 
 int app_resize(int w, int h)
@@ -235,23 +236,10 @@ void app_paint(void)
            its provisional figure through a raster op (it has a SetROP2
            wrapper at FUN_0079f1b8) which has not been traced yet, so this
            just draws the element that is about to exist. */
-        double x0, y0, x1, y1;
-        if (view_ready && jw_cmd_pending(&x0, &y0, &x1, &y1)) {
-            jw_drawing one;
-            jw_obj o;
+        jw_obj o;
+        if (view_ready && have_drawing && jw_cmd_pending(&o)) {
+            jw_drawing one = drawing;
             ui_view_rect(fb.w, fb.h, &view.clip);
-            memset(&o, 0, sizeof o);
-            o.cls = JW_SEN;
-            o.ltype = 1;
-            o.color = 2;
-            o.text = o.face = -1;
-            o.d[0] = x0; o.d[1] = y0; o.d[2] = x1; o.d[3] = y1;
-            if (have_drawing) {
-                one = drawing;
-            } else {
-                memset(&one, 0, sizeof one);
-                one.pen_rgb[2] = 0x000000;
-            }
             one.obj = &o;
             one.nobj = one.ndrawn = 1;
             jw_draw(&fb, &view, &one);

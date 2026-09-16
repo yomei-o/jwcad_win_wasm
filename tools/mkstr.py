@@ -5,13 +5,16 @@
 The status line's prompts are string-table entries: the 線 command shows
 5320 while it waits for the first point and 5321 while it waits for the
 second (CZukeiSen calls FUN_004efbb0(0x14c8) and (0x14c9) at those two
-points), and 点 shows 5376 (CZukeiTen, FUN_004efbb0(0x1500)).  They are written out as CP932 bytes because that is how the font
+points), 点 shows 5376 (CZukeiTen, FUN_004efbb0(0x1500)), and 円 shows 5309
+then 5301 (CZukeiEnko, FUN_004efbb0(0x14bd) and (0x14b5)).  They are written out as CP932 bytes because that is how the font
 is indexed, and as escapes so this file stays plain ASCII.
 """
 WANT = [
     (5320, 'the first point of a line'),
     (5321, 'the second point of a line'),
     (5376, 'where to put a point'),
+    (5309, 'the centre of a circle'),
+    (5301, 'a point the circle passes through'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

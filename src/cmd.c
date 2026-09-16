@@ -1,3 +1,6 @@
+#include <math.h>
+#include <string.h>
+
 #include "cmd.h"
 #include "gen/prompts.h"
 
@@ -5,13 +8,17 @@
    nothing here needs that yet. */
 static int current = JW_CMD_SEN;
 
-/* CZukeiSen keeps how far it has got in one word of its own (local_662c[0x2a]
- * in FUN_006ecb90): 0 before the first point, 2 once it has one.  The same
- * two values are used here so the two can be compared. */
+/* Each command keeps how far it has got in a word of its own -- CZukeiSen in
+ * local_662c[0x2a] of FUN_006ecb90, CZukeiEnko in local_6840[0xc2] -- and
+ * both use 0 for "nothing yet" and 2 for "one point down".  The same values
+ * are used here so the two can be compared.
+ */
 static int step;
 static double sx, sy;           /* the first point, in paper millimetres */
 static double tx, ty;           /* where the mouse is now */
 static int tracking;
+
+#define PI 3.14159265358979323846
 
 int jw_cmd(void)
 {
@@ -28,13 +35,21 @@ void jw_cmd_set(int id)
 
 const char *jw_cmd_prompt(void)
 {
-    if (current == JW_CMD_SEN)
+    switch (current) {
+    case JW_CMD_SEN:
         return step == 0 ? JW_STR_5320 : JW_STR_5321;
-    if (current == JW_CMD_TEN)
+    case JW_CMD_TEN:
         return JW_STR_5376;
+    case JW_CMD_ENKO:
+        /* CZukeiEnko asks for the centre first and then a point the circle
+           goes through.  It leads with 円位置 instead only when a radius has
+           been typed into its command bar, which there is nowhere to do
+           yet. */
+        return step == 0 ? JW_STR_5309 : JW_STR_5301;
+    }
     /* Every other command puts its own string there; which one is in that
        command's class and has not been read out of the binary yet, so rather
-       than make one up the line keeps what it had. */
+       than make one up the line keeps the one it starts with. */
     return JW_STR_5320;
 }
 
@@ -45,15 +60,48 @@ void jw_cmd_track(double x, double y)
     tracking = 1;
 }
 
-int jw_cmd_pending(double *x0, double *y0, double *x1, double *y1)
+/* What the point down and the point here make.  Working it out in one place
+   keeps the provisional figure and the element that gets added identical. */
+static int figure(jw_obj *o, double x, double y)
 {
-    if (current != JW_CMD_SEN || step != 2 || !tracking)
+    memset(o, 0, sizeof *o);
+    o->text = o->face = -1;
+    o->ltype = 1;
+    o->color = 2;
+    switch (current) {
+    case JW_CMD_SEN:
+        o->cls = JW_SEN;
+        o->d[0] = sx;
+        o->d[1] = sy;
+        o->d[2] = x;
+        o->d[3] = y;
+        return 1;
+    case JW_CMD_ENKO: {
+        /* CZukeiEnko's constructor leaves it a whole circle: the sweep it
+         * starts with is 2 pi (0x401921fb54442d18 at +0x34), the flattening
+         * is 1 (+0x3c) and the 円弧 flag is off (+0xe8 = 1).  Every whole
+         * circle in the sample drawings carries the trailing 1 as well. */
+        double dx = x - sx, dy = y - sy;
+        o->cls = JW_ENKO;
+        o->d[0] = sx;
+        o->d[1] = sy;
+        o->d[2] = sqrt(dx * dx + dy * dy);
+        o->d[3] = atan2(dy, dx);
+        o->d[4] = 2 * PI;
+        o->d[5] = 0.0;
+        o->d[6] = 1.0;
+        o->n = 1;
+        return o->d[2] > 0.0;
+    }
+    }
+    return 0;
+}
+
+int jw_cmd_pending(jw_obj *o)
+{
+    if (step != 2 || !tracking)
         return 0;
-    *x0 = sx;
-    *y0 = sy;
-    *x1 = tx;
-    *y1 = ty;
-    return 1;
+    return figure(o, tx, ty);
 }
 
 void jw_cmd_point(jw_drawing *d, double x, double y, int button)
@@ -72,7 +120,7 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button)
         }
         return;
     }
-    if (current != JW_CMD_SEN)
+    if (current != JW_CMD_SEN && current != JW_CMD_ENKO)
         return;
     if (step == 0) {
         sx = x;
@@ -83,12 +131,15 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button)
         return;
     }
     if (d) {
-        jw_obj *o = jw_add(d, JW_SEN);
-        if (o) {
-            o->d[0] = sx;
-            o->d[1] = sy;
-            o->d[2] = x;
-            o->d[3] = y;
+        jw_obj tmp;
+        if (figure(&tmp, x, y)) {
+            jw_obj *o = jw_add(d, tmp.cls);
+            if (o) {
+                int i;
+                for (i = 0; i < 8; i++)
+                    o->d[i] = tmp.d[i];
+                o->n = tmp.n;
+            }
         }
     }
     step = 0;

@@ -165,6 +165,31 @@ int main(int argc, char **argv)
            "within a pixel of where it was clicked");
     }
 
+    /* 円: centre then a point it goes through */
+    k = find_btn(0x8005);
+    ck(k >= 0, "円 has a button");
+    btn_mid(k, &x, &y);
+    app_press(x, y, 0);
+    ck(jw_cmd() == 0x8005, "the command is now 円");
+    d = app_drawing();
+    before = d ? d->ndrawn : 0;
+    app_press(600, 350, 0);
+    ck(app_move(700, 350) == 1, "the circle to come follows the mouse");
+    app_press(700, 350, 0);
+    d = app_drawing();
+    ck(d && d->ndrawn == before + 1, "the second point adds one element");
+    if (d && d->ndrawn == before + 1) {
+        const jw_obj *o = &d->obj[before];
+        v = app_view();
+        ck(o->cls == JW_ENKO, "it is an arc");
+        ck(fabs(o->d[2] - 100.0 / v->scale) < 1e-6,
+           "with the radius the distance to the second point");
+        ck(fabs(o->d[4] - 2 * 3.14159265358979323846) < 1e-9,
+           "swept the whole way round -- the constructor's 2 pi");
+        ck(o->d[6] == 1.0, "and round, not squashed -- its flattening of 1");
+        ck(o->n == 1, "with the trailing 1 every whole circle in the samples has");
+    }
+
     app_paint();
     if (argc > 2)
         png_rgb(argv[2], app_fb()->w, app_fb()->h, app_fb()->px);

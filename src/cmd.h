@@ -19,7 +19,8 @@
    for each button on the screen. */
 enum {
     JW_CMD_SEN = 0x8003,            /* 線 -- the one the original starts in */
-    JW_CMD_TEN = 0x8011             /* 点 */
+    JW_CMD_TEN = 0x8011,            /* 点 */
+    JW_CMD_ENKO = 0x8005            /* 円 */
 };
 
 int  jw_cmd(void);                  /* the current command */
@@ -36,8 +37,9 @@ void jw_cmd_point(jw_drawing *d, double x, double y, int button);
 /* The mouse moved to here, in paper millimetres. */
 void jw_cmd_track(double x, double y);
 
-/* The element being drawn, if the command is part way through one: 1, and
-   the two ends in paper millimetres. */
-int  jw_cmd_pending(double *x0, double *y0, double *x1, double *y1);
+/* The element the command is part way through, if any: 1, and the element
+   filled in ready to draw.  It is worked out the same way as the one that
+   gets added, so what is shown is what will be made. */
+int  jw_cmd_pending(jw_obj *o);
 
 #endif
