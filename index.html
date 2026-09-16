@@ -101,17 +101,20 @@
                      + 'background:#fee;color:#900;font:12px monospace;'
                      + 'padding:2px 6px;display:none';
   document.body.appendChild(oops);
-  // Which build is running, so a stale page can be told from a bug.  The
-  // last line says what the text command is doing right now.
+  // Which build is running, so a stale page can be told from a bug, and what
+  // the text command is doing right now.  Only with ?debug on the address:
+  // the point of this port is to look like the original, and a build number
+  // in the corner is not part of that.
+  const debug = new URLSearchParams(location.search).has('debug');
   const ver = document.createElement('div');
   ver.style.cssText = 'position:fixed;right:0;bottom:0;z-index:3;'
                     + 'background:#eef;color:#446;font:11px monospace;'
                     + 'padding:1px 5px';
-  document.body.appendChild(ver);
+  if (debug) document.body.appendChild(ver);
   const VERSION = 9;
   let lastnote = '';
   const note = t => {
-    if (t === lastnote) return;
+    if (!debug || t === lastnote) return;
     lastnote = t;
     ver.textContent = 'build ' + VERSION + (t ? '  ' + t : '');
   };
