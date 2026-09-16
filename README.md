@@ -53,6 +53,19 @@ Direct2D のアンチエイリアスに追随する必要がなくなります�
 ## 対象
 
 `jww10036.exe` が配布されているインストーラ（Inno Setup 6.4.2）です。
+**このリポジトリに入れてあります** —— ダウンロードしたそのままの 1 ファイルで、
+中身は一切変えていません。Jw_cad の使用条件（`Jw_win.txt` の「（３）転載及び
+配布」）が「プログラムを改変しないこと」「このままの形態で配布すること」の
+二つなので、配布された形のまま置くのがいちばん条件に合います。
+
+**著作権者は Jiro Shimizu & Yoshifumi Tanaka** で、Jw_cad はフリーソフト
+ウェアです。使用条件の全文はインストーラを展開して `orig/Jw_win.txt` を
+読んでください。
+
+展開した `orig/` と、そこから機械的に作った `decomp/`・`src/gen/` は
+リポジトリに入れていません（展開した形は「このままの形態」ではないし、
+逆コンパイルは原プログラムの改変にあたりうるため）。どちらも手元で作れます。
+
 サイレントインストールで中身が出ます。
 
 ```sh
@@ -72,6 +85,24 @@ Direct2D のアンチエイリアスに追随する必要がなくなります�
 
 `Jw_win.txt` によれば開発環境は **Visual Studio Community 2019**、
 対応 OS は Windows 10 / 11 です。
+
+### 手元で作り直すもの
+
+`orig/` を展開したら、生成物はこれで作れます。
+
+```sh
+python tools/mkres.py orig/Jw_win.exe src/gen --maxh 21   # 枠の画像と文字列
+python tools/btnmap.py docs/ref_start.png decomp/res/bitmap src/gen/layout.h
+python tools/mkfont.py font src/gen                        # 東雲フォント
+python tools/mkcp932.py                                    # CP932 ↔ UTF-16
+sh  tools/refenv.sh                                        # 基準のレジストリ
+powershell -File tmp/bars.ps1 -Cmds '...' -Out decomp/res/bars.txt
+python tools/mkbars.py                                     # コマンドバー
+gcc -O2 -o tmp/gdicirc.exe tools/gdicirc.c -lgdi32
+tmp/gdicirc.exe > decomp/res/circles.txt
+python tools/mkcirc.py                                     # GDI の円
+sh  tools/check.sh                                         # 全部の検査
+```
 
 ### Jw_win.exe の構成
 

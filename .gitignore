@@ -1,10 +1,12 @@
-# The originals are Jiro Shimizu & Yoshifumi Tanaka's, not ours to republish,
-# and neither is anything mechanically derived from them.  Everything under
-# orig/ and decomp/ is rebuilt locally from your own copy of the installer --
-# see README.md, "Getting the originals".
+# Jw_cad itself is Jiro Shimizu & Yoshifumi Tanaka's.  Its licence allows
+# passing it on, on two conditions: do not change the program, and pass it on
+# in the form it came in (Jw_win.txt, section 3).  So the installer is here
+# exactly as it is downloaded -- jww10036.exe, an unmodified Inno Setup
+# package -- and the expanded tree is not: orig/ is what the installer makes
+# locally, and decomp/ is machine output taken from the program, which is
+# neither unchanged nor the form it came in.  README.md says how to make both.
 orig/
 decomp/
-jww10036.exe
 install.log
 
 tmp/
