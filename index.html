@@ -70,6 +70,7 @@
   const key = mod.cwrap('jw_key', 'number', ['number']);
   const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
   const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
+  const keyu = mod.cwrap('jw_key_u', 'number', ['number']);
 
   // A canvas cannot host an IME, so a transparent input is kept over it and
   // focused: the candidate window then appears where the input is, and what
@@ -78,14 +79,25 @@
   ime.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;'
                     + 'opacity:0;border:0;padding:0;z-index:2';
   document.body.appendChild(ime);
+  // Anything that goes wrong in here would otherwise be invisible: the page
+  // would simply stop taking what is typed.  Say so on the page instead.
+  const oops = document.createElement('div');
+  oops.style.cssText = 'position:fixed;left:0;bottom:0;right:0;z-index:3;'
+                     + 'background:#fee;color:#900;font:12px monospace;'
+                     + 'padding:2px 6px;display:none';
+  document.body.appendChild(oops);
+  const complain = e => {
+    oops.textContent = String(e && (e.message || e));
+    oops.style.display = 'block';
+  };
+  window.addEventListener('error', e => complain(e.error || e.message));
+  const guard = f => (...a) => { try { return f(...a); } catch (e) { complain(e); } };
   let composing = false;
+  // One UTF-16 unit at a time, converted to CP932 inside the port.  Nothing
+  // is allocated here, so there is no heap view to get wrong.
   const send = s => {
     if (!s) return;
-    const n = s.length;
-    const p = mod._malloc(n * 2);
-    for (let i = 0; i < n; i++) mod.HEAPU16[(p >> 1) + i] = s.charCodeAt(i);
-    textin(p, n);
-    mod._free(p);
+    for (let i = 0; i < s.length; i++) keyu(s.charCodeAt(i));
     present();
   };
   // In the 文字 command put the hidden input over the box the port draws,
@@ -101,18 +113,19 @@
     }
     ime.focus({ preventScroll: true });
   };
-  ime.addEventListener('compositionstart', () => { composing = true; });
-  ime.addEventListener('compositionend', e => {
+  ime.addEventListener('compositionstart', guard(() => { composing = true; }));
+  ime.addEventListener('compositionend', guard(e => {
     composing = false;
+    const v = e.data || ime.value;   /* some IMEs leave data empty */
     ime.value = '';
-    send(e.data);
-  });
-  ime.addEventListener('input', e => {
+    send(v);
+  }));
+  ime.addEventListener('input', guard(e => {
     if (composing) return;          // still being converted
     const v = ime.value;
     ime.value = '';
     send(v);
-  });
+  }));
   ime.addEventListener('keydown', e => {
     if (composing) return;
     if (e.key === 'Backspace') { if (key(8)) present(); e.preventDefault(); }

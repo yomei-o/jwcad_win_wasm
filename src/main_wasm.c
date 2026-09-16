@@ -77,6 +77,20 @@ EMSCRIPTEN_KEEPALIVE int jw_key(int c)
     return app_key(c);
 }
 
+/* One UTF-16 unit from the page, converted here.  This is the way the page
+   sends what an IME gives it: it needs no memory of its own on the wasm
+   side, so there is nothing to get wrong about heap views or malloc. */
+EMSCRIPTEN_KEEPALIVE int jw_key_u(int c)
+{
+    unsigned short u = (unsigned short)c;
+    char buf[4];
+    long m = jw_from_utf16(&u, 1, buf, sizeof buf), i;
+
+    for (i = 0; i < m && i < (long)sizeof buf; i++)
+        app_key((unsigned char)buf[i]);
+    return m > 0;
+}
+
 /* UTF-16 straight from the page, converted here. */
 EMSCRIPTEN_KEEPALIVE int jw_text_in(const unsigned short *s, int n)
 {
