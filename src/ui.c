@@ -4,6 +4,8 @@
 #include "theme.h"
 #include "gen/jwres.h"
 #include "gen/layout.h"
+#include "gen/cmds.h"
+#include "cmd.h"
 #include "text.h"
 
 #include <stdio.h>
@@ -331,13 +333,8 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
     char buf[64];
     int wg = 0, i;
 
-    /* CP932, which is how the font is indexed.  Spelled out in hex so the
-       file stays one encoding: the prompt is the original's
-       "始点を指示してください". */
-    jw_text_px(fb, 8, 726,
-               "\x8e\x6e\x93\x5f\x82\xf0\x8e\x77\x8e\xa6\x82\xb5\x82\xc4"
-               "\x82\xad\x82\xbe\x82\xb3\x82\xa2  (L)free  (R)Read",
-               C_BTNTEXT);
+    /* The prompt is the command's own, out of the string table. */
+    jw_text_px(fb, 8, 726, jw_cmd_prompt(), C_BTNTEXT);
     if (!d)
         return;
     for (i = 0; i < 16; i++)
@@ -351,7 +348,9 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
     sprintf(buf, "[%X-%X]", wg, d->group[wg].write_layer & 15);
     jw_text_px(fb, panes[2].x0 + 4, 726, buf, C_BTNTEXT);
     jw_text_px(fb, panes[3].x0 + 4, 726, "\x81\xda 0", C_BTNTEXT);
-    sprintf(buf, "x %.2f", zoom);
+    /* two decimals, cut not rounded, and a trailing zero dropped: the
+       original shows 0.21, 0.3, 0.42 and 0.1 for the four sheet sizes */
+    sprintf(buf, "\x81\x7e %g", (double)(long)(zoom * 100.0 + 1e-9) / 100.0);
     jw_text_px(fb, panes[4].x0 + 4, 726, buf, C_BTNTEXT);
 }
 
@@ -441,7 +440,7 @@ static const struct { short x, w; } linebuttons[] = {
 #define LINEBTN_Y 5
 #define LINEBTN_H 24
 
-static void paint_buttons(fb_t *fb, const jw_drawing *d)
+static void paint_buttons(fb_t *fb, int saveable)
 {
     int k;
 
@@ -451,9 +450,15 @@ static void paint_buttons(fb_t *fb, const jw_drawing *d)
         int state = b->state;
         int dx, dy;
 
+        /* A button is pressed when it is the command in force -- that is all
+         * the original's ON_UPDATE_COMMAND_UI handler does (FUN_00511c20:
+         * pCmdUI->SetCheck(view->current == id)).  The reference screen was
+         * taken in 線, which is why that one came out pressed. */
+        if (state != 1)
+            state = jw_btn_cmd[k] == jw_cmd() ? 2 : 0;
         /* 上書 comes alive once there is a file to write back to.  The
          * layout was read off the reference screen, which has none. */
-        if (b->strip == 464 && b->cell == 2 && d)
+        if (b->strip == 464 && b->cell == 2 && saveable)
             state = 0;
         dx = CELL_DX + (state == 2);
         dy = CELL_DY + (state == 2);
@@ -467,7 +472,7 @@ static void paint_buttons(fb_t *fb, const jw_drawing *d)
     }
 }
 
-void ui_paint(fb_t *fb, const jw_drawing *d, double zoom)
+void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable)
 {
     rect_t v;
 
@@ -498,7 +503,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom)
     paint_samples(fb);
     paint_status(fb);
     status_text(fb, d, zoom);
-    paint_buttons(fb, d);
+    paint_buttons(fb, saveable);
 
     {
         int k;

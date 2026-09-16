@@ -85,6 +85,12 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         InvalidateRect(wnd, NULL, FALSE);
         return 0;
     }
+    case WM_LBUTTONDOWN:
+        if (app_press((short)LOWORD(lp), (short)HIWORD(lp), 0)) {
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
+        return 0;
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
         dragging = 1;
@@ -97,16 +103,20 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         dragging = 0;
         ReleaseCapture();
         return 0;
-    case WM_MOUSEMOVE:
+    case WM_MOUSEMOVE: {
+        int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
         if (dragging) {
-            int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
             app_pan(x - lastx, y - lasty);
             lastx = x;
             lasty = y;
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
+        } else if (app_move(x, y)) {
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
         }
         return 0;
+    }
     case WM_KEYDOWN:
         if (wp == VK_HOME) {
             app_fit();
@@ -142,6 +152,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     MSG msg;
 
     (void)prev;
+    app_new();
     open_arg(cmd);
     ZeroMemory(&wc, sizeof wc);
     wc.cbSize = sizeof wc;

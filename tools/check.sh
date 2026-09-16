@@ -23,6 +23,10 @@ printf '    %s of %s\n' "$(./tests/jww_test.exe orig/*.jww | grep -c '^ok')" \
                         "$(ls orig/*.jww | wc -l)"
 ./tests/jww_test.exe orig/*.jww | grep '^BAD' || true
 
+echo
+echo "=== pressing things"
+./tests/click_test.exe orig/Test1.jww | sed 's/^/    /'
+
 ./tests/frame.exe tests/out/frame.png >/dev/null
 node tests/wasm_check.js tests/out/wasm.png >/dev/null
 

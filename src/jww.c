@@ -452,6 +452,49 @@ static void read_list(ar_t *a, jw_drawing *d)
     free(load);
 }
 
+/* The defaults are CData's constructor, FUN_0041f2d0 in the original:
+ *
+ *     +0x28 = 1            line type, 実線
+ *     +0x2a = 2            colour
+ *     +0x2c = 0            width
+ *     +0x2e = doc[0x24ec + doc[0x256c] * 4]     the write layer
+ *     +0x2f = doc[0x256c]                       the write layer group
+ *
+ * A command then puts its own pen over the first two before it hands the
+ * element to the document; where that pen is kept has not been traced yet,
+ * so what comes out here is the constructor's.
+ */
+jw_obj *jw_add(jw_drawing *d, int cls)
+{
+    jw_obj *o = obj_new(d);
+    int g, wg = 0;
+
+    if (!o)
+        return 0;
+    /* obj_new appends; the drawn elements come before the block definitions,
+       so move it up if there are any */
+    if (d->nobj - 1 > d->ndrawn) {
+        jw_obj tmp = *o;
+        memmove(&d->obj[d->ndrawn + 1], &d->obj[d->ndrawn],
+                (size_t)(d->nobj - 1 - d->ndrawn) * sizeof *o);
+        d->obj[d->ndrawn] = tmp;
+        o = &d->obj[d->ndrawn];
+    }
+    d->ndrawn++;
+    for (g = 0; g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    o->cls = (unsigned char)cls;
+    o->ltype = 1;
+    o->color = 2;
+    o->width = 0;
+    o->layer = (unsigned short)(d->group[wg].write_layer & 15);
+    o->lgroup = (unsigned short)wg;
+    o->flags = 0;
+    o->text = o->face = -1;
+    return o;
+}
+
 int jw_parse(jw_drawing *d, const unsigned char *b, long n)
 {
     ar_t a;

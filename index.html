@@ -61,6 +61,8 @@
   const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
+  const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
+  const move  = mod.cwrap('jw_move',  'number', ['number', 'number']);
 
   async function load(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -93,13 +95,30 @@
     present();
   }, { passive: false });
 
+  // The left button belongs to the command in force -- a toolbar button
+  // changes it, a click in the drawing area gives it a point.  Dragging with
+  // the middle or right button moves the sheet; the original uses both
+  // buttons at once for that, which a browser cannot see reliably.
+  const at = e => {
+    const r = canvas.getBoundingClientRect();
+    return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
+  };
   let drag = null;
   canvas.addEventListener('pointerdown', e => {
+    const [x, y] = at(e);
+    if (e.button === 0) {
+      if (press(x, y, 0)) present();
+      return;
+    }
     drag = { x: e.clientX, y: e.clientY };
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', e => {
-    if (!drag) return;
+    if (!drag) {
+      const [x, y] = at(e);
+      if (move(x, y)) present();
+      return;
+    }
     pan(e.clientX - drag.x, e.clientY - drag.y);
     drag = { x: e.clientX, y: e.clientY };
     present();

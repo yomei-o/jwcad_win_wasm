@@ -79,6 +79,12 @@ typedef struct {
 int  jw_parse(jw_drawing *d, const unsigned char *b, long n);
 void jw_free(jw_drawing *d);
 
+/* Add an element to the drawing, before the block definitions.  It comes out
+   the way CData's constructor leaves one: line type 1, colour 2, no width,
+   and on the write layer of the write layer group.  Returns NULL if the
+   array could not grow. */
+jw_obj *jw_add(jw_drawing *d, int cls);
+
 /* The text of an object, as CP932 bytes. */
 const char *jw_str(const jw_drawing *d, int off);
 

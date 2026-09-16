@@ -54,12 +54,31 @@ EMSCRIPTEN_KEEPALIVE void jw_fit(void)
     app_paint();
 }
 
+/* A click: on a toolbar button it changes the command, in the drawing area
+   it gives the command a point. */
+EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
+{
+    if (!app_press(x, y, button))
+        return 0;
+    app_paint();
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)
+{
+    if (!app_move(x, y))
+        return 0;
+    app_paint();
+    return 1;
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_width(void)  { return app_fb()->w; }
 EMSCRIPTEN_KEEPALIVE int jw_height(void) { return app_fb()->h; }
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_rgba(void) { return app_rgba(); }
 
 int main(void)
 {
+    app_new();
     jw_resize(1264, 741);
     return 0;
 }
