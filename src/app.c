@@ -233,6 +233,26 @@ void app_new(void)
             drawing.group[g].layer_name[l] = -1;
         }
     }
+    {   /* The ten text styles and the one in force.  A new drawing has to
+         * start with something, and the original's own 書式 button reads
+         * "Free  W=3.5 H=3.5 D=0 (2)" on one -- free meaning not one of the
+         * ten, so a text placed straight away comes out at 3.5 by 3.5 with
+         * no extra spacing in pen 2.  The ten sizes are the ones most of the
+         * shipped drawings carry (seven of the fifteen; the rest differ only
+         * in a spacing, and they only decide the style number, which is 0
+         * here anyway because 3.5 is not among them). */
+        static const double w[10] = { 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10 };
+        static const double sp[10] = { 0, 0, 0.5, 0.5, 0.5, 1, 1, 1, 1, 1 };
+        static const int col[10] = { 1, 1, 2, 2, 3, 3, 4, 4, 5, 5 };
+        for (i = 0; i < 10; i++) {
+            drawing.style[i].w = drawing.style[i].h = w[i];
+            drawing.style[i].sp = sp[i];
+            drawing.style[i].color = col[i];
+        }
+        drawing.cur_style.w = drawing.cur_style.h = 3.5;
+        drawing.cur_style.sp = 0.0;
+        drawing.cur_style.color = 2;
+    }
     for (i = 0; i < 10; i++) {
         drawing.pen_rgb[i] = jw_default_pen_rgb[i];
         drawing.pen_width[i] = jw_default_pen_width[i];

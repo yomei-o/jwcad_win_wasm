@@ -680,6 +680,9 @@ int main(int argc, char **argv)
     ck(d && d->ndrawn == 0, "and the drawing is empty again");
     ck(d && d->paper_size == 2, "an A-2 one, as the reference screen shows");
     ck(!jw_cmd_can_undo(), "with nothing to undo");
+    ck(d && d->cur_style.w == 3.5 && d->cur_style.h == 3.5
+       && d->cur_style.sp == 0.0 && d->cur_style.color == 2,
+       "and a text style to write with, the one 書式 reads on a new drawing");
 
     /* 消去's left button on a circle takes a piece out of it too, and by
      * angle alone -- the two range clicks can be well inside the circle and
