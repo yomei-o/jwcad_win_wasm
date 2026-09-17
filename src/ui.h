@@ -29,6 +29,11 @@ int ui_button_state(int k, int saveable, int undoable);
    the same as empty bar. */
 int ui_bar_hit(int x, int y);
 
+/* Which cell of the layer grids is under the point: 0 for the layer grid,
+   1 for the layer group grid, -1 for neither, and *n is which of the
+   sixteen. */
+int ui_layer_hit(int x, int y, int *n);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

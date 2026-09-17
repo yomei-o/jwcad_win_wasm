@@ -92,10 +92,57 @@ static void to_paper(int x, int y, double *px, double *py)
     *py = view.oy + (view.by - y) / view.scale;
 }
 
+/* A press on one of the two grids at the bottom right.
+ *
+ * What each button does was read off the original: Test5 was opened, cells
+ * were pressed and the file saved, and the states in it say
+ *
+ *   left  -- steps the cell round 編集可(2) -> 非表示(0) -> 表示のみ(1) ->
+ *            編集可, and does nothing at all on the one being written to
+ *            (three presses on layer 6 brought it back where it started,
+ *            and one on the write layer changed nothing);
+ *   right -- makes it the one written to (3), and the one that was drops
+ *            to 編集可.
+ *
+ * The group grid behaves the same way. */
+static int press_layer(int g, int n, int button)
+{
+    jw_group *grp;
+    int i, wg = 0;
+
+    if (!have_drawing)
+        return 0;
+    for (i = 0; i < 16; i++)
+        if (drawing.group[i].state == 3)
+            wg = i;
+    grp = &drawing.group[wg];
+    if (button != 0) {
+        if (g == 0) {
+            grp->layer[grp->write_layer & 15].state = 2;
+            grp->layer[n].state = 3;
+            grp->write_layer = n;
+        } else {
+            drawing.group[wg].state = 2;
+            drawing.group[n].state = 3;
+        }
+        return 1;
+    }
+    {
+        int *st = g == 0 ? &grp->layer[n].state : &drawing.group[n].state;
+        if (*st == 3)
+            return 0;
+        *st = *st == 2 ? 0 : *st == 0 ? 1 : 2;
+    }
+    return 1;
+}
+
 int app_press(int x, int y, int button)
 {
     int k = hit_button(x, y);
-    int id;
+    int id, g, n;
+
+    if ((g = ui_layer_hit(x, y, &n)) >= 0)
+        return press_layer(g, n, button);
 
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0
         && jw_cmd_bar(have_drawing ? &drawing : 0, id))

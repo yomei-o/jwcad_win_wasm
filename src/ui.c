@@ -279,6 +279,24 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
     }
 }
 
+int ui_layer_hit(int x, int y, int *n)
+{
+    int g, col, row;
+
+    for (g = 0; g < 2; g++)
+        for (col = 0; col < 2; col++)
+            for (row = 0; row < 8; row++) {
+                int cx = layer_grids[g].x + col * LAYER_CELL_W;
+                int cy = layer_grids[g].y + row * LAYER_CELL_H;
+                if (x >= cx && x < cx + LAYER_CELL_W
+                    && y >= cy && y < cy + LAYER_CELL_H) {
+                    *n = col * 8 + row;
+                    return g;
+                }
+            }
+    return -1;
+}
+
 /* The four square buttons under the layer grids (All / 0 / All / X).  Same
  * chrome as a toolbar button, but 25x21 and their captions are text. */
 static const struct { short x, y; } small_buttons[4] = {
