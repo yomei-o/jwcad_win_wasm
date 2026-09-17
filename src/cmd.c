@@ -908,13 +908,19 @@ static int sel_confirm(jw_drawing *d)
 
 /* 消去 entered with a settled selection takes it out at once.  The original
  * does exactly that: 範囲選択 over Test5, 選択確定, then 消去, and the file
- * it saved had 25 of its 46 lines gone and nothing left picked. */
+ * it saved had 25 of its 46 lines gone and nothing left picked.
+ *
+ * Only from 範囲選択 though.  The same three keys after a 複写 -- where the
+ * selection is settled too, and still drawn pink -- leave the drawing alone:
+ * the original made its copy, 消去 took nothing out, and the 25 elements
+ * were still picked in the file it saved.  So this is the 範囲選択 arm (step
+ * 4) and not the one 複写 and 移動 place from (step 3). */
 int jw_cmd_sel_erase(jw_drawing *d)
 {
     op_t *o;
     int i, n = 0;
 
-    if (!d || sel_n <= 0)
+    if (!d || sel_n <= 0 || sel_step != 4)
         return 0;
     o = op_new();
     for (i = d->nobj - 1; i >= 0; i--)

@@ -75,6 +75,10 @@ echo "=== a drawing begun from nothing, drawn on and saved"
 node tests/wasm_check.js tests/out/wasm.png >/dev/null
 
 echo
+echo "=== ひと続きの作業 —— 新規から保存まで"
+./tests/session_test.exe tests/out/session.jww | sed 's/^/    /'
+
+echo
 echo "=== the frame against the original"
 python tools/cmp.py docs/ref_start.png tests/out/frame.png \
     -i docs/textareas.txt -d tests/out/diff.png | head -2 | sed 's/^/    /'

@@ -18,4 +18,5 @@ $CC $CFLAGS -o tests/sel_test.exe   tests/sel_test.c   tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/layer_test.exe tests/layer_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/sunpo_test.exe tests/sunpo_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/zoku_test.exe  tests/zoku_test.c  tests/png.c $COMMON -lm
-echo "built tests/frame.exe tests/shot.exe tests/jww_test.exe tests/pick_test.exe tests/read_test.exe tests/click_test.exe tests/write_test.exe tests/new_test.exe tests/sel_test.exe tests/layer_test.exe tests/sunpo_test.exe tests/zoku_test.exe"
+$CC $CFLAGS -o tests/session_test.exe tests/session_test.c tests/png.c $COMMON -lm
+echo "built tests/frame.exe tests/shot.exe tests/jww_test.exe tests/pick_test.exe tests/read_test.exe tests/click_test.exe tests/write_test.exe tests/new_test.exe tests/sel_test.exe tests/layer_test.exe tests/sunpo_test.exe tests/zoku_test.exe tests/session_test.exe"
