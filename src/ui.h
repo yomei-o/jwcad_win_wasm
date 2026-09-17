@@ -34,6 +34,16 @@ int ui_bar_hit(int x, int y);
    sixteen. */
 int ui_layer_hit(int x, int y, int *n);
 
+/* 線属性 (0x8027), the dialog that picks the colour and the line type new
+   elements get.  Where it sits, what is on it and how each control looks
+   were read out of the running original -- tools/mkzoku.py and the picture
+   it points at.  `colour` and `ltype` are what is picked in it right now,
+   1..9 each (9 being 補助); the drawing is there for the pen colours. */
+void ui_zoku_rect(int cw, int ch, rect_t *r);
+void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype);
+/* The id of the control under the point, or 0.  Ok is 1 and キャンセル 2. */
+int  ui_zoku_hit(int cw, int ch, int x, int y);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

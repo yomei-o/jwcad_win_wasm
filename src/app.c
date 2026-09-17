@@ -136,10 +136,44 @@ static int press_layer(int g, int n, int button)
     return 1;
 }
 
+/* 線属性 (0x8027): the dialog is up, and what it has picked so far.  The
+ * original applies them when Ok is pressed and drops them on キャンセル. */
+static int zoku_open, zoku_color, zoku_ltype;
+
+int app_zoku_open(void)
+{
+    return zoku_open;
+}
+
+static int press_zoku(int x, int y)
+{
+    int id = ui_zoku_hit(fb.w, fb.h, x, y);
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id >= 1401 && id <= 1409)
+        zoku_color = id - 1400;
+    else if (id >= 2449 && id <= 2457)
+        zoku_ltype = id - 2448;
+    else if (id == 1) {                 /* Ok */
+        if (have_drawing) {
+            drawing.write_color = (unsigned short)zoku_color;
+            drawing.write_ltype = (unsigned char)zoku_ltype;
+        }
+        zoku_open = 0;
+    } else if (id == 2) {               /* キャンセル */
+        zoku_open = 0;
+    }
+    return 1;
+}
+
 int app_press(int x, int y, int button)
 {
     int k = hit_button(x, y);
     int id, g, n;
+
+    if (zoku_open)
+        return press_zoku(x, y);
 
     if ((g = ui_layer_hit(x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -166,6 +200,14 @@ int app_press(int x, int y, int button)
         /* an action: it runs, and never becomes "the command" */
         if (cmd == JW_CMD_UNDO && jw_cmd_can_undo()) {
             jw_cmd_undo(have_drawing ? &drawing : 0);
+            return 1;
+        }
+        if (cmd == 0x8027) {            /* 線属性 */
+            zoku_color = have_drawing && drawing.write_color
+                         ? drawing.write_color : 2;
+            zoku_ltype = have_drawing && drawing.write_ltype
+                         ? drawing.write_ltype : 1;
+            zoku_open = 1;
             return 1;
         }
         if (cmd == 57600) {             /* 新規 (ID_FILE_NEW) */
@@ -385,6 +427,8 @@ void app_paint(void)
     /* the 文字 command's box goes over the drawing */
     if (jw_cmd() == JW_CMD_MOJI)
         ui_textbox(&fb, jw_cmd_line(), jw_cmd_compose());
+    if (zoku_open)
+        ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);
     if (!rgba)
         return;
     n = fb.w * fb.h;

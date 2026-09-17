@@ -47,6 +47,9 @@ int  app_press(int x, int y, int button);
 int  app_move(int x, int y);
 int  app_take_action(void);
 
+/* Whether the 線属性 dialog is up; while it is, it takes every press. */
+int  app_zoku_open(void);
+
 /* The drawing as bytes, ready to write to a file.  The caller frees *out.
    0 when there is nothing that can be written. */
 int  app_save(unsigned char **out, long *n);

@@ -1,0 +1,33 @@
+# Where the 線属性 dialog draws text with a Windows font, in the
+# coordinates of docs/ref_zoku.png (the whole 308x375 window).
+# The window frame goes with them: Windows draws that one, themed --
+# a rounded, shaded border and a caption the port has no way to match.
+#
+#   python tools/cmp.py docs/ref_zoku.png tests/out/zoku.png -i docs/zoku_textareas.txt
+
+0 0 308 31
+0 31 8 344
+300 31 8 344
+0 367 308 8
+15 282 276 20
+30 40 160 15
+232 61 75 17
+232 79 75 17
+232 97 75 21
+232 115 75 18
+232 133 75 18
+232 151 75 18
+232 169 75 18
+232 187 75 18
+232 205 75 18
+89 61 75 17
+89 79 75 17
+89 97 75 21
+89 115 75 18
+89 133 75 18
+89 151 75 18
+89 169 75 18
+89 187 75 18
+89 205 75 18
+8 310 307 18
+15 341 276 17

@@ -5,6 +5,8 @@
 #include "gen/jwres.h"
 #include "gen/layout.h"
 #include "gen/bars.h"
+#include "gen/zoku.h"
+#include "gen/pens.h"
 #include "gen/cmds.h"
 #include "cmd.h"
 #include "text.h"
@@ -297,6 +299,7 @@ int ui_layer_hit(int x, int y, int *n)
     return -1;
 }
 
+
 /* The four square buttons under the layer grids (All / 0 / All / X).  Same
  * chrome as a toolbar button, but 25x21 and their captions are text. */
 static const struct { short x, y; } small_buttons[4] = {
@@ -535,6 +538,185 @@ void ui_textbox(fb_t *fb, const char *line, const char *composing)
            Without it there is nothing to say the box takes typing. */
         fb_fill(fb, tx, ty, 1, th, C_BTNTEXT);
     }
+}
+
+/* ------------------------------------------------------------------ 線属性
+ *
+ * The dialog the 線属性 button puts up.  Its controls come from
+ * src/gen/zoku.h, read out of the running original; how they are drawn was
+ * read off the same dialog painted into a bitmap, and is spelled out here
+ * because the two owner-draw buttons are Jw_cad's own, not Windows':
+ *
+ *   not the chosen one -- a black rectangle round the whole button, with a
+ *   shadow down the inside of its right and bottom edges;
+ *   the chosen one    -- black along the top and the left only, a shadow
+ *   inset on all four sides, a tick at the left, and everything inside
+ *   moved one pixel right and down.
+ *
+ * Inside sits the sample: for a colour, a bar 32 by 4 at 16,6 in the pen's
+ * own colour; for a line type, one row of 33 pixels at 16,8 drawn with that
+ * type's pattern.
+ */
+#define ZK_SWATCH_X  16
+#define ZK_SWATCH_Y   6
+#define ZK_SWATCH_W  32
+#define ZK_SWATCH_H   4
+#define ZK_SAMPLE_Y   8
+#define ZK_SAMPLE_W  33
+
+void ui_zoku_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_ZOKU_W;
+    r->h = JW_ZOKU_H;
+    /* Across the client, and up by the status bar: the original put it at
+       478,162 in a 1264 by 741 one, which is exactly this. */
+    r->x = (cw - JW_ZOKU_W) / 2;
+    r->y = (ch - 42 - JW_ZOKU_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+/* Jw_cad draws these itself, in the greys Windows used to have rather than
+   the ones the theme gives the rest of the dialog. */
+#define ZK_FACE   0xc0c0c0u
+#define ZK_SHADOW 0x808080u
+
+static void zk_button(fb_t *fb, int x, int y, int w, int h, int chosen)
+{
+    fb_fill(fb, x, y, w, h, ZK_FACE);
+    if (!chosen) {
+        fb_edge(fb, x, y, w, h, C_BTNTEXT, C_BTNTEXT);
+        fb_vline(fb, x + w - 2, y + 1, h - 2, ZK_SHADOW);
+        fb_hline(fb, x + 1, y + h - 2, w - 2, ZK_SHADOW);
+        return;
+    }
+    fb_hline(fb, x, y, w, C_BTNTEXT);
+    fb_vline(fb, x, y, h, C_BTNTEXT);
+    fb_hline(fb, x + 1, y + 1, w - 1, ZK_SHADOW);
+    fb_vline(fb, x + 1, y + 1, h - 1, ZK_SHADOW);
+    fb_vline(fb, x + w - 1, y + 1, h - 1, ZK_SHADOW);
+    fb_hline(fb, x + 1, y + h - 1, w - 1, ZK_SHADOW);
+    paint_tick(fb, x, y + 2);
+}
+
+/* one row of a line type, the way src/draw.c walks the pattern */
+static void zk_sample(fb_t *fb, int x, int y, int w, int lt, unsigned int col)
+{
+    static const struct { unsigned int bits; int unit; } LT[10] = {
+        { 0xffffffffu, 32 }, { 0xffffffffu, 32 }, { 0x99999999u,  4 },
+        { 0xc3c3c3c3u,  8 }, { 0xe7e7e7e7u,  8 }, { 0xf99ff99fu, 16 },
+        { 0xfff99fffu, 32 }, { 0xf24ff24fu, 16 }, { 0xfff24fffu, 32 },
+        { 0x22222222u,  4 },
+    };
+    int i;
+
+    if (lt < 0 || lt > 9)
+        lt = 1;
+    for (i = 0; i < w; i++)
+        if (LT[lt].bits & (1u << (i % LT[lt].unit)))
+            fb_fill(fb, x + i, y, 1, 1, col);
+}
+
+void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_zoku_rect(fb->w, fb->h, &r);
+    /* the frame.  Windows draws a themed one round a real dialog; this is
+       the same shape, flat -- the same trade the 文字 box makes. */
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNFACE);
+    fb_edge(fb, r.x, r.y, r.w, r.h, C_3DLIGHT, C_3DDKSHADOW);
+    fb_fill(fb, r.x + 2, r.y + 2, r.w - 4, JW_ZOKU_CAPTION - 4, C_CAPTION);
+    jw_text_px(fb, r.x + 6, r.y + 2 + (JW_ZOKU_CAPTION - 4 - th) / 2,
+               /* 線属性 */
+               "\x90\xfc\x91\xae\x90\xab", 0xffffffu);
+    cx = r.x + JW_ZOKU_BORDER;
+    cy = r.y + JW_ZOKU_CAPTION;
+    fb_fill(fb, cx, cy, JW_ZOKU_CW, JW_ZOKU_CH, C_BTNFACE);
+
+    {   /* The two panels the dialog paints itself.  On the left a white box
+           with the line as it will be drawn, on the right the width sample.
+           Both measured off the original's own dialog. */
+        fb_edge(fb, cx + 34, cy + 218, 136, 24, C_BTNTEXT, C_BTNTEXT);
+        fb_fill(fb, cx + 35, cy + 219, 134, 22, C_WINDOW);
+        zk_sample(fb, cx + 46, cy + 230, 113, ltype,
+                  jw_default_pen_rgb[colour % 10]);
+        fb_fill(fb, cx + 176, cy + 220, 89, 19, ZK_FACE);
+        fb_fill(fb, cx + 186, cy + 229, 72, 2, C_BTNTEXT);
+    }
+    for (i = 0; i < JW_NZOKU; i++) {
+        const jw_zk_t *z = &jw_zoku[i];
+        int x = cx + z->x, y = cy + z->y, on;
+
+        switch (z->kind) {
+        case JW_ZK_COLOR:
+            on = z->n == colour;
+            zk_button(fb, x, y, z->w, z->h, on);
+            fb_fill(fb, x + ZK_SWATCH_X + on, y + ZK_SWATCH_Y + on,
+                    ZK_SWATCH_W, ZK_SWATCH_H,
+                    jw_default_pen_rgb[z->n % 10]);
+            break;
+        case JW_ZK_TYPE:
+            on = z->n == ltype;
+            zk_button(fb, x, y, z->w, z->h, on);
+            zk_sample(fb, x + ZK_SWATCH_X + on, y + ZK_SAMPLE_Y + on,
+                      ZK_SAMPLE_W, z->n, C_BTNTEXT);
+            break;
+        case JW_ZK_OK:
+        case JW_ZK_CANCEL: {
+            /* A themed push button: white and the light grey outside, the
+               dark shadow and the shadow inside -- and Ok, being the one
+               Enter presses, carries one more ring of 0x646464 round the
+               lot.  Both read off the original's own dialog. */
+            int k2 = z->kind == JW_ZK_OK;
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            jw_text_px(fb, x + (z->w - jw_text_count(z->text) * 6) / 2,
+                       y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_ZK_CHECK:
+            paint_checkbox(fb, x, y + (z->h - CHECK_W) / 2, 0);
+            /* one row taller here than on the command bars: the dialog's
+               box has a white edge under it as well */
+            fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
+                     C_BTNHILIGHT);
+            jw_text_px(fb, x + CHECK_W + 3, y + (z->h - th) / 2, z->text,
+                       C_BTNTEXT);
+            break;
+        case JW_ZK_STATIC:
+            jw_text_px(fb, x, y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            break;
+        }
+    }
+}
+
+int ui_zoku_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_zoku_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside the dialog altogether */
+    x -= r.x + JW_ZOKU_BORDER;
+    y -= r.y + JW_ZOKU_CAPTION;
+    for (i = 0; i < JW_NZOKU; i++) {
+        const jw_zk_t *z = &jw_zoku[i];
+        if (z->kind == JW_ZK_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
 }
 
 /* The bar for the command in force.  Which controls each one has, and where
