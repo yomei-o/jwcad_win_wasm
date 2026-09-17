@@ -744,8 +744,8 @@ void jw_draw_box(fb_t *fb, const jw_view *v,
     double c = jw_ux(v, x1), e = jw_uy(v, y1);
     double ppb = pix_per_bit(v);
 
-    line(fb, v, a, b, c, b, JW_RANGE_RGB, 0, 1, ppb, 0);
-    line(fb, v, c, b, c, e, JW_RANGE_RGB, 0, 1, ppb, 0);
-    line(fb, v, c, e, a, e, JW_RANGE_RGB, 0, 1, ppb, 0);
-    line(fb, v, a, e, a, b, JW_RANGE_RGB, 0, 1, ppb, 0);
+    line(fb, v, a, b, c, b, JW_RANGE_RGB, 1, 1, ppb, 0);
+    line(fb, v, c, b, c, e, JW_RANGE_RGB, 1, 1, ppb, 0);
+    line(fb, v, c, e, a, e, JW_RANGE_RGB, 1, 1, ppb, 0);
+    line(fb, v, a, e, a, b, JW_RANGE_RGB, 1, 1, ppb, 0);
 }

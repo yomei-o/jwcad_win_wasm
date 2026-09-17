@@ -137,8 +137,11 @@ int main(int argc, char **argv)
     d = app_drawing();
     before = d->ndrawn;
     ck(jw_cmd_bar_enabled(d, 1120) == 1, "選択確定 comes alive");
+    /* and the press goes through the bar the way a click does: 選択確定 is
+       at 491,5 89x24 on 複写's bar (src/gen/bars.h, read off the original) */
+    ck(ui_bar_hit(491 + 44, 5 + 12) == 1120, "its button is where it is drawn");
     app_move(500, 400);                 /* 基準点 -- the mouse is here */
-    ck(jw_cmd_bar((jw_drawing *)d, 1120) == 1, "and it can be pressed");
+    ck(app_press(491 + 44, 5 + 12, 0) == 1, "and pressing it is taken");
     {
         double dx, dy;
         app_move(600, 450);

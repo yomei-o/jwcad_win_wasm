@@ -193,6 +193,12 @@ int app_move(int x, int y)
         return 0;
     to_paper(x, y, &mx, &my);
     jw_cmd_track(mx, my);
+    {   /* the range box and the selection being dragged both follow the
+           mouse, so the window has to be told to paint again */
+        double a, b, c, e;
+        if (jw_cmd_sel_box(&a, &b, &c, &e) || jw_cmd_sel_ghost(&a, &b))
+            return 1;
+    }
     return jw_cmd_pending(have_drawing ? &drawing : 0, o,
                           JW_CMD_MAXFIG) > 0;
 }
