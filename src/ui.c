@@ -621,6 +621,7 @@ static void zk_sample(fb_t *fb, int x, int y, int w, int lt, unsigned int col)
 
 void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype)
 {
+    (void)d;    /* the swatches are the settings' colours, not the file's */
     rect_t r;
     int cx, cy, i, th = jw_text_height();
 

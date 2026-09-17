@@ -104,6 +104,10 @@ python tools/mkcirc.py                                     # GDI の円
 # 新規図面のひな型。Jw_win.exe をファイルを開かずに起動して、そのまま
 # 「名前を付けて保存」で decomp/res/new.jww に保存します（図面は空のまま）。
 python tools/mknew.py decomp/res/new.jww src/gen           # 新規図面
+python tools/mksunpo.py                                    # 寸法の設定
+# 線属性ダイアログ。原典に出させて中身を書き出します。
+powershell -File tmp/jwdraw.ps1 -Clicks 'dlg:32807,docs/ref_zoku.png'     | sed -n '/=== dialog/,$p' | tail -n +2 > decomp/res/zoku.txt
+python tools/mkzoku.py                                     # 線属性
 sh  tools/check.sh                                         # 全部の検査
 ```
 

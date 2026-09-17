@@ -8,12 +8,16 @@
 #   python tools/btnmap.py docs/ref_start.png decomp/res/bitmap src/gen/layout.h
 #   python tools/mkfont.py font src/gen
 #   python tools/mknew.py  decomp/res/new.jww src/gen
+#   python tools/mksunpo.py
+#   python tools/mkzoku.py
 set -e
 cd "$(dirname "$0")/.."
 [ -f src/gen/jwres.c ]  || { echo "run tools/mkres.py first";  exit 1; }
 [ -f src/gen/layout.h ] || { echo "run tools/btnmap.py first"; exit 1; }
 [ -f src/gen/jwfont.c ] || { echo "run tools/mkfont.py first"; exit 1; }
 [ -f src/gen/newjww.c ] || { echo "run tools/mknew.py first";  exit 1; }
+[ -f src/gen/sunpo.h ]  || { echo "run tools/mksunpo.py first"; exit 1; }
+[ -f src/gen/zoku.h ]   || { echo "run tools/mkzoku.py first";  exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
