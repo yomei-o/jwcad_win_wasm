@@ -23,6 +23,8 @@
 #include "../src/cmd.h"
 #include "../src/ui.h"
 #include "../src/view.h"
+#include "../src/gen/layout.h"
+#include "../src/gen/cmds.h"
 
 static int fails;
 
@@ -220,7 +222,44 @@ int main(int argc, char **argv)
     ck(fabs(d->obj[moved].d[0] - ox) < 1e-9
        && fabs(d->obj[moved].d[1] - oy) < 1e-9, "元に戻る puts them back");
 
+    /* 範囲選択 settles a range and 消去 empties it -- what the original
+       does when the two are used one after the other */
+    {
+        int was, k, j, btn = -1, bx, by;
+        jw_cmd_set(JW_CMD_HANI);
+        app_move(300, 200);
+        app_press(300, 200, 0);
+        app_move(900, 600);
+        app_press(900, 600, 0);
+        k = nsel();
+        ck(k > 0, "範囲選択 picks a range of its own");
+        app_move(500, 400);
+        ck(jw_cmd_bar((jw_drawing *)d, 1120) == 1, "and it can be settled");
+        ck(nsel() == k, "which leaves the same elements picked");
+        d = app_drawing();
+        was = d->ndrawn;
+        for (j = 0; j < JW_NBUTTONS; j++)
+            if (jw_btn_cmd[j] == JW_CMD_SHOUKYO)
+                btn = j;
+        ck(btn >= 0, "消去 has a button");
+        bx = jw_buttons[btn].x + BTN_W / 2;
+        by = jw_buttons[btn].y + BTN_H / 2;
+        app_press(bx, by, 0);
+        d = app_drawing();
+        ck(d->ndrawn == was - k, "pressing 消去 takes the whole range out");
+        ck(nsel() == 0, "and nothing is left picked");
+        jw_cmd_undo((jw_drawing *)d);
+        d = app_drawing();
+        ck(d->ndrawn == was, "元に戻る brings every one of them back");
+    }
+
     /* 選択解除 */
+    jw_cmd_set(JW_CMD_HANI);
+    app_move(300, 200);
+    app_press(300, 200, 0);
+    app_move(900, 600);
+    app_press(900, 600, 0);
+    ck(nsel() > 0, "a range to drop again");
     ck(jw_cmd_bar((jw_drawing *)d, 1067) == 1, "選択解除 can be pressed");
     ck(nsel() == 0, "and nothing is picked after it");
 

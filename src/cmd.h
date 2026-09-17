@@ -107,5 +107,8 @@ int  jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1);
 int  jw_cmd_sel_ghost(double *dx, double *dy);
 /* How many elements are selected. */
 int  jw_cmd_sel_count(const jw_drawing *d);
+/* Take the settled selection out of the drawing, which is what entering 消去
+   with one in hand does.  Returns 1 if anything went. */
+int  jw_cmd_sel_erase(jw_drawing *d);
 
 #endif

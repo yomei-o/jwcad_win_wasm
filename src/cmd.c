@@ -869,8 +869,32 @@ static int sel_confirm(jw_drawing *d)
         }
     base_x = tx;
     base_y = ty;
-    sel_step = 3;
+    /* 範囲選択 has nothing to place: confirming there only settles what is
+       picked, and it is the next command that does something with it. */
+    sel_step = current == JW_CMD_HANI ? 4 : 3;
     return 1;
+}
+
+/* 消去 entered with a settled selection takes it out at once.  The original
+ * does exactly that: 範囲選択 over Test5, 選択確定, then 消去, and the file
+ * it saved had 25 of its 46 lines gone and nothing left picked. */
+int jw_cmd_sel_erase(jw_drawing *d)
+{
+    op_t *o;
+    int i, n = 0;
+
+    if (!d || sel_n <= 0)
+        return 0;
+    o = op_new();
+    for (i = d->nobj - 1; i >= 0; i--)
+        if (d->obj[i].flags & 2) {
+            op_keep(o, d, i, 1);
+            jw_remove(d, i);
+            n++;
+        }
+    sel_free();
+    sel_step = 0;
+    return n > 0;
 }
 
 /* One click while the selection is being placed. */
@@ -943,6 +967,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     switch (id) {
     case 1120:                  /* 選択確定 */
         return sel_step == 2 && jw_cmd_sel_count(d) > 0;
+    case 1064:                  /* 基準点変更 -- not done */
+        return 0;
     case 1067:                  /* 選択解除 */
         return jw_cmd_sel_count(d) > 0;
     case 1066:                  /* 全選択 */

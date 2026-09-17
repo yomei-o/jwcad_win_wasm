@@ -111,6 +111,9 @@ int app_press(int x, int y, int button)
                pressed -- but it does become the command: the click after it
                is what picks the element to take the pen from. */
             jw_cmd_set(cmd);
+            /* 消去 with a settled range in hand empties it at once */
+            if (cmd == JW_CMD_SHOUKYO && have_drawing)
+                jw_cmd_sel_erase(&drawing);
             return 1;
         }
         /* an action: it runs, and never becomes "the command" */
