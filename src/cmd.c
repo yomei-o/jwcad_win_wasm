@@ -125,6 +125,10 @@ static double sun_lx, sun_ly;   /* 寸法線の位置                           
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
 static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      */
 
+/* 中心線: the two lines it runs between, and the first of its two points */
+static int chu_a = -1, chu_b = -1, chu_step;
+static double chu_x, chu_y;
+
 /* ２線: the line the pair runs along, and the first of the two points */
 static double nisen_a, nisen_b;
 static int nisen_obj = -1, nisen_step;
@@ -373,6 +377,10 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_NISEN) {
         nisen_step = 0;
         nisen_obj = -1;
+    }
+    if (id == JW_CMD_CHUSHIN) {
+        chu_step = 0;
+        chu_a = chu_b = -1;
     }
 }
 
@@ -1046,6 +1054,90 @@ static void nisen(jw_drawing *d, double x, double y)
         made++;
     }
     op_push((int)made);
+}
+
+/* 中心線.
+ *
+ * Two lines are picked and then two points, and what comes out is one line
+ * along the middle of them, as long as the two points make it.  Driven in
+ * the original:
+ *
+ *   two level lines 259.7667 apart gave a line exactly half way between,
+ *   and the two points kept their own place along it;
+ *   two lines that meet at 0 and 14.036 degrees gave one at 7.018 -- the
+ *   bisector -- and the two points came out at their feet on it.
+ *
+ * So the middle of two lines that run together is the line half way, of two
+ * that cross it is the bisector through the crossing, and the two points are
+ * dropped onto it square. */
+static int chushin_line(const jw_drawing *d, double *px, double *py,
+                        double *ux, double *uy)
+{
+    const jw_obj *p = &d->obj[chu_a], *q = &d->obj[chu_b];
+    double adx = p->d[2] - p->d[0], ady = p->d[3] - p->d[1];
+    double bdx = q->d[2] - q->d[0], bdy = q->d[3] - q->d[1];
+    double alen = sqrt(adx * adx + ady * ady);
+    double blen = sqrt(bdx * bdx + bdy * bdy);
+    double den, t;
+
+    if (alen == 0.0 || blen == 0.0)
+        return 0;
+    adx /= alen;
+    ady /= alen;
+    bdx /= blen;
+    bdy /= blen;
+    if (adx * bdx + ady * bdy < 0.0) {      /* point them the same way */
+        bdx = -bdx;
+        bdy = -bdy;
+    }
+    den = adx * bdy - ady * bdx;
+    if (fabs(den) < 1e-12) {
+        /* they run together: half way between, along the first one */
+        double wx = q->d[0] - p->d[0], wy = q->d[1] - p->d[1];
+        double along = wx * adx + wy * ady;
+        *px = p->d[0] + (wx - along * adx) / 2.0;
+        *py = p->d[1] + (wy - along * ady) / 2.0;
+        *ux = adx;
+        *uy = ady;
+        return 1;
+    }
+    /* they cross: the bisector through the crossing */
+    t = ((q->d[0] - p->d[0]) * bdy - (q->d[1] - p->d[1]) * bdx) / den;
+    *px = p->d[0] + t * adx;
+    *py = p->d[1] + t * ady;
+    *ux = adx + bdx;
+    *uy = ady + bdy;
+    t = sqrt(*ux * *ux + *uy * *uy);
+    if (t == 0.0)
+        return 0;
+    *ux /= t;
+    *uy /= t;
+    return 1;
+}
+
+static void chushin(jw_drawing *d, double x, double y)
+{
+    double px, py, ux, uy, t0, t1;
+    jw_obj *o;
+
+    if (chu_a < 0 || chu_b < 0 || chu_a >= d->nobj || chu_b >= d->nobj)
+        return;
+    if (d->obj[chu_a].cls != JW_SEN || d->obj[chu_b].cls != JW_SEN)
+        return;
+    if (!chushin_line(d, &px, &py, &ux, &uy))
+        return;
+    t0 = (chu_x - px) * ux + (chu_y - py) * uy;
+    t1 = (x - px) * ux + (y - py) * uy;
+    if (t0 == t1)
+        return;
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return;
+    o->d[0] = px + ux * t0;
+    o->d[1] = py + uy * t0;
+    o->d[2] = px + ux * t1;
+    o->d[3] = py + uy * t1;
+    op_push(1);
 }
 
 static void sel_free(void)
@@ -1737,6 +1829,36 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
                 o->d[3] = ny;
             }
         }
+        return;
+    }
+    if (current == JW_CMD_CHUSHIN) {
+        int i;
+        if (button != 0 || !d)
+            return;             /* (R) reads a point, which is not done */
+        if (chu_step == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            chu_a = i;
+            chu_step = 1;
+            return;
+        }
+        if (chu_step == 1) {
+            i = jw_pick_tie(d, v, x, y, 3, 1);
+            if (i < 0 || i == chu_a || d->obj[i].cls != JW_SEN)
+                return;
+            chu_b = i;
+            chu_step = 2;
+            return;
+        }
+        if (chu_step == 2) {
+            chu_x = x;
+            chu_y = y;
+            chu_step = 3;
+            return;
+        }
+        chushin(d, x, y);
+        chu_step = 2;           /* the same middle, another line */
         return;
     }
     if (current == JW_CMD_NISEN) {
