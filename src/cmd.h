@@ -37,6 +37,7 @@ enum {
     JW_CMD_TAKAKU = 0x807e,         /* 多角形 -- CZukeiTakakukei */
     JW_CMD_MENTORI = 0x805b,        /* 面取 -- CZukeiCorner's other half */
     JW_CMD_BUNKATSU = 0x8063,       /* 分割 -- CZukeiBunkatsu */
+    JW_CMD_NISEN = 0x805c,          /* ２線 */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 

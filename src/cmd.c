@@ -125,6 +125,11 @@ static double sun_lx, sun_ly;   /* 寸法線の位置                           
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
 static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      */
 
+/* ２線: the line the pair runs along, and the first of the two points */
+static double nisen_a, nisen_b;
+static int nisen_obj = -1, nisen_step;
+static double nisen_x, nisen_y;
+
 /* The boxes on the command bar that hold a number.  Jw_cad keeps these in
  * the command itself, not in the registry, and the values below are the ones
  * the original comes up with: a 多角形 drawn straight after starting came out
@@ -143,6 +148,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_MENTORI, 1411, "" },       /* 面取の寸法 -- empty to start with,
                                            the way the original's is */
     { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
+    { JW_CMD_NISEN, 1412, "" },         /* ２線の間隔, "a,b"         */
 };
 static int box_focus;
 
@@ -364,6 +370,10 @@ void jw_cmd_set(int id)
     }
     if (id == JW_CMD_SUNPO)
         sun_step = 0;
+    if (id == JW_CMD_NISEN) {
+        nisen_step = 0;
+        nisen_obj = -1;
+    }
 }
 
 void jw_cmd_reset(void)
@@ -970,6 +980,74 @@ static void bunkatsu(jw_drawing *d, int a, int b)
     op_push(made);
 }
 
+/* ２線.
+ *
+ * A line is picked to run along, then two points say where the pair starts
+ * and stops.  What comes out is two lines parallel to the picked one, as far
+ * from it as the two numbers in the 間隔 box say -- one to each side -- and
+ * as long as the two points, taken along the line.
+ *
+ * Which side is which follows the picked line's own direction, not where it
+ * was clicked: with 間隔 2000,1000 on a 1/200 group the original put the
+ * first 10 mm to the right of the way the line runs and the second 5 mm to
+ * the left, and drawing the same line the other way round swapped them over
+ * while clicking above or below it changed nothing. */
+static int nisen_gap(const jw_drawing *d)
+{
+    const char *t = jw_cmd_box(1412);
+    const char *p;
+    int wg = 0, i;
+    double s;
+
+    if (!t || !*t)
+        return 0;
+    nisen_a = atof(t);
+    p = strchr(t, ',');
+    nisen_b = p ? atof(p + 1) : nisen_a;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    s = d->group[wg].scale;
+    if (s > 0.0) {
+        nisen_a /= s;
+        nisen_b /= s;
+    }
+    return 1;
+}
+
+static void nisen(jw_drawing *d, double x, double y)
+{
+    const jw_obj *o = &d->obj[nisen_obj];
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    double len = sqrt(dx * dx + dy * dy), ux, uy, vx, vy;
+    double s0, s1, t0, made = 0;
+    int k;
+
+    if (len == 0.0)
+        return;
+    ux = dx / len;
+    uy = dy / len;
+    vx = -uy;
+    vy = ux;
+    /* the two points, along the line the pair runs on */
+    s0 = (nisen_x - o->d[0]) * ux + (nisen_y - o->d[1]) * uy;
+    s1 = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
+    t0 = (o->d[0]) * 0.0;       /* the line itself is the zero of the offset */
+    (void)t0;
+    for (k = 0; k < 2; k++) {
+        double off = k ? nisen_b : -nisen_a;
+        jw_obj *n = jw_add(d, JW_SEN);
+        if (!n)
+            break;
+        n->d[0] = o->d[0] + ux * s0 + vx * off;
+        n->d[1] = o->d[1] + uy * s0 + vy * off;
+        n->d[2] = o->d[0] + ux * s1 + vx * off;
+        n->d[3] = o->d[1] + uy * s1 + vy * off;
+        made++;
+    }
+    op_push((int)made);
+}
+
 static void sel_free(void)
 {
     free(sel_was);
@@ -1248,7 +1326,8 @@ int jw_cmd_box_key(int ch)
                 t[n - 1] = 0;
             return 1;
         }
-        if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') {
+        /* ２線's box holds two numbers with a comma between them */
+        if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ',') {
             if (n < (int)sizeof box[i].t - 1) {
                 t[n] = (char)ch;
                 t[n + 1] = 0;
@@ -1658,6 +1737,30 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
                 o->d[3] = ny;
             }
         }
+        return;
+    }
+    if (current == JW_CMD_NISEN) {
+        int i;
+        if (button != 0 || !d)
+            return;
+        if (nisen_step == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN || !nisen_gap(d))
+                return;
+            nisen_obj = i;
+            nisen_step = 1;
+            return;
+        }
+        if (nisen_step == 1) {
+            nisen_x = x;
+            nisen_y = y;
+            nisen_step = 2;
+            return;
+        }
+        if (nisen_obj >= 0 && nisen_obj < d->nobj)
+            nisen(d, x, y);
+        nisen_step = 0;         /* ready for the next line to run along */
+        nisen_obj = -1;
         return;
     }
     if (current == JW_CMD_BUNKATSU) {

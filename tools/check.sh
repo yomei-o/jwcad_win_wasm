@@ -56,6 +56,10 @@ echo "=== 線属性のダイアログ"
 python tools/cmp.py docs/ref_zoku.png tests/out/zoku.png     -i docs/zoku_textareas.txt -d tests/out/zoku.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
+./tests/nisen_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 分割 —— 原典が引いた等分線との突き合わせ"
 ./tests/bunkatsu_test.exe | sed 's/^/    /'
 
