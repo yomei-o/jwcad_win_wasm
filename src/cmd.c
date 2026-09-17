@@ -142,6 +142,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
     { JW_CMD_MENTORI, 1411, "" },       /* 面取の寸法 -- empty to start with,
                                            the way the original's is */
+    { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
 };
 static int box_focus;
 
@@ -456,6 +457,7 @@ const char *jw_cmd_prompt(void)
            picked.  (Its states 3 and 4 are the 基準線 variant, where the end
            goes to another line instead of to a point; not done here.) */
         return stretch_step == 0 ? JW_STR_5336 : JW_STR_5338;
+    case JW_CMD_BUNKATSU:
     case JW_CMD_MENTORI:
     case JW_CMD_CORNER:
         /* 「線（Ａ）指示(L)　線切断(R)」 then 「◆　線【Ｂ】指示(L)…」
@@ -928,6 +930,44 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
         if (rec)
             rec->n = 1;
     }
+}
+
+/* 分割（等距離分割）between two lines.
+ *
+ * The original was given two lines and 分割数 4: it left three lines between
+ * them, evenly spaced.  A second run with two lines that were neither
+ * parallel nor the same length settles what "evenly" means -- each new line
+ * is the two ends of the picked ones walked towards each other: start to
+ * start and end to end, k/n of the way along.  Both of its dividers came out
+ * exactly there.
+ *
+ * (The original wrote that pair the other way round, end first; which way it
+ * picks is not worked out, and it makes no difference to the line.) */
+static void bunkatsu(jw_drawing *d, int a, int b)
+{
+    const jw_obj *p = &d->obj[a], *q = &d->obj[b];
+    const char *ns = jw_cmd_box(1411);
+    int n = ns ? atoi(ns) : 0, k, made = 0;
+    double ax0, ay0, ax1, ay1, bx0, by0, bx1, by1;
+
+    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
+        return;
+    if (n < 2 || n > 1000)
+        return;
+    ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
+    bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
+    for (k = 1; k < n; k++) {
+        double t = (double)k / n;
+        jw_obj *o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->d[0] = ax0 + (bx0 - ax0) * t;
+        o->d[1] = ay0 + (by0 - ay0) * t;
+        o->d[2] = ax1 + (bx1 - ax1) * t;
+        o->d[3] = ay1 + (by1 - ay1) * t;
+        made++;
+    }
+    op_push(made);
 }
 
 static void sel_free(void)
@@ -1618,6 +1658,24 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
                 o->d[3] = ny;
             }
         }
+        return;
+    }
+    if (current == JW_CMD_BUNKATSU) {
+        int i;
+        if (button != 0 || !d)
+            return;
+        if (corner_step == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            corner_obj = i;
+            corner_step = 2;
+            return;
+        }
+        i = jw_pick_tie(d, v, x, y, 3, 1);
+        if (i >= 0 && i != corner_obj)
+            bunkatsu(d, corner_obj, i);
+        corner_step = 0;
         return;
     }
     if (current == JW_CMD_MENTORI) {
