@@ -528,7 +528,12 @@ void ui_textbox(fb_t *fb, const char *line, const char *composing)
         if (composing && *composing) {
             int end = jw_text_px(fb, tx, ty, composing, C_BTNTEXT);
             fb_hline(fb, tx, ty + th - 1, end - tx, C_BTNTEXT);
+            tx = end;
         }
+        /* The caret.  The original's box is a real edit control, so Windows
+           gives it a blinking one; this is the same bar, standing still.
+           Without it there is nothing to say the box takes typing. */
+        fb_fill(fb, tx, ty, 1, th, C_BTNTEXT);
     }
 }
 
