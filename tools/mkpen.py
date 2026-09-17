@@ -56,6 +56,16 @@ def main():
         f.write('static const int jw_default_pen_width[10] = {\n    ')
         f.write(', '.join(str(w) for _, w in rows))
         f.write('\n};\n\n')
+        sel = int(val(pen.get('Color10', '"ff00ff"')) or '0', 16)
+        rng = int(val(pen.get('Color11', '"ff"')) or '0', 16)
+        bgr = lambda c: ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff)
+        f.write('/* Two colours that are in no drawing: the one a picked element is\n')
+        f.write(' * drawn in and the one the range box is drawn in.  Pen/Color10 and\n')
+        f.write(' * Color11 -- and the original bears them out: a range dragged over\n')
+        f.write(' * Test5, with the window painted into an off-screen bitmap, has the\n')
+        f.write(' * picked lines in ff00ff and the box in ff0000. */\n')
+        f.write('#define JW_SEL_RGB    0x%06xu\n' % bgr(sel))
+        f.write('#define JW_RANGE_RGB  0x%06xu\n\n' % bgr(rng))
         f.write('/* A drawing that has just been started.  The status line of\n'
                 ' * docs/ref_start.png reads "A-2  S=1/100  [0-0]", which is these\n'
                 ' * three: sheet index 2, the write group\'s scale, and group 0 /\n'

@@ -125,6 +125,13 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 /* Take element `i` out of the drawing. */
 void jw_remove(jw_drawing *d, int i);
 
+/* The box an element fits in, and moving one.  Which of an element's numbers
+   are a place and which are a size is the class's business -- an arc keeps
+   its radius and its angles, a text its size, a solid has four corners. */
+void jw_obj_box(const jw_obj *o, double *x0, double *y0,
+                double *x1, double *y1);
+void jw_obj_move(jw_obj *o, double dx, double dy);
+
 /* Put a string in the drawing's pool and return its offset, for a new text.
    Returns -1 if it could not. */
 int jw_add_str(jw_drawing *d, const char *s);

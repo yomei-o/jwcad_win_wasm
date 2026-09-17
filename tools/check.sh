@@ -47,6 +47,10 @@ echo "=== pressing things"
 ./tests/click_test.exe orig/Test1.jww | sed 's/^/    /'
 
 echo
+echo "=== 範囲選択・複写・移動"
+./tests/sel_test.exe orig/Test5.jww | sed 's/^/    /'
+
+echo
 echo "=== a drawing begun from nothing, drawn on and saved"
 ./tests/new_test.exe tests/out/new.jww | sed 's/^/    /'
 

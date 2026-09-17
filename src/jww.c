@@ -506,6 +506,73 @@ jw_obj *jw_add(jw_drawing *d, int cls)
     return o;
 }
 
+void jw_obj_box(const jw_obj *o, double *x0, double *y0,
+                double *x1, double *y1)
+{
+    switch (o->cls) {
+    case JW_ENKO: {
+        /* the whole circle the arc belongs to: the flattening at +6 makes
+           an ellipse, and the wider of the two half axes is the reach */
+        double a = o->d[2], b = o->d[6] > 0.0 ? o->d[2] * o->d[6] : o->d[2];
+        if (b > a)
+            a = b;
+        *x0 = o->d[0] - a;
+        *y0 = o->d[1] - a;
+        *x1 = o->d[0] + a;
+        *y1 = o->d[1] + a;
+        return;
+    }
+    case JW_TEN:
+        *x0 = *x1 = o->d[0];
+        *y0 = *y1 = o->d[1];
+        return;
+    case JW_SOLID: {
+        int i;
+        *x0 = *x1 = o->d[0];
+        *y0 = *y1 = o->d[1];
+        for (i = 1; i < 4; i++) {
+            double px = o->d[i * 2], py = o->d[i * 2 + 1];
+            if (px < *x0) *x0 = px;
+            if (px > *x1) *x1 = px;
+            if (py < *y0) *y0 = py;
+            if (py > *y1) *y1 = py;
+        }
+        return;
+    }
+    default:                    /* a line, and a text by its two ends */
+        *x0 = o->d[0] < o->d[2] ? o->d[0] : o->d[2];
+        *x1 = o->d[0] < o->d[2] ? o->d[2] : o->d[0];
+        *y0 = o->d[1] < o->d[3] ? o->d[1] : o->d[3];
+        *y1 = o->d[1] < o->d[3] ? o->d[3] : o->d[1];
+        return;
+    }
+}
+
+void jw_obj_move(jw_obj *o, double dx, double dy)
+{
+    int i;
+
+    switch (o->cls) {
+    case JW_ENKO:
+    case JW_TEN:
+        o->d[0] += dx;
+        o->d[1] += dy;
+        return;
+    case JW_SOLID:
+        for (i = 0; i < 4; i++) {
+            o->d[i * 2] += dx;
+            o->d[i * 2 + 1] += dy;
+        }
+        return;
+    default:
+        o->d[0] += dx;
+        o->d[1] += dy;
+        o->d[2] += dx;
+        o->d[3] += dy;
+        return;
+    }
+}
+
 void jw_remove(jw_drawing *d, int i)
 {
     if (i < 0 || i >= d->nobj)

@@ -30,6 +30,9 @@ enum {
     JW_CMD_FUKUSEN = 0x8020,        /* 複線 */
     JW_CMD_ZOKUSEI = 0x80a3,        /* 属性取得 */
     JW_CMD_MOJI = 0x8026,           /* 文字 */
+    JW_CMD_HANI = 0x8013,           /* 範囲選択 -- CZukeiSentaku */
+    JW_CMD_FUKUSHA = 0x8024,        /* 複写 -- CZukeiFukusha */
+    JW_CMD_IDOU = 0x8096,           /* 移動 -- the same class */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -81,5 +84,28 @@ void jw_cmd_undo(jw_drawing *d);
    way as the ones that get added, so what is shown is what will be made. */
 #define JW_CMD_MAXFIG 4         /* a rectangle, the biggest so far */
 int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
+
+/* 範囲選択, and the two commands built on it.
+ *
+ * Which elements are selected is kept where the original keeps it: bit 1 of
+ * the element's own flags at +0x44, which is why a drawing saved with a
+ * selection still has it when it is opened again.
+ *
+ * A press on one of the command bar's buttons comes here by its control id
+ * -- 1120 選択確定, 1067 選択解除, 1066 全選択 -- which is how the original
+ * dispatches them too.  Returns 1 when the screen has to be redrawn. */
+int  jw_cmd_bar(jw_drawing *d, int id);
+/* Whether that button is there to be pressed, for the drawing of the bar. */
+int  jw_cmd_bar_enabled(const jw_drawing *d, int id);
+
+/* The range box while its second corner is being chosen: the original draws
+   it in red (Pen/Color11) over the drawing. */
+int  jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1);
+/* How far the selection has been dragged from 基準点, once it is being
+   placed.  The selected elements are drawn a second time that far away, so
+   what will be made is what is shown. */
+int  jw_cmd_sel_ghost(double *dx, double *dy);
+/* How many elements are selected. */
+int  jw_cmd_sel_count(const jw_drawing *d);
 
 #endif

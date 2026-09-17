@@ -79,6 +79,30 @@ static double para_off;
 static double tx, ty;           /* where the mouse is now */
 static int tracking;
 
+/* 範囲選択 (CZukeiSentaku) and the two commands built on it, 複写 and 移動
+ * (both CZukeiFukusha).
+ *
+ *   0  the box's first corner   「範囲選択の始点をﾏｳｽ(L)で…」
+ *   1  its second               「選択範囲の終点を…(L)文字を除く(R)文字を含む」
+ *   2  something is selected, waiting for 選択確定
+ *   3  being placed             「基準点…」 then 「複写先の点…」
+ *
+ * The original's own state words are +0x1f8 and +0x1fc while it is choosing
+ * a range and +0xfd14 once it is placing (FUN_006533c0).  Which elements are
+ * selected is bit 1 of each element's flags at +0x44 -- saving a drawing
+ * with a selection keeps it, which is how the rule below was read off the
+ * original: it was given a box and the file it wrote said what was in it. */
+static int sel_step;
+static double sel_x0, sel_y0, sel_x1, sel_y1;
+static double base_x, base_y;   /* 基準点 */
+/* What the selected elements looked like when 基準点 was taken, so a move
+   can put them at that place plus the offset however often it is done. */
+static jw_obj *sel_was;
+static int *sel_at;
+static int sel_n;
+
+static void sel_free(void);
+
 /* 元に戻る works a command at a time, not an element at a time: drawing a
  * rectangle in Jw_cad and pressing it puts the drawing back to 46 lines, all
  * four at once (tmp/jwdraw.ps1 with -After 57643).  So what is remembered is
@@ -89,8 +113,6 @@ static int tracking;
    out, and change others in place -- a partial erase does the first two, a
    corner does the third to both of its lines -- and one press has to undo
    all of it. */
-#define JW_OP_ITEMS 4
-
 typedef struct {
     int at;                     /* where it was */
     int removed;                /* taken out, rather than changed */
@@ -99,8 +121,9 @@ typedef struct {
 
 typedef struct {
     int n;                      /* how many were added, at the end */
-    int nitem;
-    op_item item[JW_OP_ITEMS];
+    int nitem, citem;
+    op_item *item;              /* 移動 changes a whole selection at once,
+                                   so there is no useful upper bound */
 } op_t;
 
 /* Remember an element as it is now, so it can be put back. */
@@ -108,8 +131,16 @@ static op_item *op_keep(op_t *o, const jw_drawing *d, int at, int removed)
 {
     op_item *it;
 
-    if (!o || o->nitem >= JW_OP_ITEMS || at < 0 || at >= d->nobj)
+    if (!o || at < 0 || at >= d->nobj)
         return 0;
+    if (o->nitem == o->citem) {
+        int n = o->citem ? o->citem * 2 : 4;
+        op_item *p = (op_item *)realloc(o->item, (size_t)n * sizeof *p);
+        if (!p)
+            return 0;
+        o->item = p;
+        o->citem = n;
+    }
     it = &o->item[o->nitem++];
     it->at = at;
     it->removed = removed;
@@ -271,6 +302,15 @@ void jw_cmd_set(int id)
     stretch_step = 0;
     para_step = 0;
     tracking = 0;
+    /* The range starts over, the way FUN_004fdc40 leaves the command's own
+       state -- but what is picked belongs to the elements, not to the
+       command, so it stays until a new box is begun.  That is how the
+       original can be given a range in 範囲選択 and then told what to do
+       with it. */
+    if (id == JW_CMD_HANI || id == JW_CMD_FUKUSHA || id == JW_CMD_IDOU) {
+        sel_step = 0;
+        sel_free();
+    }
 }
 
 void jw_cmd_reset(void)
@@ -282,7 +322,12 @@ void jw_cmd_reset(void)
     step = 0;
     cut_step = 0;
     tracking = 0;
-    nop = 0;
+    while (nop > 0) {
+        free(op[--nop].item);
+        op[nop].item = 0;
+    }
+    sel_step = 0;
+    sel_free();
 }
 
 int jw_cmd_can_undo(void)
@@ -325,6 +370,9 @@ void jw_cmd_undo(jw_drawing *d)
             }
         }
     }
+    free(o->item);
+    o->item = 0;
+    o->nitem = o->citem = 0;
     nop--;
     step = 0;
     tracking = 0;
@@ -372,6 +420,18 @@ const char *jw_cmd_prompt(void)
         if (cut_step == 2)
             return JW_STR_10113;
         return JW_STR_10111;
+    case JW_CMD_HANI:
+    case JW_CMD_FUKUSHA:
+    case JW_CMD_IDOU:
+        /* 5383 while the box has no first corner, 5326 while it is being
+           dragged, then 5314 基準点 and 5307/5311 for where it goes. */
+        if (sel_step == 1)
+            return JW_STR_5326;
+        if (sel_step == 3)
+            return current == JW_CMD_IDOU ? JW_STR_5311 : JW_STR_5307;
+        if (sel_step == 2)
+            return JW_STR_5314;
+        return JW_STR_5383;
     case JW_CMD_ENKO:
         /* CZukeiEnko asks for the centre first and then a point the circle
            goes through.  It leads with 円位置 instead only when a radius has
@@ -724,9 +784,235 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
     }
 }
 
+static void sel_free(void)
+{
+    free(sel_was);
+    free(sel_at);
+    sel_was = 0;
+    sel_at = 0;
+    sel_n = 0;
+}
+
+int jw_cmd_sel_count(const jw_drawing *d)
+{
+    int i, n = 0;
+
+    if (!d)
+        return 0;
+    for (i = 0; i < d->nobj; i++)
+        if (d->obj[i].flags & 2)
+            n++;
+    return n;
+}
+
+static void sel_clear(jw_drawing *d)
+{
+    int i;
+
+    if (d)
+        for (i = 0; i < d->nobj; i++)
+            d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+    sel_free();
+}
+
+/* Everything the box holds whole.  An element that only crosses it is left
+ * alone: the original was given a box over Test5 and saved it, and of the
+ * lines that crossed the box not one came back with the flag on, while
+ * every line inside it did.  Texts are in only when the second corner was
+ * the right button -- 「(L)文字を除く (R)文字を含む」, string 5326, and the
+ * same run bears it out: 28 texts sat inside the box and a left click took
+ * none of them. */
+static void sel_box(jw_drawing *d, int with_text)
+{
+    double x0 = sel_x0 < sel_x1 ? sel_x0 : sel_x1;
+    double x1 = sel_x0 < sel_x1 ? sel_x1 : sel_x0;
+    double y0 = sel_y0 < sel_y1 ? sel_y0 : sel_y1;
+    double y1 = sel_y0 < sel_y1 ? sel_y1 : sel_y0;
+    int i;
+
+    if (!d)
+        return;
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+        double a, b, c2, e;
+        if (o->cls == JW_MOJI && !with_text)
+            continue;
+        jw_obj_box(o, &a, &b, &c2, &e);
+        if (a >= x0 && c2 <= x1 && b >= y0 && e <= y1)
+            o->flags = (unsigned short)(o->flags | 2u);
+    }
+}
+
+/* 選択確定.  The selection is taken as it stands and 基準点 becomes where
+ * the mouse is -- the bar's own label for it is ≪基準点：マウス位置≫
+ * (string 6144).  Driving the original bears it out: after a confirm its
+ * copies came out offset from a point that was neither of the box corners
+ * nor any click, but the place the cursor happened to be sitting. */
+static int sel_confirm(jw_drawing *d)
+{
+    int i, n = jw_cmd_sel_count(d);
+
+    if (!d || n <= 0 || !tracking)
+        return 0;
+    sel_free();
+    sel_was = (jw_obj *)malloc((size_t)n * sizeof *sel_was);
+    sel_at = (int *)malloc((size_t)n * sizeof *sel_at);
+    if (!sel_was || !sel_at) {
+        sel_free();
+        return 0;
+    }
+    for (i = 0; i < d->nobj; i++)
+        if (d->obj[i].flags & 2) {
+            sel_at[sel_n] = i;
+            sel_was[sel_n] = d->obj[i];
+            sel_n++;
+        }
+    base_x = tx;
+    base_y = ty;
+    sel_step = 3;
+    return 1;
+}
+
+/* One click while the selection is being placed. */
+static void sel_place(jw_drawing *d, double x, double y)
+{
+    double dx = x - base_x, dy = y - base_y;
+    int i;
+
+    if (!d || sel_n <= 0)
+        return;
+    if (current == JW_CMD_IDOU) {
+        op_t *o = op_new();
+        for (i = 0; i < sel_n; i++) {
+            int at = sel_at[i];
+            if (at >= d->nobj)
+                continue;
+            op_keep(o, d, at, 0);
+            d->obj[at] = sel_was[i];
+            jw_obj_move(&d->obj[at], dx, dy);
+            d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
+        }
+        return;
+    }
+    {   /* 複写: every click leaves another copy, all of them measured from
+           the one 基準点 -- three clicks in the original left three copies,
+           at one, two and three times the step. */
+        int made = 0;
+        for (i = 0; i < sel_n; i++) {
+            jw_obj *p = jw_add(d, sel_was[i].cls);
+            int at;
+            if (!p)
+                break;
+            at = (int)(p - d->obj);
+            *p = sel_was[i];
+            jw_obj_move(p, dx, dy);
+            /* a copy is not itself selected: in the original the new
+               elements come out in their own colours while the ones that
+               were picked stay pink */
+            p->flags = (unsigned short)(p->flags & ~2u);
+            p->id = 0;
+            (void)at;
+            made++;
+        }
+        op_push(made);
+    }
+}
+
+int jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1)
+{
+    if (sel_step != 1 || !tracking)
+        return 0;
+    *x0 = sel_x0;
+    *y0 = sel_y0;
+    *x1 = tx;
+    *y1 = ty;
+    return 1;
+}
+
+int jw_cmd_sel_ghost(double *dx, double *dy)
+{
+    if (sel_step != 3 || sel_n <= 0 || !tracking)
+        return 0;
+    *dx = tx - base_x;
+    *dy = ty - base_y;
+    return 1;
+}
+
+int jw_cmd_bar_enabled(const jw_drawing *d, int id)
+{
+    switch (id) {
+    case 1120:                  /* 選択確定 */
+        return sel_step == 2 && jw_cmd_sel_count(d) > 0;
+    case 1067:                  /* 選択解除 */
+        return jw_cmd_sel_count(d) > 0;
+    case 1066:                  /* 全選択 */
+        return sel_step != 3;
+    }
+    return -1;                  /* not one this port knows about */
+}
+
+int jw_cmd_bar(jw_drawing *d, int id)
+{
+    if (current != JW_CMD_HANI && current != JW_CMD_FUKUSHA
+        && current != JW_CMD_IDOU)
+        return 0;
+    if (!jw_cmd_bar_enabled(d, id))
+        return 0;
+    switch (id) {
+    case 1120:
+        return sel_confirm(d);
+    case 1067:
+        sel_clear(d);
+        sel_step = 0;
+        return 1;
+    case 1066: {                /* 全選択: everything that is drawn */
+        int i;
+        if (!d)
+            return 0;
+        for (i = 0; i < d->ndrawn; i++)
+            d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
+        sel_step = 2;
+        return 1;
+    }
+    }
+    return 0;
+}
+
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
+        || current == JW_CMD_IDOU) {
+        switch (sel_step) {
+        case 0:
+            if (button != 0)    /* (R) picks a 連続線, which is not done */
+                return;
+            sel_clear(d);
+            sel_x0 = sel_x1 = x;
+            sel_y0 = sel_y1 = y;
+            sel_step = 1;
+            return;
+        case 1:
+            sel_x1 = x;
+            sel_y1 = y;
+            sel_box(d, button != 0);
+            sel_step = jw_cmd_sel_count(d) > 0 ? 2 : 0;
+            return;
+        case 2:
+            /* another box, on top of what is already picked */
+            if (button != 0)
+                return;
+            sel_x0 = sel_x1 = x;
+            sel_y0 = sel_y1 = y;
+            sel_step = 1;
+            return;
+        default:
+            if (button != 0)
+                return;
+            sel_place(d, x, y);
+            return;
+        }
+    }
     if (current == JW_CMD_MOJI) {
         /* Place what has been typed.  Everything about the text comes from
          * the drawing's current style, which sits just after the ten in the

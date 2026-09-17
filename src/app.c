@@ -95,7 +95,11 @@ static void to_paper(int x, int y, double *px, double *py)
 int app_press(int x, int y, int button)
 {
     int k = hit_button(x, y);
+    int id;
 
+    if (button == 0 && (id = ui_bar_hit(x, y)) != 0
+        && jw_cmd_bar(have_drawing ? &drawing : 0, id))
+        return 1;
     if (k >= 0) {
         int cmd = jw_btn_cmd[k];
         if (button != 0
@@ -313,6 +317,14 @@ void app_paint(void)
             one.nobj = one.ndrawn = n;
             jw_draw(&fb, &view, &one);
         }
+    }
+    if (view_ready && have_drawing) {
+        double a, b, e, f;
+        ui_view_rect(fb.w, fb.h, &view.clip);
+        if (jw_cmd_sel_box(&a, &b, &e, &f))
+            jw_draw_box(&fb, &view, a, b, e, f);
+        if (jw_cmd_sel_ghost(&a, &b))
+            jw_draw_sel(&fb, &view, &drawing, a, b);
     }
     /* the 文字 command's box goes over the drawing */
     if (jw_cmd() == JW_CMD_MOJI)

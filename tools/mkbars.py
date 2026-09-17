@@ -75,7 +75,7 @@ def read():
             continue
         cur[1].append((k, int(x), int(y), int(w), int(h),
                        (int(style, 16) & 0x0f) if cls == 'Static' else 0,
-                       int(chk), int(en), text))
+                       int(chk), int(en), int(cid), text))
     return bars
 
 
@@ -90,6 +90,9 @@ def main():
                 '       JW_CTL_COMBO };\n\n')
         f.write('typedef struct {\n'
                 '    short x, y, w, h;\n'
+                '    unsigned short id;     /* the control id the original\n'
+                '                              gives it -- what a press is\n'
+                '                              dispatched on */\n'
                 '    unsigned char kind;\n'
                 '    unsigned char align;   /* a static\'s SS_ bits */\n'
                 '    unsigned char checked; /* how the original has it when\n'
@@ -99,10 +102,11 @@ def main():
                 '} jw_ctl_t;\n\n')
         for cmd, ctls in bars:
             f.write('static const jw_ctl_t jw_bar_%d[] = {\n' % cmd)
-            for k, x, y, w, h, al, chk, en, text in ctls:
-                f.write('    { %4d, %3d, %4d, %3d, JW_CTL_%-6s, %d, %d, %d,'
-                        ' "%s" },\n'
-                        % (x, y, w, h, KIND_NAME[k], al, chk, en, esc(text)))
+            for k, x, y, w, h, al, chk, en, cid, text in ctls:
+                f.write('    { %4d, %3d, %4d, %3d, %5d, JW_CTL_%-6s,'
+                        ' %d, %d, %d, "%s" },\n'
+                        % (x, y, w, h, cid, KIND_NAME[k], al, chk, en,
+                           esc(text)))
             f.write('};\n\n')
         f.write('typedef struct {\n'
                 '    unsigned short cmd;\n'

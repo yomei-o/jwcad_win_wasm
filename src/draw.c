@@ -4,6 +4,7 @@
 
 #include "draw.h"
 #include "gen/circle.h"
+#include "gen/pens.h"
 #include "text.h"
 
 #define PI 3.14159265358979323846
@@ -394,6 +395,11 @@ static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
 {
     if (shown(d, o) == 1)
         return d->pen_rgb[9];
+    /* A picked element is drawn in Pen/Color10 whatever its own colour is --
+       bit 1 of +0x44 is what 範囲選択 sets, and the original's own screen
+       has those elements in ff00ff. */
+    if (o->flags & 2)
+        return JW_SEL_RGB;
     return pen_colour(d, o->color);
 }
 
@@ -711,4 +717,35 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         }
     }
+}
+
+void jw_draw_sel(fb_t *fb, const jw_view *v, const jw_drawing *d,
+                 double dx, double dy)
+{
+    jw_drawing one = *d;
+    jw_obj o;
+    int i;
+
+    one.obj = &o;
+    one.nobj = one.ndrawn = 1;
+    for (i = 0; i < d->ndrawn; i++) {
+        if (!(d->obj[i].flags & 2))
+            continue;
+        o = d->obj[i];
+        jw_obj_move(&o, dx, dy);
+        jw_draw(fb, v, &one);
+    }
+}
+
+void jw_draw_box(fb_t *fb, const jw_view *v,
+                 double x0, double y0, double x1, double y1)
+{
+    double a = jw_ux(v, x0), b = jw_uy(v, y0);
+    double c = jw_ux(v, x1), e = jw_uy(v, y1);
+    double ppb = pix_per_bit(v);
+
+    line(fb, v, a, b, c, b, JW_RANGE_RGB, 0, 1, ppb, 0);
+    line(fb, v, c, b, c, e, JW_RANGE_RGB, 0, 1, ppb, 0);
+    line(fb, v, c, e, a, e, JW_RANGE_RGB, 0, 1, ppb, 0);
+    line(fb, v, a, e, a, b, JW_RANGE_RGB, 0, 1, ppb, 0);
 }

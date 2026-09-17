@@ -24,6 +24,11 @@
 /* What state toolbar button `k` is in: 0 normal, 1 disabled, 2 pressed. */
 int ui_button_state(int k, int saveable, int undoable);
 
+/* Which control of the command bar is under the point -- its id, as the
+   original numbers them (src/gen/bars.h), or 0.  A disabled one answers 0,
+   the same as empty bar. */
+int ui_bar_hit(int x, int y);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

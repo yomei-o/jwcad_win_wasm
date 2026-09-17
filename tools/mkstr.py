@@ -32,6 +32,11 @@ WANT = [
     (5263, 'the element to take the pen and layer from'),
     (5316, 'before anything is typed'),
     (5318, 'where the typed text goes'),
+    (5383, 'the first corner of a range'),
+    (5326, 'the second one -- the right button takes the texts too'),
+    (5314, 'the point a copy or a move is measured from'),
+    (5307, 'where the copy goes'),
+    (5311, 'where the move goes'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

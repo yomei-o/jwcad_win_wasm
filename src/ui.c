@@ -516,7 +516,42 @@ void ui_textbox(fb_t *fb, const char *line, const char *composing)
 
 /* The bar for the command in force.  Which controls each one has, and where
  * they sit, was read out of the running original -- see tools/mkbars.py. */
-static void paint_bar(fb_t *fb)
+/* The controls of the bar in force. */
+static int bar_now(const jw_ctl_t **c)
+{
+    int cmd = jw_cmd(), i;
+
+    for (i = 0; i < JW_NBARS; i++)
+        if (jw_bars[i].cmd == cmd) {
+            *c = jw_bars[i].c;
+            return jw_bars[i].n;
+        }
+    *c = jw_bar_32771;
+    return (int)(sizeof jw_bar_32771 / sizeof jw_bar_32771[0]);
+}
+
+/* Whether a control can be pressed.  The captured state is how the original
+   has it on entering the command; the few the port drives itself say so. */
+static int ctl_enabled(const jw_drawing *d, const jw_ctl_t *c)
+{
+    int e = jw_cmd_bar_enabled(d, c->id);
+
+    return e < 0 ? c->enabled : e;
+}
+
+int ui_bar_hit(int x, int y)
+{
+    const jw_ctl_t *c;
+    int n = bar_now(&c), i;
+
+    for (i = 0; i < n; i++)
+        if (c[i].kind == JW_CTL_BUTTON && x >= c[i].x && x < c[i].x + c[i].w
+            && y >= c[i].y && y < c[i].y + c[i].h)
+            return c[i].id;
+    return 0;
+}
+
+static void paint_bar(fb_t *fb, const jw_drawing *d)
 {
     const jw_ctl_t *c = jw_bar_32771;
     int n = (int)(sizeof jw_bar_32771 / sizeof jw_bar_32771[0]);
@@ -526,14 +561,9 @@ static void paint_bar(fb_t *fb)
        bottom rows of them fall outside the bar's text area */
     int th = jw_text_height();
 
-    for (i = 0; i < JW_NBARS; i++)
-        if (jw_bars[i].cmd == cmd) {
-            c = jw_bars[i].c;
-            n = jw_bars[i].n;
-            break;
-        }
+    n = bar_now(&c);
     for (i = 0; i < n; i++) {
-        int on = 0;
+        int on = 0, en = ctl_enabled(d, &c[i]);
         switch (c[i].kind) {
         case JW_CTL_CHECK:
             /* how the original has it on entering the command, read out
@@ -543,16 +573,16 @@ static void paint_bar(fb_t *fb)
                 on = jw_cmd_hv();
             paint_checkbox(fb, c[i].x, c[i].y, on);
             jw_text_px(fb, c[i].x + CHECK_W + 3, c[i].y + (c[i].h - th) / 2,
-                       c[i].text, c[i].enabled ? C_BTNTEXT : C_GRAYTEXT);
+                       c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
             break;
         case JW_CTL_BUTTON:
             paint_barbutton(fb, c[i].x, c[i].y, c[i].w, c[i].h);
             jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
-                       c[i].text, c[i].enabled ? C_BTNTEXT : C_GRAYTEXT);
+                       c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
             break;
         case JW_CTL_STATIC:
             jw_text_px(fb, c[i].x, c[i].y + (c[i].h - th) / 2, c[i].text,
-                       c[i].enabled ? C_BTNTEXT : C_GRAYTEXT);
+                       en ? C_BTNTEXT : C_GRAYTEXT);
             break;
         case JW_CTL_COMBO:
             paint_combo(fb, c[i].x, c[i].y, c[i].w, c[i].h);
@@ -622,7 +652,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
     fb_edge(fb, v.x - 1, v.y - 1, v.w + 2, v.h + 2, C_3DDKSHADOW, C_3DLIGHT);
     fb_fill(fb, v.x, v.y, v.w, v.h, C_WINDOW);
 
-    paint_bar(fb);
+    paint_bar(fb, d);
     paint_layer_grids(fb, d);
     paint_samples(fb);
     paint_status(fb);
