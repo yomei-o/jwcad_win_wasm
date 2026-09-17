@@ -57,6 +57,7 @@ static double cut_x, cut_y;     /* the first of the two range points */
 static int corner_step;
 static int corner_obj;
 static double corner_x, corner_y;
+/* 面取 works the same way and keeps its pick in the same three */
 
 /* 線伸縮: the line, while its end is being moved. */
 static int stretch_step;
@@ -139,6 +140,8 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TAKAKU, 1411, "1000" },    /* 寸法      */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
+    { JW_CMD_MENTORI, 1411, "" },       /* 面取の寸法 -- empty to start with,
+                                           the way the original's is */
 };
 static int box_focus;
 
@@ -453,6 +456,7 @@ const char *jw_cmd_prompt(void)
            picked.  (Its states 3 and 4 are the 基準線 variant, where the end
            goes to another line instead of to a point; not done here.) */
         return stretch_step == 0 ? JW_STR_5336 : JW_STR_5338;
+    case JW_CMD_MENTORI:
     case JW_CMD_CORNER:
         /* 「線（Ａ）指示(L)　線切断(R)」 then 「◆　線【Ｂ】指示(L)…」
            -- FUN_00635ae0 puts up 0x14dc while its state is 0 and 0x14dd
@@ -839,6 +843,90 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
     } else {
         q->d[0] = ix;
         q->d[1] = iy;
+    }
+}
+
+/* 面取（角面・辺寸法）.
+ *
+ * The same two lines as a corner, but each stops short of the crossing by
+ * the 寸法 box's distance and a third line joins the two ends.  Driven in
+ * the original with 寸法 2000 on a 1/200 group: an L of two lines meeting at
+ * (126.4198,-222.5335) came out with the level one ending 10 mm short at
+ * 116.4198, the upright one starting 10 mm up at -212.5335, and a new line
+ * between exactly those two points.  The distance is therefore 寸法 over the
+ * layer group's scale, along each line from the crossing.
+ *
+ * Both of the old lines are written down cut end first -- the level one's
+ * ends came back swapped -- so that is how they are rewritten here. */
+static void mentori(jw_drawing *d, int a, double ax, double ay,
+                    int b, double bx, double by)
+{
+    jw_obj *p = &d->obj[a], *q = &d->obj[b];
+    double pdx, pdy, qdx, qdy, den, tp, tq, ix, iy, cp, cq;
+    double plen, qlen, dist, pux, puy, qux, quy, px, py, qx, qy;
+    const char *sz = jw_cmd_box(1411);
+    int wg = 0, i;
+    op_t *rec;
+    jw_obj *n;
+
+    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
+        return;
+    dist = sz ? atof(sz) : 0.0;
+    if (dist <= 0.0)
+        return;                 /* no size typed in: nothing to cut */
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (d->group[wg].scale > 0.0)
+        dist /= d->group[wg].scale;
+    pdx = p->d[2] - p->d[0];
+    pdy = p->d[3] - p->d[1];
+    qdx = q->d[2] - q->d[0];
+    qdy = q->d[3] - q->d[1];
+    den = pdx * qdy - pdy * qdx;
+    if (den == 0.0)
+        return;
+    tp = ((q->d[0] - p->d[0]) * qdy - (q->d[1] - p->d[1]) * qdx) / den;
+    tq = ((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / den;
+    ix = p->d[0] + tp * pdx;
+    iy = p->d[1] + tp * pdy;
+    cp = ((ax - p->d[0]) * pdx + (ay - p->d[1]) * pdy) / (pdx * pdx + pdy * pdy);
+    cq = ((bx - q->d[0]) * qdx + (by - q->d[1]) * qdy) / (qdx * qdx + qdy * qdy);
+    plen = sqrt(pdx * pdx + pdy * pdy);
+    qlen = sqrt(qdx * qdx + qdy * qdy);
+    if (plen == 0.0 || qlen == 0.0)
+        return;
+    /* the way each line runs from the crossing towards the end that stays */
+    pux = (cp < tp ? -pdx : pdx) / plen;
+    puy = (cp < tp ? -pdy : pdy) / plen;
+    qux = (cq < tq ? -qdx : qdx) / qlen;
+    quy = (cq < tq ? -qdy : qdy) / qlen;
+    px = ix + pux * dist;
+    py = iy + puy * dist;
+    qx = ix + qux * dist;
+    qy = iy + quy * dist;
+
+    rec = op_new();
+    op_keep(rec, d, a, 0);
+    op_keep(rec, d, b, 0);
+    {   /* cut end first, then the end that stays */
+        double kpx = cp < tp ? p->d[0] : p->d[2];
+        double kpy = cp < tp ? p->d[1] : p->d[3];
+        double kqx = cq < tq ? q->d[0] : q->d[2];
+        double kqy = cq < tq ? q->d[1] : q->d[3];
+        p->d[0] = px; p->d[1] = py; p->d[2] = kpx; p->d[3] = kpy;
+        q->d[0] = qx; q->d[1] = qy; q->d[2] = kqx; q->d[3] = kqy;
+    }
+    n = jw_add(d, JW_SEN);
+    if (n) {
+        n->d[0] = px;
+        n->d[1] = py;
+        n->d[2] = qx;
+        n->d[3] = qy;
+        /* the new line belongs to the same step as the two that were cut,
+           so one press of 元に戻る takes the whole chamfer back */
+        if (rec)
+            rec->n = 1;
     }
 }
 
@@ -1530,6 +1618,26 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
                 o->d[3] = ny;
             }
         }
+        return;
+    }
+    if (current == JW_CMD_MENTORI) {
+        int i;
+        if (button != 0 || !d)
+            return;
+        if (corner_step == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            corner_obj = i;
+            corner_x = x;
+            corner_y = y;
+            corner_step = 2;
+            return;
+        }
+        i = jw_pick_tie(d, v, x, y, 3, 1);
+        if (i >= 0 && i != corner_obj)
+            mentori(d, corner_obj, corner_x, corner_y, i, x, y);
+        corner_step = 0;
         return;
     }
     if (current == JW_CMD_CORNER) {
