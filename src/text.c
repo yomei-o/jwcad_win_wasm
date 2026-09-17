@@ -6,6 +6,10 @@
 #include "gen/jwfont.h"
 
 static fontx_t ank, kanji;
+/* The frame's own font.  The original draws it with the dialog font, MS P
+   Gothic at 9 point, whose cell is 12 pixels tall; drawing the toolbars with
+   the 16 pixel one made the labels wider than their buttons. */
+static fontx_t ank12, kanji12;
 static int fonts_ready;
 
 static void want_fonts(void)
@@ -14,6 +18,8 @@ static void want_fonts(void)
         return;
     fontx_open(&ank, jw_font_ank, jw_font_ank_len);
     fontx_open(&kanji, jw_font_kanji, jw_font_kanji_len);
+    fontx_open(&ank12, jw_font_ank12, jw_font_ank12_len);
+    fontx_open(&kanji12, jw_font_kanji12, jw_font_kanji12_len);
     fonts_ready = 1;
 }
 
@@ -85,7 +91,7 @@ int jw_is_lead(unsigned char c)
 int jw_text_height(void)
 {
     want_fonts();
-    return ank.height;
+    return ank12.height;
 }
 
 int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)
@@ -95,13 +101,13 @@ int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)
     want_fonts();
     while (*p) {
         unsigned code = p[0];
-        const fontx_t *f = &ank;
+        const fontx_t *f = &ank12;
         const unsigned char *g;
         int stride, i, j;
 
         if (is_lead(p[0]) && p[1]) {
             code = ((unsigned)p[0] << 8) | p[1];
-            f = &kanji;
+            f = &kanji12;
             p += 2;
         } else {
             p += 1;

@@ -27,6 +27,12 @@ python tools/mkfont.py font src/gen
 |---|---|
 | `JWANK16.FNT` | 8×16、256 字（JIS X 0201） |
 | `JWKAN16.FNT` | 16×16、6,879 字（JIS X 0208。Shift-JIS で索く） |
+| `JWANK12.FNT` | 6×12、256 字 |
+| `JWKAN12.FNT` | 12×12、6,879 字 |
+
+**16 は図面の文字、12 は枠の文字**に使います。原典は枠をダイアログ
+フォント（ＭＳ Ｐゴシック 9pt、字の高さ 12 画素）で描くので、16 画素で
+描くとラベルがボタンからはみ出します。
 
 ネイティブとブラウザが**同じバイト列**を持つので、両者の画面は一致します。
 姉妹リポジトリ [jwcad_dos_wasm](https://github.com/yomei-o/jwcad_dos_wasm)

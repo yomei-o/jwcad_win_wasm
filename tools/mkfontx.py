@@ -122,23 +122,34 @@ def write_dbcs(path, name, glyphs, width, height):
     return len(codes), len(blocks)
 
 
+def one(src, out, size):
+    """Both fonts at one size.  16 is what the drawing's own text is drawn
+    with; 12 is the size of the dialog font the original's frame uses, so
+    that is what the toolbars and the status line want."""
+    w = size // 2
+    d = str(size)
+    latin = read_bdf(os.path.join(src, d, 'latin1', 'font_src.bit'))
+    kana = read_bdf(os.path.join(src, d, 'hankaku', 'font_src_diff.bit'))
+    ank = dict(latin)
+    ank.update(kana)            # the half-width katakana replace latin1 there
+    name = 'JWANK%d' % size
+    n = write_sbcs(os.path.join(out, name + '.FNT'), name, ank, w, size)
+    print('%s.FNT  %dx%d   %d glyphs (%d latin1 + %d kana)'
+          % (name, w, size, n, len(latin), len(kana)))
+
+    jis = read_bdf(os.path.join(src, d, 'kanjic', 'font_src.bit'))
+    sjis = {jis_to_sjis(c): g for c, g in jis.items()}
+    name = 'JWKAN%d' % size
+    n, nb = write_dbcs(os.path.join(out, name + '.FNT'), name, sjis, size, size)
+    print('%s.FNT  %dx%d  %d glyphs in %d code blocks' % (name, size, size, n, nb))
+
+
 def main():
     src = sys.argv[1] if len(sys.argv) > 1 else 'shinonome'
     out = sys.argv[2] if len(sys.argv) > 2 else 'font'
     os.makedirs(out, exist_ok=True)
-
-    latin = read_bdf(os.path.join(src, '16', 'latin1', 'font_src.bit'))
-    kana = read_bdf(os.path.join(src, '16', 'hankaku', 'font_src_diff.bit'))
-    ank = dict(latin)
-    ank.update(kana)            # the half-width katakana replace latin1 there
-    n = write_sbcs(os.path.join(out, 'JWANK16.FNT'), 'JWANK16', ank, 8, 16)
-    print('JWANK16.FNT  8x16   %d glyphs (%d latin1 + %d kana)'
-          % (n, len(latin), len(kana)))
-
-    jis = read_bdf(os.path.join(src, '16', 'kanjic', 'font_src.bit'))
-    sjis = {jis_to_sjis(c): g for c, g in jis.items()}
-    n, nb = write_dbcs(os.path.join(out, 'JWKAN16.FNT'), 'JWKAN16', sjis, 16, 16)
-    print('JWKAN16.FNT  16x16  %d glyphs in %d code blocks' % (n, nb))
+    one(src, out, 16)
+    one(src, out, 12)
 
 
 if __name__ == '__main__':
