@@ -101,6 +101,9 @@ python tools/mkbars.py                                     # コマンドバー
 gcc -O2 -o tmp/gdicirc.exe tools/gdicirc.c -lgdi32
 tmp/gdicirc.exe > decomp/res/circles.txt
 python tools/mkcirc.py                                     # GDI の円
+# 新規図面のひな型。Jw_win.exe をファイルを開かずに起動して、そのまま
+# 「名前を付けて保存」で decomp/res/new.jww に保存します（図面は空のまま）。
+python tools/mknew.py decomp/res/new.jww src/gen           # 新規図面
 sh  tools/check.sh                                         # 全部の検査
 ```
 

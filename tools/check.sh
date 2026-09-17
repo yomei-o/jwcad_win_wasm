@@ -7,11 +7,13 @@
 #   python tools/mkres.py  orig/Jw_win.exe src/gen --maxh 21
 #   python tools/btnmap.py docs/ref_start.png decomp/res/bitmap src/gen/layout.h
 #   python tools/mkfont.py font src/gen
+#   python tools/mknew.py  decomp/res/new.jww src/gen
 set -e
 cd "$(dirname "$0")/.."
 [ -f src/gen/jwres.c ]  || { echo "run tools/mkres.py first";  exit 1; }
 [ -f src/gen/layout.h ] || { echo "run tools/btnmap.py first"; exit 1; }
 [ -f src/gen/jwfont.c ] || { echo "run tools/mkfont.py first"; exit 1; }
+[ -f src/gen/newjww.c ] || { echo "run tools/mknew.py first";  exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -43,6 +45,10 @@ echo "=== the (R) read point, against Jw_cad's own answers"
 echo
 echo "=== pressing things"
 ./tests/click_test.exe orig/Test1.jww | sed 's/^/    /'
+
+echo
+echo "=== a drawing begun from nothing, drawn on and saved"
+./tests/new_test.exe tests/out/new.jww | sed 's/^/    /'
 
 ./tests/frame.exe tests/out/frame.png >/dev/null
 node tests/wasm_check.js tests/out/wasm.png >/dev/null

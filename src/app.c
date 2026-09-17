@@ -8,7 +8,7 @@
 #include "cmd.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
-#include "gen/pens.h"
+#include "gen/newjww.h"
 
 static fb_t fb;
 static jw_view view;
@@ -214,65 +214,38 @@ int app_resize(int w, int h)
     return 1;
 }
 
-/* The drawing the original has open before anything is loaded.  Its status
- * line in docs/ref_start.png reads "A-2  S=1/100  [0-0]" and its layer bars
- * show every layer and group available with 0 written to, which is what this
- * builds.  The pens are the ones the original keeps in its own settings
- * (src/gen/pens.h) -- a drawing read from a file brings its own. */
+/* The drawing the original has open before anything is loaded.  It is not
+ * built here: it is Jw_cad's own.  Started with no file and told to save at
+ * once, in the reference environment (tools/refenv.sh), it writes
+ * decomp/res/new.jww, and tools/mknew.py bakes that into src/gen/newjww.c.
+ * Reading it back gives the sixteen layer groups, the pen table, the line
+ * types, the hatch and dimension settings and the ten text styles exactly as
+ * the original has them -- and the file header with them, so a drawing begun
+ * from nothing can be saved and read again in Jw_cad.  Its status line reads
+ * "A-2  S=1/100  [0-0]", which is what docs/ref_start.png shows.
+ *
+ * The file is not quite empty: it carries six hidden text records Jw_cad
+ * keeps its printer and view settings in ("Printer_Orientation = 0" and so
+ * on).  Those are made when a drawing is written, not held in the document
+ * -- FUN_005707f0 writes them and FUN_00572880 reads them back into the
+ * settings -- so the six are dropped here and the new drawing is empty, the
+ * way the original's is: its layer bar shows every layer with nothing on it.
+ * The port does not write them back, which loses nothing but the settings
+ * the original would have put in the file. */
 void app_new(void)
 {
-    static const struct { double w, h; } SHEET[] = {
-        { 1189, 841 }, { 841, 594 }, { 594, 420 }, { 420, 297 },
-        { 297, 210 }, { 514, 364 }, { 364, 257 }, { 257, 182 },
-        { 1682, 1189 }, { 2378, 1682 }, { 3364, 2378 }, { 4756, 3364 },
-        { 10000, 7073 }, { 50000, 35366 }, { 100000, 70732 },
-    };
-    int g, l, i;
+    jw_drawing d;
 
+    if (!jw_parse(&d, jw_new_jww, jw_new_jww_len)) {
+        last_error = d.error;   /* only reachable if the bake went wrong */
+        jw_free(&d);
+        return;
+    }
+    d.nobj = 0;
+    d.ndrawn = 0;
     if (have_drawing)
         jw_free(&drawing);
-    memset(&drawing, 0, sizeof drawing);
-    drawing.version = 600;
-    drawing.name = -1;
-    drawing.paper_size = JW_NEW_PAPER;
-    drawing.paper_hw = SHEET[JW_NEW_PAPER].w / 2.0;
-    drawing.paper_hh = SHEET[JW_NEW_PAPER].h / 2.0;
-    for (g = 0; g < 16; g++) {
-        /* 3 is "this is the one being written to", 2 is "editable" -- the
-           two values every sample drawing uses for the rest. */
-        drawing.group[g].state = g == 0 ? 3 : 2;
-        drawing.group[g].write_layer = JW_NEW_LAYER;
-        drawing.group[g].scale = JW_NEW_SCALE;
-        drawing.group[g].name = -1;
-        for (l = 0; l < 16; l++) {
-            drawing.group[g].layer[l].state = l == JW_NEW_LAYER ? 3 : 2;
-            drawing.group[g].layer_name[l] = -1;
-        }
-    }
-    {   /* The ten text styles and the one in force.  A new drawing has to
-         * start with something, and the original's own 書式 button reads
-         * "Free  W=3.5 H=3.5 D=0 (2)" on one -- free meaning not one of the
-         * ten, so a text placed straight away comes out at 3.5 by 3.5 with
-         * no extra spacing in pen 2.  The ten sizes are the ones most of the
-         * shipped drawings carry (seven of the fifteen; the rest differ only
-         * in a spacing, and they only decide the style number, which is 0
-         * here anyway because 3.5 is not among them). */
-        static const double w[10] = { 2, 2.5, 3, 4, 5, 6, 7, 8, 9, 10 };
-        static const double sp[10] = { 0, 0, 0.5, 0.5, 0.5, 1, 1, 1, 1, 1 };
-        static const int col[10] = { 1, 1, 2, 2, 3, 3, 4, 4, 5, 5 };
-        for (i = 0; i < 10; i++) {
-            drawing.style[i].w = drawing.style[i].h = w[i];
-            drawing.style[i].sp = sp[i];
-            drawing.style[i].color = col[i];
-        }
-        drawing.cur_style.w = drawing.cur_style.h = 3.5;
-        drawing.cur_style.sp = 0.0;
-        drawing.cur_style.color = 2;
-    }
-    for (i = 0; i < 10; i++) {
-        drawing.pen_rgb[i] = jw_default_pen_rgb[i];
-        drawing.pen_width[i] = jw_default_pen_width[i];
-    }
+    drawing = d;
     have_drawing = 1;
     have_file = 0;
     last_error = "";
