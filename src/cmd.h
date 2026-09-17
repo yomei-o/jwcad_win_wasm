@@ -33,6 +33,7 @@ enum {
     JW_CMD_HANI = 0x8013,           /* 範囲選択 -- CZukeiSentaku */
     JW_CMD_FUKUSHA = 0x8024,        /* 複写 -- CZukeiFukusha */
     JW_CMD_IDOU = 0x8096,           /* 移動 -- the same class */
+    JW_CMD_SUNPO = 0x804f,          /* 寸法 -- CZukeiSunpo */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -110,5 +111,9 @@ int  jw_cmd_sel_count(const jw_drawing *d);
 /* Take the settled selection out of the drawing, which is what entering 消去
    with one in hand does.  Returns 1 if anything went. */
 int  jw_cmd_sel_erase(jw_drawing *d);
+
+/* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
+   (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */
+int  jw_cmd_sunpo_angle(void);
 
 #endif

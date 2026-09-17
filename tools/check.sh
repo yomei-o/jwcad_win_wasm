@@ -47,6 +47,10 @@ echo "=== pressing things"
 ./tests/click_test.exe orig/Test1.jww | sed 's/^/    /'
 
 echo
+echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
+./tests/sunpo_test.exe | sed 's/^/    /'
+
+echo
 echo "=== レイヤとレイヤグループの格子"
 ./tests/layer_test.exe orig/Test5.jww | sed 's/^/    /'
 

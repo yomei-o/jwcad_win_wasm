@@ -37,6 +37,10 @@ WANT = [
     (5314, 'the point a copy or a move is measured from'),
     (5307, 'where the copy goes'),
     (5311, 'where the move goes'),
+    (5329, 'a dimension: where its extension lines start'),
+    (5330, 'where its line goes'),
+    (5331, 'the first point it measures'),
+    (5332, 'the second'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

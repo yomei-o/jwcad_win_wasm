@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -6,6 +7,7 @@
 #include "pick.h"
 #include "text.h"
 #include "gen/prompts.h"
+#include "gen/sunpo.h"
 
 /* view+0x8564 in the original, and +0x8568 for the one before.  Entering a
    command copies the outgoing one into +0x8568 before the new command's arm
@@ -100,6 +102,27 @@ static double base_x, base_y;   /* 基準点 */
 static jw_obj *sel_was;
 static int *sel_at;
 static int sel_n;
+
+/* 寸法 (CZukeiSunpo).  Four clicks, and the prompts say what each is for:
+ *
+ *   0  5329  [寸法] 引出し線の始点を指示して下さい。(L)free (R)Read
+ *   1  5330  ■ 寸法線の位置を指示して下さい。(L)free (R)Read
+ *   2  5331  ○ 寸法の始点を指示して下さい
+ *   3  5332  ● 寸法の終点を指示して下さい。
+ *
+ * The last two have no "(L)free" on them and that is not an oversight: in
+ * the original a click there does nothing at all unless it reads a point.
+ * Driving it, a left or a right button on a line's end both moved it on,
+ * and a click in open space never did.
+ *
+ * What comes out is six ordinary elements -- the settings that decide them
+ * are in src/gen/sunpo.h, and every one of them showed up in the dimension
+ * the original drew for us. */
+static int sun_step;
+static double sun_hx, sun_hy;   /* 引出し線の始点                          */
+static double sun_lx, sun_ly;   /* 寸法線の位置                            */
+static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
+static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      */
 
 static void sel_free(void);
 
@@ -311,6 +334,8 @@ void jw_cmd_set(int id)
         sel_step = 0;
         sel_free();
     }
+    if (id == JW_CMD_SUNPO)
+        sun_step = 0;
 }
 
 void jw_cmd_reset(void)
@@ -432,6 +457,12 @@ const char *jw_cmd_prompt(void)
         if (sel_step == 2)
             return JW_STR_5314;
         return JW_STR_5383;
+    case JW_CMD_SUNPO:
+        if (sun_step == 0)
+            return JW_STR_5329;
+        if (sun_step == 1)
+            return JW_STR_5330;
+        return sun_step == 2 ? JW_STR_5331 : JW_STR_5332;
     case JW_CMD_ENKO:
         /* CZukeiEnko asks for the centre first and then a point the circle
            goes through.  It leads with 円位置 instead only when a radius has
@@ -979,6 +1010,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 
 int jw_cmd_bar(jw_drawing *d, int id)
 {
+    if (current == JW_CMD_SUNPO)
+        return id == 1059 ? (sun_deg = sun_deg == 0 ? 90 : 0, 1) : 0;
     if (current != JW_CMD_HANI && current != JW_CMD_FUKUSHA
         && current != JW_CMD_IDOU)
         return 0;
@@ -990,6 +1023,9 @@ int jw_cmd_bar(jw_drawing *d, int id)
     case 1067:
         sel_clear(d);
         sel_step = 0;
+        return 1;
+    case 1059:                  /* 0ﾟ/90ﾟ on 寸法's bar */
+        sun_deg = sun_deg == 0 ? 90 : 0;
         return 1;
     case 1066: {                /* 全選択: everything that is drawn */
         int i;
@@ -1004,9 +1040,193 @@ int jw_cmd_bar(jw_drawing *d, int id)
     return 0;
 }
 
+int jw_cmd_sunpo_angle(void)
+{
+    return sun_deg;
+}
+
+/* The number a dimension is written with.
+ *
+ * The length is in paper millimetres; what goes on the drawing is the real
+ * length, which is that times the scale of the layer group it is on -- the
+ * original measured 346.3557 mm on a 1/200 group and wrote 69,271.14.
+ * Then SHOUSUUKETA decimals, a comma every three digits if ShowComma, and
+ * with ShowZero off the trailing zeros of the fraction go. */
+static void sunpo_text(char *out, int n, double mm, double scale)
+{
+    char buf[64], *p = buf;
+    double v = mm * scale;
+    int i, len, k, neg = v < 0.0, whole;
+
+    if (neg)
+        v = -v;
+    sprintf(buf, "%.*f", JW_SUN_DECIMALS, v);
+    if (JW_SUN_DECIMALS > 0 && !JW_SUN_ZERO) {
+        char *dot = strchr(buf, '.');
+        if (dot) {
+            char *e = buf + strlen(buf);
+            while (e > dot && e[-1] == '0')
+                *--e = 0;
+            if (e == dot + 1)
+                *dot = 0;
+        }
+    }
+    len = (int)strlen(p);
+    whole = (int)(strchr(p, '.') ? strchr(p, '.') - p : len);
+    k = 0;
+    if (neg && k < n - 1)
+        out[k++] = '-';
+    for (i = 0; i < len && k < n - 1; i++) {
+        if (JW_SUN_COMMA && i && i < whole && (whole - i) % 3 == 0)
+            out[k++] = ',';
+        if (k < n - 1)
+            out[k++] = p[i];
+    }
+    out[k] = 0;
+}
+
+/* Put the six elements of one dimension in the drawing. */
+static void sunpo_make(jw_drawing *d, double bx, double by)
+{
+    double a = sun_deg == 90 ? PI / 2.0 : 0.0;
+    double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
+    /* along the dimension's own direction, and across it */
+    double s0 = sun_sx * ux + sun_sy * uy, s1 = bx * ux + by * uy;
+    double tl = sun_lx * vx + sun_ly * vy;      /* the dimension line       */
+    double th = sun_hx * vx + sun_hy * vy;      /* where the extensions end */
+    double x0 = s0 * ux + tl * vx, y0 = s0 * uy + tl * vy;
+    double x1 = s1 * ux + tl * vx, y1 = s1 * uy + tl * vy;
+    double len = s1 > s0 ? s1 - s0 : s0 - s1;
+    double cw, ch, sp, tw = 0.0;
+    char txt[64];
+    const char *p;
+    int nch = 0, i, wg = 0, made = 0;
+    jw_obj *o;
+
+    if (len <= 0.0)
+        return;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+
+    /* 寸法線 */
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return;
+    o->color = JW_SUN_SEN_COLOR;
+    o->ltype = 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+    o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
+    made++;
+
+    /* 端部 -- a point at each end while Arrow is 0 */
+    if (!JW_SUN_ARROW)
+        for (i = 0; i < 2; i++) {
+            o = jw_add(d, JW_TEN);
+            if (!o)
+                break;
+            o->color = JW_SUN_TEN_COLOR;
+            o->ltype = 1;
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+            o->d[0] = i ? x1 : x0;
+            o->d[1] = i ? y1 : y0;
+            o->n = 0;
+            made++;
+        }
+
+    /* 引出線 -- from the dimension line out to where the first click was */
+    for (i = 0; i < 2; i++) {
+        double s = i ? s1 : s0;
+        o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->color = JW_SUN_HIKI_COLOR;
+        o->ltype = 1;
+        o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+        o->d[0] = s * ux + (tl + JW_SUN_TSUKIDASHI) * vx;
+        o->d[1] = s * uy + (tl + JW_SUN_TSUKIDASHI) * vy;
+        o->d[2] = s * ux + th * vx;
+        o->d[3] = s * uy + th * vy;
+        made++;
+    }
+
+    /* 寸法値 -- 文字種 MOJINO, centred on the line and HANARE above it */
+    i = JW_SUN_MOJINO - 1;
+    if (i < 0 || i > 9)
+        i = 0;
+    cw = d->style[i].w;
+    ch = d->style[i].h;
+    sp = d->style[i].sp;
+    sunpo_text(txt, (int)sizeof txt, len, d->group[wg].scale);
+    for (p = txt; *p; ) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    if (cw > 0.0 && ch > 0.0 && nch) {
+        double mid = (s0 + s1) / 2.0, t = tl + JW_SUN_HANARE;
+        o = jw_add(d, JW_MOJI);
+        if (o) {
+            o->color = (unsigned short)d->style[i].color;
+            /* an ordinary text has 1 here; the dimension value the original
+               wrote has 2, and 0x2043 in the word at +0x2c */
+            o->ltype = 2;
+            o->width = JW_SUN_TEXT_WIDTH;
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS);
+            o->d[0] = (mid - tw / 2.0) * ux + t * vx;
+            o->d[1] = (mid - tw / 2.0) * uy + t * vy;
+            o->d[2] = (mid + tw / 2.0) * ux + t * vx;
+            o->d[3] = (mid + tw / 2.0) * uy + t * vy;
+            o->d[4] = cw;
+            o->d[5] = ch;
+            o->d[6] = sp;
+            o->d[7] = 0.0;
+            o->n = JW_SUN_MOJINO;
+            o->text = jw_add_str(d, txt);
+            o->face = -1;
+            made++;
+        }
+    }
+    op_push(made);
+}
+
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (current == JW_CMD_SUNPO) {
+        double rx, ry;
+        if (!d)
+            return;
+        if (sun_step < 2) {
+            /* (L) is where it was clicked, (R) reads a point */
+            if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+                return;
+            if (sun_step == 0) {
+                sun_hx = x;
+                sun_hy = y;
+            } else {
+                sun_lx = x;
+                sun_ly = y;
+            }
+            sun_step++;
+            return;
+        }
+        /* the two measured points have to be read ones */
+        if (!jw_read(d, v, x, y, &rx, &ry))
+            return;
+        if (sun_step == 2) {
+            sun_sx = rx;
+            sun_sy = ry;
+            sun_step = 3;
+            return;
+        }
+        sunpo_make(d, rx, ry);
+        sun_step = 2;           /* ready for the next one */
+        return;
+    }
     if (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
         || current == JW_CMD_IDOU) {
         switch (sel_step) {
