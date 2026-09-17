@@ -178,9 +178,14 @@ int app_press(int x, int y, int button)
     if ((g = ui_layer_hit(x, y, &n)) >= 0)
         return press_layer(g, n, button);
 
-    if (button == 0 && (id = ui_bar_hit(x, y)) != 0
-        && jw_cmd_bar(have_drawing ? &drawing : 0, id))
-        return 1;
+    if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        if (jw_cmd_box(id)) {           /* a box: it takes the typing */
+            jw_cmd_box_click(id);
+            return 1;
+        }
+        if (jw_cmd_bar(have_drawing ? &drawing : 0, id))
+            return 1;
+    }
     if (k >= 0) {
         int cmd = jw_btn_cmd[k];
         if (button != 0
@@ -230,6 +235,7 @@ int app_press(int x, int y, int button)
     }
     if (view_ready && in_view(x, y)) {
         double mx, my;
+        jw_cmd_box_click(0);            /* the caret leaves the bar */
         to_paper(x, y, &mx, &my);
         jw_cmd_point(have_drawing ? &drawing : 0, &view, mx, my, button);
         return 1;
@@ -242,6 +248,10 @@ int app_press(int x, int y, int button)
    a mouse move, say -- happened to redraw. */
 int app_key(int c)
 {
+    if (jw_cmd_box_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (jw_cmd() != JW_CMD_MOJI)
         return 0;
     jw_cmd_key(c);

@@ -56,6 +56,10 @@ echo "=== 線属性のダイアログ"
 python tools/cmp.py docs/ref_zoku.png tests/out/zoku.png     -i docs/zoku_textareas.txt -d tests/out/zoku.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 多角形 —— 原典が描いた八角形との突き合わせ"
+./tests/poly_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 

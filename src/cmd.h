@@ -34,6 +34,7 @@ enum {
     JW_CMD_FUKUSHA = 0x8024,        /* 複写 -- CZukeiFukusha */
     JW_CMD_IDOU = 0x8096,           /* 移動 -- the same class */
     JW_CMD_SUNPO = 0x804f,          /* 寸法 -- CZukeiSunpo */
+    JW_CMD_TAKAKU = 0x807e,         /* 多角形 -- CZukeiTakakukei */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -115,5 +116,13 @@ int  jw_cmd_sel_erase(jw_drawing *d);
 /* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
    (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */
 int  jw_cmd_sunpo_angle(void);
+
+/* The boxes on the command bar that can be typed into -- 多角形's 寸法,
+   角数 and 底辺角度 so far.  The text of one, or NULL if the port does not
+   keep that box; `focus` is the one being typed into, 0 for none. */
+const char *jw_cmd_box(int id);
+int  jw_cmd_box_focus(void);
+void jw_cmd_box_click(int id);      /* a press on one: it takes the typing */
+int  jw_cmd_box_key(int c);         /* a character; 1 if it was taken */
 
 #endif

@@ -124,6 +124,30 @@ static double sun_lx, sun_ly;   /* 寸法線の位置                           
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
 static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      */
 
+/* The boxes on the command bar that hold a number.  Jw_cad keeps these in
+ * the command itself, not in the registry, and the values below are the ones
+ * the original comes up with: a 多角形 drawn straight after starting came out
+ * a pentagon of 1000 (real) radius with its base level.
+ *
+ * They are what makes the rest of the commands usable, so the port lets them
+ * be typed into: a press puts the caret in one (jw_cmd_box_click) and the
+ * keys go there instead of to the drawing.
+ */
+/* The ids are not unique: 1411 is the first combo of nearly every bar, so
+   a box belongs to a command as well as to an id. */
+static struct { unsigned short cmd, id; char t[16]; } box[] = {
+    { JW_CMD_TAKAKU, 1411, "1000" },    /* 寸法      */
+    { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
+    { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
+};
+static int box_focus;
+
+/* 多角形 (CZukeiTakakukei).  The bar's 中心→頂点指定 is the mode it starts
+ * in, and with a 寸法 in the box one click on the centre draws the whole
+ * thing -- which is what the original does: a click left a regular pentagon
+ * behind, and another click left a second one.
+ */
+
 static void sel_free(void);
 
 /* 元に戻る works a command at a time, not an element at a time: drawing a
@@ -457,6 +481,9 @@ const char *jw_cmd_prompt(void)
         if (sel_step == 2)
             return JW_STR_5314;
         return JW_STR_5383;
+    case JW_CMD_TAKAKU:
+        /* 「中心点を指示してください (L)free (R)Read」 */
+        return JW_STR_5309;
     case JW_CMD_SUNPO:
         if (sun_step == 0)
             return JW_STR_5329;
@@ -1051,6 +1078,98 @@ int jw_cmd_sunpo_angle(void)
     return sun_deg;
 }
 
+const char *jw_cmd_box(int id)
+{
+    int i;
+
+    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++)
+        if (box[i].id == id && box[i].cmd == current)
+            return box[i].t;
+    return 0;
+}
+
+int jw_cmd_box_focus(void)
+{
+    return box_focus;
+}
+
+void jw_cmd_box_click(int id)
+{
+    box_focus = jw_cmd_box(id) ? id : 0;
+}
+
+int jw_cmd_box_key(int ch)
+{
+    int i;
+
+    if (!box_focus)
+        return 0;
+    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++) {
+        char *t;
+        int n;
+        if (box[i].id != box_focus || box[i].cmd != current)
+            continue;
+        t = box[i].t;
+        n = (int)strlen(t);
+        if (ch == 13 || ch == 27) {         /* Enter, Esc: done */
+            box_focus = 0;
+            return 1;
+        }
+        if (ch == 8) {                      /* backspace */
+            if (n)
+                t[n - 1] = 0;
+            return 1;
+        }
+        if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') {
+            if (n < (int)sizeof box[i].t - 1) {
+                t[n] = (char)ch;
+                t[n + 1] = 0;
+            }
+            return 1;
+        }
+        return 1;                           /* anything else: swallowed */
+    }
+    return 0;
+}
+
+/* One 多角形, round the point that was clicked.
+ *
+ * Read off the original: the 寸法 box is the radius out to a corner in real
+ * units, so paper millimetres are that over the layer group's scale (2000 on
+ * a 1/200 group came out 10 mm across the paper); 角数 is how many corners;
+ * and the shape sits with its base level, turned by 底辺角度.  The corners
+ * are therefore at -90 - 180/n + 底辺角度 and every 360/n after that, going
+ * round the way the original's lines do.  A pentagon of 3000 at 30 degrees
+ * and an octagon of 3000 at 30 both came out exactly there. */
+static void takaku(jw_drawing *d, double cx, double cy)
+{
+    const char *sz = jw_cmd_box(1411), *ns = jw_cmd_box(1413);
+    const char *ang = jw_cmd_box(1414);
+    double r = sz ? atof(sz) : 0.0, a0 = ang ? atof(ang) : 0.0;
+    int n = ns ? atoi(ns) : 0, i, wg = 0, made = 0;
+
+    if (n < 3 || n > 1000 || r <= 0.0)
+        return;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (d->group[wg].scale > 0.0)
+        r /= d->group[wg].scale;
+    a0 = (a0 - 90.0 - 180.0 / n) * PI / 180.0;
+    for (i = 0; i < n; i++) {
+        double t0 = a0 + 2.0 * PI * i / n, t1 = a0 + 2.0 * PI * (i + 1) / n;
+        jw_obj *o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->d[0] = cx + r * cos(t0);
+        o->d[1] = cy + r * sin(t0);
+        o->d[2] = cx + r * cos(t1);
+        o->d[3] = cy + r * sin(t1);
+        made++;
+    }
+    op_push(made);
+}
+
 /* The number a dimension is written with.
  *
  * The length is in paper millimetres; what goes on the drawing is the real
@@ -1202,6 +1321,11 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (current == JW_CMD_TAKAKU) {
+        if (button == 0 && d)
+            takaku(d, x, y);
+        return;
+    }
     if (current == JW_CMD_SUNPO) {
         double rx, ry;
         if (!d)

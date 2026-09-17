@@ -751,7 +751,8 @@ int ui_bar_hit(int x, int y)
     int n = bar_now(&c), i;
 
     for (i = 0; i < n; i++)
-        if (c[i].kind == JW_CTL_BUTTON && x >= c[i].x && x < c[i].x + c[i].w
+        if ((c[i].kind == JW_CTL_BUTTON || c[i].kind == JW_CTL_COMBO)
+            && x >= c[i].x && x < c[i].x + c[i].w
             && y >= c[i].y && y < c[i].y + c[i].h)
             return c[i].id;
     return 0;
@@ -790,9 +791,19 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             jw_text_px(fb, c[i].x, c[i].y + (c[i].h - th) / 2, c[i].text,
                        en ? C_BTNTEXT : C_GRAYTEXT);
             break;
-        case JW_CTL_COMBO:
+        case JW_CTL_COMBO: {
+            /* the boxes the port keeps a number in are drawn with it, and
+               with a caret while they are the one being typed into */
+            const char *t = jw_cmd_box(c[i].id);
             paint_combo(fb, c[i].x, c[i].y, c[i].w, c[i].h);
+            if (t) {
+                int tx = c[i].x + 4, ty = c[i].y + (c[i].h - th) / 2;
+                tx = jw_text_px(fb, tx, ty, t, C_BTNTEXT);
+                if (jw_cmd_box_focus() == c[i].id)
+                    fb_fill(fb, tx, ty, 1, th, C_BTNTEXT);
+            }
             break;
+        }
         }
     }
 }

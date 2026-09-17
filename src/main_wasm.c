@@ -72,6 +72,13 @@ EMSCRIPTEN_KEEPALIVE int jw_cmd_id(void)
     return jw_cmd();
 }
 
+/* Which box on the command bar is taking typing, if any.  The page has to
+   know: while one is, the keys are its business and not the drawing's. */
+EMSCRIPTEN_KEEPALIVE int jw_box_focus(void)
+{
+    return jw_cmd_box_focus();
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_key(int c)
 {
     return app_key(c);
