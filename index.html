@@ -28,7 +28,7 @@
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
-<script src="jwcad.js?v=9"></script>
+<script src="jwcad.js?v=10"></script>
 <script>
 (async function () {
   const canvas = document.getElementById('screen');
@@ -195,8 +195,14 @@
   // meant to -- clicking the canvas moves the focus back to the page, and
   // the 文字 command would otherwise take nothing.
   window.addEventListener('keydown', e => {
-    /* while an IME is converting, the keys are its business */
-    if (e.isComposing || e.key === 'Process') return;
+    /* While an IME is converting, the keys are its business.  The first key
+       of a conversion is the awkward one: Chrome sends its keydown *before*
+       compositionstart, with isComposing still false, so neither of the two
+       flags below is set yet -- typing い came out as いi.  What marks it is
+       keyCode 229, the code Windows and every browser use for "the IME is
+       handling this"; a real key never has it. */
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === 'Process' || e.key === 'Unidentified') return;
     if (composing || cmdid() !== 0x8026) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === 'Backspace') {
