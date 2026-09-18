@@ -24,10 +24,11 @@ Yoshifumi Tanaka、2026-09-05 版）を、実行ファイルを Ghidra で逆コ
 「何をする関数か」ではなく「**どれが Jw_cad 自身のコードか**」を切り分けることです。
 それは RTTI から機械的に出せて、すでに出してあります（下記「クラス構成」）。
 
-**いまできていること: 実行ファイルの構造の解明まで。** 画面・メニュー・ダイアログ・
-文字列・ツールバーは**すべて正確に取り出せて**おり、C++ のクラス構成と継承関係、
-どの関数がどのクラスの何番目の仮想関数か、まで復元しました。移植のコードは
-これからです。続きに入る人は [RESUME.md](RESUME.md) から読んでください。
+**いまできていること: CAD として一通り使えるところまで。** 画面・メニュー・
+ダイアログ・文字列・ツールバーを取り出し、C++ のクラス構成と継承関係、どの関数が
+どのクラスの何番目の仮想関数かまで復元したうえで、**描く・消す・編集する・
+保存する**をひととおり移しました。続きに入る人は [RESUME.md](RESUME.md) から
+読んでください。
 
 ## 目標
 
@@ -105,6 +106,8 @@ python tools/mkcirc.py                                     # GDI の円
 # 「名前を付けて保存」で decomp/res/new.jww に保存します（図面は空のまま）。
 python tools/mknew.py decomp/res/new.jww src/gen           # 新規図面
 python tools/mksunpo.py                                    # 寸法の設定
+python tools/mkicon.py orig/Jw_win.exe src/gen             # 窓のアイコン
+python tools/mkmenu.py                                     # メニュー
 # 線属性ダイアログ。原典に出させて中身を書き出します。
 powershell -File tmp/jwdraw.ps1 -Clicks 'dlg:32807,docs/ref_zoku.png'     | sed -n '/=== dialog/,$p' | tail -n +2 > decomp/res/zoku.txt
 python tools/mkzoku.py                                     # 線属性
@@ -376,8 +379,15 @@ ssh -i ~/.claude/keys/ort_build_key yomei@192.168.6.14 \
 
 ## いまできること
 
-**枠を描き、`.jww` を読み、線・円弧・点・ソリッド・文字を描きます。**
+**線・矩形・円・点・連続線・文字**（日本語入力つき）を描き、**消去**
+（部分・図形・範囲）・**コーナー処理・線伸縮・複線・面取・分割・２線・
+中心線・多角形・寸法**で編集し、**範囲選択して複写・移動**し、**線属性**で
+色と線種を選び、**レイヤ**を切り替え、**新規図面から保存**までできます。
+保存した `.jww` は原典がそのまま開きます。
+
 ネイティブの窓（`jw_port.exe`）とブラウザ（`index.html`）が同じ C を通ります。
+窓の大きさを変えると原典と同じように右のバーとステータス行が端に付いてきて、
+ブラウザ版は窓を持たないぶんのキャプションとメニューバーも自分で描きます。
 
 ![移植側で Test1.jww を開いたところ](docs/port_test1.png)
 
@@ -394,18 +404,30 @@ sh tools/check.sh
 
 ```
 === the frame against the original
-docs/ref_start.png vs tests/out/frame.png: 1264x741, 3378 of 936624 differ (0.361%)
+docs/ref_start.png vs tests/out/frame.png: 1264x741, 4076 of 936624 differ (0.435%)
+outside the text areas: 0 differ (0.000%)
+
+=== 別の大きさの枠 —— 右端と下端に付いてくるか
+docs/ref_start_big.png vs tests/out/frame_big.png: 1484x841, ... (0.327%)
+outside the text areas: 0 differ (0.000%)
+
+=== キャプションとメニューバー（ブラウザ版が自分で描く分）
+1264x51, ... (4.311%)
 outside the text areas: 0 differ (0.000%)
 
 === native against WASM, pixel for pixel
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 
 === drawings against the original
-    Test1  outside the text areas: 4597 differ (0.491%)
-           --, 3864 are one pixel out (84%) and 733 are somewhere else entirely
-    Test7  outside the text areas: 10315 differ (1.101%)
-           --, 7964 are one pixel out (77%) and 2351 are somewhere else entirely
+    Test1  outside the text areas: 193 differ (0.021%)
+           --, 94 are one pixel out (49%) and 99 are somewhere else entirely
+    Test7  outside the text areas: 39 differ (0.004%)
+           --, 14 are one pixel out (36%) and 25 are somewhere else entirely
 ```
+
+検査は全部で **273 項目**あり、その多くは**原典に同じ操作をさせて保存させた
+`.jww` と突き合わせる**ものです（寸法・多角形・面取・分割・２線・中心線は
+座標が 1e-9 まで一致）。
 
 同梱 15 枚ぶんは `sh tools/refshots.sh && sh tools/scoreall.sh`
 （基準画像は**前面で**撮る必要があります。背景の `PrintWindow` では
@@ -417,9 +439,11 @@ tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 **残りの 9 割は「1 画素ずれ」**——線は正しい場所にあって、画素の丸めだけが
 違うものです。`tools/cmp.py --near` がそれと「別の場所にある」ものを分けます。
 
-**枠は原典と 1 画素も違いません。** 残る 0.361% は全部、原典が Windows の
+**枠は原典と 1 画素も違いません。** 残る 0.435% は全部、原典が Windows の
 フォントで描いている文字です（`docs/textareas.txt` に列挙）。そこは
-同じ字形を出せないので、別勘定にしてあります。
+同じ字形を出せないので、別勘定にしてあります。窓の大きさを変えても、
+ブラウザ版が自分で描くキャプションとメニューバーも同じで、**文字のほかは
+1 画素も違いません**。
 
 内訳の作り方は次のとおりです。
 
