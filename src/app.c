@@ -175,6 +175,63 @@ static int press_zoku(int x, int y)
     return 1;
 }
 
+/* One command, however it was asked for: a toolbar button, or the menu the
+ * native build hands to Windows (both send the same ids -- they are the
+ * original's own, out of its resources).  Returns 1 when the window wants
+ * repainting, 0 otherwise; the two that need the front end's help leave an
+ * action behind for app_take_action. */
+int app_command(int cmd)
+{
+    int k;
+
+    for (k = 0; k < JW_NBUTTONS; k++)
+        if (jw_btn_cmd[k] == cmd)
+            break;
+    if (k < JW_NBUTTONS && (jw_btn_mode[k] || cmd == JW_CMD_ZOKUSEI)) {
+        /* 属性取得 is not a mode in the drawn sense -- the original has no
+           ON_UPDATE_COMMAND_UI for it, so its button is never shown pressed
+           -- but it does become the command: the click after it is what
+           picks the element to take the pen from. */
+        jw_cmd_set(cmd);
+        /* 消去 with a settled range in hand empties it at once */
+        if (cmd == JW_CMD_SHOUKYO && have_drawing)
+            jw_cmd_sel_erase(&drawing);
+        return 1;
+    }
+    /* an action: it runs, and never becomes "the command" */
+    switch (cmd) {
+    case JW_CMD_UNDO:
+        if (!jw_cmd_can_undo())
+            return 0;
+        jw_cmd_undo(have_drawing ? &drawing : 0);
+        return 1;
+    case 0x8027:                        /* 線属性 */
+        zoku_color = have_drawing && drawing.write_color
+                     ? drawing.write_color : 2;
+        zoku_ltype = have_drawing && drawing.write_ltype
+                     ? drawing.write_ltype : 1;
+        zoku_open = 1;
+        return 1;
+    case 57600:                         /* 新規 (ID_FILE_NEW) */
+        app_new();
+        return 1;
+    case 57601:                         /* 開く (ID_FILE_OPEN) */
+        action = JW_ACT_OPEN;
+        return 0;
+    case 57603:                         /* 上書 (ID_FILE_SAVE) */
+        action = JW_ACT_SAVE;
+        return 0;
+    case 57604:                         /* 名前を付けて保存 */
+        action = JW_ACT_SAVE_AS;
+        return 0;
+    }
+    /* a command the port does not do yet: it still becomes the one in force
+       if it has a button, so the bar and the prompt follow */
+    if (k < JW_NBUTTONS)
+        return 0;
+    return 0;
+}
+
 int app_press(int x, int y, int button)
 {
     int k = hit_button(x, y);
@@ -199,47 +256,7 @@ int app_press(int x, int y, int button)
         if (button != 0
             || ui_button_state(k, have_file, jw_cmd_can_undo()) == 1)
             return 0;           /* a disabled button does nothing */
-        if (jw_btn_mode[k] || cmd == JW_CMD_ZOKUSEI) {
-            /* 属性取得 is not a mode in the drawn sense -- the original has
-               no ON_UPDATE_COMMAND_UI for it, so its button is never shown
-               pressed -- but it does become the command: the click after it
-               is what picks the element to take the pen from. */
-            jw_cmd_set(cmd);
-            /* 消去 with a settled range in hand empties it at once */
-            if (cmd == JW_CMD_SHOUKYO && have_drawing)
-                jw_cmd_sel_erase(&drawing);
-            return 1;
-        }
-        /* an action: it runs, and never becomes "the command" */
-        if (cmd == JW_CMD_UNDO && jw_cmd_can_undo()) {
-            jw_cmd_undo(have_drawing ? &drawing : 0);
-            return 1;
-        }
-        if (cmd == 0x8027) {            /* 線属性 */
-            zoku_color = have_drawing && drawing.write_color
-                         ? drawing.write_color : 2;
-            zoku_ltype = have_drawing && drawing.write_ltype
-                         ? drawing.write_ltype : 1;
-            zoku_open = 1;
-            return 1;
-        }
-        if (cmd == 57600) {             /* 新規 (ID_FILE_NEW) */
-            app_new();
-            return 1;
-        }
-        if (cmd == 57601) {             /* 開く (ID_FILE_OPEN) */
-            action = JW_ACT_OPEN;
-            return 0;
-        }
-        if (cmd == 57603) {             /* 上書 (ID_FILE_SAVE) */
-            action = JW_ACT_SAVE;
-            return 0;
-        }
-        if (cmd == 57604) {             /* 名前を付けて保存 (ID_FILE_SAVE_AS) */
-            action = JW_ACT_SAVE_AS;
-            return 0;
-        }
-        return 0;
+        return app_command(cmd);
     }
     if (view_ready && in_view(x, y)) {
         double mx, my;

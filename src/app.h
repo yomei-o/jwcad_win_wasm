@@ -43,6 +43,10 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS };
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the
    window wants repainting. */
+/* One command by id -- what a toolbar button or a menu item asks for.
+   Returns 1 when the window wants repainting. */
+int  app_command(int cmd);
+
 int  app_press(int x, int y, int button);
 int  app_move(int x, int y);
 int  app_take_action(void);
