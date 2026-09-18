@@ -7,6 +7,8 @@
 #include "gen/bars.h"
 #include "gen/zoku.h"
 #include "gen/pens.h"
+#include "gen/menu.h"
+#include "gen/jwicon.h"
 #include "gen/cmds.h"
 #include "cmd.h"
 #include "text.h"
@@ -148,6 +150,89 @@ static void blit_cell_state(fb_t *fb, const jw_bitmap_t *bm, int cell,
         for (i = 0; i < CELL_W; i++)
             if (cellpx(bm, cell, i, j) != 0xc0c0c0u)
                 fb->px[(size_t)(y + j) * fb->w + x + i] = C_BTNSHADOW;
+}
+
+
+/* ------------------------------------------------------------- the chrome
+ *
+ * All of this was measured off docs/ref_window.png -- Jw_cad's own window,
+ * painted into a bitmap with PrintWindow so nothing had to be grabbed off
+ * the screen:
+ *
+ *   rows  0..30   the caption, 0xf3f3f3 all over; the program's icon at
+ *                 8,7 (src/gen/jwicon.h, which is RT_ICON 2 and matches the
+ *                 caption pixel for pixel); the name at 30,10; and the
+ *                 three window buttons' glyphs 119, 74 and 28 pixels in
+ *                 from the right edge, black, 10 wide;
+ *   rows 31..50   the menu bar, white but for its last two rows (0xf2f2f2
+ *                 then 0xf0f0f0); the seven names at the columns in
+ *                 src/gen/menu.h with their tops four rows down.
+ *
+ * The glyphs are the port's own font, so the names will not match the
+ * original's pixel for pixel -- the same trade as everywhere else.
+ */
+#define CAP_FACE   0xf3f3f3u
+#define CAP_ICON_X  8
+#define CAP_ICON_Y  7
+#define CAP_TEXT_X 30
+#define CAP_TEXT_Y 10
+#define MENU_TEXT_Y 4
+
+/* how far in from the right edge each window button's glyph starts */
+static const short cap_btn[3] = { -119, -74, -28 };
+
+void ui_caption(fb_t *fb, int y, int cw, const char *title)
+{
+    int i, j, k;
+
+    fb_fill(fb, 0, y, cw, JW_CAPTION_H, CAP_FACE);
+    for (j = 0; j < JW_ICON_H; j++)
+        for (i = 0; i < JW_ICON_W; i++)
+            if (jw_icon_mask[j * JW_ICON_W + i])
+                fb_fill(fb, CAP_ICON_X + i, y + CAP_ICON_Y + j, 1, 1,
+                        jw_icon[j * JW_ICON_W + i]);
+    if (title && *title)
+        jw_text_px(fb, CAP_TEXT_X, y + CAP_TEXT_Y, title, C_BTNTEXT);
+    for (k = 0; k < 3; k++) {
+        int x = cw + cap_btn[k];
+        if (k == 0) {                   /* minimise: one row */
+            fb_hline(fb, x, y + 15, 10, C_BTNTEXT);
+        } else if (k == 1) {            /* maximise: a box */
+            fb_edge(fb, x, y + 10, 10, 10, C_BTNTEXT, C_BTNTEXT);
+        } else {                        /* close: two diagonals */
+            for (i = 0; i < 10; i++) {
+                fb_fill(fb, x + i, y + 10 + i, 1, 1, C_BTNTEXT);
+                fb_fill(fb, x + 9 - i, y + 10 + i, 1, 1, C_BTNTEXT);
+            }
+        }
+    }
+}
+
+void ui_menu(fb_t *fb, int y, int cw)
+{
+    int th = jw_text_height(), i;
+
+    fb_fill(fb, 0, y, cw, JW_MENU_H - 2, C_WINDOW);
+    fb_hline(fb, 0, y + JW_MENU_H - 2, cw, 0xf2f2f2u);
+    fb_hline(fb, 0, y + JW_MENU_H - 1, cw, C_BTNFACE);
+    for (i = 0; i < JW_NMENU; i++)
+        jw_text_px(fb, jw_menu[i].x, y + MENU_TEXT_Y + (12 - th) / 2,
+                   jw_menu[i].text, C_BTNTEXT);
+}
+
+int ui_menu_hit(int x, int y)
+{
+    int i;
+
+    if (y < JW_CAPTION_H || y >= JW_CHROME_H)
+        return -1;
+    for (i = 0; i < JW_NMENU; i++) {
+        int x0 = jw_menu[i].x - 8;
+        int x1 = jw_menu[i].x + jw_text_count(jw_menu[i].text) * 6 + 8;
+        if (x >= x0 && x < x1)
+            return i;
+    }
+    return -1;
 }
 
 int ui_right(int x, int cw)

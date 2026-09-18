@@ -1,0 +1,14 @@
+# Where the caption and the menu bar draw text with a Windows font, in the
+# coordinates of the chrome strip (the top 51 rows of the client's columns,
+# cropped out of docs/ref_window.png).  The port's glyphs are its own, so
+# only where they sit can match.
+#
+#   python tools/cmp.py tmp/chrome_ref.png tests/out/chrome.png -i docs/chrome_textareas.txt
+
+30 8 120 16
+0 33 440 16
+# the three window buttons: Windows draws those glyphs from its own icon
+# font, with the strokes smoothed; the port draws them square
+1145 8 14 16
+1190 8 14 16
+1235 8 16 16

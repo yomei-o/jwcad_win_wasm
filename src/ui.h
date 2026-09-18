@@ -48,6 +48,21 @@
 #define JW_BOTTOM_Y  720        /* and the status line here  */
 
 /* x shifted by the width difference, and y by the height difference. */
+/* What Windows puts above the client: a caption with the program's icon and
+ * its name, and the menu bar.  The native window gets both from Windows; the
+ * browser has no window of its own, so the port draws them.  Measured off
+ * docs/ref_window.png, the original's own window painted into a bitmap.
+ */
+#define JW_CAPTION_H 31
+#define JW_MENU_H    20
+#define JW_CHROME_H  (JW_CAPTION_H + JW_MENU_H)
+
+void ui_caption(fb_t *fb, int y, int cw, const char *title);
+void ui_menu(fb_t *fb, int y, int cw);
+/* Which name of the menu bar is under the point, or -1.  x and y are in the
+   chrome's own coordinates, the caption included. */
+int  ui_menu_hit(int x, int y);
+
 int ui_right(int x, int cw);
 int ui_bottom(int y, int ch);
 /* The same, but only for what sits in the right bar or the status line. */

@@ -11,6 +11,11 @@
 #include "gen/newjww.h"
 
 static fb_t fb;
+/* the caption and menu bar, painted above the client for the build that has
+   no window of its own (app_chrome) */
+static fb_t chrome;
+static int chrome_on;
+static char title[128] = "\x96\xb3\x91\xe8 - jw_win";   /* 無題 - jw_win */
 static jw_view view;
 static int view_ready;
 static jw_drawing drawing;
@@ -308,6 +313,32 @@ int app_move(int x, int y)
                           JW_CMD_MAXFIG) > 0;
 }
 
+void app_chrome(int on)
+{
+    chrome_on = on;
+}
+
+int app_chrome_h(void)
+{
+    return chrome_on ? JW_CHROME_H : 0;
+}
+
+void app_title(const char *name)
+{
+    const char *tail = " - jw_win";
+    size_t n = name ? strlen(name) : 0;
+
+    if (!name || !*name) {
+        /* 無題, the way the original starts */
+        strcpy(title, "\x96\xb3\x91\xe8 - jw_win");
+        return;
+    }
+    if (n > sizeof title - strlen(tail) - 1)
+        n = sizeof title - strlen(tail) - 1;
+    memcpy(title, name, n);
+    strcpy(title + n, tail);
+}
+
 int app_resize(int w, int h)
 {
     if (w < 1)
@@ -319,8 +350,11 @@ int app_resize(int w, int h)
     fb_free(&fb);
     if (!fb_init(&fb, w, h))
         return 0;
+    fb_free(&chrome);
+    if (chrome_on && !fb_init(&chrome, w, JW_CHROME_H))
+        return 0;
     free(rgba);
-    rgba_n = w * h * 4;
+    rgba_n = w * (h + app_chrome_h()) * 4;
     rgba = (unsigned char *)malloc((size_t)rgba_n);
     if (!rgba)
         return 0;
@@ -442,15 +476,32 @@ void app_paint(void)
         ui_textbox(&fb, jw_cmd_line(), jw_cmd_compose());
     if (zoku_open)
         ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);
+    if (chrome_on && chrome.px) {
+        ui_caption(&chrome, 0, chrome.w, title);
+        ui_menu(&chrome, JW_CAPTION_H, chrome.w);
+    }
     if (!rgba)
         return;
-    n = fb.w * fb.h;
-    for (i = 0; i < n; i++) {
-        unsigned int c = fb.px[i];
-        rgba[4 * i + 0] = (unsigned char)(c >> 16);
-        rgba[4 * i + 1] = (unsigned char)(c >> 8);
-        rgba[4 * i + 2] = (unsigned char)c;
-        rgba[4 * i + 3] = 255;
+    {   /* the chrome first, then the client under it */
+        int k = 0;
+        if (chrome_on && chrome.px) {
+            n = chrome.w * chrome.h;
+            for (i = 0; i < n; i++, k++) {
+                unsigned int c = chrome.px[i];
+                rgba[4 * k + 0] = (unsigned char)(c >> 16);
+                rgba[4 * k + 1] = (unsigned char)(c >> 8);
+                rgba[4 * k + 2] = (unsigned char)c;
+                rgba[4 * k + 3] = 255;
+            }
+        }
+        n = fb.w * fb.h;
+        for (i = 0; i < n; i++, k++) {
+            unsigned int c = fb.px[i];
+            rgba[4 * k + 0] = (unsigned char)(c >> 16);
+            rgba[4 * k + 1] = (unsigned char)(c >> 8);
+            rgba[4 * k + 2] = (unsigned char)c;
+            rgba[4 * k + 3] = 255;
+        }
     }
 }
 

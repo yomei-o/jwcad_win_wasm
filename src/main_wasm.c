@@ -13,13 +13,24 @@
 #include "app.h"
 #include "cp932.h"
 #include "cmd.h"
+#include "ui.h"
 
+/* The page hands over the whole canvas; the client is what is left under
+   the caption and the menu bar the port draws for it. */
 EMSCRIPTEN_KEEPALIVE int jw_resize(int w, int h)
 {
+    h -= app_chrome_h();
+    if (h < 1)
+        h = 1;
     if (!app_resize(w, h))
         return 0;
     app_paint();
     return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_chrome_h(void)
+{
+    return app_chrome_h();
 }
 
 /* The page hands over the bytes of a .jww it read itself: nothing is
@@ -126,9 +137,29 @@ EMSCRIPTEN_KEEPALIVE int jw_text_in(const unsigned short *s, int n)
     return m > 0;
 }
 
+/* What the caption says: the page hands over the name of the file it just
+   opened, in UTF-16, and the port puts " - jw_win" after it. */
+EMSCRIPTEN_KEEPALIVE void jw_name(const unsigned short *s, int n)
+{
+    char buf[128];
+    long m = jw_from_utf16(s, n, buf, sizeof buf - 1);
+
+    if (m < 0)
+        m = 0;
+    buf[m] = 0;
+    app_title(buf);
+    app_paint();
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
 {
-    int redraw = app_press(x, y, button);
+    int redraw;
+
+    /* the canvas carries the chrome as well, so the client starts lower */
+    y -= app_chrome_h();
+    if (y < 0)
+        return 0;               /* the caption and the menu, not the client */
+    redraw = app_press(x, y, button);
 
     switch (app_take_action()) {
     case JW_ACT_OPEN:
@@ -169,6 +200,9 @@ EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)
 
 EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)
 {
+    y -= app_chrome_h();
+    if (y < 0)
+        return 0;
     if (!app_move(x, y))
         return 0;
     app_paint();
@@ -176,12 +210,17 @@ EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)
 }
 
 EMSCRIPTEN_KEEPALIVE int jw_width(void)  { return app_fb()->w; }
-EMSCRIPTEN_KEEPALIVE int jw_height(void) { return app_fb()->h; }
+EMSCRIPTEN_KEEPALIVE int jw_height(void)
+{
+    return app_fb()->h + app_chrome_h();
+}
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_rgba(void) { return app_rgba(); }
 
 int main(void)
 {
+    /* the browser has no window of its own, so the port draws one */
+    app_chrome(1);
     app_new();
-    jw_resize(1264, 741);
+    jw_resize(1264, 741 + JW_CHROME_H);
     return 0;
 }

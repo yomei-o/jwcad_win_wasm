@@ -110,6 +110,12 @@ python tools/mkmask.py docs/textareas.txt 1484 841 tests/out/mask_big.txt >/dev/
 python tools/cmp.py docs/ref_start_big.png tests/out/frame_big.png     -i tests/out/mask_big.txt -d tests/out/big.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== キャプションとメニューバー（ブラウザ版が自分で描く分）"
+node tests/wasm_check.js tests/out/chrome.png 1264 741 --chrome >/dev/null
+python -c "from PIL import Image; Image.open('docs/ref_window.png').convert('RGB').crop((8,0,1272,51)).save('tests/out/chrome_ref.png'); Image.open('tests/out/chrome.png').convert('RGB').crop((0,0,1264,51)).save('tests/out/chrome_top.png')"
+python tools/cmp.py tests/out/chrome_ref.png tests/out/chrome_top.png     -i docs/chrome_textareas.txt -d tests/out/chrome.diff.png     | head -2 | sed 's/^/    /'
+
+echo
 echo "=== native against WASM, pixel for pixel"
 python tools/cmp.py tests/out/frame.png tests/out/wasm.png \
     -d tests/out/nw.diff.png | head -1 | sed 's/^/    /'

@@ -50,6 +50,17 @@ int  app_take_action(void);
 /* Whether the 線属性 dialog is up; while it is, it takes every press. */
 int  app_zoku_open(void);
 
+/* The caption and the menu bar.  A front end with a window of its own --
+   the native one -- gets them from Windows and leaves this off; the browser
+   turns it on and the port draws them above the client.  app_rgba() then
+   hands back the whole window rather than just the client, and
+   app_chrome_h() is how many rows of it are chrome. */
+void app_chrome(int on);
+int  app_chrome_h(void);
+/* What the caption says.  CP932, and the port puts " - jw_win" after it the
+   way the original does. */
+void app_title(const char *name);
+
 /* The drawing as bytes, ready to write to a file.  The caller frees *out.
    0 when there is nothing that can be written. */
 int  app_save(unsigned char **out, long *n);

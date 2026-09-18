@@ -2,7 +2,12 @@
 // hold it against the native build's PNG.  Both go through the same src/*.c,
 // so any difference is the port depending on its environment.
 //
-//   node tests/wasm_check.js tests/out/wasm.png [w h]
+//   node tests/wasm_check.js tests/out/wasm.png [w h] [--chrome]
+//
+// The browser build draws its own caption and menu bar above the client
+// (the native window gets those from Windows).  By default they are left
+// off the picture so it can be held against the native one pixel for
+// pixel; --chrome keeps them, which is how the chrome itself is scored.
 const fs = require('fs');
 const path = require('path');
 const createJwcad = require(path.resolve(__dirname, '..', 'jwcad.js'));
@@ -35,15 +40,20 @@ function chunk(tag, data) {
   const out = process.argv[2] || 'tests/out/wasm.png';
   const w = parseInt(process.argv[3] || '1264', 10);
   const h = parseInt(process.argv[4] || '741', 10);
+  const withChrome = process.argv.indexOf('--chrome') >= 0;
   const mod = await createJwcad();
 
-  mod.ccall('jw_resize', 'number', ['number', 'number'], [w, h]);
+  const ch = mod.ccall('jw_chrome_h', 'number', [], []);
+  const skip = withChrome ? 0 : ch;
+  const rows = withChrome ? h + ch : h;     /* what goes in the picture */
+  mod.ccall('jw_resize', 'number', ['number', 'number'], [w, h + ch]);
   const p = mod.ccall('jw_rgba', 'number', [], []);
-  const px = mod.HEAPU8.subarray(p, p + w * h * 4);
+  const px = mod.HEAPU8.subarray(p, p + w * (h + ch) * 4);
 
-  const raw = Buffer.alloc(h * (1 + w * 3));
+  const raw = Buffer.alloc(rows * (1 + w * 3));
   let o = 0;
-  for (let y = 0; y < h; y++) {
+  for (let y0 = 0; y0 < rows; y0++) {
+    const y = y0 + skip;
     raw[o++] = 0;
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
@@ -52,7 +62,7 @@ function chunk(tag, data) {
   }
   const zlib = require('zlib');
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(rows, 4);
   ihdr[8] = 8; ihdr[9] = 2;
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, Buffer.concat([
@@ -61,5 +71,5 @@ function chunk(tag, data) {
     chunk('IDAT', zlib.deflateSync(raw)),
     chunk('IEND', Buffer.alloc(0)),
   ]));
-  console.log('wrote ' + out + ' (' + w + 'x' + h + ')');
+  console.log('wrote ' + out + ' (' + w + 'x' + rows + ')');
 })();

@@ -28,7 +28,7 @@
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
-<script src="jwcad.js?v=11"></script>
+<script src="jwcad.js?v=12"></script>
 <script>
 (async function () {
   const canvas = document.getElementById('screen');
@@ -72,6 +72,16 @@
   const key = mod.cwrap('jw_key', 'number', ['number']);
   const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
   const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
+  const chromeh = mod.cwrap('jw_chrome_h', 'number', []);
+  // The caption says what the original's does: the file's name and then
+  // " - jw_win".  The name goes over as UTF-16, like typed text does.
+  const setName = s => {
+    const p = mod._malloc(Math.max(2, s.length * 2));
+    for (let i = 0; i < s.length; i++)
+      mod.HEAPU16[(p >> 1) + i] = s.charCodeAt(i);
+    mod.ccall('jw_name', null, ['number', 'number'], [p, s.length]);
+    mod._free(p);
+  };
   const boxfocus = mod.cwrap('jw_box_focus', 'number', []);
   const keyu = mod.cwrap('jw_key_u', 'number', ['number']);
   const compu = mod.cwrap('jw_compose_u', 'number', ['number']);
@@ -143,7 +153,7 @@
     const s = r.width / canvas.width;
     if (cmdid() === 0x8026) {
       ime.style.left = (r.left + (81 + 8 + 6) * s) + 'px';
-      ime.style.top = (r.top + (39 + 31 + 4) * s) + 'px';
+      ime.style.top = (r.top + (chromeh() + 39 + 31 + 4) * s) + 'px';
       ime.style.width = (438 * s) + 'px';
       ime.style.height = (20 * s) + 'px';
       ime.style.display = 'block';
@@ -252,7 +262,10 @@
     mod.HEAPU8.set(bytes, p);
     const ok = open(p, bytes.length);
     mod._free(p);
-    if (ok) openedName = file.name;
+    if (ok) {
+      openedName = file.name;
+      setName(file.name);
+    }
     document.getElementById('msg').textContent =
       ok ? `${file.name} — ${nobj()} 個の要素` : `${file.name}: ${error()}`;
     present();
