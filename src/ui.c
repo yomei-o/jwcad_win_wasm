@@ -19,51 +19,61 @@
  * CControlBar::DrawBorders does.
  *
  * The rectangles below were measured off docs/ref_start.png (client
- * 1264x741).  They are fixed sizes: resizing the window grows the drawing
- * area, not the bars.  Which bar is which, and why they are split the way
- * they are, is still to be read out of CMainFrame::OnCreate -- see RESUME.md.
+ * 1264x741).  Most of them are fixed, and the four `A_` flags say which ones
+ * ride an edge when the window is another size -- see ui.h for how that was
+ * read out of the original.  Which bar is which, and why they are split the
+ * way they are, is still to be read out of CMainFrame::OnCreate.
  */
 #define B_TOP   1
 #define B_LEFT  2
+
+#define A_RIGHT  1      /* x follows the right edge                       */
+#define A_WIDE   2      /* the right edge of the panel does                */
+#define A_TALL   4      /* the bottom edge does (down to the status line)  */
+#define A_BOTTOM 8      /* y follows the bottom edge                       */
 
 typedef struct {
     short x, y, w, h;
     unsigned int face;
     unsigned char borders;
+    unsigned char anchor;
 } bar_t;
 
 static const bar_t bars[] = {
-    /* the command bar across the top, and the empty white strip beside it */
-    {    0,   0,  829,  32, C_BTNFACE, B_TOP },
-    {  829,   0,  435,  32, C_WINDOW,  B_TOP | B_LEFT },
+    /* the command bar across the top, and the empty white strip beside it,
+       which is the bar's own background and so takes up the slack */
+    {    0,   0,  829,  32, C_BTNFACE, B_TOP,          0 },
+    {  829,   0,  435,  32, C_WINDOW,  B_TOP | B_LEFT, A_WIDE },
 
-    /* left side: two columns of buttons in three bands */
-    {    0,  32,   37, 227, C_BTNFACE, B_TOP },
-    {   37,  32,   39, 227, C_BTNFACE, B_TOP | B_LEFT },
-    {    0, 259,   37, 227, C_BTNFACE, B_TOP },
-    {   37, 259,   39, 227, C_BTNFACE, B_TOP | B_LEFT },
-    {    0, 486,   37, 129, C_BTNFACE, B_TOP },
-    {   37, 486,   39,  32, C_WINDOW,  B_TOP | B_LEFT },  /* line-type sample */
-    {   37, 518,   39,  14, C_WINDOW,  B_TOP | B_LEFT },
-    {   37, 532,   39,  80, C_BTNFACE, B_TOP | B_LEFT },
-    {   37, 612,   39,   4, C_WINDOW,  B_TOP | B_LEFT },
-    {    0, 615,   39, 105, C_WINDOW,  B_TOP },
-    {   39, 616,   37, 104, C_WINDOW,  0 },
+    /* left side: two columns of buttons in three bands.  The bar grows
+       downwards, so the last band of each column reaches the status line. */
+    {    0,  32,   37, 227, C_BTNFACE, B_TOP,          0 },
+    {   37,  32,   39, 227, C_BTNFACE, B_TOP | B_LEFT, 0 },
+    {    0, 259,   37, 227, C_BTNFACE, B_TOP,          0 },
+    {   37, 259,   39, 227, C_BTNFACE, B_TOP | B_LEFT, 0 },
+    {    0, 486,   37, 129, C_BTNFACE, B_TOP,          0 },
+    {   37, 486,   39,  32, C_WINDOW,  B_TOP | B_LEFT, 0 },  /* line sample */
+    {   37, 518,   39,  14, C_WINDOW,  B_TOP | B_LEFT, 0 },
+    {   37, 532,   39,  80, C_BTNFACE, B_TOP | B_LEFT, 0 },
+    {   37, 612,   39,   4, C_WINDOW,  B_TOP | B_LEFT, 0 },
+    {    0, 615,   39, 105, C_WINDOW,  B_TOP,          A_TALL },
+    {   39, 616,   37, 104, C_WINDOW,  0,              A_TALL },
 
-    /* right side: the same idea, plus the layer grid low down */
-    { 1188,  32,   37, 227, C_BTNFACE, B_TOP },
-    { 1225,  32,   39, 227, C_BTNFACE, B_TOP | B_LEFT },
-    { 1188, 259,   37,  80, C_BTNFACE, B_TOP },
-    { 1225, 259,   39, 129, C_BTNFACE, B_TOP | B_LEFT },
-    { 1188, 339,   37,  32, C_WINDOW,  B_TOP },
-    { 1188, 371,   37,  14, C_WINDOW,  B_TOP },
-    { 1188, 385,   37, 231, C_WINDOW,  B_TOP },
-    { 1225, 388,   39, 228, C_WINDOW,  B_TOP | B_LEFT },
-    { 1188, 612,   37, 108, C_WINDOW,  B_TOP },
-    { 1225, 615,   39, 105, C_WINDOW,  B_TOP },
+    /* right side: the same idea, plus the layer grid low down.  All of it
+       rides the right edge. */
+    { 1188,  32,   37, 227, C_BTNFACE, B_TOP,          A_RIGHT },
+    { 1225,  32,   39, 227, C_BTNFACE, B_TOP | B_LEFT, A_RIGHT },
+    { 1188, 259,   37,  80, C_BTNFACE, B_TOP,          A_RIGHT },
+    { 1225, 259,   39, 129, C_BTNFACE, B_TOP | B_LEFT, A_RIGHT },
+    { 1188, 339,   37,  32, C_WINDOW,  B_TOP,          A_RIGHT },
+    { 1188, 371,   37,  14, C_WINDOW,  B_TOP,          A_RIGHT },
+    { 1188, 385,   37, 231, C_WINDOW,  B_TOP,          A_RIGHT },
+    { 1225, 388,   39, 228, C_WINDOW,  B_TOP | B_LEFT, A_RIGHT },
+    { 1188, 612,   37, 108, C_WINDOW,  B_TOP,          A_RIGHT | A_TALL },
+    { 1225, 615,   39, 105, C_WINDOW,  B_TOP,          A_RIGHT | A_TALL },
 
-    /* the status line */
-    {    0, 720, 1264,  21, C_BTNFACE, B_TOP },
+    /* the status line, which rides the bottom and is as wide as the client */
+    {    0, 720, 1264,  21, C_BTNFACE, B_TOP,          A_BOTTOM | A_WIDE },
 };
 #define NBARS ((int)(sizeof bars / sizeof bars[0]))
 
@@ -140,6 +150,26 @@ static void blit_cell_state(fb_t *fb, const jw_bitmap_t *bm, int cell,
                 fb->px[(size_t)(y + j) * fb->w + x + i] = C_BTNSHADOW;
 }
 
+int ui_right(int x, int cw)
+{
+    return x + cw - JW_REF_W;
+}
+
+int ui_bottom(int y, int ch)
+{
+    return y + ch - JW_REF_H;
+}
+
+int ui_ax(int x, int cw)
+{
+    return x >= JW_RIGHT_X ? ui_right(x, cw) : x;
+}
+
+int ui_ay(int y, int ch)
+{
+    return y >= JW_BOTTOM_Y ? ui_bottom(y, ch) : y;
+}
+
 static void paint_bars(fb_t *fb)
 {
     int k;
@@ -147,6 +177,15 @@ static void paint_bars(fb_t *fb)
     for (k = 0; k < NBARS; k++) {
         const bar_t *b = &bars[k];
         int x = b->x, y = b->y, w = b->w, h = b->h;
+
+        if (b->anchor & A_RIGHT)
+            x = ui_right(x, fb->w);
+        if (b->anchor & A_BOTTOM)
+            y = ui_bottom(y, fb->h);
+        if (b->anchor & A_WIDE)
+            w = ui_right(x + w, fb->w) - x;
+        if (b->anchor & A_TALL)
+            h = ui_bottom(y + h, fb->h) - y;
 
         if (b->borders & B_TOP) {
             fb_hline(fb, x, y, w, C_BTNSHADOW);
@@ -249,11 +288,13 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
         for (col = 0; col < 2; col++) {
             for (row = 0; row < 8; row++) {
                 int n = col * 8 + row;
-                int x = layer_grids[g].x + col * LAYER_CELL_W;
+                int x = ui_right(layer_grids[g].x, fb->w)
+                        + col * LAYER_CELL_W;
                 int y = layer_grids[g].y + row * LAYER_CELL_H;
 
                 blit_layer_cell(fb, (col == 0 && row == 0) ? 2652 : 2662,
-                                x, y, layer_grids[g].clip);
+                                x, y,
+                                ui_right(layer_grids[g].clip, fb->w));
                 if (n == write[g]) {
                     /* a red bar if it holds anything, then the mark: a ring
                      * for the layer, a box for the group */
@@ -281,14 +322,14 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
     }
 }
 
-int ui_layer_hit(int x, int y, int *n)
+int ui_layer_hit(int cw, int x, int y, int *n)
 {
     int g, col, row;
 
     for (g = 0; g < 2; g++)
         for (col = 0; col < 2; col++)
             for (row = 0; row < 8; row++) {
-                int cx = layer_grids[g].x + col * LAYER_CELL_W;
+                int cx = ui_right(layer_grids[g].x, cw) + col * LAYER_CELL_W;
                 int cy = layer_grids[g].y + row * LAYER_CELL_H;
                 if (x >= cx && x < cx + LAYER_CELL_W
                     && y >= cy && y < cy + LAYER_CELL_H) {
@@ -324,7 +365,7 @@ static void paint_samples(fb_t *fb)
     int k;
 
     for (k = 0; k < 2; k++) {
-        int x = samples[k].x, y = samples[k].y;
+        int x = ui_ax(samples[k].x, fb->w), y = samples[k].y;
 
         fb_fill(fb, x + 1, y + 1, SAMPLE_W - 2, SAMPLE_H - 2, C_WINDOW);
         fb_edge(fb, x, y, SAMPLE_W, SAMPLE_H, 0xc0c0c0u, 0x8c8c8cu);
@@ -353,27 +394,27 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
                                    "B-4", "B-5", "B-6", "2A", "3A",
                                    "4A", "5A", "10m", "50m", "100m" };
     char buf[64];
-    int wg = 0, i;
+    int wg = 0, i, ty = ui_bottom(726, fb->h);
 
     /* The prompt is the command's own, out of the string table. */
-    jw_text_px(fb, 8, 726, jw_cmd_prompt(), C_BTNTEXT);
+    jw_text_px(fb, 8, ty, jw_cmd_prompt(), C_BTNTEXT);
     if (!d)
         return;
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
-    jw_text_px(fb, panes[0].x0 + 4, 726,
+    jw_text_px(fb, ui_right(panes[0].x0 + 4, fb->w), ty,
                d->paper_size >= 0 && d->paper_size < 15
                ? PAPER[d->paper_size] : "?", C_BTNTEXT);
     sprintf(buf, "S=1/%g", d->group[wg].scale);
-    jw_text_px(fb, panes[1].x0 + 4, 726, buf, C_BTNTEXT);
+    jw_text_px(fb, ui_right(panes[1].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
     sprintf(buf, "[%X-%X]", wg, d->group[wg].write_layer & 15);
-    jw_text_px(fb, panes[2].x0 + 4, 726, buf, C_BTNTEXT);
-    jw_text_px(fb, panes[3].x0 + 4, 726, "\x81\xda 0", C_BTNTEXT);
+    jw_text_px(fb, ui_right(panes[2].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
+    jw_text_px(fb, ui_right(panes[3].x0 + 4, fb->w), ty, "\x81\xda 0", C_BTNTEXT);
     /* two decimals, cut not rounded, and a trailing zero dropped: the
        original shows 0.21, 0.3, 0.42 and 0.1 for the four sheet sizes */
     sprintf(buf, "\x81\x7e %g", (double)(long)(zoom * 100.0 + 1e-9) / 100.0);
-    jw_text_px(fb, panes[4].x0 + 4, 726, buf, C_BTNTEXT);
+    jw_text_px(fb, ui_right(panes[4].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
 }
 
 static void paint_status(fb_t *fb)
@@ -381,9 +422,13 @@ static void paint_status(fb_t *fb)
     int k, i, j;
     int bottom = fb->h - 1;
 
-    for (k = 0; k < 5; k++)
-        fb_edge(fb, panes[k].x0, PANE_T, panes[k].x1 - panes[k].x0 + 1,
-                bottom - PANE_T + 1, C_BTNHILIGHT, C_BTNSHADOW);
+    for (k = 0; k < 5; k++) {
+        int x0 = ui_right(panes[k].x0, fb->w);
+        int x1 = ui_right(panes[k].x1, fb->w);
+        int t = ui_bottom(PANE_T, fb->h);
+        fb_edge(fb, x0, t, x1 - x0 + 1, bottom - t + 1,
+                C_BTNHILIGHT, C_BTNSHADOW);
+    }
 
     /* The size grip in the corner: three diagonals of highlight-shadow-shadow
      * running up and to the right from one pixel inside the bottom right. */
@@ -841,17 +886,18 @@ static void paint_buttons(fb_t *fb, int saveable, int undoable)
         const jw_btn_t *b = &jw_buttons[k];
         const jw_bitmap_t *bm = jw_bitmap(b->strip);
         int state = ui_button_state(k, saveable, undoable);
+        int bx = ui_ax(b->x, fb->w);
         int dx, dy;
 
         dx = CELL_DX + (state == 2);
         dy = CELL_DY + (state == 2);
 
-        button_frame(fb, b->x, b->y, BTN_W, BTN_H, state == 2);
+        button_frame(fb, bx, b->y, BTN_W, BTN_H, state == 2);
         if (state == 2)
-            checker(fb, b->x + 2, b->y + 2, BTN_W - 4, BTN_H - 4);
+            checker(fb, bx + 2, b->y + 2, BTN_W - 4, BTN_H - 4);
         else
-            fb_fill(fb, b->x + 2, b->y + 2, BTN_W - 4, BTN_H - 4, C_BTNFACE);
-        blit_cell_state(fb, bm, b->cell, b->x + dx, b->y + dy, state);
+            fb_fill(fb, bx + 2, b->y + 2, BTN_W - 4, BTN_H - 4, C_BTNFACE);
+        blit_cell_state(fb, bm, b->cell, bx + dx, b->y + dy, state);
     }
 }
 
@@ -879,7 +925,8 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
     {
         int k;
         for (k = 0; k < 4; k++) {
-            int x = small_buttons[k].x, y = small_buttons[k].y;
+            int x = ui_right(small_buttons[k].x, fb->w);
+            int y = small_buttons[k].y;
             button_frame(fb, x, y, SMALL_W, SMALL_H, 0);
             fb_fill(fb, x + 2, y + 2, SMALL_W - 4, SMALL_H - 4, C_BTNFACE);
         }

@@ -22,6 +22,38 @@
 #define JW_SCREEN_MM_PER_PX (1.0 / 7.62)
 
 /* What state toolbar button `k` is in: 0 normal, 1 disabled, 2 pressed. */
+/* The client the frame was measured in (docs/ref_start.png), and the two
+ * edges things follow when the window is some other size.
+ *
+ * The original was driven at 1264x741 and again at 1484x841 and every child
+ * window written down both times (tmp/jwdraw.ps1's `all` and `size:` steps).
+ * What moved:
+ *
+ *   the right-hand control bar and everything in it -- the toolbars, the
+ *   layer grids, the buttons under them -- moved by the width difference
+ *   and kept its own height off the top;
+ *   the status line moved by the height difference and grew as wide as the
+ *   client;
+ *   the top bar and the left bar stayed where they were and only grew, the
+ *   top one wider and the left one taller;
+ *   nothing else moved at all -- the command bar's controls, the left
+ *   toolbars and their buttons all keep the coordinates they were measured
+ *   at.
+ *
+ * So the whole of the frame's layout is those two shifts.
+ */
+#define JW_REF_W    1264
+#define JW_REF_H     741
+#define JW_RIGHT_X  1188        /* the right bar starts here */
+#define JW_BOTTOM_Y  720        /* and the status line here  */
+
+/* x shifted by the width difference, and y by the height difference. */
+int ui_right(int x, int cw);
+int ui_bottom(int y, int ch);
+/* The same, but only for what sits in the right bar or the status line. */
+int ui_ax(int x, int cw);
+int ui_ay(int y, int ch);
+
 int ui_button_state(int k, int saveable, int undoable);
 
 /* Which control of the command bar is under the point -- its id, as the
@@ -32,7 +64,7 @@ int ui_bar_hit(int x, int y);
 /* Which cell of the layer grids is under the point: 0 for the layer grid,
    1 for the layer group grid, -1 for neither, and *n is which of the
    sixteen. */
-int ui_layer_hit(int x, int y, int *n);
+int ui_layer_hit(int cw, int x, int y, int *n);
 
 /* 線属性 (0x8027), the dialog that picks the colour and the line type new
    elements get.  Where it sits, what is on it and how each control looks

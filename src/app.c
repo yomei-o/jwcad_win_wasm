@@ -68,7 +68,10 @@ static int hit_button(int x, int y)
 
     for (k = 0; k < JW_NBUTTONS; k++) {
         const jw_btn_t *b = &jw_buttons[k];
-        if (x >= b->x && x < b->x + BTN_W && y >= b->y && y < b->y + BTN_H)
+        /* the right-hand column rides the right edge, so the hit test has
+           to move with it (ui.h) */
+        int bx = ui_ax(b->x, fb.w);
+        if (x >= bx && x < bx + BTN_W && y >= b->y && y < b->y + BTN_H)
             return k;
     }
     return -1;
@@ -175,7 +178,7 @@ int app_press(int x, int y, int button)
     if (zoku_open)
         return press_zoku(x, y);
 
-    if ((g = ui_layer_hit(x, y, &n)) >= 0)
+    if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
 
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {

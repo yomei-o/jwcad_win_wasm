@@ -78,12 +78,12 @@ int main(int argc, char **argv)
     {   /* the hit test finds the cells where they are drawn */
         int g2, k;
         cell(0, 3, &x, &y);
-        g2 = ui_layer_hit(x, y, &k);
+        g2 = ui_layer_hit(1264, x, y, &k);
         ck(g2 == 0 && k == 3, "the layer grid's fourth cell is layer 3");
         cell(1, 9, &x, &y);
-        g2 = ui_layer_hit(x, y, &k);
+        g2 = ui_layer_hit(1264, x, y, &k);
         ck(g2 == 1 && k == 9, "the group grid's tenth is group 9");
-        ck(ui_layer_hit(600, 400, &k) < 0, "the drawing area is neither");
+        ck(ui_layer_hit(1264, 600, 400, &k) < 0, "the drawing area is neither");
     }
 
     /* the left button steps a layer round */

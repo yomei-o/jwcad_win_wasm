@@ -104,6 +104,12 @@ python tools/cmp.py docs/ref_start.png tests/out/frame.png \
     -i docs/textareas.txt -d tests/out/diff.png | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 別の大きさの枠 —— 右端と下端に付いてくるか"
+python tools/mkmask.py docs/textareas.txt 1484 841 tests/out/mask_big.txt >/dev/null
+./tests/frame.exe tests/out/frame_big.png 1484 841 >/dev/null
+python tools/cmp.py docs/ref_start_big.png tests/out/frame_big.png     -i tests/out/mask_big.txt -d tests/out/big.diff.png     | head -2 | sed 's/^/    /'
+
+echo
 echo "=== native against WASM, pixel for pixel"
 python tools/cmp.py tests/out/frame.png tests/out/wasm.png \
     -d tests/out/nw.diff.png | head -1 | sed 's/^/    /'
