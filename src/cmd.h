@@ -46,6 +46,7 @@ enum {
                                        tests set it by name, so they did
                                        not notice. */
     JW_CMD_CHUSHIN = 0x8069,        /* 中心線 -- CZukeiChuushinSen */
+    JW_CMD_SESSEN = 0x8066,         /* 接線 -- 円→円 only so far */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 

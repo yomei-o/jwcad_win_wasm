@@ -124,6 +124,43 @@ make chushin \
     chushin2 0 '300,300;700,300;300,600;900,450;cmd:32873;500,300;600,525;400,450;800,450' \
     || fails=$((fails+1))
 
+# 接線 (0x8066), 円→円.  Two circles, then the same pair pointed at four
+# different ways: two circles have four common tangents and which one comes
+# out is settled by the side each was pointed at.  These do not start from
+# Test5's own elements, so they have their own drive.
+sessen() {              # sessen <name> <pick on the first> <pick on the second>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0 \
+        -Clicks "cmd:32773;300,300;360,300;700,400;790,400;cmd:32870;$2;$3;saveas:decomp/res/sessen_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
+try=1
+while :; do
+    echo "=== sessen (four tangents over one pair of circles)"
+    sessen tt 300,240 700,310
+    sessen bb 300,360 700,490
+    sessen tb 300,240 700,490
+    sessen bt 300,360 700,310
+    if [ ! -x tests/sessen_test.exe ]; then
+        echo "    (tests/sessen_test.exe is not built -- not checked)"
+        break
+    fi
+    if ./tests/sessen_test.exe >tmp/refanswers.out 2>&1; then
+        echo "    ok -- tests/sessen_test.exe agrees"
+        break
+    fi
+    try=$((try + 1))
+    if [ "$try" -gt "$TRIES" ]; then
+        echo "    tests/sessen_test.exe still disagrees after $TRIES tries:"
+        sed 's/^/        /' tmp/refanswers.out
+        fails=$((fails + 1))
+        break
+    fi
+    echo "    tests/sessen_test.exe disagrees -- drawing it again ($try/$TRIES)"
+done
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

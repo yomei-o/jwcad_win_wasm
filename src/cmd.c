@@ -127,6 +127,11 @@ static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      *
 
 /* 中心線: the two lines it runs between, and the first of its two points */
 static int chu_a = -1, chu_b = -1, chu_step;
+/* 接線: the circle picked first, and where it was picked -- which of the
+   four common tangents comes out is settled by the side each circle was
+   pointed at. */
+static int ses_a = -1, ses_step;
+static double ses_x, ses_y;
 static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
@@ -377,6 +382,10 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_NISEN) {
         nisen_step = 0;
         nisen_obj = -1;
+    }
+    if (id == JW_CMD_SESSEN) {
+        ses_step = 0;
+        ses_a = -1;
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1140,6 +1149,94 @@ static void chushin(jw_drawing *d, double x, double y)
     op_push(1);
 }
 
+/* 接線, 円→円 (0x8066).
+ *
+ * Two circles have four common tangents, and the original draws the one that
+ * touches each circle on the side it was pointed at: four runs over the same
+ * pair, picking top/top, bottom/bottom, top/bottom and bottom/top, came back
+ * with four different lines and each one touches where it was pointed
+ * (decomp/res/sessen_*.jww).  The line runs from one touch point to the
+ * other -- its ends are the tangency points, to four decimals in every run.
+ *
+ * A tangent is the line whose unit normal n has
+ *     n.cA - k = sa*rA        n.cB - k = sb*rB
+ * for a choice of signs; subtracting gives n.(cB-cA) = sb*rB - sa*rA, which
+ * fixes n up to the reflection in cB-cA, and the touch points follow as
+ * c - s*r*n.  The four sign pairs are the four tangents; the inner two do not
+ * exist when the circles overlap, and the term under the root says so.
+ */
+static int tangent(double ax, double ay, double ra,
+                   double bx, double by, double rb,
+                   int sa, int sb, double *px, double *py,
+                   double *qx, double *qy)
+{
+    double dx = bx - ax, dy = by - ay;
+    double dd = sqrt(dx * dx + dy * dy);
+    double r, c, h, ux, uy, nx, ny;
+
+    if (dd < 1e-12)
+        return 0;
+    r = sb * rb - sa * ra;
+    c = r / dd;
+    h = 1.0 - c * c;
+    if (h < 0.0)
+        return 0;               /* no tangent with those two sides */
+    h = sqrt(h);
+    ux = dx / dd;
+    uy = dy / dd;
+    /* n = u*c + perp(u)*h -- the other root is the mirror pair of signs */
+    nx = ux * c - uy * h;
+    ny = uy * c + ux * h;
+    *px = ax - sa * ra * nx;
+    *py = ay - sa * ra * ny;
+    *qx = bx - sb * rb * nx;
+    *qy = by - sb * rb * ny;
+    return 1;
+}
+
+static void sessen(jw_drawing *d, int a, int b, double x, double y)
+{
+    const jw_obj *p, *q;
+    double bestd = 0, bp[4] = { 0, 0, 0, 0 };
+    int sa, sb, have = 0;
+    jw_obj *o;
+
+    if (a < 0 || b < 0 || a >= d->nobj || b >= d->nobj)
+        return;
+    p = &d->obj[a];
+    q = &d->obj[b];
+    if (p->cls != JW_ENKO || q->cls != JW_ENKO)
+        return;
+    if (p->d[2] <= 0.0 || q->d[2] <= 0.0)
+        return;
+    for (sa = -1; sa <= 1; sa += 2)
+        for (sb = -1; sb <= 1; sb += 2) {
+            double tx, ty, ux, uy, e;
+
+            if (!tangent(p->d[0], p->d[1], p->d[2],
+                         q->d[0], q->d[1], q->d[2], sa, sb,
+                         &tx, &ty, &ux, &uy))
+                continue;
+            e = (tx - ses_x) * (tx - ses_x) + (ty - ses_y) * (ty - ses_y)
+              + (ux - x) * (ux - x) + (uy - y) * (uy - y);
+            if (!have || e < bestd) {
+                have = 1;
+                bestd = e;
+                bp[0] = tx; bp[1] = ty; bp[2] = ux; bp[3] = uy;
+            }
+        }
+    if (!have)
+        return;
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return;
+    o->d[0] = bp[0];
+    o->d[1] = bp[1];
+    o->d[2] = bp[2];
+    o->d[3] = bp[3];
+    op_push(1);
+}
+
 static void sel_free(void)
 {
     free(sel_was);
@@ -1867,6 +1964,27 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         }
         chushin(d, x, y);
         chu_step = 2;           /* the same middle, another line */
+        return;
+    }
+    if (current == JW_CMD_SESSEN) {
+        int i;
+        if (button != 0 || !d)
+            return;
+        if (ses_step == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_ENKO)
+                return;
+            ses_a = i;
+            ses_x = x;          /* the side of this circle that was pointed at */
+            ses_y = y;
+            ses_step = 1;
+            return;
+        }
+        i = jw_pick_tie(d, v, x, y, 3, 1);
+        if (i >= 0 && i != ses_a && d->obj[i].cls == JW_ENKO)
+            sessen(d, ses_a, i, x, y);
+        ses_step = 0;           /* ready for the next pair */
+        ses_a = -1;
         return;
     }
     if (current == JW_CMD_NISEN) {

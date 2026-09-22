@@ -62,6 +62,10 @@ echo "=== 線属性のダイアログ"
 python tools/cmp.py docs/ref_zoku.png tests/out/zoku.png     -i docs/zoku_textareas.txt -d tests/out/zoku.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 接線 —— 原典が引いた 4 本の共通接線との突き合わせ"
+./tests/sessen_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 ./tests/chushin_test.exe | sed 's/^/    /'
 
