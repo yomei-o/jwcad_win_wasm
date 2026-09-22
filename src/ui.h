@@ -63,6 +63,37 @@ void ui_menu(fb_t *fb, int y, int cw);
    chrome's own coordinates, the caption included. */
 int  ui_menu_hit(int x, int y);
 
+/* The popup one of those names opens.  Windows draws this one for the native
+ * build, so it is the browser's alone -- and like the caption it is a themed
+ * window on the original, which the port has no way to match pixel for pixel
+ * (rounded corners, a shadow, a different font).  What is copied is the
+ * measurements, taken off the original's own popups with tools/jwdraw.ps1's
+ * `menu:` step: an item is 22 rows, a separator 9, the border 3, and the
+ * label starts 44 in.  Nothing here is scored against a reference image.
+ */
+#define JW_POPUP_ITEM_H  22
+#define JW_POPUP_SEP_H    9
+#define JW_POPUP_BORDER   3
+#define JW_POPUP_TEXT_X  44
+#define JW_POPUP_FACE   0xf9f9f9u
+#define JW_POPUP_EDGE   0xe5e5e5u
+#define JW_POPUP_HOT    0xe8e8e8u
+
+/* Open the popup under a name of the bar, or -1 to close.  Returns 1 when
+   the screen has to be redrawn. */
+int  ui_popup_open(int top);
+int  ui_popup_top(void);                /* -1 when nothing is open */
+/* The mouse moved to a client point while a popup is open. */
+int  ui_popup_move(int x, int y);
+/* Which entry of jw_menu_tree is under a client point, or -1. */
+int  ui_popup_hit(int x, int y);
+/* Whether a client point is on the open popup at all. */
+int  ui_popup_in(int x, int y);
+/* A press on the open popup: the command id to run, 0 for nothing (a
+   separator, a submenu that just opened, or a miss). */
+int  ui_popup_press(int x, int y);
+void ui_popup_draw(fb_t *fb);
+
 int ui_right(int x, int cw);
 int ui_bottom(int y, int ch);
 /* The same, but only for what sits in the right bar or the status line. */

@@ -61,6 +61,12 @@ int  app_zoku_open(void);
    app_chrome_h() is how many rows of it are chrome. */
 void app_chrome(int on);
 int  app_chrome_h(void);
+
+/* A press or a move on the chrome, in its own coordinates (the caption is
+   row 0).  Only the browser build has chrome; the native window's menu is
+   Windows' own.  Both return 1 when the screen wants repainting. */
+int  app_chrome_press(int x, int y);
+int  app_chrome_move(int x, int y);
 /* What the caption says.  CP932, and the port puts " - jw_win" after it the
    way the original does. */
 void app_title(const char *name);

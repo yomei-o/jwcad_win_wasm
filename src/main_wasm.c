@@ -157,8 +157,13 @@ EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
 
     /* the canvas carries the chrome as well, so the client starts lower */
     y -= app_chrome_h();
-    if (y < 0)
-        return 0;               /* the caption and the menu, not the client */
+    if (y < 0) {
+        /* on the caption or the menu bar: a name there opens its popup */
+        redraw = app_chrome_press(x, y + app_chrome_h());
+        if (redraw)
+            app_paint();
+        return redraw;
+    }
     redraw = app_press(x, y, button);
 
     switch (app_take_action()) {
@@ -201,8 +206,12 @@ EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)
 EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)
 {
     y -= app_chrome_h();
-    if (y < 0)
-        return 0;
+    if (y < 0) {
+        if (!app_chrome_move(x, y + app_chrome_h()))
+            return 0;
+        app_paint();
+        return 1;
+    }
     if (!app_move(x, y))
         return 0;
     app_paint();
