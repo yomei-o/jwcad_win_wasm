@@ -25,10 +25,13 @@ void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh)
      * The client is the white rectangle itself: an earlier reading took it
      * two pixels smaller, which only looked better because the rounding was
      * wrong as well. */
-    double sx = hw > 0 ? (r->w - jw_fit_inset) / (2 * hw) : 1.0;
-    double sy = hh > 0 ? (r->h - jw_fit_inset) / (2 * hh) : 1.0;
+    /* The original works in millimetres per pixel and takes the larger of
+       the two, which is the smaller scale; it never forms the reciprocal. */
+    double sx = hw > 0 ? (2 * hw) / (r->w - jw_fit_inset) : 1.0;
+    double sy = hh > 0 ? (2 * hh) / (r->h - jw_fit_inset) : 1.0;
 
-    v->scale = sx < sy ? sx : sy;
+    v->mmpp = sx > sy ? sx : sy;
+    v->scale = 1.0 / v->mmpp;
     v->ox = jw_fit_dx;
     v->oy = jw_fit_dy;
     v->bx = (int)(r->x + r->w / 2);

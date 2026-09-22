@@ -28,6 +28,15 @@ typedef struct {
     unsigned short layer;       /* +0x2e  which layer, 0..15              */
     unsigned short lgroup;      /* +0x2f  which layer group, 0..15        */
     unsigned short flags;       /* +0x44                                  */
+    /* Whether this element is picked *now*.  Not the same thing as bit 1 of
+       flags, which is what the original writes to the file for whatever was
+       picked when it was saved -- 天空率表.jww ships with 245 elements
+       carrying it.  Opening that drawing in the original draws none of them
+       pink, and saving it straight back leaves all 245 bits exactly as they
+       were, so the bit is data the original carries rather than the selection
+       it is showing.  The port keeps the two in step whenever it picks or
+       drops something, so a drawing it saves still says what was picked. */
+    unsigned char sel;          /* not in the file */
     int id;                     /* +0x04  a serial number, not the layer  */
     double d[8];                /* the geometry, class by class           */
     int n;                      /* the trailing long some classes carry   */

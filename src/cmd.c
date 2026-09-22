@@ -1156,7 +1156,7 @@ int jw_cmd_sel_count(const jw_drawing *d)
     if (!d)
         return 0;
     for (i = 0; i < d->nobj; i++)
-        if (d->obj[i].flags & 2)
+        if (d->obj[i].sel)
             n++;
     return n;
 }
@@ -1166,8 +1166,10 @@ static void sel_clear(jw_drawing *d)
     int i;
 
     if (d)
-        for (i = 0; i < d->nobj; i++)
+        for (i = 0; i < d->nobj; i++) {
             d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+            d->obj[i].sel = 0;
+        }
     sel_free();
 }
 
@@ -1194,8 +1196,10 @@ static void sel_box(jw_drawing *d, int with_text)
         if (o->cls == JW_MOJI && !with_text)
             continue;
         jw_obj_box(o, &a, &b, &c2, &e);
-        if (a >= x0 && c2 <= x1 && b >= y0 && e <= y1)
+        if (a >= x0 && c2 <= x1 && b >= y0 && e <= y1) {
             o->flags = (unsigned short)(o->flags | 2u);
+            o->sel = 1;
+        }
     }
 }
 
@@ -1218,7 +1222,7 @@ static int sel_confirm(jw_drawing *d)
         return 0;
     }
     for (i = 0; i < d->nobj; i++)
-        if (d->obj[i].flags & 2) {
+        if (d->obj[i].sel) {
             sel_at[sel_n] = i;
             sel_was[sel_n] = d->obj[i];
             sel_n++;
@@ -1249,7 +1253,7 @@ int jw_cmd_sel_erase(jw_drawing *d)
         return 0;
     o = op_new();
     for (i = d->nobj - 1; i >= 0; i--)
-        if (d->obj[i].flags & 2) {
+        if (d->obj[i].sel) {
             op_keep(o, d, i, 1);
             jw_remove(d, i);
             n++;
@@ -1277,6 +1281,7 @@ static void sel_place(jw_drawing *d, double x, double y)
             d->obj[at] = sel_was[i];
             jw_obj_move(&d->obj[at], dx, dy);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
+            d->obj[at].sel = 1;
         }
         return;
     }
@@ -1296,6 +1301,7 @@ static void sel_place(jw_drawing *d, double x, double y)
                elements come out in their own colours while the ones that
                were picked stay pink */
             p->flags = (unsigned short)(p->flags & ~2u);
+            p->sel = 0;
             p->id = 0;
             (void)at;
             made++;
@@ -1362,8 +1368,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
         int i;
         if (!d)
             return 0;
-        for (i = 0; i < d->ndrawn; i++)
+        for (i = 0; i < d->ndrawn; i++) {
             d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
+            d->obj[i].sel = 1;
+        }
         sel_step = 2;
         return 1;
     }

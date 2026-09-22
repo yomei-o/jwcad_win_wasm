@@ -18,6 +18,13 @@
  * "round(cy - y * scale)" is not the same thing and costs a pixel here and
  * there all over the picture. */
 typedef struct {
+    /* Millimetres per pixel, and the same thing the other way up.  Both are
+     * kept because the original keeps both: it divides by the millimetres per
+     * pixel (FUN_004b6d60, FUN_004b8250) and that is not the same arithmetic
+     * as multiplying by its reciprocal.  The two disagree in the last bit,
+     * and the truncation below turns that into a whole pixel wherever a
+     * coordinate lands near a boundary. */
+    double mmpp;        /* millimetres of paper per pixel -- divide by this */
     double scale;       /* pixels per millimetre of paper */
     double ox, oy;      /* the paper point that is pinned, in millimetres */
     int bx, by;         /* the pixel it is pinned to                      */
@@ -35,12 +42,12 @@ void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh);
 
 static __inline int jw_sx(const jw_view *v, double x)
 {
-    return v->bx + (int)((x - v->ox) * v->scale + jw_round_x);
+    return v->bx + (int)((x - v->ox) / v->mmpp + jw_round_x);
 }
 
 static __inline int jw_sy(const jw_view *v, double y)
 {
-    return v->by - (int)((y - v->oy) * v->scale + jw_round_y);
+    return v->by - (int)((y - v->oy) / v->mmpp + jw_round_y);
 }
 
 /* The same, but before the rounding: how far across and up the point is from
@@ -48,12 +55,12 @@ static __inline int jw_sy(const jw_view *v, double y)
  * after the rounding. */
 static __inline double jw_ux(const jw_view *v, double x)
 {
-    return (x - v->ox) * v->scale;
+    return (x - v->ox) / v->mmpp;
 }
 
 static __inline double jw_uy(const jw_view *v, double y)
 {
-    return (y - v->oy) * v->scale;
+    return (y - v->oy) / v->mmpp;
 }
 
 #endif
