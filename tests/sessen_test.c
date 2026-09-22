@@ -140,12 +140,102 @@ static void run(const char *path, const char *what)
     jw_free(&ref);
 }
 
+/* 点→円: the reference holds the circle and the line, whose first end is the
+   point that was given and whose second is where it touches. */
+static void run_point(const char *path, const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *circle = 0, *line = 0;
+    int i, before, k;
+
+    b = slurp(path, &n);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++) {
+        if (ref.obj[i].cls == JW_ENKO && !circle)
+            circle = &ref.obj[i];
+        if (ref.obj[i].cls == JW_SEN)
+            line = &ref.obj[i];
+    }
+    if (!circle || !line) {
+        printf("BAD  %s has no circle and tangent\n", path);
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+
+    app_resize(1264, 741);
+    b = slurp("orig/Test5.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open orig/Test5.jww\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    {
+        jw_obj *o = jw_add(d, JW_ENKO);
+        for (k = 0; k < 7; k++)
+            o->d[k] = circle->d[k];
+    }
+    app_fit();
+    before = d->ndrawn;
+
+    printf("%s\n", what);
+    jw_cmd_set(JW_CMD_SESSEN);
+    ck(jw_cmd_bar(d, 1690) == 1, "  点→円 can be pressed");
+    /* the point first, then the circle -- the other way round draws nothing,
+       which is what the original does too */
+    jw_cmd_point(d, app_view(), line->d[0], line->d[1], 0);
+    ck(d->ndrawn == before, "  the point on its own draws nothing");
+    jw_cmd_point(d, app_view(), line->d[2], line->d[3], 0);
+    ck(d->ndrawn == before + 1, "  pointing at the circle draws one line");
+    if (d->ndrawn != before + 1) {
+        jw_free(&ref);
+        return;
+    }
+    {
+        const jw_obj *o = &d->obj[before];
+        int same = near(o->d[0], line->d[0]) && near(o->d[1], line->d[1])
+                && near(o->d[2], line->d[2]) && near(o->d[3], line->d[3]);
+        if (!same)
+            printf("     ours          %.4f,%.4f -> %.4f,%.4f\n"
+                   "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                   o->d[0], o->d[1], o->d[2], o->d[3],
+                   line->d[0], line->d[1], line->d[2], line->d[3]);
+        ck(same, "  exactly the one the original drew");
+        {   /* and it really is a tangent */
+            double dx = o->d[2] - circle->d[0], dy = o->d[3] - circle->d[1];
+            ck(fabs(sqrt(dx * dx + dy * dy) - circle->d[2]) < 1e-6,
+               "  touching the circle exactly");
+        }
+    }
+    jw_free(&ref);
+}
+
 int main(void)
 {
     run("decomp/res/sessen_tt.jww", "pointed at the top of both:");
     run("decomp/res/sessen_bb.jww", "the bottom of both:");
     run("decomp/res/sessen_tb.jww", "the top of one and the bottom of the other:");
     run("decomp/res/sessen_bt.jww", "and the other way round:");
+    run_point("decomp/res/tensen_ur.jww",
+              "点→円, the circle pointed at up and to the right:");
+    run_point("decomp/res/tensen_lr.jww", "down and to the right:");
+    run_point("decomp/res/tensen_ul.jww", "up and to the left:");
+    run_point("decomp/res/tensen_ll.jww", "down and to the left:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

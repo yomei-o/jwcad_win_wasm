@@ -132,6 +132,9 @@ static int chu_a = -1, chu_b = -1, chu_step;
    pointed at. */
 static int ses_a = -1, ses_step;
 static double ses_x, ses_y;
+/* which of the bar's four buttons is in force: 0 円→円 (1689), 1 点→円
+   (1690).  角度指定 (1691) and 円上点指定 (1692) are not done. */
+static int ses_mode;
 static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
@@ -386,6 +389,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_SESSEN) {
         ses_step = 0;
         ses_a = -1;
+        ses_mode = 0;           /* 円→円, the one the original enters in */
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1194,6 +1198,64 @@ static int tangent(double ax, double ay, double ra,
     return 1;
 }
 
+/* 接線, 点→円 (the bar's 点→円 button).
+ *
+ * A point outside a circle has two tangents, and the original draws the one
+ * whose touch point is nearer where the circle was pointed at -- pointing at
+ * the upper half of the same circle from the same point gave one, the lower
+ * half the other, and the left and right halves agreed with whichever of
+ * those they were on (decomp/res/tensen_*.jww).
+ *
+ * The point comes first and the circle second, whatever the status line says:
+ * driving it the other way round leaves nothing drawn.
+ *
+ * With d = P - c and L = |d|, the touch points are r*cos a along d and
+ * r*sin a across it, where cos a = r/L -- (T-P).(T-c) works out to r^2 - r*L*
+ * (r/L) = 0, so they are tangents, and the line runs from P to T.
+ */
+static void tensen(jw_drawing *d, int b, double px, double py,
+                   double x, double y)
+{
+    const jw_obj *q;
+    double cx, cy, r, dx, dy, L, ux, uy, ca, sa, tx, ty, t2x, t2y;
+    jw_obj *o;
+
+    if (b < 0 || b >= d->nobj)
+        return;
+    q = &d->obj[b];
+    if (q->cls != JW_ENKO || q->d[2] <= 0.0)
+        return;
+    cx = q->d[0];
+    cy = q->d[1];
+    r = q->d[2];
+    dx = px - cx;
+    dy = py - cy;
+    L = sqrt(dx * dx + dy * dy);
+    if (L <= r)
+        return;                 /* inside it: no tangent from there */
+    ux = dx / L;
+    uy = dy / L;
+    ca = r / L;
+    sa = sqrt(1.0 - ca * ca);
+    tx = cx + r * (ca * ux - sa * uy);
+    ty = cy + r * (ca * uy + sa * ux);
+    t2x = cx + r * (ca * ux + sa * uy);
+    t2y = cy + r * (ca * uy - sa * ux);
+    if ((t2x - x) * (t2x - x) + (t2y - y) * (t2y - y)
+        < (tx - x) * (tx - x) + (ty - y) * (ty - y)) {
+        tx = t2x;
+        ty = t2y;
+    }
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return;
+    o->d[0] = px;
+    o->d[1] = py;
+    o->d[2] = tx;
+    o->d[3] = ty;
+    op_push(1);
+}
+
 static void sessen(jw_drawing *d, int a, int b, double x, double y)
 {
     const jw_obj *p, *q;
@@ -1444,6 +1506,16 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 
 int jw_cmd_bar(jw_drawing *d, int id)
 {
+    if (current == JW_CMD_SESSEN) {
+        /* the four ways of drawing a tangent; only the first two are done */
+        if (id == 1689 || id == 1690) {
+            ses_mode = id == 1690;
+            ses_step = 0;
+            ses_a = -1;
+            return 1;
+        }
+        return 0;
+    }
     if (current == JW_CMD_SUNPO)
         return id == 1059 ? (sun_deg = sun_deg == 0 ? 90 : 0, 1) : 0;
     if (current != JW_CMD_HANI && current != JW_CMD_FUKUSHA
@@ -1970,6 +2042,19 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         int i;
         if (button != 0 || !d)
             return;
+        if (ses_mode == 1) {            /* 点→円: the point, then the circle */
+            if (ses_step == 0) {
+                ses_x = x;
+                ses_y = y;
+                ses_step = 1;
+                return;
+            }
+            i = jw_pick(d, v, x, y, 3);
+            if (i >= 0 && d->obj[i].cls == JW_ENKO)
+                tensen(d, i, ses_x, ses_y, x, y);
+            ses_step = 0;
+            return;
+        }
         if (ses_step == 0) {
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || d->obj[i].cls != JW_ENKO)

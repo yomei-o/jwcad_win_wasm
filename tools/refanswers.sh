@@ -136,13 +136,29 @@ sessen() {              # sessen <name> <pick on the first> <pick on the second>
         -Clicks "cmd:32773;300,300;360,300;700,400;790,400;cmd:32870;$2;$3;saveas:decomp/res/sessen_$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 接線, 点→円 (the bar's 1690).  One circle and a point outside it, which has
+# two tangents; the one that comes out touches nearer where the circle was
+# pointed at.  The point goes first and the circle second -- the other way
+# round draws nothing, whatever the status line asks for.
+tensen() {              # tensen <name> <pick on the circle>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773 \
+        -Clicks "500,400;590,400;cmd:32870;btn:1690;200,250;$2;saveas:decomp/res/tensen_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== sessen (four tangents over one pair of circles)"
+    echo "=== sessen (four tangents over one pair of circles, and four from a point)"
     sessen tt 300,240 700,310
     sessen bb 300,360 700,490
     sessen tb 300,240 700,490
     sessen bt 300,360 700,310
+    tensen ur 564,336
+    tensen lr 564,464
+    tensen ul 436,336
+    tensen ll 436,464
     if [ ! -x tests/sessen_test.exe ]; then
         echo "    (tests/sessen_test.exe is not built -- not checked)"
         break
