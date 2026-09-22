@@ -74,6 +74,10 @@ echo "=== 曲線 —— 原典が描いたスプラインとの突き合わせ"
 ./tests/curve_test.exe | sed 's/^/    /'
 
 echo
+echo "=== ハッチ —— 原典が引いたハッチとの突き合わせ"
+./tests/hatch_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 ./tests/chushin_test.exe | sed 's/^/    /'
 

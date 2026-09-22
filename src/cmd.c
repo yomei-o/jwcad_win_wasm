@@ -146,6 +146,15 @@ static int cv_n;
    original enters in; サイン (1689), ２次 (1690) and ベジェ (1692) are not
    done, and pressing 作図実行 in those draws nothing. */
 static int cv_mode = 1691;
+/* ハッチ: the closed boundary that was picked, as a ring of corners, or a
+   circle.  Right-clicking one line of a closed chain takes the whole chain;
+   right-clicking a circle takes the circle. */
+#define HT_MAX 256
+static double ht_x[HT_MAX], ht_y[HT_MAX];
+static int ht_n;                /* corners in the ring, 0 when none */
+static double ht_cx, ht_cy, ht_r;
+static int ht_round;            /* the boundary is a circle */
+static int ht_mode = 1689;      /* 1線, the one the original enters in */
 static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
@@ -175,6 +184,8 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
+    { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
+    { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
 };
 static int box_focus;
 
@@ -412,6 +423,11 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_KYOKUSEN) {
         cv_n = 0;
         cv_mode = 1691;
+    }
+    if (id == JW_CMD_HATCH) {
+        ht_n = 0;
+        ht_round = 0;
+        ht_mode = 1689;
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1277,6 +1293,15 @@ static int tangent(double ax, double ay, double ra,
 
 /* The second derivatives of the natural cubic spline through v[0..n-1], for
    unit knot spacing.  Thomas' algorithm on the usual tridiagonal system. */
+/* two ends of a chain meeting: the original's own rectangles share their
+   corners exactly, so this only has to allow for the last bit of a double */
+static int near_pt(double ax, double ay, double bx, double by)
+{
+    double dx = ax - bx, dy = ay - by;
+
+    return dx * dx + dy * dy < 1e-12;
+}
+
 static void spline_m(const double *v, int n, double *m)
 {
     double c[CV_MAX], r[CV_MAX];
@@ -1400,6 +1425,163 @@ static void kyokusen(jw_drawing *d)
             py = qy;
             made++;
         }
+    if (made)
+        op_push(made);
+}
+
+/* ハッチ (0x806a), 1線.
+ *
+ * The boundary is settled with the right button -- 「閉鎖連続線・円をマウス(R)で
+ * 指示してください」 -- and 実行 stays greyed until one is.  Right-clicking one
+ * side of a rectangle takes the whole ring; right-clicking a circle takes the
+ * circle.
+ *
+ * What it then draws is simple and came out exact both times.  Take the
+ * normal of the 角度 direction; the lines sit where n.p is a whole multiple of
+ * the ピッチ -- anchored at zero, not at the region, so the same hatch over
+ * two regions lines up -- and each line is exactly the chord of the region at
+ * that offset.  A circle of radius 129.88 at 45 degrees and pitch 10 came back
+ * as 26 chords at offsets -60 to 190, every one matching sqrt(r^2 - d^2) to
+ * 1e-6, and a rectangle as 49 (decomp/res/hatch_*.jww).
+ *
+ * ピッチ is paper millimetres while 実寸 is off, which is how the original
+ * starts.
+ */
+static int hatch_ring(const jw_drawing *d, int a)
+{
+    char used[HT_MAX];
+    double ex, ey, sx, sy;
+    int i, k, n = d->ndrawn > HT_MAX ? HT_MAX : d->ndrawn;
+
+    for (i = 0; i < n; i++)
+        used[i] = 0;
+    if (a < 0 || a >= n || d->obj[a].cls != JW_SEN)
+        return 0;
+    used[a] = 1;
+    sx = d->obj[a].d[0];
+    sy = d->obj[a].d[1];
+    ex = d->obj[a].d[2];
+    ey = d->obj[a].d[3];
+    ht_x[0] = sx;
+    ht_y[0] = sy;
+    ht_n = 1;
+    for (k = 0; k < HT_MAX; k++) {
+        int found = -1, flip = 0;
+
+        ht_x[ht_n] = ex;
+        ht_y[ht_n] = ey;
+        ht_n++;
+        if (near_pt(ex, ey, sx, sy))
+            return ht_n > 3;    /* closed */
+        if (ht_n >= HT_MAX - 1)
+            return 0;
+        for (i = 0; i < n; i++) {
+            if (used[i] || d->obj[i].cls != JW_SEN)
+                continue;
+            if (near_pt(d->obj[i].d[0], d->obj[i].d[1], ex, ey)) {
+                found = i;
+                flip = 0;
+                break;
+            }
+            if (near_pt(d->obj[i].d[2], d->obj[i].d[3], ex, ey)) {
+                found = i;
+                flip = 1;
+                break;
+            }
+        }
+        if (found < 0)
+            return 0;
+        used[found] = 1;
+        ex = flip ? d->obj[found].d[0] : d->obj[found].d[2];
+        ey = flip ? d->obj[found].d[1] : d->obj[found].d[3];
+    }
+    return 0;
+}
+
+static void hatch(jw_drawing *d)
+{
+    const char *sa = jw_cmd_box(1419), *sp = jw_cmd_box(1411);
+    double ang = sa ? atof(sa) : 0.0, pitch = sp ? atof(sp) : 0.0;
+    double ux, uy, nx, ny, lo, hi, o;
+    int i, k, k0, k1, made = 0;
+
+    if (ht_mode != 1689)
+        return;                 /* only 1線 is done */
+    if (pitch <= 0.0)
+        return;
+    if (!ht_round && ht_n < 4)
+        return;
+    ux = cos(ang * PI / 180.0);
+    uy = sin(ang * PI / 180.0);
+    nx = uy;                    /* turn the direction a quarter turn */
+    ny = -ux;
+    if (ht_round) {
+        lo = nx * ht_cx + ny * ht_cy - ht_r;
+        hi = lo + 2 * ht_r;
+    } else {
+        lo = hi = nx * ht_x[0] + ny * ht_y[0];
+        for (i = 1; i < ht_n; i++) {
+            o = nx * ht_x[i] + ny * ht_y[i];
+            if (o < lo) lo = o;
+            if (o > hi) hi = o;
+        }
+    }
+    k0 = (int)ceil(lo / pitch);
+    k1 = (int)floor(hi / pitch);
+    if (k1 - k0 > 100000)
+        return;
+    /* the original goes from the far side back: its first line is the one at
+       the highest offset */
+    for (k = k1; k >= k0; k--) {
+        double t[HT_MAX];
+        int nt = 0;
+        jw_obj *ob;
+
+        o = k * pitch;
+        if (ht_round) {
+            double dd = o - (nx * ht_cx + ny * ht_cy);
+            double h = ht_r * ht_r - dd * dd;
+            double mid;
+
+            if (h <= 0.0)
+                continue;
+            h = sqrt(h);
+            mid = ux * ht_cx + uy * ht_cy;
+            t[nt++] = mid - h;
+            t[nt++] = mid + h;
+        } else {
+            for (i = 0; i + 1 < ht_n; i++) {
+                double a0 = nx * ht_x[i] + ny * ht_y[i];
+                double a1 = nx * ht_x[i + 1] + ny * ht_y[i + 1];
+                double f;
+
+                if ((a0 <= o) == (a1 <= o))
+                    continue;   /* the edge does not cross this line */
+                f = (o - a0) / (a1 - a0);
+                if (nt < HT_MAX)
+                    t[nt++] = ux * (ht_x[i] + f * (ht_x[i + 1] - ht_x[i]))
+                            + uy * (ht_y[i] + f * (ht_y[i + 1] - ht_y[i]));
+            }
+            for (i = 1; i < nt; i++) {
+                double v = t[i];
+                int j = i - 1;
+                while (j >= 0 && t[j] > v) { t[j + 1] = t[j]; j--; }
+                t[j + 1] = v;
+            }
+        }
+        for (i = 0; i + 1 < nt; i += 2) {
+            if (t[i + 1] - t[i] <= 0.0)
+                continue;
+            ob = jw_add(d, JW_SEN);
+            if (!ob)
+                return;
+            ob->d[0] = ux * t[i] + nx * o;
+            ob->d[1] = uy * t[i] + ny * o;
+            ob->d[2] = ux * t[i + 1] + nx * o;
+            ob->d[3] = uy * t[i + 1] + ny * o;
+            made++;
+        }
+    }
     if (made)
         op_push(made);
 }
@@ -1772,6 +1954,24 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 
 int jw_cmd_bar(jw_drawing *d, int id)
 {
+    if (current == JW_CMD_HATCH) {
+        if (id >= 1689 && id <= 1693) {
+            ht_mode = id;
+            return 1;
+        }
+        if (id == 1149) {       /* クリアー */
+            ht_n = 0;
+            ht_round = 0;
+            return 1;
+        }
+        if (id == 1148) {       /* 実行 */
+            hatch(d);
+            ht_n = 0;
+            ht_round = 0;
+            return 1;
+        }
+        return 0;
+    }
     if (current == JW_CMD_KYOKUSEN) {
         if (id >= 1689 && id <= 1692) {
             cv_mode = id;
@@ -2314,6 +2514,29 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         }
         chushin(d, x, y);
         chu_step = 2;           /* the same middle, another line */
+        return;
+    }
+    if (current == JW_CMD_HATCH) {
+        int i;
+        if (!d)
+            return;
+        if (button != 1)
+            return;             /* the left button picks one line at a time,
+                                   which this port does not do yet */
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0)
+            return;
+        if (d->obj[i].cls == JW_ENKO) {
+            ht_round = 1;
+            ht_cx = d->obj[i].d[0];
+            ht_cy = d->obj[i].d[1];
+            ht_r = d->obj[i].d[2];
+            ht_n = 0;
+        } else if (d->obj[i].cls == JW_SEN) {
+            ht_round = 0;
+            if (!hatch_ring(d, i))
+                ht_n = 0;
+        }
         return;
     }
     if (current == JW_CMD_KYOKUSEN) {
