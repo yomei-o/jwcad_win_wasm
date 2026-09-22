@@ -14,9 +14,12 @@ param(
     [long]$Hi = 0x00954000
 )
 $ErrorActionPreference = 'Stop'
-$ghidra = 'C:\prog\ghidra\ghidra_12.1.3_PUBLIC\support\analyzeHeadless.bat'
-$env:JAVA_HOME = 'C:\prog\ghidra\jdk21'
-$env:GHIDRA_HEADLESS_MAXMEM = '4G'
+# The build box's paths are the defaults; another machine sets these in the
+# environment before calling.  The JDK is not on PATH on either.
+if (-not $env:GHIDRA_HOME) { $env:GHIDRA_HOME = 'C:\prog\ghidra\ghidra_12.1.3_PUBLIC' }
+if (-not $env:JAVA_HOME)   { $env:JAVA_HOME   = 'C:\prog\ghidra\jdk21' }
+if (-not $env:GHIDRA_HEADLESS_MAXMEM) { $env:GHIDRA_HEADLESS_MAXMEM = '4G' }
+$ghidra = Join-Path $env:GHIDRA_HOME 'support\analyzeHeadless.bat'
 
 $out = Join-Path $Work 'out\decomp'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -70,6 +73,9 @@ Get-ChildItem $out -Filter 'index_*.csv' | ForEach-Object {
 }
 $tarball = Join-Path $Work 'decomp.tgz'
 Remove-Item $tarball -Force -ErrorAction SilentlyContinue
-& tar.exe -czf $tarball -C $out .
+# Windows' own tar, by full path: a Git Bash tar earlier on PATH reads
+# C:\... as a remote host and dies with "Cannot connect to C".
+$tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+& $tar --force-local -czf $tarball -C $out .
 Write-Host ("packed {0} ({1:n0} bytes)" -f $tarball, (Get-Item $tarball).Length)
 Write-Host 'DONE'

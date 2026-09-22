@@ -12,6 +12,12 @@
 #   python tools/mkzoku.py
 set -e
 cd "$(dirname "$0")/.."
+# node comes with emsdk and is not on PATH there.
+if ! command -v node >/dev/null 2>&1; then
+    for d in "${EMSDK:-/c/prog/emsdk/emsdk}"/node/*/bin; do
+        [ -x "$d/node.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
+    done
+fi
 [ -f src/gen/jwres.c ]  || { echo "run tools/mkres.py first";  exit 1; }
 [ -f src/gen/layout.h ] || { echo "run tools/btnmap.py first"; exit 1; }
 [ -f src/gen/jwfont.c ] || { echo "run tools/mkfont.py first"; exit 1; }
@@ -78,6 +84,10 @@ echo "=== 多角形 —— 原典が描いた八角形との突き合わせ"
 echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
+
+echo
+echo "=== メニュー —— ブラウザ版が自分で開くポップアップ"
+./tests/menu_test.exe tests/out/menu.png | sed 's/^/    /'
 
 echo
 echo "=== レイヤとレイヤグループの格子"

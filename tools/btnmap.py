@@ -17,6 +17,11 @@ import sys
 
 from PIL import Image
 
+# Pillow 12 renamed Image.getdata() to get_flattened_data(); this keeps
+# the script working on the older name as well.
+if not hasattr(Image.Image, 'get_flattened_data'):
+    Image.Image.get_flattened_data = Image.Image.getdata
+
 BTN_W, BTN_H = 31, 22
 CELL_W, CELL_H = 24, 15
 
