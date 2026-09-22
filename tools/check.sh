@@ -66,6 +66,10 @@ echo "=== 接線 —— 原典が引いた 4 本の共通接線との突き合�
 ./tests/sessen_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 接円 —— 原典が描いた 4 つの接円との突き合わせ"
+./tests/sekien_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 ./tests/chushin_test.exe | sed 's/^/    /'
 

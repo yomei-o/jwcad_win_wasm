@@ -177,6 +177,43 @@ while :; do
     echo "    tests/sessen_test.exe disagrees -- drawing it again ($try/$TRIES)"
 done
 
+# 接円 (0x8068).  Two crossed lines and a radius leave four circles touching
+# both, one in each angle; the third click takes the one nearest it.  Two
+# parallel lines have none unless they happen to be 2r apart, which is why
+# these are crossed.
+sekien() {              # sekien <name> <where the circle goes>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0 \
+        -Clicks "300,250;900,600;300,600;900,250;cmd:32872;ch:1411,2000;400,308;400,542;$2;saveas:decomp/res/sekien_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
+try=1
+while :; do
+    echo "=== sekien (four circles of one radius in the angles of two lines)"
+    sekien l 400,425
+    sekien r 800,425
+    sekien t 600,300
+    sekien b 600,550
+    if [ ! -x tests/sekien_test.exe ]; then
+        echo "    (tests/sekien_test.exe is not built -- not checked)"
+        break
+    fi
+    if ./tests/sekien_test.exe >tmp/refanswers.out 2>&1; then
+        echo "    ok -- tests/sekien_test.exe agrees"
+        break
+    fi
+    try=$((try + 1))
+    if [ "$try" -gt "$TRIES" ]; then
+        echo "    tests/sekien_test.exe still disagrees after $TRIES tries:"
+        sed 's/^/        /' tmp/refanswers.out
+        fails=$((fails + 1))
+        break
+    fi
+    echo "    tests/sekien_test.exe disagrees -- drawing it again ($try/$TRIES)"
+done
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

@@ -135,6 +135,9 @@ static double ses_x, ses_y;
 /* which of the bar's four buttons is in force: 0 円→円 (1689), 1 点→円
    (1690).  角度指定 (1691) and 円上点指定 (1692) are not done. */
 static int ses_mode;
+/* 接円: the two elements picked, then a click that says which of the four
+   circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
+static int sek_a = -1, sek_b = -1, sek_step;
 static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
@@ -161,6 +164,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
                                            the way the original's is */
     { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
     { JW_CMD_NISEN, 1412, "" },         /* ２線の間隔, "a,b"         */
+    { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
 };
 static int box_focus;
 
@@ -390,6 +394,10 @@ void jw_cmd_set(int id)
         ses_step = 0;
         ses_a = -1;
         ses_mode = 0;           /* 円→円, the one the original enters in */
+    }
+    if (id == JW_CMD_SEKIEN) {
+        sek_step = 0;
+        sek_a = sek_b = -1;
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1213,6 +1221,100 @@ static int tangent(double ax, double ay, double ra,
  * r*sin a across it, where cos a = r/L -- (T-P).(T-c) works out to r^2 - r*L*
  * (r/L) = 0, so they are tangents, and the line runs from P to T.
  */
+/* 接円 (0x8068): a circle of the radius in the bar's box, touching two lines.
+ *
+ * Three clicks -- the first line, the second, then a click that says which
+ * circle is wanted; the original's status line puts up 「マウスを移動し、必要な
+ * 接円位置で左クリックしてください。 【 4 − 1 】」, so there are four of them and
+ * it takes the one nearest the click.  Driving it four times over the same
+ * crossed pair, placing the click left, right, above and below, gave four
+ * circles of radius 10 whose centres are the intersection offset along the
+ * two angle bisectors (decomp/res/sekien_*.jww).
+ *
+ * The radius in the box is a real length, so it is divided by the write layer
+ * group's scale the same way 面取's size is -- 2000 in a 1/200 group came out
+ * 10 mm on the paper.
+ *
+ * A centre at distance r from both lines satisfies n1.C = k1 + s1*r and
+ * n2.C = k2 + s2*r for the lines' unit normals; the four sign pairs are the
+ * four circles, and two parallel lines have none unless they happen to be 2r
+ * apart, which the determinant says.
+ */
+static void sekien(jw_drawing *d, int a, int b, double x, double y)
+{
+    const jw_obj *p, *q;
+    const char *sz = jw_cmd_box(1411);
+    double r, n1x, n1y, k1, n2x, n2y, k2, den, ux, uy, L;
+    double bx = 0, by = 0, bestd = 0;
+    int wg = 0, i, s1, s2, have = 0;
+    jw_obj *o;
+
+    if (a < 0 || b < 0 || a >= d->nobj || b >= d->nobj || a == b)
+        return;
+    p = &d->obj[a];
+    q = &d->obj[b];
+    if (p->cls != JW_SEN || q->cls != JW_SEN)
+        return;
+    r = sz ? atof(sz) : 0.0;
+    if (r <= 0.0)
+        return;                 /* no radius typed in: nothing to draw */
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (d->group[wg].scale > 0.0)
+        r /= d->group[wg].scale;
+
+    ux = p->d[2] - p->d[0];
+    uy = p->d[3] - p->d[1];
+    L = sqrt(ux * ux + uy * uy);
+    if (L < 1e-12)
+        return;
+    n1x = -uy / L;
+    n1y = ux / L;
+    k1 = n1x * p->d[0] + n1y * p->d[1];
+
+    ux = q->d[2] - q->d[0];
+    uy = q->d[3] - q->d[1];
+    L = sqrt(ux * ux + uy * uy);
+    if (L < 1e-12)
+        return;
+    n2x = -uy / L;
+    n2y = ux / L;
+    k2 = n2x * q->d[0] + n2y * q->d[1];
+
+    den = n1x * n2y - n1y * n2x;
+    if (fabs(den) < 1e-12)
+        return;                 /* parallel */
+    for (s1 = -1; s1 <= 1; s1 += 2)
+        for (s2 = -1; s2 <= 1; s2 += 2) {
+            double a1 = k1 + s1 * r, a2 = k2 + s2 * r;
+            double cx = (a1 * n2y - a2 * n1y) / den;
+            double cy = (n1x * a2 - n2x * a1) / den;
+            double e = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+
+            if (!have || e < bestd) {
+                have = 1;
+                bestd = e;
+                bx = cx;
+                by = cy;
+            }
+        }
+    if (!have)
+        return;
+    o = jw_add(d, JW_ENKO);
+    if (!o)
+        return;
+    o->d[0] = bx;
+    o->d[1] = by;
+    o->d[2] = r;
+    o->d[3] = 0.0;
+    o->d[4] = 6.283185307179586;        /* the whole way round */
+    o->d[5] = 0.0;
+    o->d[6] = 1.0;                      /* round, not squashed */
+    o->n = 1;                           /* the trailing 1 a whole circle has */
+    op_push(1);
+}
+
 static void tensen(jw_drawing *d, int b, double px, double py,
                    double x, double y)
 {
@@ -2036,6 +2138,31 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         }
         chushin(d, x, y);
         chu_step = 2;           /* the same middle, another line */
+        return;
+    }
+    if (current == JW_CMD_SEKIEN) {
+        int i;
+        if (button != 0 || !d)
+            return;
+        if (sek_step == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            sek_a = i;
+            sek_step = 1;
+            return;
+        }
+        if (sek_step == 1) {
+            i = jw_pick_tie(d, v, x, y, 3, 1);
+            if (i < 0 || i == sek_a || d->obj[i].cls != JW_SEN)
+                return;
+            sek_b = i;
+            sek_step = 2;
+            return;
+        }
+        sekien(d, sek_a, sek_b, x, y);
+        sek_step = 0;                   /* ready for the next pair */
+        sek_a = sek_b = -1;
         return;
     }
     if (current == JW_CMD_SESSEN) {
