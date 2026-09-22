@@ -1307,16 +1307,71 @@ static double spline_at(const double *v, const double *m, int i, double s)
          + ((a * a * a - a) * m[i] + (s * s * s - s) * m[i + 1]) / 6.0;
 }
 
+/* ベジェ曲線: a Bezier of degree (points - 1) over everything that was
+ * clicked, sampled evenly.  Four points came out a cubic Bezier and five a
+ * quartic, both to 1e-8, and the sampling is (points - 1) * 分割数 vertices
+ * -- one fewer segment than the spline's, since that counts segments rather
+ * than points (decomp/res/bezier_*.jww).
+ *
+ * de Casteljau rather than the Bernstein sum: with up to 64 points the
+ * binomial coefficients get large, and this needs no coefficients at all.
+ */
+static void bezier_at(const double *vx, const double *vy, int n, double t,
+                      double *ox, double *oy)
+{
+    double ax[CV_MAX], ay[CV_MAX];
+    int i, k;
+
+    for (i = 0; i < n; i++) {
+        ax[i] = vx[i];
+        ay[i] = vy[i];
+    }
+    for (k = n - 1; k > 0; k--)
+        for (i = 0; i < k; i++) {
+            ax[i] += (ax[i + 1] - ax[i]) * t;
+            ay[i] += (ay[i + 1] - ay[i]) * t;
+        }
+    *ox = ax[0];
+    *oy = ay[0];
+}
+
 static void kyokusen(jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
     double mx[CV_MAX], my[CV_MAX], v, px, py;
     int n = sz ? atoi(sz) : 0, i, k, made = 0;
 
-    if (cv_mode != 1691)
-        return;                 /* only スプライン is done */
+    if (cv_mode != 1691 && cv_mode != 1692)
+        return;                 /* サイン and ２次 are not done */
     if (cv_n < 2 || n < 1)
         return;
+    if (cv_mode == 1692) {      /* ベジェ */
+        int pts = (cv_n - 1) * n;
+
+        if (pts < 2)
+            return;
+        px = cv_x[0];
+        py = cv_y[0];
+        for (k = 1; k < pts; k++) {
+            double qx, qy;
+            jw_obj *o;
+
+            bezier_at(cv_x, cv_y, cv_n, (double)k / (pts - 1), &qx, &qy);
+            o = jw_add(d, JW_SEN);
+            if (!o)
+                return;
+            o->d[0] = px;
+            o->d[1] = py;
+            o->d[2] = qx;
+            o->d[3] = qy;
+            px = qx;
+            py = qy;
+            made++;
+        }
+        if (made)
+            op_push(made);
+        return;
+    }
     spline_m(cv_x, cv_n, mx);
     spline_m(cv_y, cv_n, my);
     /* the step that makes the two at the ends 0.58 of the rest add up to 1 */

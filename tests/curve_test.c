@@ -168,12 +168,138 @@ static void run(int n, const char *path, int first)
     jw_free(&ref);
 }
 
+/* The four points the original was given, taken out of the spline reference:
+   that one passes through them, at every 分割数-th vertex. */
+static int control(double *cx, double *cy)
+{
+    unsigned char *b;
+    long len;
+    jw_drawing ref;
+    const jw_obj *all[4096];
+    int i, na = 0, base;
+
+    b = slurp("decomp/res/curve_n7.jww", &len);
+    if (!b)
+        return 0;
+    if (!jw_parse(&ref, b, len)) {
+        free(b);
+        return 0;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls == JW_SEN && na < 4096)
+            all[na++] = &ref.obj[i];
+    if (na < 21) {
+        jw_free(&ref);
+        return 0;
+    }
+    base = na - 21;
+    cx[0] = all[base]->d[0];
+    cy[0] = all[base]->d[1];
+    for (i = 1; i <= 3; i++) {
+        cx[i] = all[base + i * 7 - 1]->d[2];
+        cy[i] = all[base + i * 7 - 1]->d[3];
+    }
+    jw_free(&ref);
+    return 1;
+}
+
+/* ベジェ: the curve does not pass through the middle points, so the run has
+   to be driven with the points themselves rather than read off the answer. */
+static void run_bezier(int n, const char *path)
+{
+    unsigned char *b;
+    long len;
+    jw_drawing ref, *d;
+    const jw_obj *seg[256];
+    double cx[4], cy[4];
+    int i, ns = 0, before, want = 3 * n - 1;
+    double worst = 0;
+    char num[16];
+
+    printf("ベジェ, 分割数 %d:\n", n);
+    if (!control(cx, cy)) {
+        printf("BAD  cannot read the control points\n");
+        fails++;
+        return;
+    }
+    b = slurp(path, &len);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, len)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    {
+        const jw_obj *all[4096];
+        int na = 0;
+        for (i = 0; i < ref.ndrawn; i++)
+            if (ref.obj[i].cls == JW_SEN && na < 4096)
+                all[na++] = &ref.obj[i];
+        for (i = na - want; i >= 0 && i < na && ns < 256; i++)
+            seg[ns++] = all[i];
+    }
+    ck(ns == want, "  (点数-1)*分割数 - 1 segments, as the original left");
+    if (ns != want) {
+        jw_free(&ref);
+        return;
+    }
+
+    app_resize(1264, 741);
+    b = slurp("orig/Test5.jww", &len);
+    if (!b || !app_open(b, len)) {
+        printf("BAD  cannot open orig/Test5.jww\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    app_fit();
+    before = d->ndrawn;
+
+    jw_cmd_set(JW_CMD_KYOKUSEN);
+    ck(jw_cmd_bar(d, 1692) == 1, "  ベジェ曲線 can be pressed");
+    sprintf(num, "%d", n);
+    type_box(1411, num);
+    for (i = 0; i < 4; i++)
+        jw_cmd_point(d, app_view(), cx[i], cy[i], 0);
+    ck(jw_cmd_bar(d, 1800) == 1, "  作図実行 can be pressed");
+    ck(d->ndrawn == before + want, "  and it draws the whole polyline");
+    if (d->ndrawn != before + want) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < want; i++) {
+        int k;
+        for (k = 0; k < 4; k++) {
+            double e = fabs(d->obj[before + i].d[k] - seg[i]->d[k]);
+            if (e > worst)
+                worst = e;
+        }
+    }
+    if (worst > 1e-6)
+        printf("     worst disagreement %.6g\n", worst);
+    ck(worst <= 1e-6, "  every vertex where the original put it");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == before, "  元に戻る takes the whole curve back");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     run(3, "decomp/res/curve_n3.jww", 1);
     run(4, "decomp/res/curve_n4.jww", 0);
     run(7, "decomp/res/curve_n7.jww", 0);
     run(10, "decomp/res/curve_n10.jww", 0);
+    run_bezier(3, "decomp/res/bezier_n3.jww");
+    run_bezier(7, "decomp/res/bezier_n7.jww");
+    run_bezier(10, "decomp/res/bezier_n10.jww");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
