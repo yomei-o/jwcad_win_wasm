@@ -214,6 +214,41 @@ while :; do
     echo "    tests/sekien_test.exe disagrees -- drawing it again ($try/$TRIES)"
 done
 
+# 曲線 (0x808c), スプライン.  The same four points at four 分割数, which is
+# what says both what the curve is and where it samples it.
+curve() {               # curve <分割数>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32908 \
+        -Clicks "ch:1411,$1;300,500;500,300;700,500;900,300;btn:1800;saveas:decomp/res/curve_n$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
+try=1
+while :; do
+    echo "=== curve (one spline at four 分割数)"
+    curve 3
+    curve 4
+    curve 7
+    curve 10
+    if [ ! -x tests/curve_test.exe ]; then
+        echo "    (tests/curve_test.exe is not built -- not checked)"
+        break
+    fi
+    if ./tests/curve_test.exe >tmp/refanswers.out 2>&1; then
+        echo "    ok -- tests/curve_test.exe agrees"
+        break
+    fi
+    try=$((try + 1))
+    if [ "$try" -gt "$TRIES" ]; then
+        echo "    tests/curve_test.exe still disagrees after $TRIES tries:"
+        sed 's/^/        /' tmp/refanswers.out
+        fails=$((fails + 1))
+        break
+    fi
+    echo "    tests/curve_test.exe disagrees -- drawing it again ($try/$TRIES)"
+done
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

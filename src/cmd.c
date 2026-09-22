@@ -138,6 +138,14 @@ static int ses_mode;
 /* 接円: the two elements picked, then a click that says which of the four
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
+/* 曲線: the points clicked so far, kept until 作図実行 is pressed. */
+#define CV_MAX 64
+static double cv_x[CV_MAX], cv_y[CV_MAX];
+static int cv_n;
+/* which of the bar's four is in force: 1691 スプライン is the one the
+   original enters in; サイン (1689), ２次 (1690) and ベジェ (1692) are not
+   done, and pressing 作図実行 in those draws nothing. */
+static int cv_mode = 1691;
 static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
@@ -165,6 +173,8 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
     { JW_CMD_NISEN, 1412, "" },         /* ２線の間隔, "a,b"         */
     { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
+    { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
+                                           comes up with 7 */
 };
 static int box_focus;
 
@@ -398,6 +408,10 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_SEKIEN) {
         sek_step = 0;
         sek_a = sek_b = -1;
+    }
+    if (id == JW_CMD_KYOKUSEN) {
+        cv_n = 0;
+        cv_mode = 1691;
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1240,6 +1254,101 @@ static int tangent(double ax, double ay, double ra,
  * four circles, and two parallel lines have none unless they happen to be 2r
  * apart, which the determinant says.
  */
+/* 曲線, スプライン (0x808c).
+ *
+ * Points are clicked one after another and 作図実行 draws the curve through
+ * them as a run of straight lines.  Two things had to be settled by asking
+ * the original, and both came out exactly.
+ *
+ * What curve.  A natural cubic spline on uniform knots: driven over four
+ * points, the second derivative at the two ends is zero and the tangents
+ * across a join agree.  Four points at (0,0) (1,1) (2,0) (3,1) in span units
+ * gave f'(0) = 288.6297 where the natural spline's (y1-y0) - (2m0+m1)/6 is
+ * 173.178 + 115.452 = 288.630, and the joins matched to 1e-8
+ * (decomp/res/curve_*.jww).  Catmull-Rom is not it -- it would have put the
+ * tangent at the first interior point at zero, and the original's is -57.73.
+ *
+ * Where it samples.  Not evenly.  With n divisions to a span the parameter
+ * steps are 0.58, 1, 1, ..., 1, 0.58 -- the two at the ends are 0.58 of the
+ * rest -- so the middle step is 1/(n - 0.84) and the end ones 0.58 of that.
+ * That 0.58 is exact, and the same at n = 3, 4, 7 and 10.
+ */
+#define CV_END 0.58
+
+/* The second derivatives of the natural cubic spline through v[0..n-1], for
+   unit knot spacing.  Thomas' algorithm on the usual tridiagonal system. */
+static void spline_m(const double *v, int n, double *m)
+{
+    double c[CV_MAX], r[CV_MAX];
+    int i;
+
+    for (i = 0; i < n; i++)
+        m[i] = 0.0;
+    if (n < 3)
+        return;
+    /* m[0] = m[n-1] = 0; for i = 1..n-2:
+         m[i-1] + 4 m[i] + m[i+1] = 6 (v[i-1] - 2 v[i] + v[i+1]) */
+    c[1] = 1.0 / 4.0;
+    r[1] = 6.0 * (v[0] - 2 * v[1] + v[2]) / 4.0;
+    for (i = 2; i <= n - 2; i++) {
+        double den = 4.0 - c[i - 1];
+        c[i] = 1.0 / den;
+        r[i] = (6.0 * (v[i - 1] - 2 * v[i] + v[i + 1]) - r[i - 1]) / den;
+    }
+    for (i = n - 2; i >= 1; i--)
+        m[i] = r[i] - c[i] * m[i + 1];
+}
+
+static double spline_at(const double *v, const double *m, int i, double s)
+{
+    double a = 1.0 - s;
+
+    return v[i] * a + v[i + 1] * s
+         + ((a * a * a - a) * m[i] + (s * s * s - s) * m[i + 1]) / 6.0;
+}
+
+static void kyokusen(jw_drawing *d)
+{
+    const char *sz = jw_cmd_box(1411);
+    double mx[CV_MAX], my[CV_MAX], v, px, py;
+    int n = sz ? atoi(sz) : 0, i, k, made = 0;
+
+    if (cv_mode != 1691)
+        return;                 /* only スプライン is done */
+    if (cv_n < 2 || n < 1)
+        return;
+    spline_m(cv_x, cv_n, mx);
+    spline_m(cv_y, cv_n, my);
+    /* the step that makes the two at the ends 0.58 of the rest add up to 1 */
+    v = 1.0 / (n - 2 + 2 * CV_END);
+    px = cv_x[0];
+    py = cv_y[0];
+    for (i = 0; i < cv_n - 1; i++)
+        for (k = 1; k <= n; k++) {
+            double s, qx, qy;
+            jw_obj *o;
+
+            if (k == n)
+                s = 1.0;
+            else
+                s = CV_END * v + (k - 1) * v;
+            qx = spline_at(cv_x, mx, i, s);
+            qy = spline_at(cv_y, my, i, s);
+            o = jw_add(d, JW_SEN);
+            if (!o)
+                return;
+            o->d[0] = px;
+            o->d[1] = py;
+            o->d[2] = qx;
+            o->d[3] = qy;
+            px = qx;
+            py = qy;
+            made++;
+        }
+    if (made)
+        op_push(made);
+}
+
 static void sekien(jw_drawing *d, int a, int b, double x, double y)
 {
     const jw_obj *p, *q;
@@ -1608,6 +1717,18 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 
 int jw_cmd_bar(jw_drawing *d, int id)
 {
+    if (current == JW_CMD_KYOKUSEN) {
+        if (id >= 1689 && id <= 1692) {
+            cv_mode = id;
+            return 1;
+        }
+        if (id == 1800) {       /* 作図実行 */
+            kyokusen(d);
+            cv_n = 0;
+            return 1;
+        }
+        return 0;
+    }
     if (current == JW_CMD_SESSEN) {
         /* the four ways of drawing a tangent; only the first two are done */
         if (id == 1689 || id == 1690) {
@@ -2138,6 +2259,16 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         }
         chushin(d, x, y);
         chu_step = 2;           /* the same middle, another line */
+        return;
+    }
+    if (current == JW_CMD_KYOKUSEN) {
+        if (button != 0 || !d)
+            return;
+        if (cv_n < CV_MAX) {
+            cv_x[cv_n] = x;
+            cv_y[cv_n] = y;
+            cv_n++;
+        }
         return;
     }
     if (current == JW_CMD_SEKIEN) {
