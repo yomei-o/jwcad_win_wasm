@@ -20,6 +20,9 @@ int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col);
 /* Whether that byte starts a two byte CP932 character. */
 int jw_is_lead(unsigned char c);
 
+/* How wide that run comes out, without drawing it. */
+int jw_text_px_w(const char *s);
+
 /* How tall a line of jw_text_px is, in pixels. */
 int jw_text_height(void);
 

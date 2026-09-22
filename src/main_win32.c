@@ -13,8 +13,13 @@
 #include <imm.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "app.h"
+#include "cmd.h"
+#include "cp932.h"
+#include "gen/accel.h"
+#include "gen/menu.h"
 
 static const wchar_t CLASS_NAME[] = L"JwWinWasmPort";
 
@@ -127,6 +132,103 @@ static int ask_open(HWND wnd)
     if (!GetOpenFileNameW(&o))
         return 0;
     return load_file(path);
+}
+
+/* The menu bar, out of the tree tools/mkmenu.py took from the original's
+ * menu resource -- the same 176 entries, with the same command ids, so a
+ * menu item and the toolbar button beside it arrive at app_command() as the
+ * same number.  The browser build draws its own; this one hands the tree to
+ * Windows, which is why nothing of the client area changes.
+ *
+ * The names are CP932 in the resource and the window is Unicode, so each one
+ * goes through jw_to_utf16 on the way.
+ */
+static void wide(const char *s, wchar_t *out, int cap)
+{
+    long n = jw_to_utf16(s, (long)strlen(s), (unsigned short *)out, cap - 1);
+
+    out[n < cap - 1 ? n : cap - 1] = 0;
+}
+
+static HMENU build_menu(void)
+{
+    /* stack[d] is the menu an entry of depth d is appended to; the bar is
+       depth 0, and a popup at depth d is what depth d+1 goes into.  The
+       original's tree is three deep. */
+    HMENU stack[8];
+    wchar_t text[256];
+    int i;
+
+    stack[0] = CreateMenu();
+    if (!stack[0])
+        return NULL;
+    for (i = 0; i < JW_NMENU_TREE; i++) {
+        const jw_menu_item_t *m = &jw_menu_tree[i];
+        int d = m->depth;
+
+        if (d + 1 >= (int)(sizeof stack / sizeof stack[0]))
+            continue;
+        switch (m->kind) {
+        case 1: {                       /* a popup that opens */
+            HMENU sub = CreatePopupMenu();
+            wide(m->text, text, 256);
+            AppendMenuW(stack[d], MF_POPUP | MF_STRING, (UINT_PTR)sub, text);
+            stack[d + 1] = sub;
+            break;
+        }
+        case 2:
+            AppendMenuW(stack[d], MF_SEPARATOR, 0, NULL);
+            break;
+        default:
+            wide(m->text, text, 256);
+            AppendMenuW(stack[d], MF_STRING, m->id, text);
+            break;
+        }
+    }
+    return stack[0];
+}
+
+/* The keyboard shortcuts, from the original's own ACCELERATOR resource.
+ * The menu names them because the menu resource spells them out; this is what
+ * makes them work.  They arrive as WM_COMMAND, so they go the same way a menu
+ * item does. */
+static HACCEL build_accel(void)
+{
+    ACCEL a[JW_NACCEL];
+    int i;
+
+    for (i = 0; i < JW_NACCEL; i++) {
+        a[i].fVirt = jw_accel[i].virt;
+        a[i].key = jw_accel[i].key;
+        a[i].cmd = jw_accel[i].cmd;
+    }
+    return CreateAcceleratorTableW(a, JW_NACCEL);
+}
+
+/* A command from a menu item, taken the same way a toolbar press is: what
+   needs a file or a dialog comes back through app_take_action(). */
+static void do_command(HWND wnd, int id)
+{
+    int redraw = app_command(id);
+
+    switch (app_take_action()) {
+    case JW_ACT_OPEN:
+        redraw |= ask_open(wnd);
+        break;
+    case JW_ACT_SAVE:
+        if (current_path[0])
+            save_file(current_path);
+        else
+            ask_save(wnd);
+        break;
+    case JW_ACT_SAVE_AS:
+        ask_save(wnd);
+        break;
+    }
+    if (redraw) {
+        app_paint();
+        InvalidateRect(wnd, NULL, FALSE);
+    }
 }
 
 static void present(HDC dc)
@@ -279,6 +381,27 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             InvalidateRect(wnd, NULL, FALSE);
         }
         return 0;
+    case WM_COMMAND:
+        if (HIWORD(wp) == 0 || HIWORD(wp) == 1) {       /* menu or accelerator */
+            do_command(wnd, LOWORD(wp));
+            return 0;
+        }
+        break;
+    case WM_INITMENUPOPUP:
+        /* Tick the command in force, which is what the original's
+           ON_UPDATE_COMMAND_UI does: SetCheck(current == id). */
+        {
+            HMENU m = (HMENU)wp;
+            int n = GetMenuItemCount(m), k;
+            for (k = 0; k < n; k++) {
+                UINT id = GetMenuItemID(m, k);
+                if (id != (UINT)-1 && id != 0)
+                    CheckMenuItem(m, id,
+                                  MF_BYCOMMAND | ((int)id == jw_cmd()
+                                                  ? MF_CHECKED : MF_UNCHECKED));
+            }
+        }
+        return 0;
     case WM_SIZE:
         if (app_resize(LOWORD(lp), HIWORD(lp)))
             app_paint();
@@ -304,6 +427,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     WNDCLASSEXW wc;
     RECT r;
     HWND wnd;
+    HACCEL accel;
     MSG msg;
 
     (void)prev;
@@ -322,7 +446,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     r.top = 0;
     r.right = 1264;
     r.bottom = 741;
-    AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
+    /* TRUE: with a menu bar on it, which is one row taller */
+    AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, TRUE, 0);
 
     wnd = CreateWindowExW(0, CLASS_NAME, L"jw_win (port)", WS_OVERLAPPEDWINDOW,
                           CW_USEDEFAULT, CW_USEDEFAULT,
@@ -330,9 +455,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
                           NULL, NULL, inst, NULL);
     if (!wnd)
         return 1;
+    SetMenu(wnd, build_menu());
+    accel = build_accel();
     ShowWindow(wnd, show);
 
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
+        if (accel && TranslateAcceleratorW(wnd, accel, &msg))
+            continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }

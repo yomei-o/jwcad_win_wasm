@@ -47,7 +47,8 @@ void app_zoom(double factor, int sx, int sy)
         return;
     wx = view.ox + (sx - view.bx) / view.scale;
     wy = view.oy + (view.by - sy) / view.scale;
-    view.scale *= factor;
+    view.mmpp /= factor;
+    view.scale = 1.0 / view.mmpp;
     view.ox = wx - (sx - view.bx) / view.scale;
     view.oy = wy + (view.by - sy) / view.scale;
 }
@@ -232,10 +233,52 @@ int app_command(int cmd)
     return 0;
 }
 
+/* A name on the menu bar was pressed: its popup opens, and pressing the same
+   one again shuts it.  The native build never gets here -- Windows runs its
+   menu itself. */
+int app_chrome_press(int x, int y)
+{
+    int i = ui_menu_hit(x, y);
+
+    if (i < 0)
+        return ui_popup_open(-1);
+    return ui_popup_open(i == ui_popup_top() ? -1 : i);
+}
+
+int app_chrome_move(int x, int y)
+{
+    int i;
+
+    if (ui_popup_top() < 0)
+        return 0;
+    /* sliding along the bar with one open moves to the next, as Windows does */
+    i = ui_menu_hit(x, y);
+    if (i >= 0 && i != ui_popup_top())
+        return ui_popup_open(i);
+    return 0;
+}
+
 int app_press(int x, int y, int button)
 {
     int k = hit_button(x, y);
     int id, g, n;
+
+    /* An open popup takes the press: on an item it runs it, anywhere else it
+       just shuts -- the click that closes a menu does nothing else, which is
+       what Windows does too. */
+    if (ui_popup_top() >= 0) {
+        int cmd = ui_popup_in(x, y) ? ui_popup_press(x, y) : 0;
+
+        if (cmd) {
+            ui_popup_open(-1);
+            return app_command(cmd) | 1;
+        }
+        if (!ui_popup_in(x, y)) {
+            ui_popup_open(-1);
+            return 1;
+        }
+        return 1;                       /* a separator, or a submenu opening */
+    }
 
     if (zoku_open)
         return press_zoku(x, y);
@@ -316,6 +359,8 @@ int app_move(int x, int y)
     double mx, my;
     jw_obj o[JW_CMD_MAXFIG];
 
+    if (ui_popup_top() >= 0)
+        return ui_popup_move(x, y);
     if (!view_ready || !in_view(x, y))
         return 0;
     to_paper(x, y, &mx, &my);
@@ -493,6 +538,8 @@ void app_paint(void)
         ui_textbox(&fb, jw_cmd_line(), jw_cmd_compose());
     if (zoku_open)
         ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);
+    /* last of all, so it covers everything: the menu that is open */
+    ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {
         ui_caption(&chrome, 0, chrome.w, title);
         ui_menu(&chrome, JW_CAPTION_H, chrome.w);

@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "draw.h"
 #include "gen/circle.h"
@@ -395,10 +396,13 @@ static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
 {
     if (shown(d, o) == 1)
         return d->pen_rgb[9];
-    /* A picked element is drawn in Pen/Color10 whatever its own colour is --
-       bit 1 of +0x44 is what 範囲選択 sets, and the original's own screen
-       has those elements in ff00ff. */
-    if (o->flags & 2)
+    /* An element picked *in this session* is drawn in Pen/Color10 whatever
+       its own colour is: the original's own screen has a live selection in
+       ff00ff.  Not bit 1 of +0x44 -- that is what it writes to the file for
+       whatever was picked at save time, and a drawing that arrives with the
+       bit already set is not shown picked.  天空率表.jww ships with 245 of
+       them and the original draws every one in its own pen. */
+    if (o->sel)
         return JW_SEL_RGB;
     return pen_colour(d, o->color);
 }
@@ -554,7 +558,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
      * that keeps the chord walk below. */
     if (flat == 1.0) {
         static short pts[2 * ARC_MAX];
-        int rp = (int)(r * v->scale + 0.5);
+        int rp = (int)(r / v->mmpp + 0.5);     /* FUN_004b8250 */
         int cxp = jw_sx(v, cx), cyp = jw_sy(v, cy);
         /* A whole circle goes into a box 2r across, a part of one into a box
          * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
@@ -638,6 +642,10 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
     int px[4], py[4], n = 4, i, j, y, ymin, ymax;
     unsigned int col;
 
+    /* debugging hooks, like shown()'s: leave the solids out, or say where
+       each one lands on the screen */
+    if (getenv("JW_NO_SOLID"))
+        return;
     if (o->color == 10) {
         unsigned c = (unsigned)o->n;
         col = ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff);
@@ -650,14 +658,25 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
     }
     if (px[3] == px[2] && py[3] == py[2])
         n = 3;
+    if (getenv("JW_DUMP_SOLID"))
+        fprintf(stderr, "solid %d (%d,%d) (%d,%d) (%d,%d) (%d,%d) colour %d layer %d/%d\n",
+                n, px[0], py[0], px[1], py[1], px[2], py[2], px[3], py[3],
+                (int)o->color, (int)o->lgroup, (int)o->layer);
     ymin = ymax = py[0];
     for (i = 1; i < n; i++) {
         if (py[i] < ymin) ymin = py[i];
         if (py[i] > ymax) ymax = py[i];
     }
     if (ymin < v->clip.y) ymin = v->clip.y;
-    if (ymax >= v->clip.y + v->clip.h) ymax = v->clip.y + v->clip.h - 1;
-    for (y = ymin; y <= ymax; y++) {
+    if (ymax > v->clip.y + v->clip.h) ymax = v->clip.y + v->clip.h;
+    /* GDI's fill leaves the right and bottom edges out, and the original
+     * selects a null pen so nothing draws them back in: asked directly, a
+     * Polygon over (17,4)-(20,50) covers x 17..19 and y 4..49, not 17..20 and
+     * 4..50 (tools/gdipoly.c).  Taking both edges in made every solid a pixel
+     * wider and a pixel taller, which on the thin walls of
+     * Ａマンション平面例.jww is most of the element -- 79 of them covered
+     * 7,809 pixels against the original's 3,818. */
+    for (y = ymin; y < ymax; y++) {
         int xs[8], m = 0;
         for (i = 0, j = n - 1; i < n; j = i++) {
             int y0 = py[j], y1 = py[i];
@@ -674,8 +693,8 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
         for (i = 0; i + 1 < m; i += 2) {
             int a = xs[i], b = xs[i + 1];
             if (a < v->clip.x) a = v->clip.x;
-            if (b > v->clip.x + v->clip.w - 1) b = v->clip.x + v->clip.w - 1;
-            for (; a <= b; a++)
+            if (b > v->clip.x + v->clip.w) b = v->clip.x + v->clip.w;
+            for (; a < b; a++)
                 fb->px[(size_t)y * fb->w + a] = col;
         }
     }

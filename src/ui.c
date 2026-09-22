@@ -215,9 +215,322 @@ void ui_menu(fb_t *fb, int y, int cw)
     fb_fill(fb, 0, y, cw, JW_MENU_H - 2, C_WINDOW);
     fb_hline(fb, 0, y + JW_MENU_H - 2, cw, 0xf2f2f2u);
     fb_hline(fb, 0, y + JW_MENU_H - 1, cw, C_BTNFACE);
-    for (i = 0; i < JW_NMENU; i++)
+    for (i = 0; i < JW_NMENU; i++) {
+        /* the name whose popup is open sits on a patch, the way Windows marks
+           it; with nothing open this is exactly what it always was */
+        if (i == ui_popup_top()) {
+            int x0 = jw_menu[i].x - 8;
+            int x1 = jw_menu[i].x + jw_text_px_w(jw_menu[i].text) + 8;
+
+            fb_fill(fb, x0, y, x1 - x0, JW_MENU_H - 2, JW_POPUP_HOT);
+        }
         jw_text_px(fb, jw_menu[i].x, y + MENU_TEXT_Y + (12 - th) / 2,
                    jw_menu[i].text, C_BTNTEXT);
+    }
+}
+
+/* ------------------------------------------------------------------ popup
+ *
+ * The tree in src/gen/menu.h is flat: depth 0 is a name on the bar, depth 1
+ * what its popup holds, depth 2 what a submenu of that holds.  So a popup is
+ * a range of the array, and walking it means taking the entries at one depth
+ * and stepping over the deeper ones that belong to them.
+ */
+static int pop_top = -1;        /* which name of the bar is open */
+static int pop_sub = -1;        /* the submenu entry that is open, or -1 */
+static int pop_hot = -1;        /* the entry under the mouse */
+
+/* [from,to) of the tree that belongs to top-level `t`, deeper entries and
+   all. */
+static void top_range(int t, int *from, int *to)
+{
+    int i, n = -1;
+
+    *from = *to = 0;
+    for (i = 0; i < JW_NMENU_TREE; i++) {
+        if (jw_menu_tree[i].depth != 0)
+            continue;
+        n++;
+        if (n == t)
+            *from = i + 1;
+        else if (n == t + 1) {
+            *to = i;
+            return;
+        }
+    }
+    if (n >= t)
+        *to = JW_NMENU_TREE;
+}
+
+/* The children of the submenu at `s`: the entries after it that are one
+   deeper, up to the first that is not. */
+static void sub_range(int s, int *from, int *to)
+{
+    int d = jw_menu_tree[s].depth + 1, i;
+
+    *from = s + 1;
+    for (i = s + 1; i < JW_NMENU_TREE; i++)
+        if (jw_menu_tree[i].depth < d) {
+            *to = i;
+            return;
+        }
+    *to = JW_NMENU_TREE;
+}
+
+/* The label without its ampersand, and where the accelerator starts. */
+static const char *pop_label(const char *s, char *out, int cap)
+{
+    const char *tab = 0;
+    int k = 0;
+
+    while (*s && k < cap - 1) {
+        if (*s == '&') {                /* Windows' underline marker */
+            s++;
+            continue;
+        }
+        if (*s == '\t') {
+            tab = s + 1;
+            break;
+        }
+        out[k++] = *s++;
+    }
+    out[k] = 0;
+    return tab;
+}
+
+static int pop_h(int from, int to, int depth)
+{
+    int h = 0, i;
+
+    for (i = from; i < to; i++) {
+        if (jw_menu_tree[i].depth != depth)
+            continue;
+        h += jw_menu_tree[i].kind == 2 ? JW_POPUP_SEP_H : JW_POPUP_ITEM_H;
+    }
+    return h + 2 * JW_POPUP_BORDER;
+}
+
+static int pop_w(int from, int to, int depth)
+{
+    char lab[256];
+    int w = 0, i;
+
+    for (i = from; i < to; i++) {
+        const jw_menu_item_t *m = &jw_menu_tree[i];
+        const char *acc;
+        int n;
+
+        if (m->depth != depth || m->kind == 2)
+            continue;
+        acc = pop_label(m->text, lab, sizeof lab);
+        n = jw_text_px_w(lab);
+        if (acc)
+            n += 24 + jw_text_px_w(acc);
+        else if (m->kind == 1)
+            n += 24;                    /* room for the arrow */
+        if (n > w)
+            w = n;
+    }
+    return JW_POPUP_TEXT_X + w + 20;
+}
+
+/* The y a given entry's row starts at, inside its popup. */
+static int pop_row_y(int from, int to, int depth, int want)
+{
+    int y = JW_POPUP_BORDER, i;
+
+    for (i = from; i < to; i++) {
+        if (jw_menu_tree[i].depth != depth)
+            continue;
+        if (i == want)
+            return y;
+        y += jw_menu_tree[i].kind == 2 ? JW_POPUP_SEP_H : JW_POPUP_ITEM_H;
+    }
+    return -1;
+}
+
+/* Where a top-level popup sits, in client coordinates: hanging off its name
+   and starting at the top of the client, which is where the original puts
+   it -- its popups came back at y = -1 of the frame's client. */
+static void pop_box(int *x, int *y, int *w, int *h,
+                    int *from, int *to)
+{
+    top_range(pop_top, from, to);
+    *x = jw_menu[pop_top].x - 8;
+    *y = 0;
+    *w = pop_w(*from, *to, 1);
+    *h = pop_h(*from, *to, 1);
+}
+
+/* And where the open submenu sits: off its parent item's right edge. */
+static void sub_box(int *x, int *y, int *w, int *h, int *from, int *to)
+{
+    int pf, pt, px, py, pw, ph;
+
+    pop_box(&px, &py, &pw, &ph, &pf, &pt);
+    sub_range(pop_sub, from, to);
+    *x = px + pw - 4;
+    *y = py + pop_row_y(pf, pt, 1, pop_sub) - JW_POPUP_BORDER;
+    *w = pop_w(*from, *to, 2);
+    *h = pop_h(*from, *to, 2);
+}
+
+static int pop_at(int from, int to, int depth, int x0, int y0, int w,
+                  int x, int y)
+{
+    int yy = y0 + JW_POPUP_BORDER, i;
+
+    if (x < x0 || x >= x0 + w)
+        return -1;
+    for (i = from; i < to; i++) {
+        int ih;
+
+        if (jw_menu_tree[i].depth != depth)
+            continue;
+        ih = jw_menu_tree[i].kind == 2 ? JW_POPUP_SEP_H : JW_POPUP_ITEM_H;
+        if (y >= yy && y < yy + ih)
+            return i;
+        yy += ih;
+    }
+    return -1;
+}
+
+int ui_popup_open(int top)
+{
+    if (pop_top == top)
+        return 0;
+    pop_top = top;
+    pop_sub = -1;
+    pop_hot = -1;
+    return 1;
+}
+
+int ui_popup_top(void)
+{
+    return pop_top;
+}
+
+int ui_popup_hit(int x, int y)
+{
+    int px, py, pw, ph, from, to, k;
+
+    if (pop_top < 0)
+        return -1;
+    if (pop_sub >= 0) {
+        int sx, sy, sw, sh, sf, st;
+
+        sub_box(&sx, &sy, &sw, &sh, &sf, &st);
+        k = pop_at(sf, st, 2, sx, sy, sw, x, y);
+        if (k >= 0)
+            return k;
+    }
+    pop_box(&px, &py, &pw, &ph, &from, &to);
+    return pop_at(from, to, 1, px, py, pw, x, y);
+}
+
+int ui_popup_in(int x, int y)
+{
+    int px, py, pw, ph, from, to;
+
+    if (pop_top < 0)
+        return 0;
+    if (pop_sub >= 0) {
+        int sx, sy, sw, sh, sf, st;
+
+        sub_box(&sx, &sy, &sw, &sh, &sf, &st);
+        if (x >= sx && x < sx + sw && y >= sy && y < sy + sh)
+            return 1;
+    }
+    pop_box(&px, &py, &pw, &ph, &from, &to);
+    return x >= px && x < px + pw && y >= py && y < py + ph;
+}
+
+int ui_popup_move(int x, int y)
+{
+    int k = ui_popup_hit(x, y), redraw = 0;
+
+    if (k != pop_hot) {
+        pop_hot = k;
+        redraw = 1;
+    }
+    /* Hovering an item of the top-level popup opens its submenu, or shuts
+       the one that is open -- which is what Windows does. */
+    if (k >= 0 && jw_menu_tree[k].depth == 1) {
+        int want = jw_menu_tree[k].kind == 1 ? k : -1;
+
+        if (want != pop_sub) {
+            pop_sub = want;
+            redraw = 1;
+        }
+    }
+    return redraw;
+}
+
+int ui_popup_press(int x, int y)
+{
+    int k = ui_popup_hit(x, y);
+
+    if (k < 0 || jw_menu_tree[k].kind == 2)
+        return 0;
+    if (jw_menu_tree[k].kind == 1) {    /* a submenu: open it, run nothing */
+        pop_sub = k;
+        return 0;
+    }
+    return jw_menu_tree[k].id;
+}
+
+static void pop_paint(fb_t *fb, int x0, int y0, int w, int h,
+                      int from, int to, int depth)
+{
+    int th = jw_text_height();
+    int y = y0 + JW_POPUP_BORDER, i;
+
+    fb_fill(fb, x0, y0, w, h, JW_POPUP_FACE);
+    fb_edge(fb, x0, y0, w, h, JW_POPUP_EDGE, JW_POPUP_EDGE);
+    for (i = from; i < to; i++) {
+        const jw_menu_item_t *m = &jw_menu_tree[i];
+        char lab[256];
+        const char *acc;
+        int ty;
+
+        if (m->depth != depth)
+            continue;
+        if (m->kind == 2) {
+            fb_hline(fb, x0 + 12, y + JW_POPUP_SEP_H / 2, w - 24,
+                     JW_POPUP_EDGE);
+            y += JW_POPUP_SEP_H;
+            continue;
+        }
+        if (i == pop_hot || (m->kind == 1 && i == pop_sub))
+            fb_fill(fb, x0 + 3, y, w - 6, JW_POPUP_ITEM_H, JW_POPUP_HOT);
+        acc = pop_label(m->text, lab, sizeof lab);
+        ty = y + (JW_POPUP_ITEM_H - th) / 2;
+        jw_text_px(fb, x0 + JW_POPUP_TEXT_X, ty, lab, C_BTNTEXT);
+        if (acc)
+            jw_text_px(fb, x0 + w - 16 - jw_text_px_w(acc), ty, acc,
+                       C_GRAYTEXT);
+        if (m->kind == 1)               /* the arrow that says it opens */
+            jw_text_px(fb, x0 + w - 16, ty, ">", C_BTNTEXT);
+        else if (m->id && (int)m->id == jw_cmd())
+            jw_text_px(fb, x0 + 16, ty, "*", C_BTNTEXT);
+        y += JW_POPUP_ITEM_H;
+    }
+}
+
+void ui_popup_draw(fb_t *fb)
+{
+    int px, py, pw, ph, from, to;
+
+    if (pop_top < 0)
+        return;
+    pop_box(&px, &py, &pw, &ph, &from, &to);
+    pop_paint(fb, px, py, pw, ph, from, to, 1);
+    if (pop_sub >= 0) {
+        int sx, sy, sw, sh, sf, st;
+
+        sub_box(&sx, &sy, &sw, &sh, &sf, &st);
+        pop_paint(fb, sx, sy, sw, sh, sf, st, 2);
+    }
 }
 
 int ui_menu_hit(int x, int y)

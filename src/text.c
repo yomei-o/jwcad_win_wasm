@@ -60,8 +60,8 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
         return;
     stride = (f->width + 7) / 8;
     /* one screen pixel per step, so nothing is skipped when scaling up */
-    nx = (int)(cw * v->scale + 0.5);
-    ny = (int)(ch * v->scale + 0.5);
+    nx = (int)(cw / v->mmpp + 0.5);
+    ny = (int)(ch / v->mmpp + 0.5);
     if (nx < 1) nx = 1;
     if (ny < 1) ny = 1;
     for (j = 0; j < ny; j++) {
@@ -92,6 +92,26 @@ int jw_text_height(void)
 {
     want_fonts();
     return ank12.height;
+}
+
+/* The same walk as jw_text_px, with nothing drawn: the menu has to know how
+   wide a popup must be before it has anywhere to draw it. */
+int jw_text_px_w(const char *s)
+{
+    const unsigned char *p = (const unsigned char *)s;
+    int w = 0;
+
+    want_fonts();
+    while (*p) {
+        if (is_lead(p[0]) && p[1]) {
+            w += kanji12.width;
+            p += 2;
+        } else {
+            w += ank12.width;
+            p += 1;
+        }
+    }
+    return w;
 }
 
 int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)

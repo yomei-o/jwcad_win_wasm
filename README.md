@@ -27,8 +27,10 @@ Yoshifumi Tanaka、2026-09-05 版）を、実行ファイルを Ghidra で逆コ
 **いまできていること: CAD として一通り使えるところまで。** 画面・メニュー・
 ダイアログ・文字列・ツールバーを取り出し、C++ のクラス構成と継承関係、どの関数が
 どのクラスの何番目の仮想関数かまで復元したうえで、**描く・消す・編集する・
-保存する**をひととおり移しました。続きに入る人は [RESUME.md](RESUME.md) から
-読んでください。
+保存する**をひととおり移しました。**メニューも開いて押せます** ——
+ネイティブは原典のメニュー資源とアクセラレータ資源をそのまま Windows に
+渡し、ブラウザは同じ木からポップアップを自分で描きます。続きに入る人は
+[RESUME.md](RESUME.md) から読んでください。
 
 ## 目標
 
@@ -89,30 +91,62 @@ Direct2D のアンチエイリアスに追随する必要がなくなります�
 
 ### 手元で作り直すもの
 
-`orig/` を展開したら、生成物はこれで作れます。
+`orig/` を展開したら、あとは 1 本で作れます。
 
 ```sh
-python tools/mkres.py orig/Jw_win.exe src/gen --maxh 21   # 枠の画像と文字列
+sh tools/gen.sh          # 生成物を全部（-q で原典を動かす手前まで）
+sh tools/check.sh        # 全部の検査
+```
+
+`tools/gen.sh` の前半は `Jw_win.exe` を読むだけの計算で 1 分ほど、後半は
+**原典を実際に起動して**コマンドバー・線属性ダイアログ・検査用の図面を
+読み出すので 20 分ほどかかります。順番に意味があります
+（`btnmap.py` は `rsrc.py` の出力を、`mkcmd.py` は `btnmap.py` の出力を要る）。
+
+中身は次のとおりで、個別に叩いても同じです。
+
+```sh
+python tools/rsrc.py   orig/Jw_win.exe decomp/res         # メニュー・文字列・絵
+python tools/mkres.py  orig/Jw_win.exe src/gen --maxh 21  # 枠の画像と文字列
 python tools/btnmap.py docs/ref_start.png decomp/res/bitmap src/gen/layout.h
-python tools/mkfont.py font src/gen                        # 東雲フォント
-python tools/mkcp932.py                                    # CP932 ↔ UTF-16
-sh  tools/refenv.sh                                        # 基準のレジストリ
-powershell -File tmp/bars.ps1 -Cmds '...' -Out decomp/res/bars.txt
-python tools/mkbars.py                                     # コマンドバー
+python tools/mkcmd.py --write                             # ボタンが送るコマンド
+python tools/mkfont.py font src/gen                       # 東雲フォント
+python tools/mkcp932.py                                   # CP932 ↔ UTF-16
+python tools/mkicon.py orig/Jw_win.exe src/gen            # 窓のアイコン
+python tools/mkmenu.py                                    # メニュー
+python tools/mkstr.py                                     # ステータス行の文言
+python tools/mkpen.py                                     # 新規図面のペン
+python tools/mksunpo.py                                   # 寸法の設定
 gcc -O2 -o tmp/gdicirc.exe tools/gdicirc.c -lgdi32
 tmp/gdicirc.exe > decomp/res/circles.txt
-python tools/mkcirc.py                                     # GDI の円
-# 新規図面のひな型。Jw_win.exe をファイルを開かずに起動して、そのまま
-# 「名前を付けて保存」で decomp/res/new.jww に保存します（図面は空のまま）。
-python tools/mknew.py decomp/res/new.jww src/gen           # 新規図面
-python tools/mksunpo.py                                    # 寸法の設定
-python tools/mkicon.py orig/Jw_win.exe src/gen             # 窓のアイコン
-python tools/mkmenu.py                                     # メニュー
-# 線属性ダイアログ。原典に出させて中身を書き出します。
-powershell -File tmp/jwdraw.ps1 -Clicks 'dlg:32807,docs/ref_zoku.png'     | sed -n '/=== dialog/,$p' | tail -n +2 > decomp/res/zoku.txt
-python tools/mkzoku.py                                     # 線属性
-sh  tools/check.sh                                         # 全部の検査
+python tools/mkcirc.py                                    # GDI の円
+# ここから原典が動きます
+sh  tools/refenv.sh                                       # 基準のレジストリ
+powershell -File tools/bars.ps1 -Out decomp/res/bars.txt  # コマンドバー
+python tools/mkbars.py
+powershell -File tools/jwdraw.ps1 -Open tmp/rect.jww -NoSave     -Out decomp/res/zoku.txt -Clicks 'dlg:32807,tmp/zoku.png'   # 線属性
+python tools/mkzoku.py
+sh  tools/refanswers.sh                                   # 検査用の図面 9 枚
+python tools/mknew.py decomp/res/new.jww src/gen          # 新規図面のひな型
 ```
+
+**原典を駆動するスクリプトは `tools/` にあります。**
+README と RESUME の古い版は `tmp/jwdraw.ps1`・`tmp/bars.ps1` と書いて
+いましたが、`tmp/` はリポジトリに入らないので、新しい環境ではそこが
+まるごと欠けます。いまは `tools/jwdraw.ps1`・`tools/bars.ps1` が本体で、
+`tmp/` の同名は転送するだけです（古い手順もそのまま動きます）。
+
+### 撮る側の環境
+
+基準画像は**画面の拡大縮小 100%** で撮ったものです。`Jw_win.exe` は
+マニフェストに `<dpiAware>true</dpiAware>` を持つ system DPI aware な
+アプリなので、150% のまま起動すると 144dpi で自分を描き直し、字も枠の
+位置も基準と別物になります。`tools/shot.ps1` は窓を 1280×800 にするので、
+作業領域も 800 行以上要ります。
+
+この条件さえ合っていれば**機械が変わっても画素は同じ**です
+（Intel の Windows 11 で撮り直して、`docs/ref_start.png`・`docs/ref_test1.png`・
+`docs/ref_zoku.png` のいずれも文字とテーマの枠を除いて 0 画素差でした）。
 
 ### Jw_win.exe の構成
 
