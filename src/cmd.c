@@ -97,6 +97,11 @@ static int tracking;
  * original: it was given a box and the file it wrote said what was in it. */
 static int sel_step;
 static double sel_x0, sel_y0, sel_x1, sel_y1;
+/* 範囲外選択 (1334): the box takes what lies wholly *outside* it instead.
+   Driving the original says the texts come too, whichever button the second
+   corner was given with -- unlike an ordinary box, where the left button
+   leaves them out. */
+static int sel_outside;
 static double base_x, base_y;   /* 基準点 */
 /* 反転 (the second stage's 1067): once pressed, the next click picks the
    基準線 to flip the selection across. */
@@ -477,6 +482,7 @@ void jw_cmd_set(int id)
     current = id;
     step = 0;
     hou_step = 0;
+    sel_outside = 0;
     comp_n = 0;
     cut_step = 0;
     corner_step = 0;
@@ -2619,10 +2625,16 @@ static void sel_box(jw_drawing *d, int with_text)
     for (i = 0; i < d->ndrawn; i++) {
         jw_obj *o = &d->obj[i];
         double a, b, c2, e;
-        if (o->cls == JW_MOJI && !with_text)
+        int take;
+
+        if (o->cls == JW_MOJI && !with_text && !sel_outside)
             continue;
         jw_obj_box(o, &a, &b, &c2, &e);
-        if (a >= x0 && c2 <= x1 && b >= y0 && e <= y1) {
+        if (sel_outside)        /* nothing of it inside the box at all */
+            take = c2 < x0 || a > x1 || e < y0 || b > y1;
+        else
+            take = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
+        if (take) {
             o->flags = (unsigned short)(o->flags | 2u);
             o->sel = 1;
         }
@@ -2675,7 +2687,15 @@ int jw_cmd_sel_erase(jw_drawing *d)
     op_t *o;
     int i, n = 0;
 
-    if (!d || sel_n <= 0 || sel_step != 4)
+    /* From 範囲選択, 選択確定 is not needed: the original's bar there has no
+       選択確定 at all, and 消去 straight after a box takes what the box
+       caught (driving it bears that out).  From 複写 or 移動 it still does
+       nothing, which is the same run's other half. */
+    if (!d || (sel_step != 4
+               && !(sel_step == 2 && prev == JW_CMD_HANI
+                    && jw_cmd_sel_count(d) > 0)))
+        return 0;
+    if (sel_step == 4 && sel_n <= 0)
         return 0;
     o = op_new();
     for (i = d->nobj - 1; i >= 0; i--)
@@ -2848,6 +2868,9 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (id == 1334 && (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
+                       || current == JW_CMD_IDOU))
+        return sel_outside;
     if (current == JW_CMD_HATCH && id == 1323)
         return ht_jisun;
     if (current == JW_CMD_ZOKUHEN && id == 1352)
@@ -2965,6 +2988,11 @@ int jw_cmd_bar(jw_drawing *d, int id)
     if (!jw_cmd_bar_enabled(d, id))
         return 0;
     switch (id) {
+    case 1334:                  /* 範囲外選択 -- only before the box */
+        if (sel_step != 0)
+            return 0;
+        sel_outside = !sel_outside;
+        return 1;
     case 1120:
         return sel_confirm(d);
     case 1067:

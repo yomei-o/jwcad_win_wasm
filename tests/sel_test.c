@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 #include "../src/app.h"
 #include "../src/cmd.h"
@@ -60,6 +61,25 @@ static int inside(int x0, int y0, int x1, int y1, int with_text)
             n++;
     }
     return n;
+}
+
+static unsigned char *slurp(const char *path, long *n)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned char *b;
+
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    *n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)*n);
+    if (b && fread(b, 1, (size_t)*n, f) != (size_t)*n) {
+        free(b);
+        b = 0;
+    }
+    fclose(f);
+    return b;
 }
 
 int main(int argc, char **argv)
@@ -262,6 +282,56 @@ int main(int argc, char **argv)
     ck(nsel() > 0, "a range to drop again");
     ck(jw_cmd_bar((jw_drawing *)d, 1067) == 1, "選択解除 can be pressed");
     ck(nsel() == 0, "and nothing is picked after it");
+
+    /* 範囲外選択 (1334): the box takes what lies wholly outside it, texts
+       and all.  The original was given the same box on Test5 and then 消去,
+       and decomp/res/selout.jww is what was left. */
+    {
+        jw_drawing ref;
+        unsigned char *b2;
+        long n2;
+        const jw_drawing *d2;
+        int k, nr = 0, nm = 0;
+
+        memset(&ref, 0, sizeof ref);
+        b2 = slurp("decomp/res/selout.jww", &n2);
+        if (!b2 || !jw_parse(&ref, b2, n2)) {
+            printf("BAD  cannot read decomp/res/selout.jww -- drive the "
+                   "original first\n");
+            fails++;
+        } else {
+            const fb_t *fb = app_fb();
+            rect_t r;
+
+            free(b2);
+            b2 = slurp("orig/Test5.jww", &n2);
+            if (b2 && app_open(b2, n2)) {
+                free(b2);
+                ui_view_rect(fb->w, fb->h, &r);
+                jw_cmd_set(JW_CMD_HANI);
+                ck(jw_cmd_bar((jw_drawing *)app_drawing(), 1334) == 1,
+                   "範囲外選択 can be pressed");
+                ck(jw_cmd_bar_check(1334) == 1, "and goes down");
+                app_press(r.x + 250, r.y + 250, 0);
+                app_press(r.x + 850, r.y + 550, 0);
+                ck(nsel() > 0, "the box picks what is outside it");
+                app_command(JW_CMD_SHOUKYO);
+                d2 = app_drawing();
+                for (k = 0; k < ref.ndrawn; k++)
+                    if (ref.obj[k].cls == JW_SEN || ref.obj[k].cls == JW_MOJI)
+                        nr++;
+                for (k = 0; k < d2->ndrawn; k++)
+                    if (d2->obj[k].cls == JW_SEN || d2->obj[k].cls == JW_MOJI)
+                        nm++;
+                /* the original leaves six memo texts of its own behind */
+                ck(nm == nr - 6, "and 消去 leaves what the original left");
+                if (nm != nr - 6)
+                    printf("     ours %d, the original's %d (less its six "
+                           "memos)\n", nm, nr - 6);
+            }
+            jw_free(&ref);
+        }
+    }
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

@@ -101,6 +101,17 @@ make sunpo sunpo 0 \
     '300,600;700,600;cmd:32847;ch:1411,30;400,500;400,450;r300,600;r700,600' \
     || fails=$((fails+1))
 
+# 範囲外選択 (1334): the box takes what lies wholly outside it, texts and
+# all.  Test5 with the box over its middle, and then 消去 -- which needs no
+# 選択確定, because 範囲選択's bar has none.
+echo "=== selout (範囲外選択)"
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 0     -Clicks 'cmd:32787;pb:1334;250,250;850,550;cmd:32794;saveas:decomp/res/selout.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 複写・移動 の 倍率 と 回転角.  The 基準点 is wherever the cursor is sitting
 # when 選択確定 is pressed, so the `m` step puts it somewhere known first --
 # no click there, or the selection would change.  Both start from a blank
