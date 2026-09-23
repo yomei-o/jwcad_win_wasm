@@ -125,6 +125,14 @@ flip() {                # flip <name> <cmd> <the line's two clicks> <pick>
 }
 # 基点変更 (1066, 全選択 の id が 1 段目の次では 基点変更 になります): 押した
 # 次のクリックが基準点で、その次が複写先。カーソルの位置は使われません。
+# 任意方向 (1151): the button cycles 任意方向 / X 方向 / Y 方向 / XY方向, and
+# each squares the move off.  <presses> is the `pb:` steps that get there.
+dir() {                 # dir <name> <presses> <where to put it>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 32772         -Clicks "300,300;500,400;cmd:32804;250,250;550,450;m400,350;btn:1120$2;$3;saveas:decomp/res/$1.jww"         2>&1 | sed 's/^/        /'
+}
 basept() {
     idle
     sh tools/refenv.sh >/dev/null
@@ -139,6 +147,10 @@ while :; do
     flip flip 32804 "600,250;600,550" 600,400
     flip flipmv 32918 "600,250;700,550" 650,400
     basept
+    dir dirx ";pb:1151" 700,500
+    dir diry ";pb:1151;pb:1151" 700,500
+    dir dirxy1 ";pb:1151;pb:1151;pb:1151" 700,500
+    dir dirxy2 ";pb:1151;pb:1151;pb:1151" 500,650
     if [ ! -x tests/xform_test.exe ]; then
         echo "    (tests/xform_test.exe is not built -- not checked)"
         break
