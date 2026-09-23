@@ -734,13 +734,16 @@ static void ent_solid(dxfr *r)
  *     corners leaves the fourth at the origin.  That is what the original
  *     does, odd as it looks (decomp FUN_004a16d0).
  *
- * A boundary of arcs (edge type 2 or 3) makes a 円ソリッド, which the port
- * has nowhere to put yet, so those are left out here.
+ * A boundary that is **one circular arc** (edge type 2) makes a 円ソリッド
+ * instead: the same class with its line type set to 101, and its eight
+ * numbers read as centre, radius, how flat it is, the turn, where it starts
+ * and how far it goes -- CDataEnko's seven, and a 5 on the end.  An
+ * elliptic edge (type 3) is not read.
  */
 static void ent_hatch(dxfr *r)
 {
-    double p[10];
-    int fill = 0, np = 0, arc = 0, i;
+    double p[10], cx = 0, cy = 0, rad = 0, a0 = 0, a1 = 0;
+    int fill = 0, np = 0, etype = 0, nedge = 0, arc = 0, i;
     jw_obj *o;
     attr a;
 
@@ -754,9 +757,25 @@ static void ent_hatch(dxfr *r)
             fill = !strcmp(r->str, "SOLID");
         else if (r->code == 98)
             fill = 0;           /* what follows are seed points */
-        else if (r->code == 72 && (int)r->num >= 2)
-            arc = 1;            /* an arc or an ellipse: not read here */
-        else if (fill && r->code == 10) {
+        else if (r->code == 93)
+            nedge = (int)r->num;
+        else if (r->code == 72) {
+            etype = (int)r->num;
+            if (etype >= 2)
+                arc = 1;
+        } else if (fill && etype == 2) {
+            /* an arc edge: the centre, the radius and the two ends */
+            if (r->code == 10)
+                cx = put_x(r, r->num);
+            else if (r->code == 20)
+                cy = put_y(r, r->num);
+            else if (r->code == 40)
+                rad = put_l(r, r->num);
+            else if (r->code == 50)
+                a0 = r->num;
+            else if (r->code == 51)
+                a1 = r->num;
+        } else if (fill && r->code == 10) {
             if (np < 4)
                 np++;
             p[np * 2] = put_x(r, r->num);
@@ -767,6 +786,27 @@ static void ent_hatch(dxfr *r)
         } else if (fill && r->code == 21 && np < 4) {
             p[(np + 1) * 2 + 1] = put_y(r, r->num);
         }
+    }
+    if (etype == 2 && nedge == 1 && rad > 0.0) {
+        double s = a0 * PI / 180.0, e = a1 * PI / 180.0, sw = e - s;
+
+        while (sw <= 0.0)
+            sw += 2.0 * PI;
+        while (sw > 2.0 * PI)
+            sw -= 2.0 * PI;
+        o = place(r, JW_SOLID, &a);
+        if (o) {
+            o->ltype = 101;     /* a 円ソリッド */
+            o->d[0] = cx;
+            o->d[1] = cy;
+            o->d[2] = rad;
+            o->d[3] = 1.0;      /* round, not squashed */
+            o->d[4] = 0.0;      /* and not turned */
+            o->d[5] = s;
+            o->d[6] = sw;
+            o->d[7] = 5.0;      /* what the original puts there */
+        }
+        return;
     }
     if (arc || np < 3)
         return;

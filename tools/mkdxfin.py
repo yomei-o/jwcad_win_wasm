@@ -170,6 +170,19 @@ def hatches(lay):
         x1, y1 = pts[(i + 1) % len(pts)]
         out.append(i5(72, 1) + g(10, x0) + g(20, y0) + g(11, x1) + g(21, y1))
     out.append(tail(77100, 64400))
+    # a boundary made of one circular arc, which the original turns into a
+    # 円ソリッド rather than a four-cornered one: `93` of 1 says the boundary
+    # has a single edge, `72` of 2 says it is an arc, and then 10/20 is its
+    # centre, 40 its radius, 50/51 its two ends and 73 which way round
+    out.append(head(64100, 41400) + i5(92, 1) + i5(93, 1)
+               + i5(72, 2) + g(10, 64100) + g(20, 41400) + g(40, 4000)
+               + g(50, 0) + g(51, 360) + i5(73, 1))
+    out.append(tail(64100, 41400))
+    # and the same as a part of a circle, from 45 to 270 degrees
+    out.append(head(80100, 41400) + i5(92, 1) + i5(93, 1)
+               + i5(72, 2) + g(10, 80100) + g(20, 41400) + g(40, 4000)
+               + g(50, 45) + g(51, 270) + i5(73, 1))
+    out.append(tail(80100, 41400))
     # and a triangle, to see what the fourth corner becomes
     pts = [(84100, 61400), (90100, 61400), (87100, 67400)]
     out.append(head(84100, 61400) + i5(92, 7) + i5(72, 0) + i5(73, 1)

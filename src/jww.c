@@ -648,6 +648,14 @@ void jw_obj_box(const jw_obj *o, double *x0, double *y0,
         return;
     case JW_SOLID: {
         int i;
+        if (o->ltype == 101) {  /* a 円ソリッド: a circle's box */
+            double a = o->d[2];
+            *x0 = o->d[0] - a;
+            *y0 = o->d[1] - a;
+            *x1 = o->d[0] + a;
+            *y1 = o->d[1] + a;
+            return;
+        }
         *x0 = *x1 = o->d[0];
         *y0 = *y1 = o->d[1];
         for (i = 1; i < 4; i++) {
@@ -679,6 +687,11 @@ void jw_obj_move(jw_obj *o, double dx, double dy)
         o->d[1] += dy;
         return;
     case JW_SOLID:
+        if (o->ltype == 101) {  /* a 円ソリッド moves by its centre */
+            o->d[0] += dx;
+            o->d[1] += dy;
+            return;
+        }
         for (i = 0; i < 4; i++) {
             o->d[i * 2] += dx;
             o->d[i * 2 + 1] += dy;
@@ -710,7 +723,8 @@ void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
     switch (o->cls) {
     case JW_ENKO: n = 1; break;
     case JW_TEN:  n = 1; break;
-    case JW_SOLID: n = 4; break;
+    /* a 円ソリッド has a centre where the others have four corners */
+    case JW_SOLID: n = o->ltype == 101 ? 1 : 4; break;
     default: n = 2; break;
     }
     for (i = 0; i < n; i++) {
@@ -748,7 +762,8 @@ void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy)
     switch (o->cls) {
     case JW_ENKO: n = 1; break;
     case JW_TEN:  n = 1; break;
-    case JW_SOLID: n = 4; break;
+    /* a 円ソリッド has a centre where the others have four corners */
+    case JW_SOLID: n = o->ltype == 101 ? 1 : 4; break;
     default: n = 2; break;
     }
     for (i = 0; i < n; i++) {

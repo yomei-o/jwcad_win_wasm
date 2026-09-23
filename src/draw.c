@@ -716,6 +716,101 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
 /* A solid is four corners, filled.  The fourth repeats the third when it is
  * a triangle.  Colour 10 means "any colour", and then the RGB sits in the
  * trailing long as a COLORREF. */
+/* Fill a ring of points.  The same scanline rule the four-cornered solid
+   below uses, so a round one and a straight one meet the same way. */
+static void fill_ring(fb_t *fb, const jw_view *v, const short *pts, int n,
+                      unsigned int col)
+{
+    int i, j, y, ymin, ymax;
+
+    if (n < 3)
+        return;
+    ymin = ymax = pts[1];
+    for (i = 1; i < n; i++) {
+        if (pts[2 * i + 1] < ymin) ymin = pts[2 * i + 1];
+        if (pts[2 * i + 1] > ymax) ymax = pts[2 * i + 1];
+    }
+    if (ymin < v->clip.y) ymin = v->clip.y;
+    if (ymax > v->clip.y + v->clip.h) ymax = v->clip.y + v->clip.h;
+    for (y = ymin; y < ymax; y++) {
+        int xs[512], m = 0;
+
+        for (i = 0, j = n - 1; i < n; j = i++) {
+            int y0 = pts[2 * j + 1], y1 = pts[2 * i + 1];
+
+            if ((y0 <= y) == (y1 <= y) || m >= 512)
+                continue;
+            xs[m++] = pts[2 * j]
+                    + (int)((double)(y - y0) * (pts[2 * i] - pts[2 * j])
+                            / (y1 - y0) + 0.5);
+        }
+        for (i = 1; i < m; i++) {
+            int k = xs[i], q = i - 1;
+            while (q >= 0 && xs[q] > k) { xs[q + 1] = xs[q]; q--; }
+            xs[q + 1] = k;
+        }
+        for (i = 0; i + 1 < m; i += 2) {
+            int a = xs[i], b = xs[i + 1];
+            if (a < v->clip.x) a = v->clip.x;
+            if (b > v->clip.x + v->clip.w) b = v->clip.x + v->clip.w;
+            for (; a < b; a++)
+                fb->px[(size_t)y * fb->w + a] = col;
+        }
+    }
+}
+
+/* 円ソリッド -- a solid whose line type is 101.  Its eight numbers are an
+ * arc's: centre, radius, how flat, the turn, where it starts and how far it
+ * goes, and a 5 on the end.  The original fills it with GDI; this walks the
+ * same circle table src/draw.c's arcs use and fills the ring, which is the
+ * right shape but not promised to the pixel -- none of the drawings to hand
+ * has one to score against.
+ */
+static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
+                        const jw_obj *o)
+{
+    static short pts[2 * (ARC_MAX + 2)];
+    double r = o->d[2], flat = o->d[6] > 0.0 ? 1.0 : 1.0;
+    double a0 = o->d[5], sw = o->d[6], tilt = o->d[4], ratio = o->d[3];
+    int cx = jw_sx(v, o->d[0]), cy = jw_sy(v, o->d[1]);
+    int rp = (int)(r / v->mmpp + 0.5), n = 0, k, steps;
+    unsigned int col;
+
+    (void)flat;
+    if (rp < 1)
+        return;
+    if (ratio <= 0.0)
+        ratio = 1.0;
+    if (sw <= 0.0)
+        sw = 2.0 * PI;
+    if (sw > 2.0 * PI)
+        sw = 2.0 * PI;
+    col = o->color == 10
+        ? (unsigned)(((o->n & 0xff) << 16) | (o->n & 0xff00)
+                     | ((o->n >> 16) & 0xff))
+        : obj_colour(d, o);
+    /* a point every pixel or so along the rim, and the centre closing it
+       when it is not the whole circle */
+    steps = (int)(sw * rp) + 8;
+    if (steps > ARC_MAX)
+        steps = ARC_MAX;
+    if (sw < 2.0 * PI - 1e-9) {
+        pts[0] = (short)cx;
+        pts[1] = (short)cy;
+        n = 1;
+    }
+    for (k = 0; k <= steps && n < ARC_MAX + 2; k++) {
+        double t = a0 + sw * k / steps;
+        double x = r * cos(t), y = r * ratio * sin(t);
+        double ct = cos(tilt), st = sin(tilt);
+
+        pts[2 * n] = (short)jw_sx(v, o->d[0] + x * ct - y * st);
+        pts[2 * n + 1] = (short)jw_sy(v, o->d[1] + x * st + y * ct);
+        n++;
+    }
+    fill_ring(fb, v, pts, n, col);
+}
+
 static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
                   const jw_obj *o)
 {
@@ -726,6 +821,10 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
        each one lands on the screen */
     if (getenv("JW_NO_SOLID"))
         return;
+    if (o->ltype == 101) {      /* a round one, not four corners */
+        round_solid(fb, v, d, o);
+        return;
+    }
     if (o->color == 10) {
         unsigned c = (unsigned)o->n;
         col = ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff);
