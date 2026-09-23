@@ -600,12 +600,12 @@ sh tools/refenv.sh >/dev/null
 echo "=== aci1, aci2 (what a DXF colour number means)"
 for n in 1 2; do
     [ $n = 1 ] && lo=1 hi=128 || lo=129 hi=255
-    python tools/mkaci.py --dxf tmp/aci$n.dxf $lo $hi
+    python tools/mkaci.py --dxf decomp/res/aci$n.dxf $lo $hi
     cp orig/Test5.jww tmp/rect.jww
     idle
     sh tools/refenv.sh >/dev/null
     $PS -Open tmp/rect.jww -NoSave \
-        -Clicks "import:32960,tmp/aci$n.dxf;saveas:decomp/res/aci$n.jww" \
+        -Clicks "import:32960,decomp/res/aci$n.dxf;saveas:decomp/res/aci$n.jww" \
         2>&1 | sed 's/^/        /'
 done
 idle

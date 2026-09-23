@@ -93,11 +93,22 @@ typedef struct {
        fills the ones after that with the colours it finds. */
     unsigned int xcolor[257];
     int xcolor_n;               /* how many are in use: the named ones    */
+    /* The rest of each colour's record, kept so it can be written back.
+       The colour is in the file twice -- once here and once in the block of
+       names -- and reading a DXF changes both. */
+    struct {
+        int pair;               /* the long beside the colour             */
+        int name;               /* offset into the pool                   */
+        unsigned int rgb2;      /* the colour again                       */
+        int b;
+        double w;
+    } xcolor_rest[257];
 
     /* The 33 「任意線種」, which is where a DXF's line types end up too.
        pat[1..n] are the dash and gap lengths in paper millimetres. */
     struct {
         int n;
+        int name;               /* offset into the pool                   */
         double pat[11];
     } sxf[33];
     int sxf_n;                  /* how many are in use                    */
@@ -118,6 +129,15 @@ typedef struct {
        without inventing the parts it does not understand. */
     unsigned char *head;
     long nhead;
+    /* Where the parts of it this reader does understand sit, so that a
+       drawing can be written back with them changed.  A name is not a fixed
+       size, so a block that holds names is written out again from what is
+       above rather than copied; the numbers beside them are copied through
+       that same code.  -1 means the version has no such block. */
+    long off_scale[16];         /* each layer group's scale, eight bytes  */
+    long off_names, end_names;  /* the 16 by 16 layer names, then 16 more */
+    long off_ctab, end_ctab;    /* the 257 colours: numbers, then names   */
+    long off_sxf, end_sxf;      /* the 33 任意線種                         */
     /* The ten text styles (文字種 1..10) and the one in force.  They sit
        just before the hatch and dimension settings at the end of the header
        -- ten records of three doubles and a long, then one more of the same

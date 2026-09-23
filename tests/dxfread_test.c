@@ -7,9 +7,12 @@
  * the elements have to come out the same: the same count, the same class,
  * the same line type, colour, layer and layer group, and the same numbers.
  *
- * The header is not compared.  The original's save carries the layers it
- * renamed and the 任意色 it made, and the port does not write those back
- * yet -- what it agrees on here is the drawing itself.
+ * The file is then written out and read again, and the parts of the header
+ * the import changes -- the scale, the layer names and the colour table --
+ * are held against the original's too.  The bytes themselves cannot be
+ * compared: the original writes version 700 whatever it read, and the
+ * drawings here are version 600, so everything in it moves from CP932 to
+ * UTF-16 on the way out.
  */
 #include <math.h>
 #include <stdio.h>
@@ -161,6 +164,45 @@ static void alike(const char *base, const char *dxf, const char *answer,
         if (s != t)
             printf("     port %g, original %g\n", s, t);
     }
+
+    /* Out and back in again: what the import changed in the header has to
+       survive being written. */
+    {
+        jw_drawing back;
+        unsigned char *w;
+        long m;
+        int g, l, ok = 1;
+
+        memset(&back, 0, sizeof back);
+        if (!jw_write(&mine, &w, &m) || !jw_parse(&back, w, m)) {
+            printf("BAD  %s: cannot write it back\n", what);
+            fails++;
+        } else {
+            for (g = 0; g < 16 && ok; g++) {
+                if (back.group[g].scale != ref.group[g].scale)
+                    ok = 0;
+                for (l = 0; l < 16 && ok; l++) {
+                    const char *a = jw_str(&back, back.group[g].layer_name[l]);
+                    const char *b = jw_str(&ref, ref.group[g].layer_name[l]);
+
+                    if (strcmp(a ? a : "", b ? b : "")) {
+                        printf("     layer %d-%d: port %s, original %s\n",
+                               g, l, a ? a : "", b ? b : "");
+                        ok = 0;
+                    }
+                }
+            }
+            for (i = 0; i <= 256 && ok; i++)
+                if (back.xcolor[i] != ref.xcolor[i]) {
+                    printf("     colour %d: port %06x, original %06x\n",
+                           100 + i, back.xcolor[i], ref.xcolor[i]);
+                    ok = 0;
+                }
+            ck(ok, "the scale, layers and colours, written and read again");
+            jw_free(&back);
+        }
+        free(w);
+    }
     jw_free(&mine);
     jw_free(&ref);
 }
@@ -176,6 +218,15 @@ int main(void)
        around the middle of those extents instead */
     alike("orig/Test5.jww", "decomp/res/geomext.dxf",
           "decomp/res/geomextin.jww", "the same with half the extents");
+    /* 255 lines, one per colour number: this is the file src/gen/aci.h was
+       made from, so it holds the whole colour table to account -- which
+       lines share a colour, which make a new one, and what each one is.
+       Its entities also name a layer the LAYER table never declared, which
+       is the other way a layer comes about. */
+    alike("orig/Test5.jww", "decomp/res/aci1.dxf", "decomp/res/aci1.jww",
+          "a line of every colour number, 1 to 128");
+    alike("orig/Test5.jww", "decomp/res/aci2.dxf", "decomp/res/aci2.jww",
+          "and 129 to 255");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

@@ -228,6 +228,91 @@ static void w_list(wbuf *w, const jw_drawing *d, int from, int to)
     }
 }
 
+/* The three blocks of the header that hold names, written out of the
+   drawing rather than copied out of the bytes it came in as.  A name is not
+   a fixed size, so one that has changed length would push everything after
+   it along; the numbers that sit beside the names go through here too. */
+static void w_names(wbuf *w, const jw_drawing *d)
+{
+    int g, l;
+
+    for (g = 0; g < 16; g++)
+        for (l = 0; l < 16; l++)
+            w_str(w, jw_str(d, d->group[g].layer_name[l]),
+                  jw_str_wide(d, d->group[g].layer_name[l]));
+    for (g = 0; g < 16; g++)
+        w_str(w, jw_str(d, d->group[g].name),
+              jw_str_wide(d, d->group[g].name));
+}
+
+static void w_ctab(wbuf *w, const jw_drawing *d)
+{
+    int i;
+
+    for (i = 0; i < 257; i++) {
+        w_l(w, (long)d->xcolor[i]);
+        w_l(w, d->xcolor_rest[i].pair);
+    }
+    for (i = 0; i < 257; i++) {
+        w_str(w, jw_str(d, d->xcolor_rest[i].name),
+              jw_str_wide(d, d->xcolor_rest[i].name));
+        w_l(w, (long)d->xcolor_rest[i].rgb2);
+        w_l(w, d->xcolor_rest[i].b);
+        w_d(w, d->xcolor_rest[i].w);
+    }
+}
+
+static void w_sxf(wbuf *w, const jw_drawing *d)
+{
+    int i, j;
+
+    for (i = 0; i < 33; i++) {
+        w_str(w, jw_str(d, d->sxf[i].name), jw_str_wide(d, d->sxf[i].name));
+        w_l(w, d->sxf[i].n);
+        for (j = 0; j < 10; j++)
+            w_d(w, d->sxf[i].pat[j + 1]);
+    }
+}
+
+/* The header: everything but those three blocks goes back exactly as it came
+   in -- there is far more in there than this understands -- and the layer
+   group scales are put in where they sit, which is before any of them.  A
+   drawing that was only read and written again comes out identical, which is
+   what tests/write_test.c is for. */
+static void w_head(wbuf *w, const jw_drawing *d)
+{
+    struct { long off, end; void (*put)(wbuf *, const jw_drawing *); } part[3];
+    long at = 0;
+    int i, g, np = 0;
+
+    if (d->off_names >= 0) {
+        part[np].off = d->off_names;
+        part[np].end = d->end_names;
+        part[np++].put = w_names;
+    }
+    if (d->off_ctab >= 0) {
+        part[np].off = d->off_ctab;
+        part[np].end = d->end_ctab;
+        part[np++].put = w_ctab;
+    }
+    if (d->off_sxf >= 0) {
+        part[np].off = d->off_sxf;
+        part[np].end = d->end_sxf;
+        part[np++].put = w_sxf;
+    }
+    for (i = 0; i < np; i++) {
+        w_raw(w, d->head + at, part[i].off - at);
+        part[i].put(w, d);
+        at = part[i].end;
+    }
+    w_raw(w, d->head + at, d->nhead - at);
+    /* The scales come earlier in the header than any name does, so they are
+       still where the file had them. */
+    for (g = 0; g < 16 && !w->bad; g++)
+        if (d->off_scale[g] > 0 && (np == 0 || d->off_scale[g] + 8 <= part[0].off))
+            memcpy(w->b + d->off_scale[g], &d->group[g].scale, 8);
+}
+
 int jw_write(const jw_drawing *d, unsigned char **out, long *n)
 {
     wbuf w;
@@ -237,7 +322,7 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n)
     if (!d->head || d->nhead <= 0)
         return 0;
     memset(&w, 0, sizeof w);
-    w_raw(&w, d->head, d->nhead);
+    w_head(&w, d);
     w_list(&w, d, 0, d->ndrawn);
     w_list(&w, d, d->ndrawn, d->nobj);
     if (d->version > 0x275)

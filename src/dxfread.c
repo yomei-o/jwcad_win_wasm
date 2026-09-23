@@ -299,14 +299,17 @@ static const char *layer_split(const char *name, int *at)
 static int layer_of(dxfr *r, const char *name)
 {
     int i, at;
+    const char *want = layer_split(name, &at);
 
-    name = layer_split(name, &at);
     for (i = 0; i < r->nlay; i++)
-        if (!strcmp(name, r->lay[i].name))
+        if (!strcmp(want, layer_split(r->lay[i].name, &at)))
             return i;
     if (r->nlay >= NLAYER)
         return 0;
     i = r->nlay++;
+    /* the name as the entity gave it, `_0-0_` and all: the original keeps
+       what it was handed, and the next entity finds it again because both
+       are looked at without that front */
     copy_name(r->lay[i].name, name);
     r->lay[i].ltype = 0;
     r->lay[i].color = 0;
@@ -708,9 +711,17 @@ int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
         r->col[100 + i] = d->xcolor[i];
     r->ncol = 100 + d->xcolor_n;
 
-    /* what was drawn goes; the block definitions go with it */
+    /* what was drawn goes, the block definitions go with it, and every
+       layer loses its name -- the DXF's LAYER table is about to say what
+       the layers are (FUN_0049f4d0) */
     while (d->nobj > 0)
         jw_remove(d, d->nobj - 1);
+    for (i = 0; i < 16; i++) {
+        int l;
+
+        for (l = 0; l < 16; l++)
+            d->group[i].layer_name[l] = -1;
+    }
 
     next(r);
     while (r->code >= 0) {
@@ -728,10 +739,17 @@ int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
         }
         next(r);
     }
-    for (i = 0; i <= 256; i++)
+    /* the colour is in the header twice and the original changes both */
+    for (i = 0; i <= 256; i++) {
         d->xcolor[i] = r->col[100 + i];
+        d->xcolor_rest[i].rgb2 = r->col[100 + i];
+    }
     d->xcolor_n = r->ncol - 100;
-    /* the layer names the import settled on, for whoever writes the file */
+    /* and the layers the DXF named, in the places it named them */
+    for (i = 0; i < r->nlay && i < 256; i++)
+        if (r->lay[i].name[0])
+            d->group[i >> 4].layer_name[i & 0xf] =
+                jw_add_str(d, r->lay[i].name);
     free(r);
     return 1;
 }

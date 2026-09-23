@@ -168,6 +168,7 @@ static void read_header(ar_t *a, jw_drawing *d)
             jw_group *gr = &d->group[g];
             gr->state = ar_l(a);
             gr->write_layer = ar_l(a);
+            d->off_scale[g] = a->o;
             gr->scale = ar_d(a);
             gr->c = v > 0xd3 ? ar_l(a) : 0;
             for (l = 0; l < 16; l++) {
@@ -196,11 +197,13 @@ static void read_header(ar_t *a, jw_drawing *d)
         d->mesh_oy = ar_d(a);
     }
     if (v > 0x3f) {
+        d->off_names = a->o;
         for (g = 0; g < 16; g++)
             for (l = 0; l < 16; l++)
                 d->group[g].layer_name[l] = ar_s(a, d);
         for (g = 0; g < 16; g++)
             d->group[g].name = ar_s(a, d);
+        d->end_names = a->o;
     }
     if (v > 99) {
         ar_skipd(a, 2);
@@ -256,9 +259,10 @@ static void read_header(ar_t *a, jw_drawing *d)
         if (v > 0xe1)
             ar_skipl(a, 2);
         if (v > 0x1a3) {
+            d->off_ctab = a->o;
             for (i = 0; i < 0x101; i++) {     /* the 任意色 */
                 d->xcolor[i] = (unsigned)ar_l(a);
-                ar_l(a);
+                d->xcolor_rest[i].pair = ar_l(a);
             }
             /* Their names.  How many are in use is not a number in the file
                -- the ones that are have a name, and a DXF's colours are
@@ -268,20 +272,26 @@ static void read_header(ar_t *a, jw_drawing *d)
                 int name = ar_s(a, d);
                 if (name >= 0 && jw_str(d, name)[0])
                     d->xcolor_n = i;
-                ar_skipl(a, 2);
-                ar_d(a);
+                d->xcolor_rest[i].name = name;
+                d->xcolor_rest[i].rgb2 = (unsigned)ar_l(a);
+                d->xcolor_rest[i].b = ar_l(a);
+                d->xcolor_rest[i].w = ar_d(a);
             }
+            d->end_ctab = a->o;
             for (i = 0; i < 0x21; i++)
                 ar_skipl(a, 4);
+            d->off_sxf = a->o;
             d->sxf_n = 0;
             for (i = 0; i < 0x21; i++) {      /* the 任意線種 */
                 int j, name = ar_s(a, d);
                 if (name >= 0 && jw_str(d, name)[0])
                     d->sxf_n = i;
+                d->sxf[i].name = name;
                 d->sxf[i].n = ar_l(a);
                 for (j = 0; j < 10; j++)
                     d->sxf[i].pat[j + 1] = ar_d(a);
             }
+            d->end_sxf = a->o;
         }
     }
     /* FUN_004eee80: the hatch and dimension settings, read from
@@ -680,6 +690,9 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     const unsigned char *sig;
 
     memset(d, 0, sizeof *d);
+    d->off_names = d->end_names = -1;
+    d->off_ctab = d->end_ctab = -1;
+    d->off_sxf = d->end_sxf = -1;
     a.b = b;
     a.n = n;
     a.o = 0;
