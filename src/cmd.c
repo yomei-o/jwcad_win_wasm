@@ -132,9 +132,13 @@ static int chu_a = -1, chu_b = -1, chu_step;
    pointed at. */
 static int ses_a = -1, ses_step;
 static double ses_x, ses_y;
+/* 角度指定 and 円上点指定 settle on a line first and then take two points
+   along it: where it passes through, which way it runs, and the first of the
+   two. */
+static double ses_lx, ses_ly, ses_ux, ses_uy, ses_t0;
 /* which of the bar's four buttons is in force: 0 円→円 (1689), 1 点→円
    (1690).  角度指定 (1691) and 円上点指定 (1692) are not done. */
-static int ses_mode;
+static int ses_mode = 1689;     /* the bar button: 1689..1692 */
 /* 接円: the two elements picked, then a click that says which of the four
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
@@ -193,6 +197,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
+    { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
     { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
@@ -424,7 +429,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_SESSEN) {
         ses_step = 0;
         ses_a = -1;
-        ses_mode = 0;           /* 円→円, the one the original enters in */
+        ses_mode = 1689;        /* 円→円, the one the original enters in */
     }
     if (id == JW_CMD_SEKIEN) {
         sek_step = 0;
@@ -1743,6 +1748,95 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
     return made;
 }
 
+/* 接線 角度指定 (1691) and 円上点指定 (1692).
+ *
+ * Both settle on a line that touches the circle and then take two points
+ * along it, and the original asks for them in the same words as the 線
+ * command -- 「始点を指示してください」「終点を指示してください」.  Read out of
+ * the status line, which WM_GETTEXT hands over (tools/jwdraw.ps1's
+ * `read:59393`).
+ *
+ *   角度指定    circle, 始点, 終点.  The 角度 box gives the direction, and of
+ *               the two tangents that way round the one on the side the
+ *               circle was pointed at is taken.
+ *   円上点指定  circle, a point on it, 始点, 終点.  The point is pulled onto
+ *               the circle -- centre plus the radius that way -- and the
+ *               tangent there is the line.
+ *
+ * The ends are the two points **dropped onto the line**, not the points
+ * themselves: the original was clicked well off the line both times and the
+ * segment came back exactly between the two feet (decomp/res/sesang_*.jww,
+ * sescpt_*.jww -- 396.5883 long from clicks 500 pixels apart).
+ */
+static void sesline(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    const jw_obj *c;
+    int i;
+
+    if (ses_step == 0) {                /* the circle */
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0 || d->obj[i].cls != JW_ENKO || d->obj[i].d[2] <= 0.0)
+            return;
+        ses_a = i;
+        ses_x = x;
+        ses_y = y;
+        ses_step = 1;
+        if (ses_mode == 1691) {
+            const char *sa = jw_cmd_box(1412);
+            double ang = sa ? atof(sa) : 0.0;
+            double nx, ny, side;
+
+            c = &d->obj[i];
+            ses_ux = cos(ang * PI / 180.0);
+            ses_uy = sin(ang * PI / 180.0);
+            nx = -ses_uy;
+            ny = ses_ux;
+            side = nx * (x - c->d[0]) + ny * (y - c->d[1]) < 0.0 ? -1.0 : 1.0;
+            ses_lx = c->d[0] + side * c->d[2] * nx;
+            ses_ly = c->d[1] + side * c->d[2] * ny;
+            ses_step = 2;       /* the line is settled; the points are next */
+        }
+        return;
+    }
+    if (ses_a < 0 || ses_a >= d->nobj || d->obj[ses_a].cls != JW_ENKO) {
+        ses_step = 0;
+        return;
+    }
+    c = &d->obj[ses_a];
+    if (ses_step == 1) {                /* 円上点: pull it onto the circle */
+        double dx = x - c->d[0], dy = y - c->d[1];
+        double L = sqrt(dx * dx + dy * dy);
+
+        if (L <= 0.0)
+            return;
+        ses_lx = c->d[0] + c->d[2] * dx / L;
+        ses_ly = c->d[1] + c->d[2] * dy / L;
+        ses_ux = -dy / L;               /* a quarter turn from the radius */
+        ses_uy = dx / L;
+        ses_step = 2;
+        return;
+    }
+    if (ses_step == 2) {                /* 始点 */
+        ses_t0 = ses_ux * (x - ses_lx) + ses_uy * (y - ses_ly);
+        ses_step = 3;
+        return;
+    }
+    {                                   /* 終点 */
+        double t1 = ses_ux * (x - ses_lx) + ses_uy * (y - ses_ly);
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        ses_step = 0;
+        ses_a = -1;
+        if (!o)
+            return;
+        o->d[0] = ses_lx + ses_ux * ses_t0;
+        o->d[1] = ses_ly + ses_uy * ses_t0;
+        o->d[2] = ses_lx + ses_ux * t1;
+        o->d[3] = ses_ly + ses_uy * t1;
+        op_push(1);
+    }
+}
+
 static void sekien(jw_drawing *d, int a, int b, double x, double y)
 {
     const jw_obj *p, *q;
@@ -2142,9 +2236,9 @@ int jw_cmd_bar(jw_drawing *d, int id)
         return 0;
     }
     if (current == JW_CMD_SESSEN) {
-        /* the four ways of drawing a tangent; only the first two are done */
-        if (id == 1689 || id == 1690) {
-            ses_mode = id == 1690;
+        /* the four ways of drawing a tangent */
+        if (id >= 1689 && id <= 1692) {
+            ses_mode = id;
             ses_step = 0;
             ses_a = -1;
             return 1;
@@ -2767,7 +2861,11 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         int i;
         if (button != 0 || !d)
             return;
-        if (ses_mode == 1) {            /* 点→円: the point, then the circle */
+        if (ses_mode == 1691 || ses_mode == 1692) {
+            sesline(d, v, x, y);
+            return;
+        }
+        if (ses_mode == 1690) {         /* 点→円: the point, then the circle */
             if (ses_step == 0) {
                 ses_x = x;
                 ses_y = y;

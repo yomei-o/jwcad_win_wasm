@@ -148,9 +148,25 @@ tensen() {              # tensen <name> <pick on the circle>
         -Clicks "500,400;590,400;cmd:32870;btn:1690;200,250;$2;saveas:decomp/res/tensen_$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 接線, 角度指定 (1691) and 円上点指定 (1692).  Both settle on a line touching
+# the circle and then take a 始点 and a 終点 along it -- the status line asks
+# for them in the 線 command's words, which `read:59393` hands over.  The two
+# points are dropped onto the line, so these click well away from it.
+sesang() {              # sesang <name> <angle> <pick on the circle>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "500,400;590,400;cmd:32870;btn:1691;ch:1412,$2;$3;300,200;800,150;saveas:decomp/res/sesang_$1.jww"         2>&1 | sed 's/^/        /'
+}
+sescpt() {              # sescpt <name> <pick on the circle>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "500,400;590,400;cmd:32870;btn:1692;500,310;$2;300,200;800,150;saveas:decomp/res/sescpt_$1.jww"         2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== sessen (four tangents over one pair of circles, and four from a point)"
+    echo "=== sessen (four tangents over one pair of circles, four from a point, and the other two modes)"
     sessen tt 300,240 700,310
     sessen bb 300,360 700,490
     sessen tb 300,240 700,490
@@ -159,6 +175,12 @@ while :; do
     tensen lr 564,464
     tensen ul 436,336
     tensen ll 436,464
+    sesang t 30 500,310
+    sesang b 30 500,490
+    sesang h 0 500,310
+    sescpt a 564,336
+    sescpt b 436,464
+    sescpt c 436,336
     if [ ! -x tests/sessen_test.exe ]; then
         echo "    (tests/sessen_test.exe is not built -- not checked)"
         break

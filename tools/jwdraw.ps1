@@ -37,7 +37,13 @@
 #                       time.  WM_SETTEXT does not work: the command keeps
 #                       using the value it already has.  The text is
 #                       everything after the first comma, commas included.
-#   set:<id>,<text>     WM_SETTEXT (kept for comparison; does not take)
+#   set:<id>,<text>     WM_SETTEXT.  Some commands keep using the value they
+#                       already have, but the hatch bar reads its boxes when
+#                       実行 is pressed and does take it.
+#   read:59393          the status line.  It is a control of the frame like
+#                       any other and WM_GETTEXT hands its text over, so what
+#                       a command is asking for can be read rather than
+#                       photographed -- 「始点を指示してください」 and so on.
 #   btn:<id>            BM_CLICK a control
 #   off:<id>            turn a checkbox off (a click, so the app is told)
 #   type:<text>         the 文字 command's box, then Enter
