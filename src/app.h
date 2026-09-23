@@ -61,6 +61,11 @@ int  app_moji_open(void);
 const char *app_moji_box(int id);
 int  app_moji_focus(void);
 
+/* 属性選択: whether its dialog is up, and which of its boxes are ticked
+   (one byte per control of src/gen/zokusel.h). */
+int  app_zokusel_open(void);
+const unsigned char *app_zokusel_on(void);
+
 /* The caption and the menu bar.  A front end with a window of its own --
    the native one -- gets them from Windows and leaves this off; the browser
    turns it on and the port draws them above the client.  app_rgba() then

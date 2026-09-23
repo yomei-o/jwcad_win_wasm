@@ -30,6 +30,7 @@ from mkmoji import esc                            # noqa: E402
 
 SRC = 'decomp/res/zokusel.txt'
 OUT = 'src/gen/zokusel.h'
+MASK = 'docs/zokusel_textareas.txt'
 
 WS_VISIBLE = 0x10000000
 BORDER = 8
@@ -91,7 +92,32 @@ def main():
     f.write('};\n#define JW_NZOKUSEL %d\n\n' % len(rows))
     f.write('#endif\n')
     f.close()
-    print('%s: %d controls' % (OUT, len(rows)))
+
+    # and where the original draws text with a Windows font, which the port
+    # cannot match glyph for glyph -- the same list the other two dialogs
+    # have, worked out from the controls rather than by hand
+    g = io.open(MASK, 'w', encoding='utf-8', newline='\n')
+    g.write('# Where the 属性選択 dialog draws text with a Windows font, in\n'
+            '# the coordinates of docs/ref_zokusel.png (the whole %dx%d\n'
+            '# window).  The frame and the caption go with them: Windows\n'
+            '# draws those itself.  Written by tools/mkzokusel.py.\n#\n'
+            '#   python tools/cmp.py docs/ref_zokusel.png '
+            'tests/out/zokusel.png -i %s\n\n' % (287, 476, MASK))
+    g.write('0 0 287 %d\n' % CAPTION)                   # the caption
+    g.write('0 %d %d 437\n' % (CAPTION, BORDER))        # the left edge
+    g.write('%d %d %d 437\n' % (287 - BORDER, CAPTION, BORDER))
+    g.write('0 %d 287 %d\n' % (476 - BORDER, BORDER))   # and the bottom
+    for x, y, ww, hh, cid, k, chk, text in rows:
+        x += BORDER
+        y += CAPTION
+        if k == 'CHECK':                # after the box, which the port draws
+            g.write('%d %d %d %d\n' % (x + 14, y - 1, ww - 13, hh + 2))
+        elif k == 'STATIC':
+            g.write('%d %d %d %d\n' % (x - 1, y - 1, ww + 2, hh + 2))
+        else:                           # a button, inside its own edges
+            g.write('%d %d %d %d\n' % (x + 3, y + 3, ww - 6, hh - 6))
+    g.close()
+    print('%s: %d controls, %s' % (OUT, len(rows), MASK))
     return 0
 
 

@@ -97,6 +97,15 @@ powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Clicks 'cmd:32806;dlg:b1843,tmp/moji.png' >/dev/null
 python tools/mkmoji.py
 
+say '属性選択 dialog, likewise'
+# 範囲選択 with a box already in has the button that opens it, so the command
+# and the box have to come first.  docs/ref_zokusel.png is the committed
+# reference and tests/zokusel_test.c scores the port against it.
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokusel.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1069,docs/ref_zokusel.png' >/dev/null
+python tools/mkzokusel.py
+
 say 'what the original puts at the top of a DXF'
 # A drawing of one line per pen and per line type, written by the port's own
 # writer, exported by the original: the tables in it are the same in every

@@ -232,6 +232,88 @@ int app_moji_open(void)
     return moji_open;
 }
 
+/* ---------------------------------------------------- 属性選択 (1069) --
+ * One byte per control of the dialog, 1 when it is ticked.  The two at the
+ * bottom -- 【指定属性選択】 and 《指定属性除外》 -- are one choice between
+ * them: the original unticks the one when the other is ticked, which is
+ * what driving it showed (a dump taken after pressing 1324 has 1323 off).
+ */
+static int zsel_open;
+static unsigned char zsel_on[64];
+
+int app_zokusel_open(void)
+{
+    return zsel_open;
+}
+
+const unsigned char *app_zokusel_on(void)
+{
+    return zsel_on;
+}
+
+static void zsel_start(void)
+{
+    int i, n = ui_zokusel_n();
+
+    for (i = 0; i < n && i < (int)sizeof zsel_on; i++)
+        zsel_on[i] = (unsigned char)(ui_zokusel_id(i) == 1323);
+    zsel_open = 1;
+}
+
+/* Which kinds the ticks add up to, for jw_cmd_zokusel. */
+static int zsel_mask(void)
+{
+    static const struct { int id, bit; } K[] = {
+        { 1812, JW_ZOK_SEN },   { 2434, JW_ZOK_ENKO },
+        { 2430, JW_ZOK_TEN },   { 1804, JW_ZOK_MOJI },
+        { 2433, JW_ZOK_SOLID }, { 2431, JW_ZOK_HOJO },
+        { 1802, JW_ZOK_BLOCK }
+    };
+    int i, k, n = ui_zokusel_n(), mask = 0;
+
+    for (i = 0; i < n && i < (int)sizeof zsel_on; i++) {
+        if (!zsel_on[i])
+            continue;
+        for (k = 0; k < (int)(sizeof K / sizeof K[0]); k++)
+            if (K[k].id == ui_zokusel_id(i))
+                mask |= K[k].bit;
+    }
+    return mask;
+}
+
+static int press_zokusel(int x, int y)
+{
+    int id = ui_zokusel_hit(fb.w, fb.h, x, y), i, n = ui_zokusel_n();
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1 || id == 2) {           /* either OK does the same thing */
+        int exclude = 0;
+
+        for (i = 0; i < n && i < (int)sizeof zsel_on; i++)
+            if (ui_zokusel_id(i) == 1324 && zsel_on[i])
+                exclude = 1;
+        if (have_drawing)
+            jw_cmd_zokusel(&drawing, zsel_mask(), exclude);
+        zsel_open = 0;
+        return 1;
+    }
+    for (i = 0; i < n && i < (int)sizeof zsel_on; i++) {
+        if (ui_zokusel_id(i) != id)
+            continue;
+        zsel_on[i] = (unsigned char)!zsel_on[i];
+        /* the two at the bottom are one choice */
+        if (zsel_on[i] && (id == 1323 || id == 1324)) {
+            int k, other = id == 1323 ? 1324 : 1323;
+
+            for (k = 0; k < n && k < (int)sizeof zsel_on; k++)
+                if (ui_zokusel_id(k) == other)
+                    zsel_on[k] = 0;
+        }
+    }
+    return 1;
+}
+
 /* Which of the ten the drawing is writing in, 0 if it is a free size. */
 static int moji_current(void)
 {
@@ -413,11 +495,20 @@ int app_press(int x, int y, int button)
         return press_zoku(x, y);
     if (moji_open)
         return press_moji(x, y);
+    if (zsel_open)
+        return press_zokusel(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
 
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        if (id == 1069 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
+                                             1069) > 0) {
+            /* 範囲選択's own button, which only comes alive once a box is
+               in -- the bar has it greyed until then */
+            zsel_start();
+            return 1;
+        }
         if (id == 1843 && jw_cmd() == JW_CMD_MOJI) {
             /* the 文字 bar's own button, which puts the dialog up */
             moji_style = moji_current();
@@ -798,6 +889,8 @@ void app_paint(void)
         ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);
     if (moji_open && have_drawing)
         ui_moji(&fb, &drawing, moji_style);
+    if (zsel_open)
+        ui_zokusel(&fb, zsel_on);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

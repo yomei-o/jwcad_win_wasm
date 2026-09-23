@@ -128,6 +128,14 @@ void ui_moji_rect(int cw, int ch, rect_t *r);
 void ui_moji(fb_t *fb, const jw_drawing *d, int style);
 int  ui_moji_hit(int cw, int ch, int x, int y);
 
+/* 属性選択 -- the dialog the 範囲選択 bar's 1069 puts up once a box is in.
+   `on` is one byte per control of src/gen/zokusel.h, 1 for ticked. */
+void ui_zokusel_rect(int cw, int ch, rect_t *r);
+void ui_zokusel(fb_t *fb, const unsigned char *on);
+int  ui_zokusel_hit(int cw, int ch, int x, int y);
+int  ui_zokusel_n(void);
+int  ui_zokusel_id(int i);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

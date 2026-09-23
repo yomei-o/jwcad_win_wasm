@@ -804,6 +804,30 @@ for k in geom t5; do
     sh tools/refenv.sh >/dev/null
 done
 
+# 属性選択 (1069): with a box already in, the dialog narrows what is picked
+# to one kind of element -- or, with 《指定属性除外》, to everything else.
+# One tick each, then 消去, and what is left is the answer.  The drawing is
+# tools/mkgeom.c's (four lines, four arcs, two points, two solids) except
+# for 文字指定, which is on Test5 because that one has texts.
+echo "=== zoku (属性選択)"
+# tmp/geom.jww is the one the DXF section above made
+for k in 1812,zoksen 2434,zokenko 2430,zokten 2433,zoksol; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp tmp/geom.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:32787;100,100;r1150,650;dlgin:b1069,${k%,*}=!;cmd:32794;saveas:decomp/res/${k#*,}.jww"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:b1069,2434=!,1324=!;cmd:32794;saveas:decomp/res/zokout.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;250,250;r850,550;dlgin:b1069,1804=!;cmd:32794;saveas:decomp/res/zokmoji.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 円ソリッド -- a solid whose line type is 101, which only the DXF reader can
 # make (a HATCH whose boundary is one arc).  decomp/res/hatin.jww is that
 # drawing, and here the original writes it back out in all three formats:

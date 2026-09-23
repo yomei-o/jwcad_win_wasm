@@ -8,6 +8,7 @@
 #include "gen/bars.h"
 #include "gen/zoku.h"
 #include "gen/moji.h"
+#include "gen/zokusel.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -1409,6 +1410,139 @@ int ui_moji_hit(int cw, int ch, int x, int y)
         const jw_mj_t *z = &jw_moji[i];
 
         if (z->kind == JW_MJ_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ---------------------------------------------------- 属性選択 (1069) --
+ * The same dialog as 属性変更 with the 《...に変更》 half hidden, which is
+ * why its controls are so far apart: the ones between them are not on the
+ * screen.  Everything it draws is a box, a line or a piece of text, so
+ * nothing had to be lifted out of the original's picture -- see
+ * tools/mkzokusel.py.  Its caption carries no title, only the cross.
+ */
+/* A label cut to fit its control.  The original clips whatever does not fit
+   half way through a glyph; the port's font is a little wider, so rather
+   than spill onto the dialog's face it drops the characters that do not
+   fit -- the text itself is not scored against the original's anyway. */
+static void zs_text(fb_t *fb, int x, int y, int w, const char *s,
+                    unsigned int col)
+{
+    char t[128];
+    int n = 0;
+
+    while (s[n] && n + 3 < (int)sizeof t) {
+        int k = jw_is_lead((unsigned char)s[n]) && s[n + 1] ? 2 : 1;
+
+        memcpy(t, s, (size_t)(n + k));
+        t[n + k] = 0;
+        if (jw_text_px_w(t) > w)
+            break;
+        n += k;
+    }
+    memcpy(t, s, (size_t)n);
+    t[n] = 0;
+    jw_text_px(fb, x, y, t, col);
+}
+
+void ui_zokusel_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_ZS_W;
+    r->h = JW_ZS_H;
+    r->x = (cw - JW_ZS_W) / 2;
+    r->y = (ch - 42 - JW_ZS_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_zokusel_n(void)
+{
+    return JW_NZOKUSEL;
+}
+
+int ui_zokusel_id(int i)
+{
+    return i >= 0 && i < JW_NZOKUSEL ? jw_zokusel[i].id : 0;
+}
+
+void ui_zokusel(fb_t *fb, const unsigned char *on)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_zokusel_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_ZS_CAPTION, MJ_CAPTION_BG);
+    for (i = 0; i < 9; i++) {   /* the close cross, and no title beside it */
+        fb_fill(fb, r.x + JW_ZS_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_ZS_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_ZS_BORDER;
+    cy = r.y + JW_ZS_CAPTION;
+    fb_fill(fb, cx, cy, JW_ZS_CW, JW_ZS_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NZOKUSEL; i++) {
+        const jw_zs_t *z = &jw_zokusel[i];
+        int x = cx + z->x, y = cy + z->y;
+
+        switch (z->kind) {
+        case JW_ZS_OK:
+        case JW_ZS_PUSH: {
+            int k2 = z->kind == JW_ZS_OK && z->id == 2;
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            {
+                int tw = jw_text_px_w(z->text), tx = x + (z->w - tw) / 2;
+
+                if (tx < x + 3)
+                    tx = x + 3;
+                zs_text(fb, tx, y + (z->h - th) / 2, x + z->w - 3 - tx,
+                        z->text, C_BTNTEXT);
+            }
+            break;
+        }
+        case JW_ZS_CHECK:
+            paint_checkbox(fb, x, y + (z->h - CHECK_W) / 2, on ? on[i] : 0);
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
+                         C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+            break;
+        case JW_ZS_STATIC:
+            jw_text_px(fb, x, y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_zokusel_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_zokusel_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_ZS_BORDER;
+    y -= r.y + JW_ZS_CAPTION;
+    for (i = 0; i < JW_NZOKUSEL; i++) {
+        const jw_zs_t *z = &jw_zokusel[i];
+
+        if (z->kind == JW_ZS_STATIC)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

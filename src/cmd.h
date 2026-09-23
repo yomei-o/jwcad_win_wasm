@@ -133,6 +133,21 @@ int  jw_cmd_sel_count(const jw_drawing *d);
    with one in hand does.  Returns 1 if anything went. */
 int  jw_cmd_sel_erase(jw_drawing *d);
 
+/* 属性選択 -- narrow what is picked to the kinds ticked in the 1069 dialog,
+ * or with 除外 to everything but those.  The mask is JW_ZOK_*; a mask of
+ * nothing leaves the selection as it was.  Returns how many are left.
+ */
+enum {
+    JW_ZOK_SEN   = 1,           /* 直線指定   1812 */
+    JW_ZOK_ENKO  = 2,           /* 円指定     2434 */
+    JW_ZOK_TEN   = 4,           /* 実点指定   2430 */
+    JW_ZOK_MOJI  = 8,           /* 文字指定   1804 */
+    JW_ZOK_SOLID = 16,          /* ソリッド図形指定 2433 */
+    JW_ZOK_HOJO  = 32,          /* 補助線指定 2431 */
+    JW_ZOK_BLOCK = 64           /* ブロック図形指定 1802 */
+};
+int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude);
+
 /* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
    (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */
 int  jw_cmd_sunpo_angle(void);

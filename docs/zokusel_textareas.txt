@@ -1,0 +1,37 @@
+# Where the 属性選択 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_zokusel.png (the whole 287x476
+# window).  The frame and the caption go with them: Windows
+# draws those itself.  Written by tools/mkzokusel.py.
+#
+#   python tools/cmp.py docs/ref_zokusel.png tests/out/zokusel.png -i docs/zokusel_textareas.txt
+
+0 0 287 31
+0 31 8 437
+279 31 8 437
+0 468 287 8
+23 37 239 18
+43 69 110 14
+43 99 87 17
+43 129 103 14
+43 159 108 14
+43 189 106 14
+43 219 68 14
+43 249 106 14
+43 294 138 14
+43 324 139 14
+43 354 153 14
+43 384 160 14
+144 69 16 16
+144 99 16 16
+169 129 99 14
+169 159 99 14
+169 189 96 14
+125 219 62 14
+169 249 96 14
+181 68 97 17
+181 98 97 17
+209 219 54 14
+211 385 59 14
+23 441 239 18
+43 414 125 17
+169 414 111 17

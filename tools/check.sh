@@ -25,6 +25,7 @@ fi
 [ -f src/gen/sunpo.h ]  || { echo "run tools/mksunpo.py first"; exit 1; }
 [ -f src/gen/zoku.h ]   || { echo "run tools/mkzoku.py first";  exit 1; }
 [ -f src/gen/moji.h ]   || { echo "run tools/mkmoji.py first";  exit 1; }
+[ -f src/gen/zokusel.h ] || { echo "run tools/mkzokusel.py first"; exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -70,6 +71,11 @@ echo "=== 書込み文字種変更 —— 原典が描いたダイアログと�
 python tools/cmp.py docs/ref_moji.png tests/out/moji.png \
     -i docs/moji_textareas.txt -d tests/out/moji.diff.png \
     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== 属性選択 —— ダイアログと、原典の選び方との突き合わせ"
+./tests/zokusel_test.exe tests/out/zokusel.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_zokusel.png tests/out/zokusel.png     -i docs/zokusel_textareas.txt -d tests/out/zokusel.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== 接線 —— 原典が引いた 4 本の共通接線との突き合わせ"

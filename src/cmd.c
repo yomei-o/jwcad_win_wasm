@@ -2780,6 +2780,54 @@ static void sel_box(jw_drawing *d, int with_text)
         sel_cut_box(d, x0, y0, x1, y1);
 }
 
+/* Whether an element is one of the kinds the 属性選択 dialog has ticked. */
+static int zok_is(const jw_obj *o, int mask)
+{
+    if ((mask & JW_ZOK_HOJO) && (o->ltype % 100) == 9)
+        return 1;
+    switch (o->cls) {
+    case JW_SEN:   return (mask & JW_ZOK_SEN) != 0;
+    case JW_ENKO:  return (mask & JW_ZOK_ENKO) != 0;
+    case JW_TEN:   return (mask & JW_ZOK_TEN) != 0;
+    case JW_MOJI:  return (mask & JW_ZOK_MOJI) != 0;
+    case JW_SOLID: return (mask & JW_ZOK_SOLID) != 0;
+    case JW_BLOCK: return (mask & JW_ZOK_BLOCK) != 0;
+    default:       return 0;
+    }
+}
+
+/* 属性選択 (1069).  The dialog only narrows what the box already picked:
+ * driving the original bears it out one kind at a time.  A box over the
+ * whole of tools/mkgeom.c's drawing (four lines, four arcs, two points and
+ * two solids) followed by the one tick and 消去 took away just that kind --
+ * 円指定 the four arcs (decomp/res/zokenko.jww), 実点指定 the two points
+ * (zokten), ソリッド図形指定 the two solids (zoksol), 直線指定 the four
+ * lines (zoksen) -- and 文字指定 on Test5 took away its eight texts and
+ * none of its lines (zokmoji).  《指定属性除外》 turns it round: 円指定
+ * with it took away everything but the arcs (zokout).  Ticking it unticks
+ * 【指定属性選択】, so the two are one choice and not two.
+ */
+int jw_cmd_zokusel(jw_drawing *d, int mask, int exclude)
+{
+    int i, n = 0;
+
+    if (!d)
+        return 0;
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+
+        if (!o->sel)
+            continue;
+        if (mask && zok_is(o, mask) == !!exclude) {
+            o->flags = (unsigned short)(o->flags & ~2u);
+            o->sel = 0;
+        } else {
+            n++;
+        }
+    }
+    return n;
+}
+
 /* 選択確定.  The selection is taken as it stands and 基準点 becomes where
  * the mouse is -- the bar's own label for it is ≪基準点：マウス位置≫
  * (string 6144).  Driving the original bears it out: after a confirm its
@@ -3036,6 +3084,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     case 1066:                  /* 全選択, and 基点変更 one stage on: the
                                    original has both of them alive */
         return 1;
+    case 1069:                  /* ＜属性選択＞, once a box is in */
+        return sel_step == 2;
     case 1151:                  /* 任意方向, only once the range is settled */
         return sel_step == 3;
     }
