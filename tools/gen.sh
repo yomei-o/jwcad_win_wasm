@@ -59,6 +59,12 @@ python tools/mkcirc.py
 say "and what GDI covers with a wide pen"
 $CC -O2 -o tmp/gdiwide.exe tools/gdiwide.c -lgdi32
 ./tmp/gdiwide.exe > decomp/res/widepen.txt
+
+say 'where GDI puts the dashes on an arc'
+# Not baked into src/gen: nothing reads it yet.  It is the evidence for what
+# the port still gets wrong about a dashed arc -- see RESUME.md.
+$CC -O2 -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 -lm
+./tmp/gdiarc.exe --table > decomp/res/arcdash.txt
 python tools/mkwide.py
 
 [ "$1" = "-q" ] && { echo; echo "stopped before the parts that run the original"; exit 0; }
