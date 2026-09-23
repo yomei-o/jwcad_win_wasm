@@ -104,6 +104,10 @@ echo "=== SFC 読み込み —— 原典が同じ SFC を開いた結果との�
 ./tests/sfcread_test.exe | sed 's/^/    /'
 
 echo
+echo "=== SFC 書き出し —— 原典が書いた SFC との 1 バイトずつの突き合わせ"
+./tests/sfcwrite_test.exe | sed 's/^/    /'
+
+echo
 echo "=== JWC 読み込み —— 原典が同じ JWC を開いた結果との突き合わせ"
 ./tests/jwcread_test.exe | sed 's/^/    /'
 

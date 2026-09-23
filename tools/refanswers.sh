@@ -629,6 +629,22 @@ $PS -Open tmp/rect.jww -NoSave \
     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
+# The other way round: what the original writes out of two of the shipped
+# drawings, which tests/sfcwrite_test.c scores src/sfcwrite.c against.  Test6
+# is the one with everything in it -- eight groups at their own scales,
+# turned arcs, squashed circles, layers that are switched off.  The name and
+# the moment sit in the header, so the test reads them back out of these.
+echo "=== sfcw5, sfcw6 (the original writing an SFC)"
+for k in 5 6; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test$k.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave -Clicks "export:32976,decomp/res/sfcw$k.sfc" \
+        2>&1 | sed 's/^/        /'
+    idle
+    sh tools/refenv.sh >/dev/null
+done
+
 # and one of arcs both ways round, circles and points, which a drawing of
 # lines does not exercise
 python tools/mksfc.py decomp/res/geo.sfc

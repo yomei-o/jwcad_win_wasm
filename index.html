@@ -26,6 +26,7 @@
 <div id="note">
   <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc"> .jww ・ .dxf ・ .sfc ・ .jwc を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
+  <button id="sfc" type="button">SFC で保存</button>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
@@ -242,6 +243,7 @@
   const move  = mod.cwrap('jw_move',  'number', ['number', 'number']);
   const save      = mod.cwrap('jw_save', 'number', []);
   const saveDxf   = mod.cwrap('jw_save_dxf', 'number', []);
+  const saveSfc   = mod.cwrap('jw_save_sfc', 'number', ['string']);
   const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
   const savedFree = mod.cwrap('jw_saved_free', null, []);
 
@@ -268,6 +270,13 @@
     offer(saveDxf(), openedName.replace(/\.[^.]*$/, '') + '.dxf');
   }
 
+  // SFC形式で保存 (src/sfcwrite.c).  The name it is saved under is written
+  // into the file's header, so it is settled here rather than afterwards.
+  function downloadSfc() {
+    const name = openedName.replace(/\.[^.]*$/, '') + '.sfc';
+    offer(saveSfc(name), name);
+  }
+
   async function load(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const p = mod._malloc(bytes.length);
@@ -289,6 +298,7 @@
   }
 
   document.getElementById('dxf').addEventListener('click', () => downloadDxf());
+  document.getElementById('sfc').addEventListener('click', () => downloadSfc());
 
   document.getElementById('pick').addEventListener('change', e => {
     if (e.target.files[0]) load(e.target.files[0]);

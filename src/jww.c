@@ -238,7 +238,7 @@ static void read_header(ar_t *a, jw_drawing *d)
         for (i = 0; i < 10; i++) {
             unsigned c = (unsigned)ar_l(a);
             d->print_rgb[i] = c;
-            ar_l(a);
+            d->print_width[i] = ar_l(a);
             ar_d(a);
         }
         for (i = 2; i < 10; i++)

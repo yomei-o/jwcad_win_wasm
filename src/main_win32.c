@@ -115,6 +115,53 @@ static int save_dxf(HWND wnd)
     return ok;
 }
 
+/* 「SFC形式で保存」.  The name it is saved under goes in the file, so the
+ * dialog comes first here and the bytes are made afterwards. */
+static int save_sfc(HWND wnd)
+{
+    static const wchar_t filter[] = L"SXF (*.sfc)\0*.sfc\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH];
+    char name[MAX_PATH];
+    unsigned char *b;
+    long n;
+    FILE *f;
+    int ok, i, j;
+
+    lstrcpynW(path, current_path, MAX_PATH);
+    for (i = 0; path[i]; i++)
+        ;
+    while (i > 0 && path[i] != L'.' && path[i] != L'\\' && path[i] != L'/')
+        i--;
+    if (i > 0 && path[i] == L'.')
+        path[i] = 0;
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.lpstrDefExt = L"sfc";
+    o.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&o))
+        return 0;
+    for (i = 0, j = 0; path[i]; i++)    /* the last part of the path, in 932 */
+        if (path[i] == L'\\' || path[i] == L'/')
+            j = i + 1;
+    WideCharToMultiByte(932, 0, path + j, -1, name, MAX_PATH, NULL, NULL);
+    if (!app_save_sfc(name, &b, &n))
+        return 0;
+    f = _wfopen(path, L"wb");
+    if (!f) {
+        free(b);
+        return 0;
+    }
+    ok = fwrite(b, 1, (size_t)n, f) == (size_t)n;
+    fclose(f);
+    free(b);
+    return ok;
+}
+
 /* DXFファイルを開く and SFCファイルを開く.  What either of them
  * makes is not the file that 上書 writes, so what was open stays the file it
  * came from. */
@@ -312,6 +359,9 @@ static int do_action(HWND wnd)
         return open_other(wnd, L"DXF (*.dxf)\0*.dxf\0\0", app_open_dxf);
     case JW_ACT_OPEN_SFC:
         return open_other(wnd, L"SXF (*.sfc)\0*.sfc\0\0", app_open_sfc);
+    case JW_ACT_SAVE_SFC:
+        save_sfc(wnd);
+        break;
     case JW_ACT_OPEN_JWC:
         return open_other(wnd, L"JWC (*.jwc)\0*.jwc\0\0", app_open_jwc);
     }

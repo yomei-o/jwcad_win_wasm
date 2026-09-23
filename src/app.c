@@ -1,5 +1,7 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "app.h"
 #include "ui.h"
@@ -234,6 +236,9 @@ int app_command(int cmd)
     case 32975:                         /* SFCファイルを開く */
         action = JW_ACT_OPEN_SFC;
         return 0;
+    case 32976:                         /* SFC形式で保存 */
+        action = JW_ACT_SAVE_SFC;
+        return 0;
     case 32809:                         /* JWCファイルを開く */
         action = JW_ACT_OPEN_JWC;
         return 0;
@@ -372,6 +377,22 @@ int app_save_dxf(unsigned char **out, long *n)
     if (!have_drawing)
         return 0;
     return jw_dxf_write(&drawing, out, n);
+}
+
+/* 「SFC形式で保存」 (src/sfcwrite.c).  The header carries the name it is
+   being saved under and the moment, spelled the way the original spells it:
+   the year, month and day unpadded and the time padded. */
+int app_save_sfc(const char *name, unsigned char **out, long *n)
+{
+    char stamp[64];
+    time_t now = time(0);
+    struct tm *t = localtime(&now);
+
+    if (!have_drawing)
+        return 0;
+    sprintf(stamp, "%d-%d-%dT%02d:%02d:%02d", t->tm_year + 1900,
+            t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
+    return jw_sfc_write(&drawing, name, stamp, out, n);
 }
 
 int app_move(int x, int y)

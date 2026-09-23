@@ -97,6 +97,9 @@ typedef struct {
        -- DXF colour 1, pure red, comes out as 線色8 because 線色8 prints
        red, though it is pink on screen. */
     unsigned int print_rgb[10];
+    /* and the width it prints at, in screen dots.  Writing an SFC turns it
+       into millimetres with dots * 25.4/300. */
+    int print_width[10];
 
     /* The 257 「任意色」 -- colour numbers 100 to 356.  An element whose
        colour is 100 or more is asking for one of these rather than a pen.
@@ -201,6 +204,13 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
 /* Read a JWC into the drawing, the way 「JWCファイルを開く」 does
    (src/jwcread.c).  Returns 0 if the bytes are not a JWC. */
 int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n);
+
+/* Write the drawing out as SFC, the way 「SFC形式で保存」 does
+   (src/sfcwrite.c).  `name` goes in FILE_NAME and `stamp` is the moment it
+   claims to have been written, which the caller supplies because the
+   original asks the clock.  The caller frees *out. */
+int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
+                 unsigned char **out, long *n);
 
 /* Read an SFC into the drawing, the way 「SFCファイルを開く」 does
    (src/sfcread.c).  What it draws lands inside a 図形, which is what the

@@ -233,6 +233,18 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_dxf(void)
     return saved;
 }
 
+/* The same, as SFC.  The name it is being saved under goes in the file, so
+   the page passes it in. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_sfc(const char *name)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_save_sfc(name, &saved, &saved_n))
+        return 0;
+    return saved;
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_saved_len(void) { return (int)saved_n; }
 
 EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)
