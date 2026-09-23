@@ -166,6 +166,14 @@ static int same_line(const hl *a, const hl *b)
            && fabs(offof(a, b->bx, b->by)) < EPS;
 }
 
+/* Which side of the edge p0->p1 a point falls on: the original's own test,
+   and its "outside" is where this comes out negative. */
+static double side(double ex0, double ey0, double ex1, double ey1,
+                   double px, double py)
+{
+    return (py - ey0) * (ex1 - ex0) - (px - ex0) * (ey1 - ey0);
+}
+
 /* ------------------------------------------------------------------ */
 
 static void emit(jw_hou_out **out, int *n, int *cap, int at,
@@ -350,8 +358,81 @@ static void weld(hl *l, int n, const hbox *w,
     }
 }
 
+/* 範囲内消去 -- the right button on the second corner.  Every line the box
+ * catches loses the part inside it and keeps what sticks out, which is the
+ * arm of the original that runs when its 0x420 is 1: each line is clipped
+ * against the four edges, and the two ends that were cut off are what comes
+ * back.  A line wholly inside the box keeps nothing.
+ */
+static void erase_in(const hl *l, int n, const hbox *w,
+                     jw_hou_out **out, int *no, int *cap)
+{
+    double cx[5], cy[5];
+    int i, k;
+
+    cx[0] = cx[3] = cx[4] = w->x0;
+    cx[1] = cx[2] = w->x1;
+    cy[0] = cy[1] = w->y0;
+    cy[2] = cy[3] = w->y1;
+    cy[4] = w->y0;
+    for (i = 0; i < n; i++) {
+        double ax = l[i].ax, ay = l[i].ay, bx = l[i].bx, by = l[i].by;
+        int cut0 = 0, cut1 = 0;
+
+        for (k = 0; k < 4; k++) {
+            hl e, m;
+            double px, py, t, len, ux, uy;
+
+            e.ax = cx[k];
+            e.ay = cy[k];
+            e.bx = cx[k + 1];
+            e.by = cy[k + 1];
+            m.ax = l[i].ax;
+            m.ay = l[i].ay;
+            m.bx = l[i].bx;
+            m.by = l[i].by;
+            if (!straddles(&m, &e))
+                continue;       /* the edge stays on one side of the line */
+            if (!cross(&m, &e, &px, &py))
+                continue;
+            /* and the crossing has to be on the line itself, not out on
+               its continuation -- the original leaves that to the rect
+               test it does when it gathers the lines */
+            len = dirof(&m, &ux, &uy);
+            t = along(&m, px, py);
+            if (t < -EPS || t > len + EPS)
+                continue;
+            if (side(e.ax, e.ay, e.bx, e.by, bx, by) < 0.0) {
+                bx = px;
+                by = py;
+                cut1 = 1;
+            }
+            if (side(e.ax, e.ay, e.bx, e.by, ax, ay) < 0.0) {
+                ax = px;
+                ay = py;
+                cut0 = 1;
+            }
+        }
+        if (!cut0 && !cut1) {
+            /* it never met an edge: either it is all in the box, and goes,
+               or it is nowhere near it and is left alone */
+            if (inbox(w, (l[i].ax + l[i].bx) / 2, (l[i].ay + l[i].by) / 2))
+                emit(out, no, cap, l[i].at, 0, 0, 0, 0, 1);
+            else
+                emit(out, no, cap, l[i].at, l[i].ax, l[i].ay,
+                     l[i].bx, l[i].by, 0);
+            continue;
+        }
+        if (cut1)
+            emit(out, no, cap, l[i].at, bx, by, l[i].bx, l[i].by, 0);
+        if (cut0)
+            emit(out, no, cap, l[i].at, l[i].ax, l[i].ay, ax, ay, 0);
+    }
+}
+
 int jw_houraku(const jw_drawing *d, double x0, double y0, double x1,
-               double y1, const int *ltypes, int nltype, jw_hou_out **outp)
+               double y1, const int *ltypes, int nltype, int erase,
+               jw_hou_out **outp)
 {
     hbox w;
     hl *l;
@@ -396,6 +477,13 @@ int jw_houraku(const jw_drawing *d, double x0, double y0, double x1,
         l[n].by = o->d[3];
         l[n].at = i;
         n++;
+    }
+    if (erase) {                /* 範囲内消去 takes them all at once */
+        erase_in(l, n, &w, &out, &no, &cap);
+        free(l);
+        free(used);
+        *outp = out;
+        return no;
     }
     /* one batch of the same pen and layer at a time */
     for (i = 0; i < n; i++) {

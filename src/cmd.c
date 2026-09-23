@@ -3269,7 +3269,7 @@ static int hou_ltypes(int *out)
     return n;
 }
 
-static int houraku(jw_drawing *d, double x, double y)
+static int houraku(jw_drawing *d, double x, double y, int erase)
 {
     jw_hou_out *out = 0;
     int ltype[10], nlt, n, i, j, changed = 0;
@@ -3278,7 +3278,7 @@ static int houraku(jw_drawing *d, double x, double y)
     nlt = hou_ltypes(ltype);
     if (!d || nlt == 0)
         return 0;
-    n = jw_houraku(d, hou_x, hou_y, x, y, ltype, nlt, &out);
+    n = jw_houraku(d, hou_x, hou_y, x, y, ltype, nlt, erase, &out);
     if (n <= 0) {
         free(out);
         return 0;
@@ -3352,15 +3352,16 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
     if (current == JW_CMD_HOURAKU) {
-        if (button != 0)        /* (R) is 範囲内消去, which is not done */
-            return;
         if (hou_step == 0) {
+            if (button != 0)    /* the first corner is the left button's */
+                return;
             hou_x = x;
             hou_y = y;
             hou_step = 1;
             return;
         }
-        houraku(d, x, y);
+        /* (L) welds what the box holds, (R) rubs it out */
+        houraku(d, x, y, button != 0);
         hou_step = 0;
         return;
     }

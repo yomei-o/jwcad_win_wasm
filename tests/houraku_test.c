@@ -68,6 +68,7 @@ typedef struct {
     const int *clicks;          /* pairs, ending at -1: the lines */
     int nclick;
     int bx0, by0, bx1, by1;     /* the box */
+    int erase;                  /* the second corner with the right button */
 } hcase;
 
 static void one(const hcase *c)
@@ -101,7 +102,7 @@ static void one(const hcase *c)
             app_press(r.x + c->clicks[i], r.y + c->clicks[i + 1], 0);
         jw_cmd_set(JW_CMD_HOURAKU);
         app_press(r.x + c->bx0, r.y + c->by0, 0);
-        app_press(r.x + c->bx1, r.y + c->by1, 0);
+        app_press(r.x + c->bx1, r.y + c->by1, c->erase);
     }
     d = app_drawing();
 
@@ -192,23 +193,27 @@ int main(void)
 {
     static const hcase C[] = {
         { "the open cross, the box round the crossing only",
-          "decomp/res/houraku1.jww", CROSS, 16, 450, 270, 560, 380 },
+          "decomp/res/houraku1.jww", CROSS, 16, 450, 270, 560, 380, 0 },
         { "the open cross, the box round all of it",
-          "decomp/res/houraku2.jww", CROSS, 16, 150, 100, 850, 550 },
+          "decomp/res/houraku2.jww", CROSS, 16, 150, 100, 850, 550, 0 },
         { "the closed cross, the box round the crossing only",
-          "decomp/res/houraku3.jww", SHUT, 32, 450, 270, 560, 380 },
+          "decomp/res/houraku3.jww", SHUT, 32, 450, 270, 560, 380, 0 },
         { "the closed cross, the box round all of it",
-          "decomp/res/houraku4.jww", SHUT, 32, 150, 100, 850, 550 },
+          "decomp/res/houraku4.jww", SHUT, 32, 150, 100, 850, 550, 0 },
         { "the open cross, the box round the upright pair only",
-          "decomp/res/houraku5.jww", CROSS, 16, 300, 120, 700, 530 },
+          "decomp/res/houraku5.jww", CROSS, 16, 300, 120, 700, 530, 0 },
         { "a closed wall and an open pair through it",
-          "decomp/res/houraku6.jww", WALL_PAIR, 24, 150, 100, 850, 550 },
+          "decomp/res/houraku6.jww", WALL_PAIR, 24, 150, 100, 850, 550, 0 },
         { "the same with the pair capped at the top",
-          "decomp/res/houraku7.jww", WALL_U, 28, 150, 100, 850, 550 },
+          "decomp/res/houraku7.jww", WALL_U, 28, 150, 100, 850, 550, 0 },
         { "two closed rectangles that do not touch",
-          "decomp/res/houraku8.jww", APART, 32, 150, 150, 850, 350 },
+          "decomp/res/houraku8.jww", APART, 32, 150, 150, 850, 350, 0 },
         { "a closed wall with one line through it",
-          "decomp/res/houraku9.jww", WALL_ONE, 20, 150, 100, 850, 550 },
+          "decomp/res/houraku9.jww", WALL_ONE, 20, 150, 100, 850, 550, 0 },
+        { "範囲内消去: the open cross, a box in the middle",
+          "decomp/res/houraku10.jww", CROSS, 16, 450, 270, 560, 380, 1 },
+        { "範囲内消去: the closed cross, a wider box",
+          "decomp/res/houraku11.jww", SHUT, 32, 300, 120, 700, 530, 1 },
     };
     (void)WALL;
     int i;

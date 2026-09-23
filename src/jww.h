@@ -215,8 +215,11 @@ typedef struct {
     int drop;
 } jw_hou_out;
 
+/* `erase` is the right button's 範囲内消去: what the box holds goes and
+   what sticks out of it stays. */
 int jw_houraku(const jw_drawing *d, double x0, double y0, double x1,
-               double y1, const int *ltypes, int nltype, jw_hou_out **outp);
+               double y1, const int *ltypes, int nltype, int erase,
+               jw_hou_out **outp);
 
 /* 「JWC形式で保存」 (src/jwcwrite.c). */
 int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n);
