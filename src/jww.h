@@ -80,6 +80,27 @@ typedef struct {
     /* the ten screen pens.  The file stores a COLORREF, 0x00bbggrr. */
     unsigned int pen_rgb[10];
     int pen_width[10];
+    /* and the ten printing pens, kept as the file has them (0x00bbggrr).
+       Reading a DXF matches its colours against these, not the screen ones
+       -- DXF colour 1, pure red, comes out as 線色8 because 線色8 prints
+       red, though it is pink on screen. */
+    unsigned int print_rgb[10];
+
+    /* The 257 「任意色」 -- colour numbers 100 to 356.  An element whose
+       colour is 100 or more is asking for one of these rather than a pen.
+       A drawing from the original's own template has the first sixteen
+       named (black, red, ... darkgray) and the rest unused; reading a DXF
+       fills the ones after that with the colours it finds. */
+    unsigned int xcolor[257];
+    int xcolor_n;               /* how many are in use: the named ones    */
+
+    /* The 33 「任意線種」, which is where a DXF's line types end up too.
+       pat[1..n] are the dash and gap lengths in paper millimetres. */
+    struct {
+        int n;
+        double pat[11];
+    } sxf[33];
+    int sxf_n;                  /* how many are in use                    */
 
     jw_obj *obj;
     int nobj, cobj;
@@ -144,6 +165,12 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 /* Write the drawing out as DXF, the way 「DXF形式で保存」 does (src/dxf.c).
    The caller frees *out. */
 int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
+
+/* Read a DXF into the drawing, the way 「DXFファイルを開く」 does
+   (src/dxfread.c).  What was drawn goes; the header stays, except that the
+   scale of every layer group is taken from the DXF's extents.  Returns 0 if
+   the bytes are not a DXF. */
+int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n);
 
 /* Take element `i` out of the drawing. */
 void jw_remove(jw_drawing *d, int i);

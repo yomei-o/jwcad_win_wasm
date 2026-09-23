@@ -132,13 +132,6 @@ static int ar_s(ar_t *a, jw_drawing *d)
     return pool_put(d, p, n, unicode);
 }
 
-static void ar_skips(ar_t *a)
-{
-    int unicode;
-    long n = ar_strlen(a, &unicode);
-    ar_raw(a, unicode ? n * 2 : n);
-}
-
 /* ---------------------------------------------------------------- header */
 
 static void read_header(ar_t *a, jw_drawing *d)
@@ -240,7 +233,9 @@ static void read_header(ar_t *a, jw_drawing *d)
             d->pen_width[i] = ar_l(a);
         }
         for (i = 0; i < 10; i++) {
-            ar_skipl(a, 2);
+            unsigned c = (unsigned)ar_l(a);
+            d->print_rgb[i] = c;
+            ar_l(a);
             ar_d(a);
         }
         for (i = 2; i < 10; i++)
@@ -261,19 +256,31 @@ static void read_header(ar_t *a, jw_drawing *d)
         if (v > 0xe1)
             ar_skipl(a, 2);
         if (v > 0x1a3) {
-            for (i = 0; i < 0x101; i++)
-                ar_skipl(a, 2);
-            for (i = 0; i < 0x101; i++) {     /* the colour names */
-                ar_skips(a);
+            for (i = 0; i < 0x101; i++) {     /* the 任意色 */
+                d->xcolor[i] = (unsigned)ar_l(a);
+                ar_l(a);
+            }
+            /* Their names.  How many are in use is not a number in the file
+               -- the ones that are have a name, and a DXF's colours are
+               added after the last of them. */
+            d->xcolor_n = 0;
+            for (i = 0; i < 0x101; i++) {
+                int name = ar_s(a, d);
+                if (name >= 0 && jw_str(d, name)[0])
+                    d->xcolor_n = i;
                 ar_skipl(a, 2);
                 ar_d(a);
             }
             for (i = 0; i < 0x21; i++)
                 ar_skipl(a, 4);
-            for (i = 0; i < 0x21; i++) {      /* the line type names */
-                ar_skips(a);
-                ar_l(a);
-                ar_skipd(a, 10);
+            d->sxf_n = 0;
+            for (i = 0; i < 0x21; i++) {      /* the 任意線種 */
+                int j, name = ar_s(a, d);
+                if (name >= 0 && jw_str(d, name)[0])
+                    d->sxf_n = i;
+                d->sxf[i].n = ar_l(a);
+                for (j = 0; j < 10; j++)
+                    d->sxf[i].pat[j + 1] = ar_d(a);
             }
         }
     }

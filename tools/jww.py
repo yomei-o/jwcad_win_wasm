@@ -62,6 +62,9 @@ class Ar:
         return b.decode('utf-16-le' if uni else 'cp932', 'replace')
 
 
+TABLES = {}
+
+
 def read_header(ar, note=print):
     sig = ar.raw(8)
     if sig != b'JwwData.':
@@ -140,10 +143,10 @@ def read_header(ar, note=print):
     note('pen table -> %#x' % ar.o)
 
     if v > 200:
-        for _ in range(10):
-            ar.l(); ar.l()
-        for _ in range(10):
-            ar.l(); ar.l(); ar.dbl()
+        # the ten screen pens: a COLORREF and a width
+        TABLES['pen'] = [(ar.l(), ar.l()) for _ in range(10)]
+        # and the ten printing pens: a COLORREF, a flag and a width in mm
+        TABLES['ppen'] = [(ar.l(), ar.l(), ar.dbl()) for _ in range(10)]
         for _ in range(2, 10):
             ar.l(); ar.l(); ar.l(); ar.l()
         for _ in range(0xb, 0x10):
@@ -166,16 +169,17 @@ def read_header(ar, note=print):
         if v > 0xe1:
             ar.l(); ar.l()
         if v > 0x1a3:
-            for _ in range(0x101):
-                ar.l(); ar.l()
-            for _ in range(0x101):
-                ar.s(); ar.l(); ar.l(); ar.dbl()
-            for _ in range(0x21):
-                ar.l(); ar.l(); ar.l(); ar.l()
-            for _ in range(0x21):
-                ar.s(); ar.l()
-                for _ in range(10):
-                    ar.dbl()
+            # 257 line colours and 257 line types -- more than the eight pens
+            # the dialogs offer, because reading a DXF makes a new one for
+            # every colour and every linetype it does not already have.
+            TABLES['color'] = [(ar.l(), ar.l()) for _ in range(0x101)]
+            TABLES['ltype'] = [(ar.s(), ar.l(), ar.l(), ar.dbl())
+                               for _ in range(0x101)]
+            TABLES['pcolor'] = [(ar.l(), ar.l(), ar.l(), ar.l())
+                                for _ in range(0x21)]
+            TABLES['pltype'] = [(ar.s(), ar.l(),
+                                 [ar.dbl() for _ in range(10)])
+                                for _ in range(0x21)]
     note('pens and line types -> %#x' % ar.o)
 
     # FUN_004eee80, called from CJw_winDoc::Serialize just before the object
@@ -294,7 +298,29 @@ def read_objects(ar, v, note=print):
     return out
 
 
+def show(objs):
+    """One line per object, everything the reader kept."""
+    for i, o in enumerate(objs):
+        bits = ['%3d %-10s' % (i, o['class'])]
+        for k in ('pen', 'type', 'width', 'f2e', 'f2f', 'flags', 'kind',
+                  'font', 'n'):
+            if k in o:
+                bits.append('%s=%s' % (k, o[k]))
+        for k in ('x0', 'y0', 'x1', 'y1', 'x', 'y', 'w', 'h', 'rgb'):
+            if k in o:
+                bits.append('%s=%g' % (k, o[k]))
+        if 'd' in o:
+            bits.append('d=[%s]' % ' '.join('%g' % v for v in o['d']))
+        if 'pts' in o:
+            bits.append('pts=[%s]' % ' '.join('%g' % v for v in o['pts']))
+        for k in ('face', 'text'):
+            if k in o:
+                bits.append('%s=%r' % (k, o[k]))
+        print(' '.join(bits))
+
+
 def main():
+    """python tools/jww.py <file> [-l]  -- -l lists the objects as well."""
     data = open(sys.argv[1], 'rb').read()
     ar = Ar(data)
     v, name, groups = read_header(ar)
@@ -302,6 +328,12 @@ def main():
     if v > 0x13:
         # the second list (piStack_bc95c[0x40]): the block definitions
         objs += read_objects(ar, v, note=lambda s: print('block list: ' + s))
+    if '-l' in sys.argv[2:]:
+        show(objs)
+    if '-t' in sys.argv[2:]:
+        for k in ('pen', 'ppen', 'color', 'ltype', 'pcolor', 'pltype'):
+            for i, e in enumerate(TABLES.get(k, [])):
+                print('%-7s %3d %s' % (k, i, e))
     import collections
     print('  ' + ', '.join('%s %d' % kv for kv in
                            collections.Counter(o['class'] for o in objs).items()))

@@ -9,11 +9,11 @@ EMCC="$EMSDK/upstream/emscripten/emcc.exe"
 [ -f "$EMCC" ] || { echo "emcc not found at $EMCC" >&2; exit 1; }
 
 EXPORTS=_main,_jw_resize,_jw_width,_jw_height,_jw_rgba,_malloc,_free
-EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj,_jw_zoom,_jw_pan,_jw_fit,_jw_save_dxf
+EXPORTS=$EXPORTS,_jw_open,_jw_error,_jw_nobj,_jw_zoom,_jw_pan,_jw_fit,_jw_save_dxf,_jw_open_dxf
 EXPORTS=$EXPORTS,_jw_press,_jw_move
 EXPORTS=$EXPORTS,_jw_save,_jw_saved_len,_jw_saved_free
 EXPORTS=$EXPORTS,_jw_key,_jw_key_u,_jw_compose_u,_jw_text_in,_jw_cmd_id,_jw_box_focus,_jw_chrome_h,_jw_name
-SRC="src/main_wasm.c src/cp932.c src/pick.c src/app.c src/cmd.c src/ui.c src/fb.c src/jww.c src/jwwrite.c src/dxf.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
+SRC="src/main_wasm.c src/cp932.c src/pick.c src/app.c src/cmd.c src/ui.c src/fb.c src/jww.c src/jwwrite.c src/dxf.c src/dxfread.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
 
 # `cmd /c start /WAIT` does not hand emcc's exit status back, so without the
 # check at the end a compile error is announced as a successful build and the

@@ -225,6 +225,12 @@ int app_command(int cmd)
     case 57604:                         /* 名前を付けて保存 */
         action = JW_ACT_SAVE_AS;
         return 0;
+    case 32961:                         /* DXF形式で保存 */
+        action = JW_ACT_SAVE_DXF;
+        return 0;
+    case 32960:                         /* DXFファイルを開く */
+        action = JW_ACT_OPEN_DXF;
+        return 0;
     }
     /* a command the port does not do yet: it still becomes the one in force
        if it has a button, so the bar and the prompt follow */
@@ -486,6 +492,27 @@ int app_open(const unsigned char *b, long n)
     drawing = d;
     have_drawing = 1;
     have_file = 1;
+    last_error = "";
+    jw_cmd_reset();
+    app_fit();
+    return 1;
+}
+
+/* 「DXFファイルを開く」.  A DXF is read into whatever is open rather than in
+   place of it: the sheet, the pens and the layer names all come from the
+   document, and only the scale is taken from the DXF (src/dxfread.c).  With
+   nothing open it goes into a new drawing. */
+int app_open_dxf(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        app_new();
+    if (!have_drawing)
+        return 0;
+    if (!jw_dxf_read(&drawing, b, n)) {
+        last_error = "not a DXF";
+        return 0;
+    }
+    have_file = 0;              /* the .dxf is not a file 上書 can write */
     last_error = "";
     jw_cmd_reset();
     app_fit();

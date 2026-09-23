@@ -24,7 +24,7 @@
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
 <div id="note">
-  <label><input type="file" id="pick" accept=".jww"> .jww を開く</label>
+  <label><input type="file" id="pick" accept=".jww,.dxf"> .jww ・ .dxf を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
@@ -67,6 +67,7 @@
   const pan   = mod.cwrap('jw_pan',   null, ['number', 'number']);
   const fitv  = mod.cwrap('jw_fit',   null, []);
   const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
+  const openDxf = mod.cwrap('jw_open_dxf', 'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
@@ -269,7 +270,10 @@
     const bytes = new Uint8Array(await file.arrayBuffer());
     const p = mod._malloc(bytes.length);
     mod.HEAPU8.set(bytes, p);
-    const ok = open(p, bytes.length);
+    // A .dxf is read into the drawing that is open rather than in place of
+    // it, which is what the original does with DXFファイルを開く.
+    const dxf = /\.dxf$/i.test(file.name);
+    const ok = dxf ? openDxf(p, bytes.length) : open(p, bytes.length);
     mod._free(p);
     if (ok) {
       openedName = file.name;

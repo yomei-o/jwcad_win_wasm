@@ -547,6 +547,70 @@ $PS -Open tmp/mansion.jww -NoSave -Clicks 'export:32961,decomp/res/mansion.dxf' 
 idle
 sh tools/refenv.sh >/dev/null
 
+# And the other way: the original opening a DXF.  tests/dxfread_test.c holds
+# what src/dxfread.c makes of the same files against these.
+#
+# geom.dxf is a drawing of everything the reader understands -- lines, arcs
+# both ways round, a whole circle, points and solids, and no text, because a
+# text is the one thing the comparison cannot line up (the original leaves
+# its own memo texts in whatever it saves).  geomext.dxf is the same file
+# with its extents halved, which is what settles the scale: the original
+# comes out at 1/100 rather than 1/200, so it says that the scale is read
+# off $EXTMAX and not $LIMMAX.
+echo "=== dxfin, geomin, geomextin (the original opening a DXF)"
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave \
+    -Clicks 'import:32960,decomp/res/pens.dxf;saveas:decomp/res/dxfin.jww' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null \
+    || gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c
+./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
+$PS -Open tmp/geom.jww -NoSave -Clicks 'export:32961,decomp/res/geom.dxf' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+python - <<'PY'
+import io
+b = io.open('decomp/res/geom.dxf', 'rb').read()
+old = b'$EXTMAX\r\n 10\r\n168200\r\n 20\r\n118800\r\n'
+new = b'$EXTMAX\r\n 10\r\n84100\r\n 20\r\n59400\r\n'
+assert old in b, 'the extents are not where they were'
+io.open('decomp/res/geomext.dxf', 'wb').write(b.replace(old, new, 1))
+PY
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave \
+    -Clicks 'import:32960,decomp/res/geom.dxf;saveas:decomp/res/geomin.jww' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave \
+    -Clicks 'import:32960,decomp/res/geomext.dxf;saveas:decomp/res/geomextin.jww' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
+# What the original makes of the 256 colour numbers a DXF can name: 255
+# lines, one per number, in two goes because a drawing has room for only so
+# many new colours.  tools/mkaci.py turns these into src/gen/aci.h.
+echo "=== aci1, aci2 (what a DXF colour number means)"
+for n in 1 2; do
+    [ $n = 1 ] && lo=1 hi=128 || lo=129 hi=255
+    python tools/mkaci.py --dxf tmp/aci$n.dxf $lo $hi
+    cp orig/Test5.jww tmp/rect.jww
+    idle
+    sh tools/refenv.sh >/dev/null
+    $PS -Open tmp/rect.jww -NoSave \
+        -Clicks "import:32960,tmp/aci$n.dxf;saveas:decomp/res/aci$n.jww" \
+        2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

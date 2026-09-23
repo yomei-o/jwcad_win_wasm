@@ -70,6 +70,87 @@ static int save_file(const wchar_t *path)
     return ok;
 }
 
+/* DXF形式で保存: the same drawing through src/dxf.c.  The name it offers
+ * is the open file's with .dxf in place of .jww, and writing it does not make
+ * the DXF "the file" -- 上書 still goes to the .jww it came from. */
+static int save_dxf(HWND wnd)
+{
+    static const wchar_t filter[] = L"DXF (*.dxf)\0*.dxf\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH];
+    unsigned char *b;
+    long n;
+    FILE *f;
+    int ok, i;
+
+    lstrcpynW(path, current_path, MAX_PATH);
+    for (i = 0; path[i]; i++)
+        ;
+    while (i > 0 && path[i] != L'.' && path[i] != L'\\' && path[i] != L'/')
+        i--;
+    if (i > 0 && path[i] == L'.')
+        path[i] = 0;
+    if (!app_save_dxf(&b, &n))
+        return 0;
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.lpstrDefExt = L"dxf";
+    o.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&o)) {
+        free(b);
+        return 0;
+    }
+    f = _wfopen(path, L"wb");
+    if (!f) {
+        free(b);
+        return 0;
+    }
+    ok = fwrite(b, 1, (size_t)n, f) == (size_t)n;
+    fclose(f);
+    free(b);
+    return ok;
+}
+
+/* DXFファイルを開く.  The drawing it makes is not the file that 上書
+ * writes, so what was open stays the file it came from. */
+static int open_dxf(HWND wnd)
+{
+    static const wchar_t filter[] = L"DXF (*.dxf)\0*.dxf\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH];
+    unsigned char *b;
+    long n;
+    FILE *f;
+    int ok = 0;
+
+    path[0] = 0;
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&o))
+        return 0;
+    f = _wfopen(path, L"rb");
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)n);
+    if (b && fread(b, 1, (size_t)n, f) == (size_t)n)
+        ok = app_open_dxf(b, n);
+    fclose(f);
+    free(b);
+    return ok;
+}
+
 static int ask_save(HWND wnd)
 {
     static const wchar_t filter[] = L"Jw_cad (*.jww)\0*.jww\0\0";
@@ -205,16 +286,15 @@ static HACCEL build_accel(void)
     return CreateAcceleratorTableW(a, JW_NACCEL);
 }
 
-/* A command from a menu item, taken the same way a toolbar press is: what
-   needs a file or a dialog comes back through app_take_action(). */
-static void do_command(HWND wnd, int id)
+/* A command from a menu item is taken the same way a toolbar press is: what
+   needs a file or a dialog comes back through app_take_action().
+   Whatever app_command() or app_press() asked for that needs a file or a
+   dialog.  Only 開く changes what is on screen. */
+static int do_action(HWND wnd)
 {
-    int redraw = app_command(id);
-
     switch (app_take_action()) {
     case JW_ACT_OPEN:
-        redraw |= ask_open(wnd);
-        break;
+        return ask_open(wnd);
     case JW_ACT_SAVE:
         if (current_path[0])
             save_file(current_path);
@@ -224,7 +304,20 @@ static void do_command(HWND wnd, int id)
     case JW_ACT_SAVE_AS:
         ask_save(wnd);
         break;
+    case JW_ACT_SAVE_DXF:
+        save_dxf(wnd);
+        break;
+    case JW_ACT_OPEN_DXF:
+        return open_dxf(wnd);
     }
+    return 0;
+}
+
+static void do_command(HWND wnd, int id)
+{
+    int redraw = app_command(id);
+
+    redraw |= do_action(wnd);
     if (redraw) {
         app_paint();
         InvalidateRect(wnd, NULL, FALSE);
@@ -272,20 +365,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     }
     case WM_LBUTTONDOWN: {
         int redraw = app_press((short)LOWORD(lp), (short)HIWORD(lp), 0);
-        switch (app_take_action()) {
-        case JW_ACT_OPEN:
-            redraw |= ask_open(wnd);
-            break;
-        case JW_ACT_SAVE:
-            if (current_path[0])
-                save_file(current_path);
-            else
-                ask_save(wnd);
-            break;
-        case JW_ACT_SAVE_AS:
-            ask_save(wnd);
-            break;
-        }
+        redraw |= do_action(wnd);
         if (redraw) {
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);

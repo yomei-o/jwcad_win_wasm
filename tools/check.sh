@@ -94,6 +94,10 @@ echo "=== DXF 書き出し —— 原典が書いた DXF との突き合わせ"
 ./tests/dxf_test.exe | sed 's/^/    /'
 
 echo
+echo "=== DXF 読み込み —— 原典が同じ DXF を開いた結果との突き合わせ"
+./tests/dxfread_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 

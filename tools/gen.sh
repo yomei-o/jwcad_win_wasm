@@ -96,5 +96,10 @@ say 'the drawings the original itself makes, which the tests are scored against'
 sh tools/refanswers.sh
 python tools/mknew.py decomp/res/new.jww src/gen
 
+# What the original makes of the colour numbers in a DXF: refanswers.sh has
+# just had it open one line per number and save the lot.
+say 'what the original makes of the colour numbers in a DXF'
+python tools/mkaci.py
+
 echo
 echo "src/gen is complete -- sh tools/check.sh"
