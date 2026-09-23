@@ -367,8 +367,24 @@ static void read_base(ar_t *a, int v, jw_obj *o)
    the numbering is one run through the lot.  This is that run. */
 typedef struct {
     short *load;                /* -1 for an object, the class for a class */
-    int n, max;
+    int n, max;                 /* how many, and how many the array holds  */
 } lctx;
+
+/* Room for one more entry in the numbering.  It grows because there is no
+   bound on it: a drawing of a hundred thousand elements numbers every one. */
+static int lctx_room(lctx *L)
+{
+    if (L->n >= L->max) {
+        int c = L->max ? L->max * 2 : 4096;
+        short *p = (short *)realloc(L->load, (size_t)c * sizeof *p);
+
+        if (!p)
+            return 0;
+        L->load = p;
+        L->max = c;
+    }
+    return 1;
+}
 
 static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n);
 
@@ -447,10 +463,16 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
 /* CObList::Serialize, then CArchive's tagged objects.  Classes and objects
  * share one numbering: 0xffff introduces a class, 0x8000 refers back to one,
  * anything else refers back to an object already read.  `n` of -1 means the
- * count has not been read yet, which is how a definition's own list comes. */
+ * count has not been read yet, which is how a definition's own list comes.
+ *
+ * Past 0x3ffe entries MFC cannot say the number in a word any more, so it
+ * writes 0x7fff and then a long, with 0x80000000 on it for a class
+ * (CArchive::ReadObject's wBigObjectTag).  A drawing has to be fairly large
+ * before that happens -- none of the fifteen samples gets there, and the
+ * first one to hand that did was an SFC import of 84,645 elements, which
+ * this reader used to give up on. */
 static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
 {
-    short *load = L->load;
     int i;
 
     if (n < 0) {
@@ -460,11 +482,20 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
     }
     for (i = 0; i < n && !a->bad; i++) {
         unsigned tag = ar_w(a);
-        int cls = -1;
+        unsigned long big = 0;
+        int isclass, cls = -1;
         jw_obj *o;
 
         if (tag == 0)
             continue;
+        if (tag == 0x7fff) {
+            big = (unsigned long)(unsigned)ar_l(a);
+            isclass = (big & 0x80000000UL) != 0;
+            big &= 0x7fffffffUL;
+        } else {
+            isclass = (tag & 0x8000) != 0;
+            big = tag & 0x7fff;
+        }
         if (tag == 0xffff) {
             unsigned len;
             const unsigned char *nm;
@@ -494,20 +525,26 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
             }
             if (cls >= 0 && cls < JW_NCLASS)
                 d->schema[cls] = (unsigned short)schema;
-            if (L->n < L->max)
-                load[L->n++] = (short)cls;
-        } else if (tag & 0x8000) {
-            unsigned ix = tag & 0x7fff;
-            if (ix >= (unsigned)L->n) {
+            if (!lctx_room(L)) {
                 a->bad = 1;
                 break;
             }
-            cls = load[ix];
+            L->load[L->n++] = (short)cls;
+        } else if (isclass) {
+            unsigned long ix = big;
+            if (ix >= (unsigned long)L->n) {
+                a->bad = 1;
+                break;
+            }
+            cls = L->load[ix];
         } else {
             continue;           /* a second reference to an object we have */
         }
-        if (L->n < L->max)
-            load[L->n++] = -1;
+        if (!lctx_room(L)) {
+            a->bad = 1;
+            break;
+        }
+        L->load[L->n++] = -1;
         o = obj_new(d);
         if (!o) {
             a->bad = 1;
@@ -523,18 +560,18 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
    block definitions refer back to a class the drawing itself introduced. */
 static lctx *lctx_new(void)
 {
-    static const int LOADMAX = 1 << 16;
     lctx *L = (lctx *)malloc(sizeof *L);
 
     if (!L)
         return 0;
-    L->load = (short *)calloc((size_t)LOADMAX, sizeof *L->load);
-    L->n = 1;
-    L->max = LOADMAX;
-    if (!L->load) {
+    L->load = 0;
+    L->n = 1;                   /* the numbering is one based */
+    L->max = 0;
+    if (!lctx_room(L)) {
         free(L);
         return 0;
     }
+    L->load[0] = -1;
     return L;
 }
 

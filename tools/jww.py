@@ -301,17 +301,24 @@ def read_objects(ar, v, note=print, load=None):
         if tag == 0:
             out.append(None)
             continue
+        # past 0x3ffe entries the number does not fit in a word, so MFC
+        # writes 0x7fff and then a long, with 0x80000000 on it for a class
+        if tag == 0x7fff:
+            big = struct.unpack('<I', ar.raw(4))[0]
+            isclass, ix = bool(big & 0x80000000), big & 0x7fffffff
+        else:
+            isclass, ix = bool(tag & 0x8000), tag & 0x7fff
         if tag == 0xffff:
             ar.w()                              # schema
             name = ar.raw(ar.w()).decode('latin1')
             load.append(('class', name))
-        elif tag & 0x8000:
-            kind, name = load[tag & 0x7fff]
+        elif isclass:
+            kind, name = load[ix]
             if kind != 'class':
                 raise ValueError('tag %#x at %#x is not a class'
                                  % (tag, ar.o - 2))
         else:
-            kind, o = load[tag]                 # a second reference to one
+            kind, o = load[ix]                  # a second reference to one
             out.append(o)                       # object already read
             continue
         body = BODY.get(name)

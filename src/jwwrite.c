@@ -248,6 +248,10 @@ static void w_objs(wbuf *w, const jw_drawing *d, int from, int to,
             w_w(w, (unsigned)strlen(CLASS_NAME[c]));
             w_raw(w, CLASS_NAME[c], (long)strlen(CLASS_NAME[c]));
             seen[c] = (*nload)++;   /* the class takes a number */
+        } else if (seen[c] > 0x3ffe) {
+            /* too big to say in a word: MFC's wBigObjectTag and a long */
+            w_w(w, 0x7fff);
+            w_l(w, (long)((unsigned long)seen[c] | 0x80000000UL));
         } else {
             w_w(w, 0x8000u | (unsigned)seen[c]);
         }
