@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "draw.h"
 #include "gen/circle.h"
@@ -717,9 +718,20 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
 
+    /* The solids go down first, and everything else on top of them.
+     *
+     * Not in element order: Ａマンション平面例.jww has 79 of them making its
+     * walls, and taken in order they bury the lines that were drawn before
+     * them -- 1,126 pixels the original has black and 1,086 it has cyan came
+     * out grey.  Putting them all down first leaves those lines showing and
+     * takes that drawing from 2,775 mismatched pixels to 568.
+     */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_SOLID && shown(d, &d->obj[i]))
+            solid(fb, v, d, &d->obj[i]);
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
-        if (!shown(d, o))
+        if (!shown(d, o) || o->cls == JW_SOLID)
             continue;
         unsigned int col = obj_colour(d, o);
         int wide = obj_wide(d, o);
@@ -738,9 +750,6 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             put(fb, &v->clip, x, y, col);
             break;
         }
-        case JW_SOLID:
-            solid(fb, v, d, o);
-            break;
         case JW_MOJI:
             jw_text(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
                     o->d[2], o->d[3], o->d[4], o->d[5], col);

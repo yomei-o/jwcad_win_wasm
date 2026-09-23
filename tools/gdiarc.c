@@ -55,7 +55,12 @@ static void draw(int r, int style, double a0, double sweep)
     memset(&lb, 0, sizeof lb);
     lb.lbStyle = BS_SOLID;
     lb.lbColor = RGB(255, 0, 0);
-    if (style == PS_SOLID)
+    /* style >= 100 asks for the geometric pen with (style - 100) as the dash
+       style, so the plain geometric outline can be looked at on its own */
+    if (style >= 100)
+        pen = ExtCreatePen((style - 100) | PS_GEOMETRIC | PS_JOIN_BEVEL, 1,
+                           &lb, 0, 0);
+    else if (style == PS_SOLID)
         pen = CreatePen(PS_SOLID, 1, RGB(255, 0, 0));
     else
         pen = ExtCreatePen(style | PS_GEOMETRIC | PS_JOIN_BEVEL, 1, &lb, 0, 0);
