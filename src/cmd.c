@@ -104,6 +104,12 @@ static int sel_flip;
 /* 基点変更 (the second stage's 1066): the next click is the new 基準点, and
    the one after that places as usual. */
 static int sel_base_wait;
+/* 任意方向 (the second stage's 1151).  The button cycles through four
+   labels -- 任意方向, X 方向, Y 方向, XY方向 -- and each one squares the move
+   off: X keeps only the across part, Y only the up-and-down one, and XY
+   keeps whichever of the two is the longer.  Read off the original by
+   placing the same copy in each of them. */
+static int sel_dir;
 /* What the selected elements looked like when 基準点 was taken, so a move
    can put them at that place plus the offset however often it is done. */
 static jw_obj *sel_was;
@@ -499,7 +505,7 @@ void jw_cmd_set(int id)
     }
     if (id == JW_CMD_ZOKUHEN)
         zh_type = zh_layer = 1;
-    sel_flip = sel_base_wait = 0;
+    sel_flip = sel_base_wait = sel_dir = 0;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_nreg = 0;
@@ -2708,6 +2714,19 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis)
     }
 }
 
+/* The label the 任意方向 button carries, which changes as it is pressed. */
+const char *jw_cmd_dir_text(void)
+{
+    static const char *const s[4] = {
+        "\x94\x43\x88\xd3\x95\xfb\x8c\xfc",     /* 任意方向 */
+        "X \x95\xfb\x8c\xfc",                        /* X 方向 */
+        "Y \x95\xfb\x8c\xfc",                        /* Y 方向 */
+        "XY\x95\xfb\x8c\xfc"                         /* XY方向 */
+    };
+
+    return s[sel_dir & 3];
+}
+
 static void sel_place(jw_drawing *d, double x, double y)
 {
     double dx = x - base_x, dy = y - base_y;
@@ -2716,6 +2735,16 @@ static void sel_place(jw_drawing *d, double x, double y)
 
     if (!d || sel_n <= 0)
         return;
+    switch (sel_dir) {          /* 任意方向 squares the move off */
+    case 1: dy = 0.0; break;
+    case 2: dx = 0.0; break;
+    case 3:
+        if ((dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy))
+            dy = 0.0;
+        else
+            dx = 0.0;
+        break;
+    }
     if (current == JW_CMD_IDOU) {
         op_t *o = op_new();
         for (i = 0; i < sel_n; i++) {
@@ -2800,6 +2829,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     case 1066:                  /* 全選択, and 基点変更 one stage on: the
                                    original has both of them alive */
         return 1;
+    case 1151:                  /* 任意方向, only once the range is settled */
+        return sel_step == 3;
     }
     return -1;                  /* not one this port knows about */
 }
@@ -2903,9 +2934,15 @@ int jw_cmd_bar(jw_drawing *d, int id)
         sel_clear(d);
         sel_step = 0;
         sel_flip = sel_base_wait = 0;
+        sel_dir = 0;
         return 1;
     case 1059:                  /* 0ﾟ/90ﾟ on 寸法's bar */
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
+        return 1;
+    case 1151:                  /* 任意方向 -- X, Y, XY and round again */
+        if (sel_step != 3)
+            return 0;
+        sel_dir = (sel_dir + 1) & 3;
         return 1;
     case 1066: {                /* 全選択, or 基点変更 one stage on */
         int i;

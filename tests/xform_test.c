@@ -416,6 +416,100 @@ static void run_base(const char *path, const char *what)
     jw_free(&ref);
 }
 
+/* 任意方向 (1151): the button cycles 任意方向 → X 方向 → Y 方向 → XY方向.
+ *
+ * X keeps only the across part of the move, Y only the up-and-down one, and
+ * XY keeps whichever is longer.  The original was given the same copy in
+ * each of them; the answers here are the four it left.
+ */
+static void run_dir(const char *path, int presses, int cx, int cy,
+                    const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *want[4];
+    int i, nw = 0, before;
+    double worst = 0;
+
+    printf("%s\n", what);
+    b = slurp(path, &n);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls == JW_SEN && i >= 4 && nw < 4)
+            want[nw++] = &ref.obj[i];
+    ck(nw == 4, "  the original's copy is in the file");
+    if (nw != 4) {
+        jw_free(&ref);
+        return;
+    }
+
+    app_resize(1264, 741);
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open decomp/res/new.jww\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    for (i = 0; i < 4; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+        int c;
+
+        for (c = 0; c < 4; c++)
+            o->d[c] = rect[i].d[c];
+    }
+    before = d->ndrawn;
+
+    jw_cmd_set(JW_CMD_FUKUSHA);
+    type_box(1411, "");
+    type_box(1412, "");
+    jw_cmd_point(d, app_view(), PX(250), PY(250), 0);
+    jw_cmd_point(d, app_view(), PX(550), PY(450), 0);
+    jw_cmd_track(PX(400), PY(350));
+    ck(jw_cmd_bar(d, 1120) == 1, "  選択確定 can be pressed");
+    for (i = 0; i < presses; i++)
+        ck(jw_cmd_bar(d, 1151) == 1, "  任意方向 can be pressed");
+    jw_cmd_point(d, app_view(), PX(cx), PY(cy), 0);
+    ck(d->ndrawn == before + 4, "  the click leaves the copy");
+    if (d->ndrawn != before + 4) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < 4; i++) {
+        const jw_obj *o = &d->obj[before + i];
+        int c;
+
+        for (c = 0; c < 4; c++) {
+            double e = fabs(o->d[c] - want[i]->d[c]);
+
+            if (e > worst)
+                worst = e;
+        }
+    }
+    if (worst > 1e-6)
+        printf("     worst disagreement %.6g\n"
+               "     ours   %.4f,%.4f -> %.4f,%.4f\n"
+               "     theirs %.4f,%.4f -> %.4f,%.4f\n", worst,
+               d->obj[before].d[0], d->obj[before].d[1],
+               d->obj[before].d[2], d->obj[before].d[3],
+               want[0]->d[0], want[0]->d[1], want[0]->d[2], want[0]->d[3]);
+    ck(worst <= 1e-6, "  squared off the way the original squares it");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     if (!read_rect()) {
@@ -432,6 +526,14 @@ int main(void)
              "移動の反転, across a sloping one:");
     run_base("decomp/res/basept.jww",
              "複写の基点変更, the cursor no longer the 基準点:");
+    run_dir("decomp/res/dirx.jww", 1, 700, 500, "X 方向:");
+    run_dir("decomp/res/diry.jww", 2, 700, 500, "Y 方向:");
+    run_dir("decomp/res/dirxy1.jww", 3, 700, 500,
+            "XY方向 with the wider move:");
+    run_dir("decomp/res/dirxy2.jww", 3, 500, 650,
+            "XY方向 with the taller one:");
+    ck(!strcmp(jw_cmd_dir_text(), "XY\x95\xfb\x8c\xfc"),
+       "and the button is carrying XY方向 by now");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
