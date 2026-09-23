@@ -112,6 +112,16 @@ $PS -Open tmp/rect.jww -Cmd 0     -Clicks 'cmd:32787;pb:1334;250,250;850,550;cmd
 idle
 sh tools/refenv.sh >/dev/null
 
+# 切取り選択 (1344): the same box, and the lines that cross it are cut at
+# its edge.  Not implemented yet -- this is here so the answer is on hand.
+echo "=== selcut (切取り選択)"
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 0     -Clicks 'cmd:32787;pb:1344;250,250;850,550;cmd:32794;saveas:decomp/res/selcut.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 複写・移動 の 倍率 と 回転角.  The 基準点 is wherever the cursor is sitting
 # when 選択確定 is pressed, so the `m` step puts it somewhere known first --
 # no click there, or the selection would change.  Both start from a blank
