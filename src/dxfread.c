@@ -25,8 +25,8 @@
  *     (FUN_0049e380), so a DXF whose DASHED1 is not jw's 点線1 comes in as
  *     a new 任意線種.
  *
- * MTEXT, HATCH and DIMENSION are not read yet; the entities that are are
- * LINE, ARC, CIRCLE, ELLIPSE, POINT, SOLID, TEXT, POLYLINE, LWPOLYLINE and
+ * HATCH and DIMENSION are not read yet; the entities that are are LINE,
+ * ARC, CIRCLE, ELLIPSE, POINT, SOLID, TEXT, MTEXT, POLYLINE, LWPOLYLINE and
  * INSERT -- and with the last of those, the BLOCKS section.
  */
 #include <math.h>
@@ -720,6 +720,63 @@ static void ent_solid(dxfr *r)
     }
 }
 
+/* MTEXT, which is not TEXT with more in it: its colour comes from the layer
+   rather than from the pen, the place it names is the *top* of the line
+   rather than the foot of it, and 41 is how wide a box the words may fill
+   rather than how wide the letters are.  Read off a file made here and
+   opened by the original; only the top-left anchor (71 of 1) was tried. */
+static void ent_mtext(dxfr *r)
+{
+    double x = 0, y = 0, h = 0, rot = 0.0, len;
+    char txt[512];
+    jw_obj *o;
+    attr a;
+    int i, n = 0;
+
+    txt[0] = 0;
+    attr_start(&a);
+    for (next(r); r->code > 0; next(r)) {
+        if (r->code == 8) {
+            a.layer = layer_of(r, r->str);
+            a.color = r->lay[a.layer].color;
+            continue;
+        }
+        switch (r->code) {
+        case 0x32: rot = r->num; break;
+        case 1:
+            for (i = 0; i < (int)sizeof txt - 1 && r->str[i]; i++)
+                txt[i] = r->str[i];
+            txt[i] = 0;
+            break;
+        case 10: x = put_x(r, r->num); break;
+        case 20: y = put_y(r, r->num); break;
+        case 40: h = put_l(r, r->num); break;
+        }
+    }
+    o = jw_add(r->d, JW_MOJI);
+    if (!o)
+        return;
+    o->layer = (unsigned short)(a.layer & 0xf);
+    o->lgroup = (unsigned short)((a.layer >> 4) & 0xf);
+    if (a.color > 0)
+        o->color = (unsigned short)a.color;
+    while (txt[n])
+        n++;
+    len = (double)n * h / 2.0;
+    o->d[0] = x;
+    o->d[1] = y - h;            /* the place named is the top */
+    o->d[2] = x + len;
+    o->d[3] = y - h;
+    o->d[4] = h;
+    o->d[5] = h;
+    o->d[6] = 0.0;
+    /* the turn is kept but not acted on: the words stay level */
+    o->d[7] = rot;
+    o->n = 0;
+    o->text = jw_add_str(r->d, txt);
+    o->face = jw_add_str(r->d, JW_DXF_FACE);
+}
+
 /* TEXT.  The original's handler (FUN_004a6c90) has no case for the colour,
    so a text comes in with the pen the document is writing with however the
    DXF colours it; what it does read is the place, the height, how wide the
@@ -777,6 +834,7 @@ static void ent_text(dxfr *r)
 
 static void ent_poly(dxfr *r, int lw);
 static void ent_ellipse(dxfr *r);
+static void ent_mtext(dxfr *r);
 static void ent_insert(dxfr *r);
 static void ent_skip(dxfr *r);
 
@@ -808,6 +866,8 @@ static void entity(dxfr *r)
         ent_insert(r);
     else if (!strcmp(r->str, "ELLIPSE"))
         ent_ellipse(r);
+    else if (!strcmp(r->str, "MTEXT"))
+        ent_mtext(r);
     else
         ent_skip(r);
 }

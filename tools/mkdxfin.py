@@ -103,6 +103,17 @@ def ellipses(lay):
     return b''.join(out)
 
 
+def mtexts(lay):
+    """MTEXT names the top of the line, not the foot of it"""
+    out = []
+    for x, y, h, rot, t in ((64100, 61400, 500, 0, 'MTEXT one'),
+                            (64100, 71400, 800, 30, '\u65e5\u672c\u8a9e MT')):
+        out.append(g(0, 'MTEXT') + lay + i5(62, 3) + g(10, x) + g(20, y)
+                   + g(40, h) + g(41, 0) + g(50, rot) + i5(71, 1))
+        out.append(('  1\r\n%s\r\n' % t).encode('cp932'))
+    return b''.join(out)
+
+
 def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else 'text'
     out = sys.argv[2] if len(sys.argv) > 2 else 'decomp/res/%s.dxf' % kind
@@ -112,6 +123,8 @@ def main():
         body = texts(lay)
     elif kind == 'poly':
         body = polys(lay)
+    elif kind == 'mtext':
+        body = mtexts(lay)
     elif kind == 'ellipse':
         body = ellipses(lay)
     elif kind == 'insert':
@@ -119,7 +132,7 @@ def main():
                             b'  2\r\nBLOCKS\r\n' + block(lay), 1)
         body = inserts(lay)
     else:
-        print('which: text, poly, ellipse or insert')
+        print('which: text, mtext, poly, ellipse or insert')
         return
     io.open(out, 'wb').write(head + body + g(0, 'ENDSEC') + g(0, 'EOF'))
     print('%s: %s' % (out, kind))
