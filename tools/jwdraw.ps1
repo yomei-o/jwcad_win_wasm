@@ -786,9 +786,38 @@ try {
             }
 
             # the left button with Shift held, which some commands read as a
-            # third way of clicking (包絡処理's 中間消去, for one)
+            # third way of clicking (包絡処理's 中間消去, for one).  The
+            # original asks GetKeyState, so this does not reach it; the drag
+            # below is the way in.
             '^s(\d+),(\d+)$' {
                 Click $view ([int]$Matches[1]) ([int]$Matches[2]) $false $false $true
+                break
+            }
+
+            # press at a point, pull by dx,dy, let go -- which is how the
+            # original's 「Ｌ←」 and the clock menus are given
+            '^d(\d+),(\d+),(-?\d+),(-?\d+)$' {
+                $x = [int]$Matches[1]; $y = [int]$Matches[2]
+                $dx = [int]$Matches[3]; $dy = [int]$Matches[4]
+                $l0 = LParam $x $y
+                $l1 = LParam ($x + $dx) ($y + $dy)
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0, $l0)
+                Start-Sleep -Milliseconds 60
+                $pt = [Jw]::ScreenOf($view, $x, $y)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                Start-Sleep -Milliseconds 120
+                [void][Jw]::PostMessage($view, $WM_LBUTTONDOWN, [IntPtr]1, $l0)
+                Start-Sleep -Milliseconds 120
+                for ($k = 1; $k -le 6; $k++) {
+                    $mx = $x + [int]($dx * $k / 6)
+                    $my = $y + [int]($dy * $k / 6)
+                    $pt = [Jw]::ScreenOf($view, $mx, $my)
+                    [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                    [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]1, (LParam $mx $my))
+                    Start-Sleep -Milliseconds 60
+                }
+                [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l1)
+                Start-Sleep -Milliseconds $StepMs
                 break
             }
 
