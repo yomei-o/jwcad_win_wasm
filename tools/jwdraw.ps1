@@ -44,7 +44,10 @@
 #                       any other and WM_GETTEXT hands its text over, so what
 #                       a command is asking for can be read rather than
 #                       photographed -- 「始点を指示してください」 and so on.
-#   btn:<id>            BM_CLICK a control
+#   btn:<id>            BM_CLICK a control (sent -- a button that opens a
+#                       modal dialog holds the script here; use pb: or dlg:b)
+#   pb:<id>             BM_CLICK posted instead, so a modal dialog does not
+#                       stop the rest of the steps
 #   off:<id>            turn a checkbox off (a click, so the app is told)
 #   type:<text>         the 文字 command's box, then Enter
 #   type::<text>        the same without Enter
@@ -471,6 +474,17 @@ try {
                 if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
                 [void][Jw]::SendMessageStr((EditOf $h), $WM_SETTEXT, [IntPtr]::Zero, $Matches[2])
                 Start-Sleep -Milliseconds $StepMs; break
+            }
+
+            '^pb:(\d+)$' {
+                # BM_CLICK posted rather than sent: a button that opens a
+                # modal dialog would otherwise hold this script until the
+                # dialog closes, and nothing here can close it.
+                $h = Ctl ([int]$Matches[1])
+                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
             }
 
             '^btn:(\d+)$' {

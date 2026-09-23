@@ -180,6 +180,13 @@ static int ht_round;            /* the boundary is a circle */
    off in a 1/200 drawing (decomp/res/hatch_jisun.jww against hatch_rect.jww).
    It stays on across commands, the way the boxes keep their numbers. */
 static int ht_jisun;
+/* ハッチの基点変 (the bar's 1147).  It asks 「基準点を指示して下さい」 and the
+   next click is the point the whole pattern counts from: the lines then sit
+   where the distance across is that point's plus a whole ピッチ, and ┬┴┬'s
+   grid counts both ways from it.  It does not survive leaving the command --
+   the original went back to counting from zero on the way back in. */
+static int ht_base, ht_base_wait;
+static double ht_bx, ht_by;
 
 static void ht_mode_set(int id);
 static int ht_mode = 1689;      /* 1線, the one the original enters in */
@@ -468,6 +475,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_round = 0;
+        ht_base = ht_base_wait = 0;
         ht_mode_set(1689);      /* and the bar's numbers with it */
     }
     if (id == JW_CMD_CHUSHIN) {
@@ -1693,7 +1701,7 @@ static void hatch(jw_drawing *d)
     const char *sg = jw_cmd_box(1412);
     double ang = sa ? atof(sa) : 0.0, pitch = sp ? atof(sp) : 0.0;
     double gap = sg ? atof(sg) : 0.0;
-    double ux, uy, nx, ny, lo, hi, o;
+    double ux, uy, nx, ny, lo, hi, o, bo;
     int i, k, k0, k1, made = 0, extra = 0;
 
     if (ht_mode < 1689 || ht_mode > 1692)
@@ -1741,15 +1749,16 @@ static void hatch(jw_drawing *d)
             if (o > hi) hi = o;
         }
     }
-    k0 = (int)ceil(lo / pitch);
-    k1 = (int)floor(hi / pitch);
+    bo = ht_base ? nx * ht_bx + ny * ht_by : 0.0;
+    k0 = (int)ceil((lo - bo) / pitch);
+    k1 = (int)floor((hi - bo) / pitch);
     if (k1 - k0 > 100000)
         return;
     /* the original goes from the far side back: its first line is the one at
        the highest offset, and inside a ２線 or ３線 group the same way round
        -- 301, 300, 299, then 291, 290, 289 */
     for (k = k1 + extra; k >= k0 - extra; k--) {
-        o = k * pitch;
+        o = bo + k * pitch;
         switch (ht_mode) {
         case 1690:
             made += hatch_at(d, o + gap / 2, ux, uy, nx, ny);
@@ -1880,21 +1889,23 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
     /* the other way across: q = n2.point rises where the offset o falls */
     double n2x = -nx, n2y = -ny;
     double qlo, qhi, plo, phi, half = hp / 2;
+    double bq = ht_base ? n2x * ht_bx + n2y * ht_by : 0.0;
+    double bp = ht_base ? ux * ht_bx + uy * ht_by : 0.0;
     int k, klo, khi, m, mlo, mhi, par, made = 0;
 
     hatch_span(n2x, n2y, &qlo, &qhi);
     hatch_span(ux, uy, &plo, &phi);
-    klo = (int)ceil(qlo / vp);
-    khi = (int)floor(qhi / vp);
-    mlo = (int)ceil(plo / half);
-    mhi = (int)floor(phi / half);
+    klo = (int)ceil((qlo - bq) / vp);
+    khi = (int)floor((qhi - bq) / vp);
+    mlo = (int)ceil((plo - bp) / half);
+    mhi = (int)floor((phi - bp) / half);
     if (khi - klo > 100000 || mhi - mlo > 100000)
         return 0;
     for (k = klo; k <= khi; k++)
-        made += hatch_at(d, -(k * vp), ux, uy, nx, ny);
+        made += hatch_at(d, -(bq + k * vp), ux, uy, nx, ny);
     for (par = 0; par < 2; par++)
         for (m = mhi; m >= mlo; m--) {
-            double t[HT_MAX], p = m * half;
+            double t[HT_MAX], p = bp + m * half;
             int nt, i;
 
             if (((m % 2) + 2) % 2 != par)
@@ -1903,7 +1914,7 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
             /* one course below the lowest line to one above the highest: a
                course can be cut off by the region and still show */
             for (k = klo - 1; k <= khi; k++) {
-                double qa = k * vp, qb = qa + vp;
+                double qa = bq + k * vp, qb = qa + vp;
 
                 if (((m + k) % 2 + 2) % 2 != 0)
                     continue;
@@ -2596,6 +2607,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
             ht_mode_set(id);
             return 1;
         }
+        if (id == 1147) {       /* 基点変 -- the next click is the point */
+            ht_base_wait = 1;
+            return 1;
+        }
         if (id == 1323) {       /* 実寸 */
             ht_jisun = !ht_jisun;
             return 1;
@@ -3197,6 +3212,14 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
     }
     if (current == JW_CMD_HATCH) {
         int i;
+
+        if (ht_base_wait && d) {
+            ht_bx = x;
+            ht_by = y;
+            ht_base = 1;
+            ht_base_wait = 0;
+            return;
+        }
         if (!d)
             return;
         if (button != 1)
