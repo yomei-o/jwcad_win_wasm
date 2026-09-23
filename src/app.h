@@ -57,6 +57,9 @@ int  app_take_action(void);
 int  app_zoku_open(void);
 /* and whether the 書込み文字種変更 one is */
 int  app_moji_open(void);
+/* what one of its three boxes holds, and which one the typing goes into */
+const char *app_moji_box(int id);
+int  app_moji_focus(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --
    the native one -- gets them from Windows and leaves this off; the browser

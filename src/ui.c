@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include "ui.h"
+#include "app.h"
 #include "theme.h"
 #include "gen/jwres.h"
 #include "gen/layout.h"
@@ -1351,12 +1352,21 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
         case JW_MJ_EDIT:
             mj_sunken(fb, x, y, z->w, z->h);
             if (z->id == 1491 || z->id == 1492 || z->id == 1493) {
-                sprintf(t, "%.2f", z->id == 1491 ? sw
-                                 : z->id == 1492 ? sh : ss);
-                if (z->id == 1493)
+                /* what the box holds, which is what has been typed into it
+                   rather than what the drawing says */
+                const char *box = app_moji_box(z->id);
+                int tx;
+
+                if (box && *box)
+                    strcpy(t, box);
+                else if (z->id == 1493)
                     sprintf(t, "%.3f", ss);
-                jw_text_px(fb, x + z->w - 4 - jw_text_count(t) * 6,
-                           y + (z->h - th) / 2, t, C_BTNTEXT);
+                else
+                    sprintf(t, "%.2f", z->id == 1491 ? sw : sh);
+                tx = x + z->w - 4 - jw_text_count(t) * 6;
+                jw_text_px(fb, tx, y + (z->h - th) / 2, t, C_BTNTEXT);
+                if (app_moji_focus() == z->id)   /* the caret */
+                    fb_vline(fb, x + z->w - 3, y + 3, z->h - 8, C_BTNTEXT);
             }
             break;
         case JW_MJ_COMBO:

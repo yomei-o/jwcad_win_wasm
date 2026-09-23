@@ -120,6 +120,7 @@ public static class Jw {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr h);
     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
@@ -652,6 +653,51 @@ try {
                     $c.Right, $c.Bottom, $inf.Left, $inf.Top)
                 Dump $dlg
                 [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)   # IDCANCEL
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            # Open a dialog, type into some of its boxes and press OK.
+            #   dlgin:b1843,1491=30,1492=40,1493=2
+            # The leading b means the id is a button to press rather than a
+            # command to send.  The text goes in as real WM_CHARs after the
+            # box is selected whole, because Jw_cad keeps its own copy of
+            # what a box holds and only updates it as the keys arrive --
+            # WM_SETTEXT alone leaves the command using the old value.
+            '^dlgin:(b?)(\d+),(.+)$' {
+                $byButton = $Matches[1] -eq 'b'
+                $id = [int]$Matches[2]
+                $sets = $Matches[3] -split ','
+                $before = [Jw]::Tops([uint32]$p.Id)
+                if ($byButton) {
+                    $h = Ctl $id
+                    if ($h -eq [IntPtr]::Zero) { throw "no button $id" }
+                    [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                } else {
+                    [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
+                }
+                NewDialog $before
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
+                Start-Sleep -Milliseconds 700
+                foreach ($set in $sets) {
+                    if ($set -notmatch '^(\d+)=(.*)$') { continue }
+                    $cid = [int]$Matches[1]
+                    $txt = $Matches[2]
+                    $box = [IntPtr]::Zero
+                    foreach ($k in [Jw]::Kids($dlg)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq $cid) { $box = $k; break }
+                    }
+                    if ($box -eq [IntPtr]::Zero) { throw "no control $cid in the dialog" }
+                    [void][Jw]::SetFocus($box)
+                    [void][Jw]::SendMessageW($box, 0x00B1, [IntPtr]0, [IntPtr](-1))  # EM_SETSEL
+                    Start-Sleep -Milliseconds 80
+                    Chars $box $txt
+                }
+                Start-Sleep -Milliseconds 200
+                Emit ('=== dialog {0} filled' -f $id)
+                Dump $dlg
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)   # IDOK
                 Start-Sleep -Milliseconds $StepMs
                 break
             }

@@ -101,6 +101,16 @@ make sunpo sunpo 0 \
     '300,600;700,600;cmd:32847;ch:1411,30;400,500;400,450;r300,600;r700,600' \
     || fails=$((fails+1))
 
+# The 書込み文字種変更 dialog's three boxes: 任意サイズ with 30, 40 and 2
+# typed in, and then a text, which comes out at that size.
+echo "=== mojisize (文字種ダイアログの数値欄)"
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32806     -Clicks 'dlgin:b1843,1491=30,1492=40,1493=2;type:A;500,400;saveas:decomp/res/mojisize.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 範囲外選択 (1334): the box takes what lies wholly outside it, texts and
 # all.  Test5 with the box over its middle, and then 消去 -- which needs no
 # 選択確定, because 範囲選択's bar has none.

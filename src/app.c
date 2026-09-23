@@ -184,6 +184,48 @@ static int press_zoku(int x, int y)
  * drawing's own size alone.
  */
 static int moji_open, moji_style;
+/* The three boxes -- width, height and the space between letters -- and
+ * which of them the typing goes into.  They are what 任意サイズ writes at,
+ * and picking one of the ten fills them with its numbers.  Driving the
+ * original bears it out: typing 30, 40 and 2 with 任意サイズ chosen and
+ * pressing OK gave the next text w=30 h=40 sp=2 (decomp/res/mojisize.jww).
+ */
+static char moji_box[3][16];
+static int moji_focus;          /* 1491, 1492, 1493, or 0 for none */
+
+static void moji_fill(const jw_drawing *d, int style)
+{
+    double w, h, sp;
+
+    if (style >= 1 && style <= 10) {
+        w = d->style[style - 1].w;
+        h = d->style[style - 1].h;
+        sp = d->style[style - 1].sp;
+    } else {
+        w = d->cur_style.w;
+        h = d->cur_style.h;
+        sp = d->cur_style.sp;
+    }
+    sprintf(moji_box[0], "%.2f", w);
+    sprintf(moji_box[1], "%.2f", h);
+    sprintf(moji_box[2], "%.3f", sp);
+}
+
+const char *app_moji_box(int id)
+{
+    if (id == 1491)
+        return moji_box[0];
+    if (id == 1492)
+        return moji_box[1];
+    if (id == 1493)
+        return moji_box[2];
+    return 0;
+}
+
+int app_moji_focus(void)
+{
+    return moji_focus;
+}
 
 int app_moji_open(void)
 {
@@ -211,16 +253,36 @@ static int press_moji(int x, int y)
 
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
-    if (id == 1884)
+    if (id == 1884) {
         moji_style = 0;                 /* 任意サイズ */
-    else if (id >= 1689 && id <= 1698)
+        moji_focus = 0;
+    } else if (id >= 1689 && id <= 1698) {
         moji_style = id - 1688;
-    else if (id == 1) {                 /* Ok */
-        if (have_drawing && moji_style >= 1 && moji_style <= 10)
+        moji_focus = 0;
+        if (have_drawing)               /* the boxes follow the pick */
+            moji_fill(&drawing, moji_style);
+    } else if (id == 1491 || id == 1492 || id == 1493) {
+        moji_focus = id;                /* the typing goes in here */
+    } else if (id == 1) {               /* Ok */
+        if (have_drawing && moji_style >= 1 && moji_style <= 10) {
             drawing.cur_style = drawing.style[moji_style - 1];
+        } else if (have_drawing) {
+            /* 任意サイズ: whatever the three boxes say */
+            double w = atof(moji_box[0]), h = atof(moji_box[1]);
+            double sp = atof(moji_box[2]);
+
+            if (w > 0.0)
+                drawing.cur_style.w = w;
+            if (h > 0.0)
+                drawing.cur_style.h = h;
+            if (sp >= 0.0)
+                drawing.cur_style.sp = sp;
+        }
         moji_open = 0;
+        moji_focus = 0;
     } else if (id == 2) {               /* キャンセル */
         moji_open = 0;
+        moji_focus = 0;
     }
     return 1;
 }
@@ -360,6 +422,9 @@ int app_press(int x, int y, int button)
             /* the 文字 bar's own button, which puts the dialog up */
             moji_style = moji_current();
             moji_open = 1;
+            moji_focus = 0;
+            if (have_drawing)
+                moji_fill(&drawing, moji_style);
             return 1;
         }
         if (jw_cmd_box(id)) {           /* a box: it takes the typing */
@@ -389,8 +454,36 @@ int app_press(int x, int y, int button)
 /* Typing changes what is on the screen, so the picture is made again here.
    A front end that forgets to would show nothing until something else --
    a mouse move, say -- happened to redraw. */
+/* One key while the 書込み文字種変更 dialog has one of its boxes chosen. */
+static int moji_key(int c)
+{
+    char *t = (char *)app_moji_box(moji_focus);
+    size_t n;
+
+    if (!t)
+        return 0;
+    n = strlen(t);
+    if (c == 8) {                       /* backspace */
+        if (n)
+            t[n - 1] = 0;
+        return 1;
+    }
+    if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+        if (n + 1 < sizeof moji_box[0]) {
+            t[n] = (char)c;
+            t[n + 1] = 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 int app_key(int c)
 {
+    if (moji_open && moji_focus && moji_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (jw_cmd_box_key(c)) {
         app_paint();
         return 1;

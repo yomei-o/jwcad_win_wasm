@@ -14,6 +14,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../src/app.h"
 #include "../src/cmd.h"
@@ -25,6 +26,25 @@
 #include "png.h"
 
 static int fails;
+
+static unsigned char *slurp(const char *path, long *n)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned char *b;
+
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    *n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)*n);
+    if (b && fread(b, 1, (size_t)*n, f) != (size_t)*n) {
+        free(b);
+        b = 0;
+    }
+    fclose(f);
+    return b;
+}
 
 static void ck(int ok, const char *what)
 {
@@ -160,6 +180,82 @@ int main(int argc, char **argv)
     ck(!app_moji_open(), "キャンセル closes it");
     d = app_drawing();
     ck(d->cur_style.w == 4.0, "and leaves the size as it was");
+
+    /* the three boxes: with 任意サイズ chosen, what is typed into them is
+       what the next text is written at.  The original was given 30, 40 and
+       2 the same way and its text came out w=30 h=40 sp=2
+       (decomp/res/mojisize.jww). */
+    {
+        jw_drawing ref;
+        unsigned char *b2;
+        long n2;
+        const jw_drawing *d3;
+        const jw_obj *o;
+        int k, at = -1;
+
+        memset(&ref, 0, sizeof ref);
+        b2 = slurp("decomp/res/mojisize.jww", &n2);
+        if (!b2 || !jw_parse(&ref, b2, n2)) {
+            printf("BAD  cannot read decomp/res/mojisize.jww -- drive the "
+                   "original first\n");
+            fails++;
+            free(b2);
+        } else {
+            free(b2);
+            /* the original's own text is the one with no 文字種 and a size
+               nothing else has */
+            for (k = 0; k < ref.ndrawn; k++)
+                if (ref.obj[k].cls == JW_MOJI && ref.obj[k].n == 0
+                    && ref.obj[k].d[4] == 30.0)
+                    at = k;
+            ck(at >= 0, "the original's text is in the answer");
+            if (at >= 0) {
+                jw_cmd_set(JW_CMD_MOJI);
+                if (bar_button(1843, &x, &y))
+                    app_press(x, y, 0);
+                ck(app_moji_open(), "the dialog is up again");
+                ctl(1884, &x, &y);              /* 任意サイズ */
+                app_press(x, y, 0);
+                ctl(1491, &x, &y);              /* 幅 */
+                app_press(x, y, 0);
+                ck(app_moji_focus() == 1491, "a box takes the typing");
+                for (k = 0; k < 8; k++)
+                    app_key(8);                 /* clear what was there */
+                app_key('3');
+                app_key('0');
+                ctl(1492, &x, &y);              /* 高さ */
+                app_press(x, y, 0);
+                for (k = 0; k < 8; k++)
+                    app_key(8);
+                app_key('4');
+                app_key('0');
+                ctl(1493, &x, &y);              /* 間隔 */
+                app_press(x, y, 0);
+                for (k = 0; k < 8; k++)
+                    app_key(8);
+                app_key('2');
+                ck(!strcmp(app_moji_box(1491), "30")
+                   && !strcmp(app_moji_box(1492), "40")
+                   && !strcmp(app_moji_box(1493), "2"),
+                   "and holds what was typed");
+                ctl(1, &x, &y);                 /* OK */
+                app_press(x, y, 0);
+                d3 = app_drawing();
+                ck(d3->cur_style.w == 30.0 && d3->cur_style.h == 40.0
+                   && d3->cur_style.sp == 2.0,
+                   "OK writes them into the drawing");
+                app_key('B');
+                app_press(400, 300, 0);
+                d3 = app_drawing();
+                o = &d3->obj[d3->ndrawn - 1];
+                ck(o->cls == JW_MOJI && o->d[4] == ref.obj[at].d[4]
+                   && o->d[5] == ref.obj[at].d[5]
+                   && o->d[6] == ref.obj[at].d[6] && o->n == ref.obj[at].n,
+                   "and a text comes out the size the original's did");
+            }
+            jw_free(&ref);
+        }
+    }
 
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
