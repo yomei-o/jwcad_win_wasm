@@ -115,6 +115,46 @@ static void pens(jw_drawing *d)
     }
 }
 
+/* the same drawing tools/mkellip.c makes: whole ellipses and parts of them,
+   upright and turned, both ways round */
+static void ellip(jw_drawing *d)
+{
+    static const double PI = 3.14159265358979323846;
+    static const double E[6][6] = {
+        { -140.0, 30.0, 0.5,  0.0,      0.0,      6.283185307179586 },
+        {  -70.0, 30.0, 0.25, 0.5235987755982988, 0.0, 6.283185307179586 },
+        {    0.0, 30.0, 0.5,  0.0,      0.0,      1.5707963267948966 },
+        {   70.0, 30.0, 0.5,  0.0,      3.141592653589793, -1.5707963267948966 },
+        {  140.0, 30.0, 0.4,  0.7853981633974483, 0.7853981633974483,
+           3.141592653589793 },
+        {  210.0, 30.0, 0.8, -0.5235987755982988, 4.71238898038469,
+           1.0471975511965976 },
+    };
+    int i;
+
+    while (d->ndrawn > 0)
+        jw_remove(d, d->ndrawn - 1);
+    for (i = 0; i < 6; i++) {
+        jw_obj *o = jw_add(d, JW_ENKO);
+
+        if (!o)
+            return;
+        o->color = (unsigned short)(i + 1);
+        o->ltype = 1;
+        o->layer = 0;
+        o->lgroup = 0;
+        o->width = 0;
+        o->d[0] = E[i][0];
+        o->d[1] = 0.0;
+        o->d[2] = E[i][1];
+        o->d[3] = E[i][4];
+        o->d[4] = E[i][5];
+        o->d[5] = E[i][3];
+        o->d[6] = E[i][2];
+        o->n = E[i][5] >= 2.0 * PI - 1e-9;
+    }
+}
+
 static void one(const char *jww, const char *sfc, int aspens)
 {
     unsigned char *b, *mine = 0, *want;
@@ -131,8 +171,10 @@ static void one(const char *jww, const char *sfc, int aspens)
         return;
     }
     free(b);
-    if (aspens)
+    if (aspens == 1)
         pens(&d);
+    else if (aspens == 2)
+        ellip(&d);
     want = slurp(sfc, &wn);
     if (!want) {
         printf("BAD  cannot read %s -- drive the original first\n", sfc);
@@ -175,6 +217,7 @@ static void one(const char *jww, const char *sfc, int aspens)
 int main(void)
 {
     one("orig/Test5.jww", "decomp/res/pens.sfc", 1);
+    one("orig/Test5.jww", "decomp/res/ellip.sfc", 2);
     one("orig/Test5.jww", "decomp/res/sfcw5.sfc", 0);
     one("orig/Test6.jww", "decomp/res/sfcw6.sfc", 0);
     printf("%s\n", fails ? "SOME BAD" : "all ok");

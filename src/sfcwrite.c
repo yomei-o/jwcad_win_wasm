@@ -431,21 +431,35 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                 ang(a, s0);
                 ang(b, s1);
                 if (o->d[6] != 1.0) {
-                    /* squashed: a whole one is an ellipse, and a part of one
-                       is an ellipse_arc -- which none of the drawings to
-                       hand has, so that arm is not held against anything */
+                    /* Squashed: a whole one is an ellipse and a part of one
+                       is an ellipse_arc.  Here the turn is a field of its
+                       own, so the two ends are the angles **before** it is
+                       turned -- unlike a round arc, where the turn is part
+                       of the start.  The order is the turn, which way round
+                       it goes, and then the two ends. */
                     double maj = o->d[2] * sc, min_ = o->d[2] * o->d[6] * sc;
+                    double t0 = f32(o->d[3] / PI * 180.0);
+                    double t1 = t0 + sw / PI * 180.0;
+                    double tu = f32(o->d[5] / PI * 180.0);
 
-                    ang(c, f32(o->d[5] / PI * 180.0));
+                    while (t0 < 0.0) t0 += 360.0;
+                    while (t0 >= 360.0) t0 -= 360.0;
+                    while (t1 < 0.0) t1 += 360.0;
+                    while (t1 >= 360.0) t1 -= 360.0;
+                    while (tu < 0.0) tu += 360.0;
+                    while (tu >= 360.0) tu -= 360.0;
+                    ang(a, t0);
+                    ang(b, t1);
+                    ang(c, tu);
                     if (whole)
                         sprintf(t, "ellipse_feature('%d','%d','%d','%d',"
                                    "'%.6f','%.6f','%.6f','%.6f','%s')",
                                 lay, col, fon, wid, cx, cy, maj, min_, c);
                     else
                         sprintf(t, "ellipse_arc_feature('%d','%d','%d','%d',"
-                                   "'%.6f','%.6f','%.6f','%.6f','%s','%d',"
+                                   "'%.6f','%.6f','%.6f','%.6f','%d','%s',"
                                    "'%s','%s')", lay, col, fon, wid, cx, cy,
-                                maj, min_, c, sw < 0.0, a, b);
+                                maj, min_, sw < 0.0, c, a, b);
                 } else if (whole) {
                     sprintf(t, "circle_feature('%d','%d','%d','%d','%.6f',"
                                "'%.6f','%.6f')", lay, col, fon, wid,

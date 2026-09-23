@@ -646,6 +646,19 @@ for k in 5 6; do
     sh tools/refenv.sh >/dev/null
 done
 
+# and squashed circles and parts of them, which none of the shipped drawings
+# has: tools/mkellip.c makes six, and what the original writes for them is
+# what src/sfcwrite.c's ellipse_arc_feature arm is scored against
+$CC -O2 -Isrc -o tmp/mkellip.exe tools/mkellip.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null \
+    || gcc -O2 -Isrc -o tmp/mkellip.exe tools/mkellip.c src/jww.c src/jwwrite.c src/cp932.c
+./tmp/mkellip.exe orig/Test5.jww tmp/ellip.jww
+idle
+sh tools/refenv.sh >/dev/null
+$PS -Open tmp/ellip.jww -NoSave -Clicks 'export:32976,decomp/res/ellip.sfc' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # and one of arcs both ways round, circles and points, which a drawing of
 # lines does not exercise
 python tools/mksfc.py decomp/res/geo.sfc
