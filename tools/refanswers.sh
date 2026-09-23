@@ -406,9 +406,20 @@ hatch_rect_base92() {
         -Clicks "300,300;800,600;cmd:32874;btn:1692;set:1419,30;set:1411,20;set:1412,50;pb:1147;300,300;r550,300;btn:1148;saveas:decomp/res/hatch_base92.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 範囲選択 (1067): a boxful of closed figures at once.  This one starts from
+# a blank sheet -- decomp/res/new.jww, what the original's 新規 makes -- so
+# that nothing of Test5's own falls in the box.
+hatch_sel() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 32772 \
+        -Clicks "300,300;500,500;600,300;800,500;cmd:32874;pb:1067;250,250;850,550;btn:1120;btn:1148;saveas:decomp/res/hatch_sel.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸 基点変)"
+    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸 基点変 範囲選択)"
     hatch_circle
     hatch_rect
     hatch_rect_mode 1690
@@ -418,6 +429,7 @@ while :; do
     hatch_rect_jisun
     hatch_rect_base
     hatch_rect_base92
+    hatch_sel
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break
