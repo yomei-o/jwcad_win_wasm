@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "draw.h"
 #include "gen/circle.h"
@@ -564,7 +565,18 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
          * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
          * cx+r in the first.  So a whole circle is half a pixel off centre
          * and an arc is not. */
-        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI);
+        /* A whole circle goes into a box 2r across, a part of one into a box
+         * 2r+1 -- but only while it is solid.  Drawn dashed, the original's
+         * whole circle comes out on the bigger ring: a 40 mm circle at this
+         * scale has its solid outline centred on 435.50,278.49 with a mean
+         * radius of 64.32 and its dashed one on 436.54,279.30 at 65.11,
+         * while the port drew both the same.  Reading it as "a dashed circle
+         * is drawn as arcs, and an arc gets the 2r+1 box" takes
+         * 天空率表.jww from 2,451 mismatched pixels to 2,016. */
+        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI) || lt != 1;
+        /* debugging hook: write the boundary walk out, so a render can be
+           sampled along it and held against the original's */
+        int dumpwalk = getenv("JW_ARC_WALK") != 0;
         int n = circle_points(rp, odd, pts);
         if (n > 0) {
             int full = !odd;
@@ -611,6 +623,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                         for (i = 0; i < wide; i++)
                             put(fb, &v->clip, sx + i, sy + j, col);
                 phase += 1.0;
+                if (dumpwalk)
+                    fprintf(stderr, "walk %d %d %d %.3f\n", idx, sx, sy, phase);
             }
             return;
         }
@@ -704,9 +718,47 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
 
+    /* 目盛 first of all: a grid of single pixels under the drawing.
+     *
+     * The drawing carries its own spacing and the least number of pixels it
+     * is worth drawing at (jw_drawing's mesh_*).  Of the fifteen samples only
+     * 木造平面例.jww has 9 mm rather than 5, and it is the only one the
+     * original draws a grid for -- 9 mm at its A4 scale is 29.4 pixels and
+     * the minimum is 15, while 5 mm never reaches 11.6.  That one rule covers
+     * all fifteen.
+     */
+    if (d->mesh_ix > 0.0 && d->mesh_iy > 0.0
+        && d->mesh_ix / v->mmpp >= d->mesh_min
+        && d->mesh_iy / v->mmpp >= d->mesh_min) {
+        /* over the whole drawing area, not just the sheet: the original's
+           grid carries two more columns past each edge of the paper */
+        double lx = v->ox + (v->clip.x - v->bx) * v->mmpp;
+        double hx = v->ox + (v->clip.x + v->clip.w - v->bx) * v->mmpp;
+        double ly = v->oy - (v->clip.y + v->clip.h - v->by) * v->mmpp;
+        double hy = v->oy - (v->clip.y - v->by) * v->mmpp;
+        double x0 = d->mesh_ox, y0 = d->mesh_oy, x, y;
+        long k = (long)floor((lx - x0) / d->mesh_ix);
+        long j0 = (long)floor((ly - y0) / d->mesh_iy);
+
+        for (x = x0 + k * d->mesh_ix; x <= hx; x += d->mesh_ix)
+            for (y = y0 + j0 * d->mesh_iy; y <= hy; y += d->mesh_iy)
+                put(fb, &v->clip, jw_sx(v, x), jw_sy(v, y), d->pen_rgb[2]);
+    }
+
+    /* The solids go down first, and everything else on top of them.
+     *
+     * Not in element order: Ａマンション平面例.jww has 79 of them making its
+     * walls, and taken in order they bury the lines that were drawn before
+     * them -- 1,126 pixels the original has black and 1,086 it has cyan came
+     * out grey.  Putting them all down first leaves those lines showing and
+     * takes that drawing from 2,775 mismatched pixels to 568.
+     */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_SOLID && shown(d, &d->obj[i]))
+            solid(fb, v, d, &d->obj[i]);
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
-        if (!shown(d, o))
+        if (!shown(d, o) || o->cls == JW_SOLID)
             continue;
         unsigned int col = obj_colour(d, o);
         int wide = obj_wide(d, o);
@@ -725,9 +777,6 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             put(fb, &v->clip, x, y, col);
             break;
         }
-        case JW_SOLID:
-            solid(fb, v, d, o);
-            break;
         case JW_MOJI:
             jw_text(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
                     o->d[2], o->d[3], o->d[4], o->d[5], col);

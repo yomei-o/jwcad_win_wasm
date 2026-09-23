@@ -224,13 +224,24 @@ curve() {               # curve <分割数>
         -Clicks "ch:1411,$1;300,500;500,300;700,500;900,300;btn:1800;saveas:decomp/res/curve_n$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# ベジェ曲線 over the same four points.  It does not pass through the middle
+# ones, so the test takes the points out of the spline reference above.
+bezier() {              # bezier <分割数>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32908         -Clicks "btn:1692;ch:1411,$1;300,500;500,300;700,500;900,300;btn:1800;saveas:decomp/res/bezier_n$1.jww"         2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== curve (one spline at four 分割数)"
+    echo "=== curve (one spline at four 分割数, and the bezier over the same points)"
     curve 3
     curve 4
     curve 7
     curve 10
+    bezier 3
+    bezier 7
+    bezier 10
     if [ ! -x tests/curve_test.exe ]; then
         echo "    (tests/curve_test.exe is not built -- not checked)"
         break
@@ -247,6 +258,44 @@ while :; do
         break
     fi
     echo "    tests/curve_test.exe disagrees -- drawing it again ($try/$TRIES)"
+done
+
+# ハッチ (0x806a), 1線.  A circle and a rectangle, both settled with the
+# right button -- picking a rectangle's sides one at a time with the left
+# leaves 実行 greyed and draws nothing.
+hatch_circle() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "550,450;700,450;cmd:32874;r700,450;btn:1148;saveas:decomp/res/hatch_circle.jww"         2>&1 | sed 's/^/        /'
+}
+hatch_rect() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32772         -Clicks "300,300;800,600;cmd:32874;r550,300;btn:1148;saveas:decomp/res/hatch_rect.jww"         2>&1 | sed 's/^/        /'
+}
+try=1
+while :; do
+    echo "=== hatch (a circle and a rectangle)"
+    hatch_circle
+    hatch_rect
+    if [ ! -x tests/hatch_test.exe ]; then
+        echo "    (tests/hatch_test.exe is not built -- not checked)"
+        break
+    fi
+    if ./tests/hatch_test.exe >tmp/refanswers.out 2>&1; then
+        echo "    ok -- tests/hatch_test.exe agrees"
+        break
+    fi
+    try=$((try + 1))
+    if [ "$try" -gt "$TRIES" ]; then
+        echo "    tests/hatch_test.exe still disagrees after $TRIES tries:"
+        sed 's/^/        /' tmp/refanswers.out
+        fails=$((fails + 1))
+        break
+    fi
+    echo "    tests/hatch_test.exe disagrees -- drawing it again ($try/$TRIES)"
 done
 
 idle

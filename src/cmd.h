@@ -49,6 +49,7 @@ enum {
     JW_CMD_SESSEN = 0x8066,         /* 接線 -- 円→円 only so far */
     JW_CMD_SEKIEN = 0x8068,         /* 接円 -- two lines and a radius */
     JW_CMD_KYOKUSEN = 0x808c,       /* 曲線 -- スプライン only so far */
+    JW_CMD_HATCH = 0x806a,          /* ハッチ -- 1線 only so far */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
