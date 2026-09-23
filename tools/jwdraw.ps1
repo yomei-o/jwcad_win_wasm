@@ -66,6 +66,9 @@
 #   dlg:<cmd>,<png>     open a dialog with a command, write its children out
 #                       and paint it into a PNG, then cancel it
 #   dlg:b<id>,<png>     the same, opened by pressing a bar button
+#   export:<cmd>,<name> the same, but sending <cmd> instead of 名前を付けて
+#                       保存 -- 32961 is DXF形式で保存, 32976 SFC形式で保存,
+#                       32810 JWC形式で保存
 #   saveas:<name>       名前を付けて保存 to tmp\<name>.jww (or to the path
 #                       given, if it looks like one).  Needs the Windows
 #                       common dialog, which the script turns on in HKCU for
@@ -284,7 +287,7 @@ function DumpIn($container, $frame) {
 # --- start it -----------------------------------------------------------
 
 $exePath = (Resolve-Path $Exe).Path
-$needCommon = $Clicks -match 'saveas:'
+$needCommon = $Clicks -match '(saveas|export):'
 if ($needCommon) {
     # The original's own file box (resource 290) has a read-only name field
     # that ignores WM_SETTEXT.  This makes it use Windows' common dialog,
@@ -676,9 +679,13 @@ try {
                 break
             }
 
-            '^saveas:(.+)$' {
-                $name = $Matches[1]
-                if ($name -notmatch '[\\/]' -and $name -notmatch '\.jww$') {
+            '^(?:saveas|export):(?:(\d+),)?(.+)$' {
+                # saveas: is 名前を付けて保存 (57604); export: sends another
+                # command first -- DXF形式で保存 is 32961 and SFC形式で保存
+                # 32976 -- and then drives the same common dialog.
+                $cmdid = if ($Matches[1]) { [int]$Matches[1] } else { 57604 }
+                $name = $Matches[2]
+                if ($name -notmatch '[\\/]' -and $name -notmatch '\.[a-zA-Z0-9]+$') {
                     $name = "tmp\$name.jww"
                 }
                 $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $name))
@@ -692,7 +699,7 @@ try {
                 # previous run's drawing.
                 Remove-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
                 $before = [Jw]::Tops([uint32]$p.Id)
-                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]57604, [IntPtr]::Zero)  # 名前を付けて保存
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
                 NewDialog $before 10000
                 $dlg = $script:dlg
                 if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'the save dialog did not come up' }
