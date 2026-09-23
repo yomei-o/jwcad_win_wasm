@@ -107,6 +107,10 @@ static int sel_outside;
    that ran from -140.492 to -190.492 came back starting at the box's own
    edge, -179.239 -- and the texts come along as with 範囲外選択. */
 static int sel_cut;
+/* 追加範囲 (1065) and 除外範囲 (1066), which the bar offers once a box has
+   been taken: the next box adds to what is picked, or takes away from it,
+   instead of starting again. */
+static int sel_keep, sel_sub;
 static double base_x, base_y;   /* 基準点 */
 /* 反転 (the second stage's 1067): once pressed, the next click picks the
    基準線 to flip the selection across. */
@@ -489,6 +493,7 @@ void jw_cmd_set(int id)
     hou_step = 0;
     sel_outside = 0;
     sel_cut = 0;
+    sel_keep = sel_sub = 0;
     comp_n = 0;
     cut_step = 0;
     corner_step = 0;
@@ -2761,7 +2766,12 @@ static void sel_box(jw_drawing *d, int with_text)
             take = c2 < x0 || a > x1 || e < y0 || b > y1;
         else
             take = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
-        if (take) {
+        if (!take)
+            continue;
+        if (sel_sub) {
+            o->flags = (unsigned short)(o->flags & ~2u);
+            o->sel = 0;
+        } else {
             o->flags = (unsigned short)(o->flags | 2u);
             o->sel = 1;
         }
@@ -3019,6 +3029,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return sel_step == 2 && jw_cmd_sel_count(d) > 0;
     case 1064:                  /* 連続 -- not done */
         return 0;
+    case 1065:                  /* 前範囲, and 追加範囲 once a box is in */
+        return sel_step == 2;
     case 1067:                  /* 選択解除, and 反転 one stage on */
         return sel_step == 3 || jw_cmd_sel_count(d) > 0;
     case 1066:                  /* 全選択, and 基点変更 one stage on: the
@@ -3130,6 +3142,13 @@ int jw_cmd_bar(jw_drawing *d, int id)
             return 0;
         sel_cut = !sel_cut;
         return 1;
+    case 1065:                  /* 追加範囲 -- the next box adds to it */
+        if (sel_step != 2)
+            return 0;           /* 前範囲 before that, which is not done */
+        sel_keep = 1;
+        sel_sub = 0;
+        sel_step = 0;
+        return 1;
     case 1120:
         return sel_confirm(d);
     case 1067:
@@ -3151,12 +3170,18 @@ int jw_cmd_bar(jw_drawing *d, int id)
             return 0;
         sel_dir = (sel_dir + 1) & 3;
         return 1;
-    case 1066: {                /* 全選択, or 基点変更 one stage on */
+    case 1066: {                /* 全選択, 除外範囲, or 基点変更 later on */
         int i;
         if (!d)
             return 0;
         if (sel_step == 3) {
             sel_base_wait = 1;
+            return 1;
+        }
+        if (sel_step == 2) {    /* 除外範囲: the next box takes away */
+            sel_keep = 1;
+            sel_sub = 1;
+            sel_step = 0;
             return 1;
         }
         for (i = 0; i < d->ndrawn; i++) {
@@ -3609,7 +3634,9 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         case 0:
             if (button != 0)    /* (R) picks a 連続線, which is not done */
                 return;
-            sel_clear(d);
+            if (!sel_keep)      /* 追加範囲・除外範囲 keep what is picked */
+                sel_clear(d);
+            sel_keep = 0;
             sel_x0 = sel_x1 = x;
             sel_y0 = sel_y1 = y;
             sel_step = 1;
@@ -3618,6 +3645,7 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
             sel_x1 = x;
             sel_y1 = y;
             sel_box(d, button != 0);
+            sel_sub = 0;
             sel_step = jw_cmd_sel_count(d) > 0 ? 2 : 0;
             return;
         case 2:

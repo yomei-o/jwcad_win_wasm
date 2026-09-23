@@ -112,6 +112,19 @@ $PS -Open tmp/rect.jww -Cmd 0     -Clicks 'cmd:32787;pb:1334;250,250;850,550;cmd
 idle
 sh tools/refenv.sh >/dev/null
 
+# 追加範囲 (1065) and 除外範囲 (1066): once a box is in, the next one adds to
+# what is picked or takes away from it.
+echo "=== seladd, selsub (追加範囲・除外範囲)"
+for k in add sub; do
+    [ $k = add ] && id=1065 || id=1066
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0         -Clicks "cmd:32787;250,250;850,550;btn:$id;150,150;950,650;cmd:32794;saveas:decomp/res/sel$k.jww"         2>&1 | sed 's/^/        /'
+    idle
+    sh tools/refenv.sh >/dev/null
+done
+
 # 切取り選択 (1344): the same box, and the lines that cross it are cut at
 # its edge.  Not implemented yet -- this is here so the answer is on hand.
 echo "=== selcut (切取り選択)"

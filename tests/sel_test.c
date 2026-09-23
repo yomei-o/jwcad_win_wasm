@@ -413,6 +413,67 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 追加範囲 (1065) and 除外範囲 (1066): the next box adds to what is
+       picked, or takes away from it.  The original was given the same two
+       boxes both ways round. */
+    {
+        static const struct { const char *answer; int id; int b[4]; }
+        C[2] = {
+            { "decomp/res/seladd.jww", 1065, { 150, 150, 950, 650 } },
+            { "decomp/res/selsub.jww", 1066, { 150, 150, 950, 650 } },
+        };
+        int c;
+
+        for (c = 0; c < 2; c++) {
+            jw_drawing ref;
+            unsigned char *b2;
+            long n2;
+            const jw_drawing *d2;
+            int k, nr = 0, nm = 0;
+
+            memset(&ref, 0, sizeof ref);
+            b2 = slurp(C[c].answer, &n2);
+            if (!b2 || !jw_parse(&ref, b2, n2)) {
+                printf("BAD  cannot read %s -- drive the original first\n",
+                       C[c].answer);
+                fails++;
+                free(b2);
+                continue;
+            }
+            free(b2);
+            b2 = slurp("orig/Test5.jww", &n2);
+            if (b2 && app_open(b2, n2)) {
+                const fb_t *fb = app_fb();
+                rect_t r;
+
+                free(b2);
+                ui_view_rect(fb->w, fb->h, &r);
+                jw_cmd_set(JW_CMD_HANI);
+                app_press(r.x + 250, r.y + 250, 0);
+                app_press(r.x + 850, r.y + 550, 0);
+                ck(jw_cmd_bar((jw_drawing *)app_drawing(), C[c].id) == 1,
+                   C[c].id == 1065 ? "追加範囲 can be pressed"
+                                   : "除外範囲 can be pressed");
+                app_press(r.x + C[c].b[0], r.y + C[c].b[1], 0);
+                app_press(r.x + C[c].b[2], r.y + C[c].b[3], 0);
+                app_command(JW_CMD_SHOUKYO);
+                d2 = app_drawing();
+                for (k = 0; k < ref.ndrawn; k++)
+                    if (ref.obj[k].cls == JW_SEN)
+                        nr++;
+                for (k = 0; k < d2->ndrawn; k++)
+                    if (d2->obj[k].cls == JW_SEN)
+                        nm++;
+                ck(nm == nr, C[c].id == 1065
+                   ? "and the second box adds what the original added"
+                   : "and the second box takes away what the original did");
+                if (nm != nr)
+                    printf("     ours %d lines, the original's %d\n", nm, nr);
+            }
+            jw_free(&ref);
+        }
+    }
+
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
