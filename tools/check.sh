@@ -24,6 +24,7 @@ fi
 [ -f src/gen/newjww.c ] || { echo "run tools/mknew.py first";  exit 1; }
 [ -f src/gen/sunpo.h ]  || { echo "run tools/mksunpo.py first"; exit 1; }
 [ -f src/gen/zoku.h ]   || { echo "run tools/mkzoku.py first";  exit 1; }
+[ -f src/gen/moji.h ]   || { echo "run tools/mkmoji.py first";  exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -62,6 +63,13 @@ echo
 echo "=== 線属性のダイアログ"
 ./tests/zoku_test.exe tests/out/zoku.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_zoku.png tests/out/zoku.png     -i docs/zoku_textareas.txt -d tests/out/zoku.diff.png     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== 書込み文字種変更 —— 原典が描いたダイアログとの突き合わせ"
+./tests/moji_test.exe tests/out/moji.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_moji.png tests/out/moji.png \
+    -i docs/moji_textareas.txt -d tests/out/moji.diff.png \
+    | head -2 | sed 's/^/    /'
 
 echo
 echo "=== 接線 —— 原典が引いた 4 本の共通接線との突き合わせ"

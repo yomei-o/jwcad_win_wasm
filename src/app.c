@@ -178,6 +178,53 @@ static int press_zoku(int x, int y)
     return 1;
 }
 
+/* 書込み文字種変更: the dialog the 文字 bar's own button puts up.  Which
+ * 文字種 is chosen is kept here while it is open and only reaches the
+ * drawing on Ok, the way 線属性 does.  0 is 任意サイズ, which leaves the
+ * drawing's own size alone.
+ */
+static int moji_open, moji_style;
+
+int app_moji_open(void)
+{
+    return moji_open;
+}
+
+/* Which of the ten the drawing is writing in, 0 if it is a free size. */
+static int moji_current(void)
+{
+    int i;
+
+    if (!have_drawing)
+        return 0;
+    for (i = 0; i < 10; i++)
+        if (drawing.style[i].w == drawing.cur_style.w
+            && drawing.style[i].h == drawing.cur_style.h
+            && drawing.style[i].sp == drawing.cur_style.sp)
+            return i + 1;
+    return 0;
+}
+
+static int press_moji(int x, int y)
+{
+    int id = ui_moji_hit(fb.w, fb.h, x, y);
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1884)
+        moji_style = 0;                 /* 任意サイズ */
+    else if (id >= 1689 && id <= 1698)
+        moji_style = id - 1688;
+    else if (id == 1) {                 /* Ok */
+        if (have_drawing && moji_style >= 1 && moji_style <= 10)
+            drawing.cur_style = drawing.style[moji_style - 1];
+        moji_open = 0;
+    } else if (id == 2) {               /* キャンセル */
+        moji_open = 0;
+    }
+    return 1;
+}
+
 /* One command, however it was asked for: a toolbar button, or the menu the
  * native build hands to Windows (both send the same ids -- they are the
  * original's own, out of its resources).  Returns 1 when the window wants
@@ -302,11 +349,19 @@ int app_press(int x, int y, int button)
 
     if (zoku_open)
         return press_zoku(x, y);
+    if (moji_open)
+        return press_moji(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
 
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        if (id == 1843 && jw_cmd() == JW_CMD_MOJI) {
+            /* the 文字 bar's own button, which puts the dialog up */
+            moji_style = moji_current();
+            moji_open = 1;
+            return 1;
+        }
         if (jw_cmd_box(id)) {           /* a box: it takes the typing */
             jw_cmd_box_click(id);
             return 1;
@@ -648,6 +703,8 @@ void app_paint(void)
         ui_textbox(&fb, jw_cmd_line(), jw_cmd_compose());
     if (zoku_open)
         ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);
+    if (moji_open && have_drawing)
+        ui_moji(&fb, &drawing, moji_style);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

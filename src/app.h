@@ -55,6 +55,8 @@ int  app_take_action(void);
 
 /* Whether the 線属性 dialog is up; while it is, it takes every press. */
 int  app_zoku_open(void);
+/* and whether the 書込み文字種変更 one is */
+int  app_moji_open(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --
    the native one -- gets them from Windows and leaves this off; the browser

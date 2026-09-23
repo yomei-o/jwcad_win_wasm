@@ -86,6 +86,17 @@ powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Clicks 'dlg:32807,tmp/zoku.png' >/dev/null
 python tools/mkzoku.py
 
+say '書込み文字種変更 dialog, likewise'
+# The 文字 command's bar has the button that opens it, so the command has to
+# be in force first.  docs/ref_moji.png is the committed reference and
+# tests/moji_test.c scores the port against it.
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
+    -Open tmp/rect.jww -NoSave -Out decomp/res/moji.txt \
+    -Clicks 'cmd:32806;dlg:b1843,tmp/moji.png' >/dev/null
+python tools/mkmoji.py
+
 say 'what the original puts at the top of a DXF'
 # A drawing of one line per pen and per line type, written by the port's own
 # writer, exported by the original: the tables in it are the same in every

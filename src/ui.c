@@ -6,6 +6,7 @@
 #include "gen/layout.h"
 #include "gen/bars.h"
 #include "gen/zoku.h"
+#include "gen/moji.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -14,6 +15,7 @@
 #include "text.h"
 
 #include <stdio.h>
+#include <string.h>
 
 /* The window is a stack of docked bars round the drawing area.  Each bar
  * paints its face and, where it meets another, a two-pixel border: a shadow
@@ -1156,6 +1158,247 @@ int ui_zoku_hit(int cw, int ch, int x, int y)
     for (i = 0; i < JW_NZOKU; i++) {
         const jw_zk_t *z = &jw_zoku[i];
         if (z->kind == JW_ZK_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ------------------------------------------------------- 書込み文字種変更
+ *
+ * The dialog the 文字 bar's 1843 button puts up.  Its controls come from
+ * src/gen/moji.h, read out of the running original the same way 線属性's
+ * were; the radio button is Windows' own and is baked from the picture of
+ * the dialog rather than drawn, because nothing here would draw a circle.
+ *
+ * The ten rows of numbers are the drawing's own 文字種 table, and the last
+ * column is how many texts are written in each -- which is why the dialog
+ * takes the drawing.
+ */
+#define MJ_CAPTION_BG 0xf3f3f3u /* this one's caption came out light */
+#define MJ_CLOSE      0x9b9b9bu
+
+void ui_moji_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_MOJI_W;
+    r->h = JW_MOJI_H;
+    r->x = (cw - JW_MOJI_W) / 2;
+    r->y = (ch - 42 - JW_MOJI_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+/* A box sunk into the dialog: the edits and the combos both sit in one.
+   Read off the original's own: shadow and dark shadow going in, light and
+   white coming out, and the white row is outside the control's rectangle
+   on the right and the bottom. */
+static void mj_sunken(fb_t *fb, int x, int y, int w, int h)
+{
+    fb_edge(fb, x, y, w - 1, h - 1, C_BTNSHADOW, C_3DLIGHT);
+    /* both corners on the shadow side belong to the shadow */
+    fb_hline(fb, x, y, w - 1, C_BTNSHADOW);
+    fb_vline(fb, x, y, h - 1, C_BTNSHADOW);
+    /* the dark ring goes along the top and down the left and no further */
+    fb_hline(fb, x + 1, y + 1, w - 3, C_3DDKSHADOW);
+    fb_vline(fb, x + 1, y + 1, h - 3, C_3DDKSHADOW);
+    fb_fill(fb, x + 2, y + 2, w - 4, h - 4, C_WINDOW);
+    fb_vline(fb, x + w - 1, y, h, C_BTNHILIGHT);
+    fb_hline(fb, x, y + h - 1, w, C_BTNHILIGHT);
+}
+
+/* The button at the right end of a combo box, sixteen wide and fifteen
+   tall, with its triangle: light and shadow going out, white inside, and
+   the face in the middle. */
+static void mj_combo_button(fb_t *fb, int x, int y, int w, int h)
+{
+    int bx = x + w - 19, by = y + 2, i;
+
+    fb_edge(fb, bx, by, 16, 15, C_3DLIGHT, C_BTNSHADOW);
+    fb_hline(fb, bx, by, 16, C_3DLIGHT);        /* and here on the light one */
+    fb_vline(fb, bx, by, 15, C_3DLIGHT);
+    fb_hline(fb, bx + 1, by + 1, 14, C_BTNHILIGHT);
+    fb_vline(fb, bx + 1, by + 1, 13, C_BTNHILIGHT);
+    fb_fill(fb, bx + 2, by + 2, 13, 12, C_BTNFACE);
+    for (i = 0; i < 4; i++)
+        fb_hline(fb, bx + 4 + i, by + 6 + i, 7 - i * 2, C_BTNTEXT);
+    /* a combo's dark ring carries on down the right and along under the
+       button, which an edit's does not */
+    fb_vline(fb, x + w - 3, y + 1, h - 3, C_3DDKSHADOW);
+    fb_hline(fb, x + w - 19, y + h - 3, 17, C_3DDKSHADOW);
+}
+
+static void mj_radio(fb_t *fb, int x, int y, int on)
+{
+    const unsigned int *sp = on ? jw_moji_radio_on : jw_moji_radio_off;
+    int i, j;
+
+    for (j = 0; j < JW_MJ_RADIO_H; j++)
+        for (i = 0; i < JW_MJ_RADIO_W; i++) {
+            unsigned int c = sp[j * JW_MJ_RADIO_W + i];
+
+            if (c != 0xffffffffu)
+                fb_fill(fb, x + i, y + j, 1, 1, c);
+        }
+}
+
+/* One row of the table: width, height, spacing, colour and how many texts
+   are written in that 文字種.  The columns are the original's own. */
+static void mj_row(char *t, double w, double h, double sp, int col, int used)
+{
+    char n[16], c[16];
+
+    if (used > 0)
+        sprintf(n, "%d", used);
+    else
+        sprintf(n, "--");
+    sprintf(c, "(%d)", col);
+    sprintf(t, "%7.2f%8.2f%8.3f%7s%11s", w, h, sp, c, n);
+}
+
+/* How many texts of the drawing are written in each 文字種, 0 being 任意. */
+static void mj_counts(const jw_drawing *d, int *used)
+{
+    int i;
+
+    for (i = 0; i <= 10; i++)
+        used[i] = 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI) {
+            int n = d->obj[i].n;
+
+            if (n >= 0 && n <= 10)
+                used[n]++;
+        }
+}
+
+void ui_moji(fb_t *fb, const jw_drawing *d, int style)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height(), used[11];
+    double sw = d->cur_style.w, sh = d->cur_style.h, ss = d->cur_style.sp;
+    int scol = d->cur_style.color;
+
+    if (style >= 1 && style <= 10) {
+        sw = d->style[style - 1].w;
+        sh = d->style[style - 1].h;
+        ss = d->style[style - 1].sp;
+        scol = d->style[style - 1].color;
+    }
+    mj_counts(d, used);
+    ui_moji_rect(fb->w, fb->h, &r);
+    /* the window: a black border, a light caption across the top and the
+       client below it */
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_MOJI_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_MOJI_CAPTION - th) / 2,
+               /* 書込み文字種変更 */
+               "\x8f\x91\x8d\x9e\x82\xdd\x95\xb6\x8e\x9a\x8e\xed\x95\xcf\x8d"
+               "X", C_BTNTEXT);
+    for (i = 0; i < 9; i++) {   /* the close cross */
+        fb_fill(fb, r.x + 381 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + 389 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_MOJI_BORDER;
+    cy = r.y + JW_MOJI_CAPTION;
+    fb_fill(fb, cx, cy, JW_MOJI_CW, JW_MOJI_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NMOJI; i++) {
+        const jw_mj_t *z = &jw_moji[i];
+        int x = cx + z->x, y = cy + z->y;
+        char t[80];
+
+        switch (z->kind) {
+        case JW_MJ_OK:
+        case JW_MJ_CANCEL: {
+            int k2 = z->kind == JW_MJ_OK;
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            jw_text_px(fb, x + (z->w - jw_text_count(z->text) * 6) / 2,
+                       y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_MJ_RADIO:
+            mj_radio(fb, x, y, z->n == style);
+            jw_text_px(fb, x + 17, y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            break;
+        case JW_MJ_CHECK:
+            /* the same box the 線属性 dialog has, one row taller than the
+               command bars' because of the white edge under it */
+            paint_checkbox(fb, x, y + (z->h - CHECK_W) / 2, z->n);
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
+                         C_BTNHILIGHT);
+            jw_text_px(fb, x + CHECK_W + 3, y + (z->h - th) / 2, z->text,
+                       C_BTNTEXT);
+            break;
+        case JW_MJ_PUSH:
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            fb_edge(fb, x, y, z->w, z->h, C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + 1, y + 1, z->w - 2, z->h - 2,
+                    C_3DLIGHT, C_BTNSHADOW);
+            jw_text_px(fb, x + (z->w - jw_text_count(z->text) * 6) / 2,
+                       y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            break;
+        case JW_MJ_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            if (z->id == 1491 || z->id == 1492 || z->id == 1493) {
+                sprintf(t, "%.2f", z->id == 1491 ? sw
+                                 : z->id == 1492 ? sh : ss);
+                if (z->id == 1493)
+                    sprintf(t, "%.3f", ss);
+                jw_text_px(fb, x + z->w - 4 - jw_text_count(t) * 6,
+                           y + (z->h - th) / 2, t, C_BTNTEXT);
+            }
+            break;
+        case JW_MJ_COMBO:
+            mj_sunken(fb, x, y, z->w, z->h);
+            mj_combo_button(fb, x, y, z->w, z->h);
+            if (z->id == 2358) {
+                sprintf(t, "%d", scol);
+                jw_text_px(fb, x + 4, y + (z->h - th) / 2, t, C_BTNTEXT);
+            }
+            break;
+        case JW_MJ_STATIC:
+            if (z->n >= 1 && z->n <= 10) {
+                mj_row(t, d->style[z->n - 1].w, d->style[z->n - 1].h,
+                       d->style[z->n - 1].sp, d->style[z->n - 1].color,
+                       used[z->n]);
+                jw_text_px(fb, x, y + (z->h - th) / 2, t, C_BTNTEXT);
+            } else if (z->id == 1932) {
+                sprintf(t, "%d", used[0]);
+                jw_text_px(fb, x + z->w - jw_text_count(t) * 6,
+                           y + (z->h - th) / 2, t, C_BTNTEXT);
+            } else {
+                jw_text_px(fb, x, y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            }
+            break;
+        }
+    }
+}
+
+int ui_moji_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_moji_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside the dialog altogether */
+    x -= r.x + JW_MOJI_BORDER;
+    y -= r.y + JW_MOJI_CAPTION;
+    for (i = 0; i < JW_NMOJI; i++) {
+        const jw_mj_t *z = &jw_moji[i];
+
+        if (z->kind == JW_MJ_STATIC)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

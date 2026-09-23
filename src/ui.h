@@ -122,6 +122,12 @@ void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype);
 /* The id of the control under the point, or 0.  Ok is 1 and キャンセル 2. */
 int  ui_zoku_hit(int cw, int ch, int x, int y);
 
+/* 書込み文字種変更 -- the dialog the 文字 bar's 1843 button puts up.
+   `style` is which 文字種 is chosen, 0 being 任意サイズ. */
+void ui_moji_rect(int cw, int ch, rect_t *r);
+void ui_moji(fb_t *fb, const jw_drawing *d, int style);
+int  ui_moji_hit(int cw, int ch, int x, int y);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 
