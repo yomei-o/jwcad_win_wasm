@@ -123,7 +123,18 @@ static int sun_step;
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
-static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      */
+/* 寸法's 傾き: any angle, not just the two.  The bar's 0ﾟ/90ﾟ button (1059)
+   only writes 0 or 90 into the box -- read out of the original with
+   tools/jwdraw.ps1's `read:1411` while pressing it -- so the box is the one
+   place the angle lives. */
+static void box_put(int id, const char *v);
+
+static double sun_angle(void)
+{
+    const char *t = jw_cmd_box(1411);
+
+    return t ? atof(t) : 0.0;
+}
 
 /* 中心線: the two lines it runs between, and the first of its two points */
 static int chu_a = -1, chu_b = -1, chu_step;
@@ -203,6 +214,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
     { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
+    { JW_CMD_SUNPO, 1411, "0" },        /* 寸法の傾き */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
     { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
@@ -2593,8 +2605,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
         return 0;
     }
-    if (current == JW_CMD_SUNPO)
-        return id == 1059 ? (sun_deg = sun_deg == 0 ? 90 : 0, 1) : 0;
+    if (current == JW_CMD_SUNPO) {
+        if (id != 1059)
+            return 0;
+        box_put(1411, sun_angle() == 0.0 ? "90" : "0");
+        return 1;
+    }
     if (current != JW_CMD_HANI && current != JW_CMD_FUKUSHA
         && current != JW_CMD_IDOU)
         return 0;
@@ -2608,7 +2624,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         sel_step = 0;
         return 1;
     case 1059:                  /* 0ﾟ/90ﾟ on 寸法's bar */
-        sun_deg = sun_deg == 0 ? 90 : 0;
+        box_put(1411, sun_angle() == 0.0 ? "90" : "0");
         return 1;
     case 1066: {                /* 全選択: everything that is drawn */
         int i;
@@ -2627,7 +2643,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
 
 int jw_cmd_sunpo_angle(void)
 {
-    return sun_deg;
+    return (int)sun_angle();
 }
 
 static void box_put(int id, const char *v)
@@ -2798,7 +2814,7 @@ static void sunpo_text(char *out, int n, double mm, double scale)
 /* Put the six elements of one dimension in the drawing. */
 static void sunpo_make(jw_drawing *d, double bx, double by)
 {
-    double a = sun_deg == 90 ? PI / 2.0 : 0.0;
+    double a = sun_angle() * PI / 180.0;
     double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
     /* along the dimension's own direction, and across it */
     double s0 = sun_sx * ux + sun_sy * uy, s1 = bx * ux + by * uy;

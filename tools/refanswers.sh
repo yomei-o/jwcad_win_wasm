@@ -92,8 +92,14 @@ $PS -Open '' -Clicks 'saveas:decomp/res/new.jww' 2>&1 | sed 's/^/        /'
 
 # 寸法 (0x804f).  A line first: the third stage will not take a point there is
 # nothing to read at, so an empty drawing never gets past it.
+# The 傾き box (1411) keeps what was typed into it, so both of these say
+# which angle they want.  0 is a level dimension, 30 a slanted one -- the six
+# elements come out in the same order either way.
 make sunpo sunpo 0 \
-    '300,600;700,600;cmd:32847;400,500;400,450;r300,600;r700,600' || fails=$((fails+1))
+    '300,600;700,600;cmd:32847;ch:1411,0;400,500;400,450;r300,600;r700,600' \
+    sunpo30 0 \
+    '300,600;700,600;cmd:32847;ch:1411,30;400,500;400,450;r300,600;r700,600' \
+    || fails=$((fails+1))
 
 # 多角形 (0x807e).  角数 8, 寸法 3000, 底辺角度 30, then one click for the
 # centre -- the eight vertices follow from those three numbers.
