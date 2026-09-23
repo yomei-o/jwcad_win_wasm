@@ -73,6 +73,7 @@ static int ndbl(int cls)
     case JW_TEN:   return 2;
     case JW_SOLID: return 8;
     case JW_BLOCK: return 5;
+    case JW_MOJI:  return 8;
     }
     return 0;
 }
@@ -92,6 +93,8 @@ static int same(const jw_drawing *a, const jw_obj *x,
         if (fabs(p - q) > 1e-9 * (fabs(p) + fabs(q)) + 1e-9)
             return 0;
     }
+    if (x->cls == JW_MOJI && strcmp(jw_str(a, x->text), jw_str(b, y->text)))
+        return 0;
     if (x->cls == JW_TEN && x->ltype == 100
         && (x->mark != y->mark || x->turn != y->turn || x->size != y->size))
         return 0;
@@ -146,27 +149,37 @@ static void alike(const char *base, const char *sfc, const char *answer,
     }
     free(b);
 
-    /* The original leaves its own memo texts in what it saves, so the two
-       are lined up by leaving those out. */
-    for (i = 0, j = 0; i < mine.nobj; i++, j++) {
-        while (j < ref.nobj && ref.obj[j].cls == JW_MOJI)
-            j++;
-        if (j >= ref.nobj) {
-            printf("BAD  %s: the port made %d elements, the original fewer\n",
-                   what, mine.nobj);
-            fails++;
-            return;
-        }
-        if (!same(&mine, &mine.obj[i], &ref, &ref.obj[j])) {
+    /* The original leaves its own six memo texts at the end of what it
+       draws, all at 0,-1000; those are counted off, and then the drawing
+       and the definitions after it are held against each other. */
+    j = ref.ndrawn;
+    while (j > 0 && ref.obj[j - 1].cls == JW_MOJI
+           && ref.obj[j - 1].d[1] == -1000.0)
+        j--;
+    if (j != mine.ndrawn
+        || ref.nobj - ref.ndrawn != mine.nobj - mine.ndrawn) {
+        printf("BAD  %s: the port made %d and %d, the original %d and %d\n",
+               what, mine.ndrawn, mine.nobj - mine.ndrawn,
+               j, ref.nobj - ref.ndrawn);
+        fails++;
+        return;
+    }
+    for (i = 0; i < mine.nobj; i++) {
+        int k = i < mine.ndrawn ? i : ref.ndrawn + (i - mine.ndrawn);
+
+        if (!same(&mine, &mine.obj[i], &ref, &ref.obj[k])) {
             bad = i;
             break;
         }
     }
     ck(bad < 0, what);
     if (bad >= 0) {
+        int k = bad < mine.ndrawn ? bad
+                : ref.ndrawn + (bad - mine.ndrawn);
+
         printf("     element %d:\n", bad);
         show(&mine, "port    ", &mine.obj[bad]);
-        show(&ref, "original", &ref.obj[j]);
+        show(&ref, "original", &ref.obj[k]);
     }
     {
         double s = mine.group[0].scale, t = ref.group[0].scale;
@@ -182,9 +195,10 @@ int main(void)
 {
     alike("orig/Test5.jww", "decomp/res/pens.sfc", "decomp/res/sfcin.jww",
           "the pen and line type sample, read back");
-    /* tools/mksfc.py's arcs both ways round, circles and points */
+    /* tools/mksfc.py's arcs both ways round, circles, points, a polyline
+       and texts turned, spaced and in CP932 */
     alike("orig/Test5.jww", "decomp/res/geo.sfc", "decomp/res/sfcgeo.jww",
-          "arcs, circles and points, read back");
+          "arcs, circles, points, a polyline and texts, read back");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

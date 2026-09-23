@@ -21,8 +21,8 @@
  *     任意線種 30+k, and a width becomes hundredths of a millimetre.
  *   * A layer number is the layer, in group 0.
  *
- * Only the features the original itself writes for lines, arcs, circles and
- * points are read; polylines, fills, text and dimensions are not yet.
+ * Lines, arcs, circles, points, polylines and texts are read; fills (which
+ * is how a solid comes) and dimensions are not yet.
  */
 #include <math.h>
 #include <stdio.h>
@@ -30,8 +30,13 @@
 #include <string.h>
 
 #include "jww.h"
+#include "text.h"
 
 #define PI 3.14159265358979323846
+
+/* The face a text comes in with, whatever the file's own font table says:
+   the original's default, 「MS ゴシック」 in full width. */
+#define JW_SFC_FACE "\x82\x6c\x82\x72 \x83\x53\x83\x56\x83\x62\x83\x4e"
 
 #define NAME 128
 #define NARG 24
@@ -275,11 +280,92 @@ static jw_obj *place(sfcr *r, int cls)
     return o;
 }
 
+/* How many half-widths a CP932 string comes to, and how much of the gap
+   between letters it carries: a whole-width letter is two half-widths and
+   takes a whole gap, a half-width one takes half.  The original counts it
+   this way when it places a text of its own (src/cmd.c), and an SFC gives
+   the whole width rather than the width of a letter, so this is what turns
+   one into the other. */
+static void measure(const char *s, double sp, double *half, double *gap)
+{
+    int nb = 0, first = 1;
+
+    *gap = 0.0;
+    while (*s) {
+        int wide = jw_is_lead((unsigned char)s[0]) && s[1];
+
+        if (!first)
+            *gap += wide ? sp : sp / 2.0;
+        first = 0;
+        nb += wide ? 2 : 1;
+        s += wide ? 2 : 1;
+    }
+    *half = (double)nb;
+}
+
 static void element(sfcr *r)
 {
     jw_obj *o;
 
-    if (is(r, "line_feature")) {
+    if (is(r, "polyline_feature")) {
+        /* layer, colour, line type, width, how many corners, then the two
+           coordinates as one string each -- and it comes apart into lines */
+        int n = inum(r, 4), i;
+        const char *px = r->arg[5], *py = r->arg[6];
+        double x0 = 0, y0 = 0, x1, y1;
+
+        for (i = 0; i < n; i++) {
+            while (*px && *px != '(' && *px != ',')
+                px++;
+            while (*py && *py != '(' && *py != ',')
+                py++;
+            if (*px)
+                px++;
+            if (*py)
+                py++;
+            x1 = atof(px);
+            y1 = atof(py);
+            if (i > 0) {
+                o = place(r, JW_SEN);
+                if (!o)
+                    return;
+                o->d[0] = x0;
+                o->d[1] = y0;
+                o->d[2] = x1;
+                o->d[3] = y1;
+            }
+            x0 = x1;
+            y0 = y1;
+        }
+    } else if (is(r, "text_string_feature")) {
+        /* layer, colour, which font, the words, the place, the height, how
+           wide the whole of it is, the gap between letters, the turn, the
+           slant, and two more this does not use */
+        double x = num(r, 4), y = num(r, 5), h = num(r, 6);
+        double total = num(r, 7), sp = num(r, 8), ang = num(r, 9);
+        double half = 0, gap = 0;
+
+        o = jw_add(r->d, JW_MOJI);
+        if (!o)
+            return;
+        o->layer = (unsigned short)(inum(r, 0) & 0xf);
+        o->lgroup = 0;
+        o->color = (unsigned short)(100 + inum(r, 1));
+        o->ltype = 1;
+        o->width = 0;
+        measure(r->arg[3], sp, &half, &gap);
+        o->d[0] = x;
+        o->d[1] = y;
+        o->d[2] = x + total * cos(ang * PI / 180.0);
+        o->d[3] = y + total * sin(ang * PI / 180.0);
+        o->d[4] = half > 0.0 ? (total - gap) * 2.0 / half : h;
+        o->d[5] = h;
+        o->d[6] = sp;
+        o->d[7] = ang;
+        o->n = 3;               /* 文字種 3, whatever the size */
+        o->text = jw_add_str(r->d, r->arg[3]);
+        o->face = jw_add_str(r->d, JW_SFC_FACE);
+    } else if (is(r, "line_feature")) {
         o = place(r, JW_SEN);
         if (o) {
             o->d[0] = num(r, 4);
