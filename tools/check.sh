@@ -88,6 +88,10 @@ echo "=== ハッチ —— 原典が引いたハッチとの突き合わせ"
 ./tests/hatch_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 包絡処理 —— 原典が包絡した 9 通りとの突き合わせ"
+./tests/houraku_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 ./tests/chushin_test.exe | sed 's/^/    /'
 

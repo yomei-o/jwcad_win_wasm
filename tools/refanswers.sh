@@ -669,6 +669,39 @@ $PS -Open tmp/rect.jww -NoSave \
 idle
 sh tools/refenv.sh >/dev/null
 
+
+# 包絡処理 (0x804e), nine ways.  These start from the blank drawing rather
+# than Test5, because the box takes in everything it covers and Test5's own
+# lines would join in.  The lines are drawn with the 線 command (-Cmd 0) and
+# then the box is put round them; tests/houraku_test.c draws the same ones
+# here and holds the result up against these.
+echo "=== houraku1..9 (包絡処理)"
+houraku() {                     # houraku <name> <lines> <box>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/hou.jww
+    $PS -Open tmp/hou.jww -Cmd 0 \
+        -Clicks "$2;cmd:32846;$3;saveas:decomp/res/$1.jww" 2>&1 \
+        | sed 's/^/        /'
+    idle
+    sh tools/refenv.sh >/dev/null
+}
+houraku houraku1 '200,300;800,300;200,340;800,340;480,150;480,500;520,150;520,500' '450,270;560,380'
+houraku houraku2 '200,300;800,300;200,340;800,340;480,150;480,500;520,150;520,500' '150,100;850,550'
+houraku houraku3 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;480,150;520,150;520,150;520,500;520,500;480,500;480,500;480,150' '450,270;560,380'
+houraku houraku4 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;480,150;520,150;520,150;520,500;520,500;480,500;480,500;480,150' '150,100;850,550'
+houraku houraku5 '200,300;800,300;200,340;800,340;480,150;480,500;520,150;520,500' '300,120;700,530'
+houraku houraku6 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;480,150;480,500;520,150;520,500' '150,100;850,550'
+houraku houraku7 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;480,150;480,500;520,150;520,500;480,150;520,150' '150,100;850,550'
+houraku houraku8 '200,200;400,200;400,200;400,300;400,300;200,300;200,300;200,200;600,200;800,200;800,200;800,300;800,300;600,300;600,300;600,200' '150,150;850,350'
+houraku houraku9 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;500,150;500,500' '150,100;850,550'
+if [ -x tests/houraku_test.exe ]; then
+    ./tests/houraku_test.exe >tmp/refanswers.out 2>&1 \
+        && echo "    ok -- tests/houraku_test.exe agrees" \
+        || { echo "    tests/houraku_test.exe disagrees:"; \
+             sed 's/^/        /' tmp/refanswers.out; fails=$((fails+1)); }
+fi
+
 # JWC, both ways: the original writes one out of a drawing with everything
 # in it and one out of Test5 (which has texts), and then opens both again.
 # tests/jwcread_test.c holds what src/jwcread.c makes of them against those.

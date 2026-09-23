@@ -350,6 +350,10 @@ static void op_push(int n)
 
 #define PI 3.14159265358979323846
 
+/* 包絡処理: the first corner of the box, and whether it has been given */
+static int hou_step;
+static double hou_x, hou_y;
+
 /* The font name Jw_cad writes with a new text.  It is whatever its font box
    has, and every text in the drawings to hand has this one; the port draws
    with a bitmap font of its own and has no font list to choose from. */
@@ -468,6 +472,7 @@ void jw_cmd_set(int id)
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
     step = 0;
+    hou_step = 0;
     comp_n = 0;
     cut_step = 0;
     corner_step = 0;
@@ -3241,9 +3246,124 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
     op_push(made);
 }
 
+/* 包絡処理 (0x804e): the first click is one corner of the box, the second
+ * the other -- and the second does the work.  What it does to the lines the
+ * box catches is src/houraku.c; here it goes into the drawing, so that one
+ * 元に戻る takes the lot back.
+ */
+/* which line types the bar's four checkboxes let through */
+static int hou_ltypes(int *out)
+{
+    int n = 0, i;
+
+    if (jw_cmd_bar_check(1338))         /* 実線 */
+        out[n++] = 1;
+    if (jw_cmd_bar_check(1339))         /* 点線 */
+        for (i = 2; i <= 4; i++)
+            out[n++] = i;
+    if (jw_cmd_bar_check(1340))         /* 鎖線 */
+        for (i = 5; i <= 8; i++)
+            out[n++] = i;
+    if (jw_cmd_bar_check(1341))         /* 補助線 */
+        out[n++] = 9;
+    return n;
+}
+
+static int houraku(jw_drawing *d, double x, double y)
+{
+    jw_hou_out *out = 0;
+    int ltype[10], nlt, n, i, j, changed = 0;
+    op_t *rec;
+
+    nlt = hou_ltypes(ltype);
+    if (!d || nlt == 0)
+        return 0;
+    n = jw_houraku(d, hou_x, hou_y, x, y, ltype, nlt, &out);
+    if (n <= 0) {
+        free(out);
+        return 0;
+    }
+    rec = op_new();
+    /* the ones that stay, first: the first piece takes the element's place
+       and any others are added at the end */
+    for (i = 0; i < n; i++) {
+        jw_obj *o;
+        int first = 1;
+
+        if (out[i].drop || out[i].at < 0 || out[i].at >= d->ndrawn)
+            continue;
+        for (j = 0; j < i; j++)
+            if (out[j].at == out[i].at && !out[j].drop)
+                first = 0;
+        o = &d->obj[out[i].at];
+        if (first) {
+            if (o->d[0] != out[i].x0 || o->d[1] != out[i].y0
+                || o->d[2] != out[i].x1 || o->d[3] != out[i].y1) {
+                op_keep(rec, d, out[i].at, 0);
+                o->d[0] = out[i].x0;
+                o->d[1] = out[i].y0;
+                o->d[2] = out[i].x1;
+                o->d[3] = out[i].y1;
+                changed = 1;
+            }
+        } else {
+            jw_obj was = *o, *p = jw_add(d, JW_SEN);
+
+            if (p) {
+                *p = was;
+                p->d[0] = out[i].x0;
+                p->d[1] = out[i].y0;
+                p->d[2] = out[i].x1;
+                p->d[3] = out[i].y1;
+                p->sel = 0;
+                rec->n++;
+                changed = 1;
+            }
+        }
+    }
+    /* and then the ones that go, from the back so the rest keep their
+       places -- and last, so 元に戻る puts them back before it puts the
+       changed ones right */
+    for (i = d->ndrawn - 1; i >= 0; i--) {
+        int gone = 0;
+
+        for (j = 0; j < n; j++)
+            if (out[j].at == i) {
+                if (out[j].drop)
+                    gone = 1;
+                else {
+                    gone = 0;
+                    break;
+                }
+            }
+        if (gone) {
+            op_keep(rec, d, i, 1);
+            jw_remove(d, i);
+            changed = 1;
+        }
+    }
+    free(out);
+    if (!changed && rec == &op[nop - 1] && rec->nitem == 0 && rec->n == 0)
+        nop--;                  /* nothing happened: no undo step either */
+    return changed;
+}
+
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (current == JW_CMD_HOURAKU) {
+        if (button != 0)        /* (R) is 範囲内消去, which is not done */
+            return;
+        if (hou_step == 0) {
+            hou_x = x;
+            hou_y = y;
+            hou_step = 1;
+            return;
+        }
+        houraku(d, x, y);
+        hou_step = 0;
+        return;
+    }
     if (current == JW_CMD_TAKAKU) {
         if (button == 0 && d)
             takaku(d, x, y);

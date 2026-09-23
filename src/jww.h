@@ -205,6 +205,19 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
    (src/jwcread.c).  Returns 0 if the bytes are not a JWC. */
 int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n);
 
+/* 包絡処理 (src/houraku.c): what the box does to the lines it catches.
+   One entry per piece that comes out -- `at` says which element it came
+   from, and `drop` says the element goes altogether.  An element with two
+   entries was cut in two. */
+typedef struct {
+    int at;
+    double x0, y0, x1, y1;
+    int drop;
+} jw_hou_out;
+
+int jw_houraku(const jw_drawing *d, double x0, double y0, double x1,
+               double y1, const int *ltypes, int nltype, jw_hou_out **outp);
+
 /* 「JWC形式で保存」 (src/jwcwrite.c). */
 int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n);
 
