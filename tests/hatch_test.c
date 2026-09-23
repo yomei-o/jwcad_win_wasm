@@ -235,6 +235,132 @@ static void run(const char *path, int skip, int want, int mode,
     jw_free(&ref);
 }
 
+/* 範囲選択 (1067): a boxful of closed figures instead of one ring.
+ *
+ * The original was given two rectangles on a blank sheet, boxed them both,
+ * pressed 選択確定 and then 実行, and drew one run of offsets across the pair
+ * -- the chords of both rectangles interleaved, far side first, in the same
+ * places the phase would have put them for either on its own
+ * (decomp/res/hatch_sel.jww).
+ */
+static void run_sel(const char *path, const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *el[64];
+    int i, nb, nel = 0, before, want;
+
+    printf("%s\n", what);
+    app_resize(1264, 741);
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open decomp/res/new.jww\n");
+        fails++;
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    nb = d->ndrawn;
+
+    b = slurp(path, &n);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    /* the eight lines of the two rectangles come first, the hatch after.
+       The original moves its six settings texts to the end of the file when
+       it saves, so the lines start at the very front. */
+    for (i = 0; i < ref.ndrawn && nel < 64; i++)
+        if (ref.obj[i].cls == JW_SEN)
+            el[nel++] = &ref.obj[i];
+    (void)nb;
+    want = nel - 8;
+    ck(nel > 8, "  the original's rectangles and hatch are in the file");
+    if (nel <= 8) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < 8; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+        int k;
+
+        for (k = 0; k < 4; k++)
+            o->d[k] = el[i]->d[k];
+    }
+    app_fit();
+    before = d->ndrawn;
+
+    jw_cmd_set(JW_CMD_HATCH);
+    /* the boxes keep what earlier runs typed into them */
+    type_box(1419, "45");
+    type_box(1411, "10");
+    type_box(1412, "1");
+    ck(jw_cmd_bar(d, 1067) == 1, "  範囲選択 can be pressed");
+    /* a box round the pair, well clear of both */
+    {
+        double x0 = el[0]->d[0], x1 = x0, y0 = el[0]->d[1], y1 = y0;
+
+        for (i = 0; i < 8; i++) {
+            int k;
+
+            for (k = 0; k < 2; k++) {
+                double px = el[i]->d[2 * k], py = el[i]->d[2 * k + 1];
+
+                if (px < x0) x0 = px;
+                if (px > x1) x1 = px;
+                if (py < y0) y0 = py;
+                if (py > y1) y1 = py;
+            }
+        }
+        jw_cmd_point(d, app_view(), x0 - 10, y0 - 10, 0);
+        jw_cmd_point(d, app_view(), x1 + 10, y1 + 10, 0);
+    }
+    ck(jw_cmd_sel_count(d) == 8, "  the box takes both rectangles");
+    ck(jw_cmd_bar(d, 1120) == 1, "  選択確定 can be pressed");
+    ck(d->ndrawn == before, "  and draws nothing on its own");
+    ck(jw_cmd_bar(d, 1148) == 1, "  実行 runs");
+    ck(d->ndrawn == before + want, "  as many lines as the original");
+    if (d->ndrawn != before + want) {
+        printf("     ours %d, the original's %d\n", d->ndrawn - before, want);
+        jw_free(&ref);
+        return;
+    }
+    {
+        double worst = 0;
+
+        for (i = 0; i < want; i++) {
+            int k;
+
+            for (k = 0; k < 4; k++) {
+                double e = fabs(d->obj[before + i].d[k] - el[8 + i]->d[k]);
+
+                if (e > worst)
+                    worst = e;
+            }
+        }
+        if (worst > 1e-6)
+            printf("     worst disagreement %.6g\n"
+                   "     ours   %.6f,%.6f -> %.6f,%.6f\n"
+                   "     theirs %.6f,%.6f -> %.6f,%.6f\n", worst,
+                   d->obj[before].d[0], d->obj[before].d[1],
+                   d->obj[before].d[2], d->obj[before].d[3],
+                   el[8]->d[0], el[8]->d[1], el[8]->d[2], el[8]->d[3]);
+        ck(worst <= 1e-6,
+           "  every line where the original put it, both rectangles in one run");
+    }
+    jw_cmd_undo(d);
+    ck(d->ndrawn == before, "  元に戻る takes the lot back");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     static const char *const b[3] = { "30", "20", "50" };
@@ -264,6 +390,8 @@ int main(void)
        "going back to 1線 brings back 角度 45・ピッチ 10");
     run("decomp/res/hatch_jisun.jww", 4, 49, 1689, j, 1, 0,
         "the same rectangle again, 実寸 with ピッチ 2000 in a 1/200 drawing:");
+    run_sel("decomp/res/hatch_sel.jww",
+            "範囲選択 over two rectangles at once:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

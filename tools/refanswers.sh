@@ -101,6 +101,46 @@ make sunpo sunpo 0 \
     '300,600;700,600;cmd:32847;ch:1411,30;400,500;400,450;r300,600;r700,600' \
     || fails=$((fails+1))
 
+# 複写・移動 の 倍率 と 回転角.  The 基準点 is wherever the cursor is sitting
+# when 選択確定 is pressed, so the `m` step puts it somewhere known first --
+# no click there, or the selection would change.  Both start from a blank
+# sheet so nothing of Test5's own is in the box.
+xform() {               # xform <name> <cmd> <倍率> <回転角>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 32772 \
+        -Clicks "300,300;500,400;cmd:$2;250,250;550,450;m400,350;btn:1120;ch:1411,$3;ch:1412,$4;700,500;saveas:decomp/res/$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
+try=1
+while :; do
+    echo "=== 複写・移動 の 倍率 と 回転角"
+    xform copyxf 32804 2 30
+    xform movexf 32918 0.5 -45
+    if [ ! -x tests/xform_test.exe ]; then
+        echo "    (tests/xform_test.exe is not built -- not checked)"
+        break
+    fi
+    if ./tests/xform_test.exe >tmp/refanswers.out 2>&1; then
+        echo "    ok -- tests/xform_test.exe agrees"
+        break
+    fi
+    try=$((try + 1))
+    if [ "$try" -gt "$TRIES" ]; then
+        echo "    tests/xform_test.exe still disagrees after $TRIES tries:"
+        sed 's/^/        /' tmp/refanswers.out
+        fails=$((fails + 1))
+        break
+    fi
+    echo "    tests/xform_test.exe disagrees -- drawing it again ($try/$TRIES)"
+done
+
+# 属性変更 (0x80b8).  One click on one element -- no range, no button.  It
+# gives Test5's first line the write layer and moves it to the end of the
+# drawing; (394,534) is that line's middle on this view.
+make zokuhen zokuhen 32952 '394,534' || fails=$((fails+1))
+
 # 多角形 (0x807e).  角数 8, 寸法 3000, 底辺角度 30, then one click for the
 # centre -- the eight vertices follow from those three numbers.
 make poly poly 32894 \
@@ -406,9 +446,20 @@ hatch_rect_base92() {
         -Clicks "300,300;800,600;cmd:32874;btn:1692;set:1419,30;set:1411,20;set:1412,50;pb:1147;300,300;r550,300;btn:1148;saveas:decomp/res/hatch_base92.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 範囲選択 (1067): a boxful of closed figures at once.  This one starts from
+# a blank sheet -- decomp/res/new.jww, what the original's 新規 makes -- so
+# that nothing of Test5's own falls in the box.
+hatch_sel() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 32772 \
+        -Clicks "300,300;500,500;600,300;800,500;cmd:32874;pb:1067;250,250;850,550;btn:1120;btn:1148;saveas:decomp/res/hatch_sel.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸 基点変)"
+    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸 基点変 範囲選択)"
     hatch_circle
     hatch_rect
     hatch_rect_mode 1690
@@ -418,6 +469,7 @@ while :; do
     hatch_rect_jisun
     hatch_rect_base
     hatch_rect_base92
+    hatch_sel
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

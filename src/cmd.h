@@ -29,6 +29,7 @@ enum {
     JW_CMD_SHINSHUKU = 0x8017,      /* 線伸縮 */
     JW_CMD_FUKUSEN = 0x8020,        /* 複線 */
     JW_CMD_ZOKUSEI = 0x80a3,        /* 属性取得 */
+    JW_CMD_ZOKUHEN = 0x80b8,        /* 属性変更 */
     JW_CMD_MOJI = 0x8026,           /* 文字 */
     JW_CMD_HANI = 0x8013,           /* 範囲選択 -- CZukeiSentaku */
     JW_CMD_FUKUSHA = 0x8024,        /* 複写 -- CZukeiFukusha */

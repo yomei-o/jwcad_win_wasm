@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -576,6 +577,43 @@ void jw_obj_move(jw_obj *o, double dx, double dy)
         o->d[2] += dx;
         o->d[3] += dy;
         return;
+    }
+}
+
+/* Scale about (cx, cy) by `sc`, turn by `ang` radians, then shift by
+ * (dx, dy).  This is what 複写 and 移動 do with the bar's 倍率 and 回転角:
+ * the original's copy of a rectangle at 倍率 2, 回転角 30 came out exactly
+ * at  click + R(30) * 2 * (point - 基準点), to four decimals.
+ *
+ * A circle carries its own start angle and tilt, so those turn with it and
+ * its radius takes the scale; a text turns about its own start.
+ */
+void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
+                  double dx, double dy)
+{
+    double c = cos(ang), s = sin(ang);
+    int i, n;
+
+    switch (o->cls) {
+    case JW_ENKO: n = 1; break;
+    case JW_TEN:  n = 1; break;
+    case JW_SOLID: n = 4; break;
+    default: n = 2; break;
+    }
+    for (i = 0; i < n; i++) {
+        double x = (o->d[i * 2] - cx) * sc, y = (o->d[i * 2 + 1] - cy) * sc;
+
+        o->d[i * 2] = cx + x * c - y * s + dx;
+        o->d[i * 2 + 1] = cy + x * s + y * c + dy;
+    }
+    if (o->cls == JW_ENKO) {
+        o->d[2] *= sc;          /* the radius */
+        o->d[3] += ang;         /* where the arc starts */
+        o->d[5] += ang;         /* and which way it leans */
+    } else if (o->cls == JW_MOJI) {
+        o->d[4] *= sc;          /* the size and the spacing */
+        o->d[5] *= sc;
+        o->d[6] *= sc;
     }
 }
 

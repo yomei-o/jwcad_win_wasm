@@ -169,10 +169,19 @@ static int cv_base;
    circle.  Right-clicking one line of a closed chain takes the whole chain;
    right-clicking a circle takes the circle. */
 #define HT_MAX 256
+#define HT_REG 64
 static double ht_x[HT_MAX], ht_y[HT_MAX];
-static int ht_n;                /* corners in the ring, 0 when none */
-static double ht_cx, ht_cy, ht_r;
-static int ht_round;            /* the boundary is a circle */
+static int ht_n;                /* corners used in ht_x/ht_y */
+/* What is being hatched.  One right click takes one ring or one circle, but
+   範囲選択 takes a whole boxful at once, so this is a list: the original
+   hatched two rectangles in one go and the lines came out interleaved, in
+   one run of offsets across both. */
+static struct {
+    int round;                  /* a circle rather than a ring */
+    int first, n;               /* its corners in ht_x/ht_y */
+    double cx, cy, r;
+} ht_reg[HT_REG];
+static int ht_nreg;
 /* ハッチの実寸 (the bar's 1323).  While it is off the ピッチ is in paper
    millimetres, which is how the original comes up; turned on it is in the
    drawing's own units, so it is divided by the write layer group's scale.
@@ -180,6 +189,9 @@ static int ht_round;            /* the boundary is a circle */
    off in a 1/200 drawing (decomp/res/hatch_jisun.jww against hatch_rect.jww).
    It stays on across commands, the way the boxes keep their numbers. */
 static int ht_jisun;
+/* 属性変更's two ticks, both on when the command is entered:
+   線種・文字種変更 (1352) and 書込みレイヤに変更 (1353). */
+static int zh_type = 1, zh_layer = 1;
 /* ハッチの基点変 (the bar's 1147).  It asks 「基準点を指示して下さい」 and the
    next click is the point the whole pattern counts from: the lines then sit
    where the distance across is that point's plus a whole ピッチ, and ┬┴┬'s
@@ -187,6 +199,9 @@ static int ht_jisun;
    the original went back to counting from zero on the way back in. */
 static int ht_base, ht_base_wait;
 static double ht_bx, ht_by;
+/* 範囲選択 (1067): 0 none, 1 waiting for the box's first corner, 2 for its
+   second, 3 boxed and waiting for 選択確定. */
+static int ht_sel;
 
 static void ht_mode_set(int id);
 static int ht_mode = 1689;      /* 1線, the one the original enters in */
@@ -229,6 +244,10 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
     { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
+    { JW_CMD_FUKUSHA, 1411, "" },       /* 複写の倍率 */
+    { JW_CMD_FUKUSHA, 1412, "" },       /* 複写の回転角 */
+    { JW_CMD_IDOU, 1411, "" },          /* 移動の倍率 */
+    { JW_CMD_IDOU, 1412, "" },          /* 移動の回転角 */
     { JW_CMD_SUNPO, 1411, "0" },        /* 寸法の傾き */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
@@ -472,10 +491,13 @@ void jw_cmd_set(int id)
         cv_mode = 1691;
         cv_base = 0;
     }
+    if (id == JW_CMD_ZOKUHEN)
+        zh_type = zh_layer = 1;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
-        ht_round = 0;
+        ht_nreg = 0;
         ht_base = ht_base_wait = 0;
+        ht_sel = 0;
         ht_mode_set(1689);      /* and the bar's numbers with it */
     }
     if (id == JW_CMD_CHUSHIN) {
@@ -1639,36 +1661,48 @@ static void kyokusen(jw_drawing *d)
  * ピッチ is paper millimetres while 実寸 is off, which is how the original
  * starts.
  */
-static int hatch_ring(const jw_drawing *d, int a)
+/* Walk the ring that starts at line `a` and add it to the list.  `used` is
+ * the caller's, so a boxful of lines can be walked ring by ring without
+ * taking the same line twice; `only` limits the walk to the selected lines.
+ */
+static int hatch_ring_from(const jw_drawing *d, int a, char *used, int only)
 {
-    char used[HT_MAX];
     double ex, ey, sx, sy;
-    int i, k, n = d->ndrawn > HT_MAX ? HT_MAX : d->ndrawn;
+    int i, k, first = ht_n, n = d->ndrawn > HT_MAX ? HT_MAX : d->ndrawn;
 
-    for (i = 0; i < n; i++)
-        used[i] = 0;
-    if (a < 0 || a >= n || d->obj[a].cls != JW_SEN)
+    if (a < 0 || a >= n || d->obj[a].cls != JW_SEN || ht_nreg >= HT_REG)
         return 0;
     used[a] = 1;
     sx = d->obj[a].d[0];
     sy = d->obj[a].d[1];
     ex = d->obj[a].d[2];
     ey = d->obj[a].d[3];
-    ht_x[0] = sx;
-    ht_y[0] = sy;
-    ht_n = 1;
+    if (ht_n >= HT_MAX - 2)
+        return 0;
+    ht_x[ht_n] = sx;
+    ht_y[ht_n] = sy;
+    ht_n++;
     for (k = 0; k < HT_MAX; k++) {
         int found = -1, flip = 0;
 
+        if (ht_n >= HT_MAX - 1)
+            break;
         ht_x[ht_n] = ex;
         ht_y[ht_n] = ey;
         ht_n++;
-        if (near_pt(ex, ey, sx, sy))
-            return ht_n > 3;    /* closed */
-        if (ht_n >= HT_MAX - 1)
-            return 0;
+        if (near_pt(ex, ey, sx, sy)) {
+            if (ht_n - first <= 3)
+                break;          /* not a ring */
+            ht_reg[ht_nreg].round = 0;
+            ht_reg[ht_nreg].first = first;
+            ht_reg[ht_nreg].n = ht_n - first;
+            ht_nreg++;
+            return 1;
+        }
         for (i = 0; i < n; i++) {
             if (used[i] || d->obj[i].cls != JW_SEN)
+                continue;
+            if (only && !d->obj[i].sel)
                 continue;
             if (near_pt(d->obj[i].d[0], d->obj[i].d[1], ex, ey)) {
                 found = i;
@@ -1682,18 +1716,104 @@ static int hatch_ring(const jw_drawing *d, int a)
             }
         }
         if (found < 0)
-            return 0;
+            break;
         used[found] = 1;
         ex = flip ? d->obj[found].d[0] : d->obj[found].d[2];
         ey = flip ? d->obj[found].d[1] : d->obj[found].d[3];
     }
+    ht_n = first;               /* nothing usable: give the points back */
     return 0;
+}
+
+static int hatch_ring(const jw_drawing *d, int a)
+{
+    char used[HT_MAX];
+    int i, n = d->ndrawn > HT_MAX ? HT_MAX : d->ndrawn;
+
+    for (i = 0; i < n; i++)
+        used[i] = 0;
+    ht_n = 0;
+    ht_nreg = 0;
+    return hatch_ring_from(d, a, used, 0);
+}
+
+/* A circle is a region of its own. */
+static void hatch_circle(const jw_obj *o)
+{
+    if (ht_nreg >= HT_REG)
+        return;
+    ht_reg[ht_nreg].round = 1;
+    ht_reg[ht_nreg].first = 0;
+    ht_reg[ht_nreg].n = 0;
+    ht_reg[ht_nreg].cx = o->d[0];
+    ht_reg[ht_nreg].cy = o->d[1];
+    ht_reg[ht_nreg].r = o->d[2];
+    ht_nreg++;
+}
+
+/* Everything the box took: each closed ring of selected lines, and each
+ * selected whole circle. */
+static void hatch_selected(const jw_drawing *d)
+{
+    char used[HT_MAX];
+    int i, n = d->ndrawn > HT_MAX ? HT_MAX : d->ndrawn;
+
+    ht_n = 0;
+    ht_nreg = 0;
+    for (i = 0; i < n; i++)
+        used[i] = 0;
+    for (i = 0; i < n; i++) {
+        if (!d->obj[i].sel)
+            continue;
+        if (d->obj[i].cls == JW_ENKO && d->obj[i].d[2] > 0.0
+            && (d->obj[i].d[4] == 0.0 || d->obj[i].d[4] >= 6.283185))
+            hatch_circle(&d->obj[i]);
+        else if (d->obj[i].cls == JW_SEN && !used[i])
+            hatch_ring_from(d, i, used, 1);
+    }
 }
 
 static int hatch_at(jw_drawing *d, double o, double ux, double uy,
                     double nx, double ny);
 static int hatch_grid(jw_drawing *d, double ux, double uy, double nx,
                       double ny, double vp, double hp);
+static void hatch_span(double ax, double ay, double *lo, double *hi);
+
+/* Give an element the write attributes.  It comes back at the end of the
+ * drawing, which is what the original does -- so what is drawn on top of what
+ * changes with it. */
+static void zoku_change(jw_drawing *d, int i)
+{
+    jw_obj was, *o;
+    op_t *rec;
+    unsigned short colour, lt;
+    unsigned char layer, lgroup;
+
+    if (!d || i < 0 || i >= d->ndrawn)
+        return;
+    was = d->obj[i];
+    rec = op_new();
+    if (!rec)
+        return;
+    erase(d, i, rec);
+    o = jw_add(d, was.cls);
+    if (!o)
+        return;
+    colour = o->color;          /* what a new element gets */
+    lt = o->ltype;
+    layer = o->layer;
+    lgroup = o->lgroup;
+    *o = was;
+    if (zh_type) {
+        o->color = colour;
+        o->ltype = lt;
+    }
+    if (zh_layer) {
+        o->layer = layer;
+        o->lgroup = lgroup;
+    }
+    rec->n = 1;
+}
 
 static void hatch(jw_drawing *d)
 {
@@ -1702,7 +1822,7 @@ static void hatch(jw_drawing *d)
     double ang = sa ? atof(sa) : 0.0, pitch = sp ? atof(sp) : 0.0;
     double gap = sg ? atof(sg) : 0.0;
     double ux, uy, nx, ny, lo, hi, o, bo;
-    int i, k, k0, k1, made = 0, extra = 0;
+    int k, k0, k1, made = 0, extra = 0;
 
     if (ht_mode < 1689 || ht_mode > 1692)
         return;                 /* 図形 is not done */
@@ -1715,7 +1835,7 @@ static void hatch(jw_drawing *d)
            line of its own inside it */
         extra = 1;
     }
-    if (!ht_round && ht_n < 4)
+    if (ht_nreg <= 0)
         return;
     if (ht_jisun) {             /* 実寸: the numbers are the drawing's own */
         int wg = 0, k;
@@ -1738,17 +1858,7 @@ static void hatch(jw_drawing *d)
             op_push(made);
         return;
     }
-    if (ht_round) {
-        lo = nx * ht_cx + ny * ht_cy - ht_r;
-        hi = lo + 2 * ht_r;
-    } else {
-        lo = hi = nx * ht_x[0] + ny * ht_y[0];
-        for (i = 1; i < ht_n; i++) {
-            o = nx * ht_x[i] + ny * ht_y[i];
-            if (o < lo) lo = o;
-            if (o > hi) hi = o;
-        }
-    }
+    hatch_span(nx, ny, &lo, &hi);
     bo = ht_base ? nx * ht_bx + ny * ht_by : 0.0;
     k0 = (int)ceil((lo - bo) / pitch);
     k1 = (int)floor((hi - bo) / pitch);
@@ -1785,33 +1895,39 @@ static void hatch(jw_drawing *d)
 static int hatch_cut(double o, double ax, double ay, double bx, double by,
                      double *t)
 {
-    int i, nt = 0;
+    int i, g, nt = 0;
 
-    if (ht_round) {
-        double dd = o - (ax * ht_cx + ay * ht_cy);
-        double h = ht_r * ht_r - dd * dd;
-        double mid;
+    for (g = 0; g < ht_nreg; g++) {
+        if (ht_reg[g].round) {
+            double dd = o - (ax * ht_reg[g].cx + ay * ht_reg[g].cy);
+            double h = ht_reg[g].r * ht_reg[g].r - dd * dd;
+            double mid;
 
-        if (h <= 0.0)
-            return 0;           /* this one misses the circle */
-        h = sqrt(h);
-        mid = bx * ht_cx + by * ht_cy;
-        t[nt++] = mid - h;
-        t[nt++] = mid + h;
-        return nt;
+            if (h <= 0.0)
+                continue;       /* this one misses the circle */
+            h = sqrt(h);
+            mid = bx * ht_reg[g].cx + by * ht_reg[g].cy;
+            if (nt + 2 <= HT_MAX) {
+                t[nt++] = mid - h;
+                t[nt++] = mid + h;
+            }
+            continue;
+        }
+        for (i = ht_reg[g].first; i + 1 < ht_reg[g].first + ht_reg[g].n; i++) {
+            double a0 = ax * ht_x[i] + ay * ht_y[i];
+            double a1 = ax * ht_x[i + 1] + ay * ht_y[i + 1];
+            double f;
+
+            if ((a0 <= o) == (a1 <= o))
+                continue;       /* the edge does not cross this line */
+            f = (o - a0) / (a1 - a0);
+            if (nt < HT_MAX)
+                t[nt++] = bx * (ht_x[i] + f * (ht_x[i + 1] - ht_x[i]))
+                        + by * (ht_y[i] + f * (ht_y[i + 1] - ht_y[i]));
+        }
     }
-    for (i = 0; i + 1 < ht_n; i++) {
-        double a0 = ax * ht_x[i] + ay * ht_y[i];
-        double a1 = ax * ht_x[i + 1] + ay * ht_y[i + 1];
-        double f;
-
-        if ((a0 <= o) == (a1 <= o))
-            continue;           /* the edge does not cross this line */
-        f = (o - a0) / (a1 - a0);
-        if (nt < HT_MAX)
-            t[nt++] = bx * (ht_x[i] + f * (ht_x[i + 1] - ht_x[i]))
-                    + by * (ht_y[i] + f * (ht_y[i + 1] - ht_y[i]));
-    }
+    /* sorted across every region together, so two of them side by side come
+       out in one run of chords the way the original draws them */
     for (i = 1; i < nt; i++) {
         double v = t[i];
         int j = i - 1;
@@ -1824,19 +1940,28 @@ static int hatch_cut(double o, double ax, double ay, double bx, double by,
 /* How far the region reaches along (ax, ay). */
 static void hatch_span(double ax, double ay, double *lo, double *hi)
 {
-    int i;
+    int i, g, first = 1;
 
-    if (ht_round) {
-        *lo = ax * ht_cx + ay * ht_cy - ht_r;
-        *hi = *lo + 2 * ht_r;
-        return;
-    }
-    *lo = *hi = ax * ht_x[0] + ay * ht_y[0];
-    for (i = 1; i < ht_n; i++) {
-        double o = ax * ht_x[i] + ay * ht_y[i];
+    *lo = *hi = 0.0;
+    for (g = 0; g < ht_nreg; g++) {
+        double a, b;
 
-        if (o < *lo) *lo = o;
-        if (o > *hi) *hi = o;
+        if (ht_reg[g].round) {
+            a = ax * ht_reg[g].cx + ay * ht_reg[g].cy - ht_reg[g].r;
+            b = a + 2 * ht_reg[g].r;
+        } else {
+            a = b = ax * ht_x[ht_reg[g].first] + ay * ht_y[ht_reg[g].first];
+            for (i = ht_reg[g].first + 1;
+                 i < ht_reg[g].first + ht_reg[g].n; i++) {
+                double o = ax * ht_x[i] + ay * ht_y[i];
+
+                if (o < a) a = o;
+                if (o > b) b = o;
+            }
+        }
+        if (first || a < *lo) *lo = a;
+        if (first || b > *hi) *hi = b;
+        first = 0;
     }
 }
 
@@ -2510,9 +2635,27 @@ int jw_cmd_sel_erase(jw_drawing *d)
 }
 
 /* One click while the selection is being placed. */
+/* The bar's 倍率 (1411) and 回転角 (1412), which the second stage of 複写 and
+   移動 puts up.  Empty means 1 and 0. */
+static double sel_scale(void)
+{
+    const char *t = jw_cmd_box(1411);
+    double v = t ? atof(t) : 0.0;
+
+    return v > 0.0 ? v : 1.0;
+}
+
+static double sel_turn(void)
+{
+    const char *t = jw_cmd_box(1412);
+
+    return (t ? atof(t) : 0.0) * PI / 180.0;
+}
+
 static void sel_place(jw_drawing *d, double x, double y)
 {
     double dx = x - base_x, dy = y - base_y;
+    double sc = sel_scale(), ang = sel_turn();
     int i;
 
     if (!d || sel_n <= 0)
@@ -2525,7 +2668,7 @@ static void sel_place(jw_drawing *d, double x, double y)
                 continue;
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
-            jw_obj_move(&d->obj[at], dx, dy);
+            jw_obj_xform(&d->obj[at], base_x, base_y, sc, ang, dx, dy);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
@@ -2542,7 +2685,7 @@ static void sel_place(jw_drawing *d, double x, double y)
                 break;
             at = (int)(p - d->obj);
             *p = sel_was[i];
-            jw_obj_move(p, dx, dy);
+            jw_obj_xform(p, base_x, base_y, sc, ang, dx, dy);
             /* a copy is not itself selected: in the original the new
                elements come out in their own colours while the ones that
                were picked stay pink */
@@ -2582,6 +2725,10 @@ int jw_cmd_bar_check(int id)
 {
     if (current == JW_CMD_HATCH && id == 1323)
         return ht_jisun;
+    if (current == JW_CMD_ZOKUHEN && id == 1352)
+        return zh_type;
+    if (current == JW_CMD_ZOKUHEN && id == 1353)
+        return zh_layer;
     return -1;
 }
 
@@ -2615,15 +2762,32 @@ int jw_cmd_bar(jw_drawing *d, int id)
             ht_jisun = !ht_jisun;
             return 1;
         }
+        if (id == 1067) {       /* 範囲選択 -- a boxful instead of one ring */
+            sel_clear(d);
+            ht_sel = 1;
+            ht_n = 0;
+            ht_nreg = 0;
+            return 1;
+        }
+        if (id == 1120) {       /* 選択確定 */
+            if (ht_sel != 3 || !d)
+                return 0;
+            hatch_selected(d);
+            sel_clear(d);
+            ht_sel = 0;
+            return 1;
+        }
         if (id == 1149) {       /* クリアー */
             ht_n = 0;
-            ht_round = 0;
+            ht_nreg = 0;
+            sel_clear(d);
+            ht_sel = 0;
             return 1;
         }
         if (id == 1148) {       /* 実行 */
             hatch(d);
             ht_n = 0;
-            ht_round = 0;
+            ht_nreg = 0;
             return 1;
         }
         return 0;
@@ -2650,6 +2814,13 @@ int jw_cmd_bar(jw_drawing *d, int id)
             ses_a = -1;
             return 1;
         }
+        return 0;
+    }
+    if (current == JW_CMD_ZOKUHEN) {
+        if (id == 1352)
+            return zh_type = !zh_type, 1;
+        if (id == 1353)
+            return zh_layer = !zh_layer, 1;
         return 0;
     }
     if (current == JW_CMD_SUNPO) {
@@ -3063,6 +3234,35 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         line_gen++;
         return;
     }
+    if (current == JW_CMD_ZOKUHEN) {
+        /* 属性変更 (0x80b8).  「変更するデータを指示してください。 線・円・
+         * 実点(L) 文字(R)」 -- one click on one element, no range and no
+         * button: the earlier note here had it as unresolved because it was
+         * tried by confirming a range first.
+         *
+         * What it does is give that element the write pen, line type and
+         * layer, and **move it to the end of the drawing**: the original's
+         * saved file has the changed line last, with everything after it
+         * shifted up one.  The bar's two ticks say which halves to apply --
+         * 線種・文字種変更 (1352) and 書込みレイヤに変更 (1353), both on when
+         * the command is entered.
+         */
+        int i;
+
+        if (!d)
+            return;
+        i = jw_pick(d, v, x, y, button ? 1 : 3);
+        if (i < 0)
+            return;
+        if (button != 0) {
+            if (d->obj[i].cls != JW_MOJI)
+                return;         /* (R) is for texts */
+        } else if (d->obj[i].cls == JW_MOJI) {
+            return;             /* and (L) for everything else */
+        }
+        zoku_change(d, i);
+        return;
+    }
     if (current == JW_CMD_ZOKUSEI) {
         /* Take the pen and the layer off an element and make them the ones
          * new elements get.  Driving Jw_cad bears both out: after 属性取得 on
@@ -3213,6 +3413,24 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_HATCH) {
         int i;
 
+        if (ht_sel && d) {
+            /* the same two-corner box the 範囲 commands use */
+            if (ht_sel == 1 || ht_sel == 3) {
+                if (button != 0)
+                    return;     /* (R) picks a 連続線, which is not done */
+                if (ht_sel == 1)
+                    sel_clear(d);
+                sel_x0 = sel_x1 = x;
+                sel_y0 = sel_y1 = y;
+                ht_sel = 2;
+                return;
+            }
+            sel_x1 = x;
+            sel_y1 = y;
+            sel_box(d, button != 0);
+            ht_sel = jw_cmd_sel_count(d) > 0 ? 3 : 1;
+            return;
+        }
         if (ht_base_wait && d) {
             ht_bx = x;
             ht_by = y;
@@ -3229,15 +3447,14 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         if (i < 0)
             return;
         if (d->obj[i].cls == JW_ENKO) {
-            ht_round = 1;
-            ht_cx = d->obj[i].d[0];
-            ht_cy = d->obj[i].d[1];
-            ht_r = d->obj[i].d[2];
             ht_n = 0;
+            ht_nreg = 0;
+            hatch_circle(&d->obj[i]);
         } else if (d->obj[i].cls == JW_SEN) {
-            ht_round = 0;
-            if (!hatch_ring(d, i))
+            if (!hatch_ring(d, i)) {
                 ht_n = 0;
+                ht_nreg = 0;
+            }
         }
         return;
     }
