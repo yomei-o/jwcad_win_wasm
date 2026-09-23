@@ -132,9 +132,13 @@ static int chu_a = -1, chu_b = -1, chu_step;
    pointed at. */
 static int ses_a = -1, ses_step;
 static double ses_x, ses_y;
+/* 角度指定 and 円上点指定 settle on a line first and then take two points
+   along it: where it passes through, which way it runs, and the first of the
+   two. */
+static double ses_lx, ses_ly, ses_ux, ses_uy, ses_t0;
 /* which of the bar's four buttons is in force: 0 円→円 (1689), 1 点→円
    (1690).  角度指定 (1691) and 円上点指定 (1692) are not done. */
-static int ses_mode;
+static int ses_mode = 1689;     /* the bar button: 1689..1692 */
 /* 接円: the two elements picked, then a click that says which of the four
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
@@ -191,8 +195,10 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
     { JW_CMD_NISEN, 1412, "" },         /* ２線の間隔, "a,b"         */
     { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
+    { JW_CMD_SEKIEN, 1417, "" },        /* 多重円 -- empty is one circle */
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
+    { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
     { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
@@ -424,7 +430,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_SESSEN) {
         ses_step = 0;
         ses_a = -1;
-        ses_mode = 0;           /* 円→円, the one the original enters in */
+        ses_mode = 1689;        /* 円→円, the one the original enters in */
     }
     if (id == JW_CMD_SEKIEN) {
         sek_step = 0;
@@ -1743,79 +1749,365 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
     return made;
 }
 
-static void sekien(jw_drawing *d, int a, int b, double x, double y)
+/* 接線 角度指定 (1691) and 円上点指定 (1692).
+ *
+ * Both settle on a line that touches the circle and then take two points
+ * along it, and the original asks for them in the same words as the 線
+ * command -- 「始点を指示してください」「終点を指示してください」.  Read out of
+ * the status line, which WM_GETTEXT hands over (tools/jwdraw.ps1's
+ * `read:59393`).
+ *
+ *   角度指定    circle, 始点, 終点.  The 角度 box gives the direction, and of
+ *               the two tangents that way round the one on the side the
+ *               circle was pointed at is taken.
+ *   円上点指定  circle, a point on it, 始点, 終点.  The point is pulled onto
+ *               the circle -- centre plus the radius that way -- and the
+ *               tangent there is the line.
+ *
+ * The ends are the two points **dropped onto the line**, not the points
+ * themselves: the original was clicked well off the line both times and the
+ * segment came back exactly between the two feet (decomp/res/sesang_*.jww,
+ * sescpt_*.jww -- 396.5883 long from clicks 500 pixels apart).
+ */
+static void sesline(jw_drawing *d, const jw_view *v, double x, double y)
 {
-    const jw_obj *p, *q;
-    const char *sz = jw_cmd_box(1411);
-    double r, n1x, n1y, k1, n2x, n2y, k2, den, ux, uy, L;
-    double bx = 0, by = 0, bestd = 0;
-    int wg = 0, i, s1, s2, have = 0;
-    jw_obj *o;
+    const jw_obj *c;
+    int i;
 
-    if (a < 0 || b < 0 || a >= d->nobj || b >= d->nobj || a == b)
-        return;
-    p = &d->obj[a];
-    q = &d->obj[b];
-    if (p->cls != JW_SEN || q->cls != JW_SEN)
-        return;
-    r = sz ? atof(sz) : 0.0;
-    if (r <= 0.0)
-        return;                 /* no radius typed in: nothing to draw */
-    for (i = 0; i < 16; i++)
-        if (d->group[i].state == 3)
-            wg = i;
-    if (d->group[wg].scale > 0.0)
-        r /= d->group[wg].scale;
+    if (ses_step == 0) {                /* the circle */
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0 || d->obj[i].cls != JW_ENKO || d->obj[i].d[2] <= 0.0)
+            return;
+        ses_a = i;
+        ses_x = x;
+        ses_y = y;
+        ses_step = 1;
+        if (ses_mode == 1691) {
+            const char *sa = jw_cmd_box(1412);
+            double ang = sa ? atof(sa) : 0.0;
+            double nx, ny, side;
 
-    ux = p->d[2] - p->d[0];
-    uy = p->d[3] - p->d[1];
-    L = sqrt(ux * ux + uy * uy);
-    if (L < 1e-12)
+            c = &d->obj[i];
+            ses_ux = cos(ang * PI / 180.0);
+            ses_uy = sin(ang * PI / 180.0);
+            nx = -ses_uy;
+            ny = ses_ux;
+            side = nx * (x - c->d[0]) + ny * (y - c->d[1]) < 0.0 ? -1.0 : 1.0;
+            ses_lx = c->d[0] + side * c->d[2] * nx;
+            ses_ly = c->d[1] + side * c->d[2] * ny;
+            ses_step = 2;       /* the line is settled; the points are next */
+        }
         return;
-    n1x = -uy / L;
-    n1y = ux / L;
-    k1 = n1x * p->d[0] + n1y * p->d[1];
-
-    ux = q->d[2] - q->d[0];
-    uy = q->d[3] - q->d[1];
-    L = sqrt(ux * ux + uy * uy);
-    if (L < 1e-12)
+    }
+    if (ses_a < 0 || ses_a >= d->nobj || d->obj[ses_a].cls != JW_ENKO) {
+        ses_step = 0;
         return;
-    n2x = -uy / L;
-    n2y = ux / L;
-    k2 = n2x * q->d[0] + n2y * q->d[1];
+    }
+    c = &d->obj[ses_a];
+    if (ses_step == 1) {                /* 円上点: pull it onto the circle */
+        double dx = x - c->d[0], dy = y - c->d[1];
+        double L = sqrt(dx * dx + dy * dy);
 
-    den = n1x * n2y - n1y * n2x;
-    if (fabs(den) < 1e-12)
-        return;                 /* parallel */
+        if (L <= 0.0)
+            return;
+        ses_lx = c->d[0] + c->d[2] * dx / L;
+        ses_ly = c->d[1] + c->d[2] * dy / L;
+        ses_ux = -dy / L;               /* a quarter turn from the radius */
+        ses_uy = dx / L;
+        ses_step = 2;
+        return;
+    }
+    if (ses_step == 2) {                /* 始点 */
+        ses_t0 = ses_ux * (x - ses_lx) + ses_uy * (y - ses_ly);
+        ses_step = 3;
+        return;
+    }
+    {                                   /* 終点 */
+        double t1 = ses_ux * (x - ses_lx) + ses_uy * (y - ses_ly);
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        ses_step = 0;
+        ses_a = -1;
+        if (!o)
+            return;
+        o->d[0] = ses_lx + ses_ux * ses_t0;
+        o->d[1] = ses_ly + ses_uy * ses_t0;
+        o->d[2] = ses_lx + ses_ux * t1;
+        o->d[3] = ses_ly + ses_uy * t1;
+        op_push(1);
+    }
+}
+
+/* 接円 (0x8068) -- a circle that touches what was picked.
+ *
+ * The bar asks for 「１番目の線・円」「２番目の線・円」, so an element is
+ * either a line or a circle, and this holds whichever it is: a line as the
+ * unit normal and its offset, a circle as its centre and radius.
+ */
+typedef struct {
+    int circle;
+    double nx, ny, k;           /* a line: n.point == k */
+    double cx, cy, r;           /* a circle */
+} sek_el;
+
+static int sek_elem(const jw_obj *o, sek_el *e)
+{
+    if (o->cls == JW_SEN) {
+        double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1];
+        double L = sqrt(ux * ux + uy * uy);
+
+        if (L < 1e-12)
+            return 0;
+        e->circle = 0;
+        e->nx = -uy / L;
+        e->ny = ux / L;
+        e->k = e->nx * o->d[0] + e->ny * o->d[1];
+        return 1;
+    }
+    if (o->cls == JW_ENKO && o->d[2] > 0.0) {
+        e->circle = 1;
+        e->cx = o->d[0];
+        e->cy = o->d[1];
+        e->r = o->d[2];
+        return 1;
+    }
+    return 0;
+}
+
+/* Where can the centre of a circle of radius `r` be, if it touches both of
+ * these?  A line puts it on one of the two lines `r` away, a circle on one of
+ * the two circles `r` out or `r` in -- four pairings in all, and each pairing
+ * leaves nought, one or two places.  The original counts them out loud:
+ * two crossed lines said 【 4 − 1 】, a line and a circle 【 2 − 2 】 and two
+ * circles 【 6 − 1 】, which is what these four pairings give.
+ */
+#define SEK_MAX 8
+static int sek_places(const sek_el *p, const sek_el *q, double r,
+                      double *px, double *py)
+{
+    int s1, s2, n = 0;
+
     for (s1 = -1; s1 <= 1; s1 += 2)
         for (s2 = -1; s2 <= 1; s2 += 2) {
-            double a1 = k1 + s1 * r, a2 = k2 + s2 * r;
-            double cx = (a1 * n2y - a2 * n1y) / den;
-            double cy = (n1x * a2 - n2x * a1) / den;
-            double e = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+            if (!p->circle && !q->circle) {
+                double a1 = p->k + s1 * r, a2 = q->k + s2 * r;
+                double den = p->nx * q->ny - p->ny * q->nx;
 
-            if (!have || e < bestd) {
-                have = 1;
-                bestd = e;
-                bx = cx;
-                by = cy;
+                if (fabs(den) < 1e-12)
+                    continue;   /* parallel: nothing, unless 2r apart */
+                px[n] = (a1 * q->ny - a2 * p->ny) / den;
+                py[n] = (p->nx * a2 - q->nx * a1) / den;
+                n++;
+            } else if (p->circle && q->circle) {
+                /* two circles, centres apart by L: the usual intersection */
+                double d1 = fabs(p->r + s1 * r), d2 = fabs(q->r + s2 * r);
+                double ex = q->cx - p->cx, ey = q->cy - p->cy;
+                double L = sqrt(ex * ex + ey * ey), a, h2;
+
+                if (L < 1e-12)
+                    continue;
+                a = (L * L + d1 * d1 - d2 * d2) / (2 * L);
+                h2 = d1 * d1 - a * a;
+                if (h2 < 0.0)
+                    continue;
+                h2 = sqrt(h2);
+                ex /= L;
+                ey /= L;
+                px[n] = p->cx + a * ex - h2 * ey;
+                py[n] = p->cy + a * ey + h2 * ex;
+                n++;
+                if (h2 > 1e-9) {
+                    px[n] = p->cx + a * ex + h2 * ey;
+                    py[n] = p->cy + a * ey - h2 * ex;
+                    n++;
+                }
+            } else {
+                /* a line and a circle: drop the circle's centre on the line
+                   `r` away and come back along it */
+                const sek_el *l = p->circle ? q : p;
+                const sek_el *c = p->circle ? p : q;
+                double sl = p->circle ? s2 : s1, sc = p->circle ? s1 : s2;
+                double off = l->k + sl * r;
+                double d = fabs(c->r + sc * r);
+                double t = off - (l->nx * c->cx + l->ny * c->cy);
+                double fx = c->cx + t * l->nx, fy = c->cy + t * l->ny;
+                double h2 = d * d - t * t;
+
+                if (h2 < 0.0)
+                    continue;
+                h2 = sqrt(h2);
+                px[n] = fx - h2 * l->ny;    /* along the line */
+                py[n] = fy + h2 * l->nx;
+                n++;
+                if (h2 > 1e-9) {
+                    px[n] = fx + h2 * l->ny;
+                    py[n] = fy - h2 * l->nx;
+                    n++;
+                }
             }
+            if (n > SEK_MAX - 2)
+                return n;
         }
-    if (!have)
-        return;
-    o = jw_add(d, JW_ENKO);
+    return n;
+}
+
+/* 多重円 (the box beside it, 1417): that many circles sharing the centre,
+ * the radius divided up.  Three of them leaves r, 2r/3 and r/3, biggest
+ * first, and it works the same for the three-element kind
+ * (decomp/res/sekmul_*.jww).
+ */
+static int sek_draw(jw_drawing *d, double cx, double cy, double r);
+
+static jw_obj *sek_add(jw_drawing *d, double cx, double cy, double r)
+{
+    jw_obj *o = jw_add(d, JW_ENKO);
+
     if (!o)
-        return;
-    o->d[0] = bx;
-    o->d[1] = by;
+        return 0;
+    o->d[0] = cx;
+    o->d[1] = cy;
     o->d[2] = r;
     o->d[3] = 0.0;
     o->d[4] = 6.283185307179586;        /* the whole way round */
     o->d[5] = 0.0;
     o->d[6] = 1.0;                      /* round, not squashed */
     o->n = 1;                           /* the trailing 1 a whole circle has */
-    op_push(1);
+    return o;
+}
+
+static int sek_draw(jw_drawing *d, double cx, double cy, double r)
+{
+    const char *sn = jw_cmd_box(1417);
+    int n = sn ? atoi(sn) : 0, k, made = 0;
+
+    if (n < 1)
+        n = 1;
+    if (n > 64)
+        n = 64;
+    for (k = n; k >= 1; k--)
+        if (sek_add(d, cx, cy, r * k / n))
+            made++;
+    return made;
+}
+
+/* The 半径 box, in the drawing's own units. */
+static double sek_radius(const jw_drawing *d)
+{
+    const char *sz = jw_cmd_box(1411);
+    double r = sz ? atof(sz) : 0.0;
+    int wg = 0, i;
+
+    if (r <= 0.0)
+        return 0.0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (d->group[wg].scale > 0.0)
+        r /= d->group[wg].scale;
+    return r;
+}
+
+static void sekien(jw_drawing *d, int a, int b, double x, double y)
+{
+    sek_el p, q;
+    double px[SEK_MAX], py[SEK_MAX], r, bestd = 0;
+    int i, n, best = -1;
+
+    if (a < 0 || b < 0 || a >= d->nobj || b >= d->nobj || a == b)
+        return;
+    if (!sek_elem(&d->obj[a], &p) || !sek_elem(&d->obj[b], &q))
+        return;
+    r = sek_radius(d);
+    if (r <= 0.0)
+        return;                 /* no radius typed in: nothing to draw */
+    n = sek_places(&p, &q, r, px, py);
+    for (i = 0; i < n; i++) {
+        double e = (px[i] - x) * (px[i] - x) + (py[i] - y) * (py[i] - y);
+
+        if (best < 0 || e < bestd) {
+            best = i;
+            bestd = e;
+        }
+    }
+    if (best < 0)
+        return;
+    n = sek_draw(d, px[best], py[best], r);
+    if (n)
+        op_push(n);
+}
+
+/* 接円, three elements and an empty 半径 box: the circle that touches all
+ * three.  With three lines that is the one inside the triangle they make, and
+ * the original draws it the moment the third is picked -- no placing click,
+ * and where each line was picked makes no difference (three runs pointed at
+ * quite different parts of the same three lines all came back with the same
+ * circle, decomp/res/sek3.jww).  Of the four circles that touch three lines
+ * the inside one is the smallest, which is what this takes.
+ */
+static void sekien3(jw_drawing *d, int a, int b, int c, double x, double y)
+{
+    sek_el e[3];
+    double best = 0, bx = 0, by = 0;
+    int i, s1, s2, s3, have = 0;
+
+    (void)x;
+    (void)y;
+    if (a < 0 || b < 0 || c < 0 || a >= d->nobj || b >= d->nobj
+        || c >= d->nobj || a == b || b == c || a == c)
+        return;
+    if (!sek_elem(&d->obj[a], &e[0]) || !sek_elem(&d->obj[b], &e[1])
+        || !sek_elem(&d->obj[c], &e[2]))
+        return;
+    for (i = 0; i < 3; i++)
+        if (e[i].circle)
+            return;             /* circles are not done here */
+    /* n_i.C - s_i r = k_i, three equations in Cx, Cy and r */
+    for (s1 = -1; s1 <= 1; s1 += 2)
+        for (s2 = -1; s2 <= 1; s2 += 2)
+            for (s3 = -1; s3 <= 1; s3 += 2) {
+                double m[3][4], t;
+                int row, col, piv;
+
+                m[0][0] = e[0].nx; m[0][1] = e[0].ny; m[0][2] = -(double)s1;
+                m[1][0] = e[1].nx; m[1][1] = e[1].ny; m[1][2] = -(double)s2;
+                m[2][0] = e[2].nx; m[2][1] = e[2].ny; m[2][2] = -(double)s3;
+                m[0][3] = e[0].k; m[1][3] = e[1].k; m[2][3] = e[2].k;
+                for (col = 0; col < 3; col++) {
+                    piv = col;
+                    for (row = col + 1; row < 3; row++)
+                        if (fabs(m[row][col]) > fabs(m[piv][col]))
+                            piv = row;
+                    if (fabs(m[piv][col]) < 1e-12)
+                        break;
+                    if (piv != col)
+                        for (i = 0; i < 4; i++) {
+                            t = m[col][i];
+                            m[col][i] = m[piv][i];
+                            m[piv][i] = t;
+                        }
+                    for (row = 0; row < 3; row++) {
+                        if (row == col)
+                            continue;
+                        t = m[row][col] / m[col][col];
+                        for (i = col; i < 4; i++)
+                            m[row][i] -= t * m[col][i];
+                    }
+                }
+                if (col < 3)
+                    continue;   /* two of them are parallel */
+                t = m[2][3] / m[2][2];          /* the radius */
+                if (t <= 1e-9 || (have && t >= best))
+                    continue;
+                have = 1;
+                best = t;
+                bx = m[0][3] / m[0][0];
+                by = m[1][3] / m[1][1];
+            }
+    if (!have)
+        return;
+    i = sek_draw(d, bx, by, best);
+    if (i)
+        op_push(i);
 }
 
 static void tensen(jw_drawing *d, int b, double px, double py,
@@ -2142,9 +2434,9 @@ int jw_cmd_bar(jw_drawing *d, int id)
         return 0;
     }
     if (current == JW_CMD_SESSEN) {
-        /* the four ways of drawing a tangent; only the first two are done */
-        if (id == 1689 || id == 1690) {
-            ses_mode = id == 1690;
+        /* the four ways of drawing a tangent */
+        if (id >= 1689 && id <= 1692) {
+            ses_mode = id;
             ses_step = 0;
             ses_a = -1;
             return 1;
@@ -2744,7 +3036,7 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
             return;
         if (sek_step == 0) {
             i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
                 return;
             sek_a = i;
             sek_step = 1;
@@ -2752,13 +3044,23 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         }
         if (sek_step == 1) {
             i = jw_pick_tie(d, v, x, y, 3, 1);
-            if (i < 0 || i == sek_a || d->obj[i].cls != JW_SEN)
+            if (i < 0 || i == sek_a
+                || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
                 return;
             sek_b = i;
             sek_step = 2;
             return;
         }
-        sekien(d, sek_a, sek_b, x, y);
+        if (sek_radius(d) <= 0.0) {
+            /* an empty 半径: the third element settles it, and it is drawn
+               the moment that is picked */
+            i = jw_pick_tie(d, v, x, y, 3, 1);
+            if (i < 0 || i == sek_a || i == sek_b)
+                return;
+            sekien3(d, sek_a, sek_b, i, x, y);
+        } else {
+            sekien(d, sek_a, sek_b, x, y);
+        }
         sek_step = 0;                   /* ready for the next pair */
         sek_a = sek_b = -1;
         return;
@@ -2767,7 +3069,11 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         int i;
         if (button != 0 || !d)
             return;
-        if (ses_mode == 1) {            /* 点→円: the point, then the circle */
+        if (ses_mode == 1691 || ses_mode == 1692) {
+            sesline(d, v, x, y);
+            return;
+        }
+        if (ses_mode == 1690) {         /* 点→円: the point, then the circle */
             if (ses_step == 0) {
                 ses_x = x;
                 ses_y = y;

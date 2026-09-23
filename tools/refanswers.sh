@@ -148,9 +148,25 @@ tensen() {              # tensen <name> <pick on the circle>
         -Clicks "500,400;590,400;cmd:32870;btn:1690;200,250;$2;saveas:decomp/res/tensen_$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 接線, 角度指定 (1691) and 円上点指定 (1692).  Both settle on a line touching
+# the circle and then take a 始点 and a 終点 along it -- the status line asks
+# for them in the 線 command's words, which `read:59393` hands over.  The two
+# points are dropped onto the line, so these click well away from it.
+sesang() {              # sesang <name> <angle> <pick on the circle>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "500,400;590,400;cmd:32870;btn:1691;ch:1412,$2;$3;300,200;800,150;saveas:decomp/res/sesang_$1.jww"         2>&1 | sed 's/^/        /'
+}
+sescpt() {              # sescpt <name> <pick on the circle>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "500,400;590,400;cmd:32870;btn:1692;500,310;$2;300,200;800,150;saveas:decomp/res/sescpt_$1.jww"         2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== sessen (four tangents over one pair of circles, and four from a point)"
+    echo "=== sessen (four tangents over one pair of circles, four from a point, and the other two modes)"
     sessen tt 300,240 700,310
     sessen bb 300,360 700,490
     sessen tb 300,240 700,490
@@ -159,6 +175,12 @@ while :; do
     tensen lr 564,464
     tensen ul 436,336
     tensen ll 436,464
+    sesang t 30 500,310
+    sesang b 30 500,490
+    sesang h 0 500,310
+    sescpt a 564,336
+    sescpt b 436,464
+    sescpt c 436,336
     if [ ! -x tests/sessen_test.exe ]; then
         echo "    (tests/sessen_test.exe is not built -- not checked)"
         break
@@ -189,13 +211,54 @@ sekien() {              # sekien <name> <where the circle goes>
         -Clicks "300,250;900,600;300,600;900,250;cmd:32872;ch:1411,2000;400,308;400,542;$2;saveas:decomp/res/sekien_$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 接円 over other elements: a line and a circle, two circles, and three lines
+# with the 半径 left empty.  The radius has to be big enough for a circle to
+# reach both -- 10 units cannot touch a line and a circle 130 apart, and the
+# original then simply refuses the second pick.
+seklc() {               # seklc <name> <where the circle goes>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0         -Clicks "300,250;900,250;cmd:32773;600,500;700,500;cmd:32872;ch:1411,20000;400,250;700,500;$2;saveas:decomp/res/seklc_$1.jww"         2>&1 | sed 's/^/        /'
+}
+sekcc() {               # sekcc <name> <where the circle goes>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "450,400;530,400;cmd:32773;800,400;860,400;cmd:32872;ch:1411,40000;450,320;800,340;$2;saveas:decomp/res/sekcc_$1.jww"         2>&1 | sed 's/^/        /'
+}
+# 多重円 (the box next to it, 1417): that many circles sharing the centre,
+# the radius divided up.
+sekmul() {              # sekmul <name> <the rest of the clicks>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0 \
+        -Clicks "$2;saveas:decomp/res/sekmul_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
+sek3() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0         -Clicks "300,250;900,250;300,250;600,600;900,250;600,600;cmd:32872;600,250;450,425;750,425;saveas:decomp/res/sek3.jww"         2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== sekien (four circles of one radius in the angles of two lines)"
+    echo "=== sekien (two lines, a line and a circle, two circles, and three lines)"
     sekien l 400,425
     sekien r 800,425
     sekien t 600,300
     sekien b 600,550
+    seklc a 450,350
+    seklc b 800,350
+    sekcc n 600,150
+    sekcc s 600,650
+    sekcc e 950,400
+    sekcc w 300,400
+    sek3
+    sekmul a "300,250;900,600;300,600;900,250;cmd:32872;ch:1417,3;ch:1411,2000;400,308;400,542;400,425"
+    sekmul b "300,250;900,250;300,250;600,600;900,250;600,600;cmd:32872;ch:1417,3;600,250;450,425;750,425"
     if [ ! -x tests/sekien_test.exe ]; then
         echo "    (tests/sekien_test.exe is not built -- not checked)"
         break

@@ -148,6 +148,9 @@ static void run(const char *path, const char *what)
     jw_cmd_point(d, app_view(), circle->d[0], circle->d[1], 0);
     ck(d->ndrawn == before, "  and draws nothing while it is empty");
 
+    /* with the box empty the third click is a third element, not a place to
+       put the circle, so that run is still waiting for one -- start over */
+    jw_cmd_set(JW_CMD_SEKIEN);
     type_box(1411, "2000");
     jw_cmd_point(d, app_view(), (l[0]->d[0] + l[0]->d[2]) / 2,
                  (l[0]->d[1] + l[0]->d[3]) / 2, 0);
@@ -185,12 +188,155 @@ static void run(const char *path, const char *what)
     jw_free(&ref);
 }
 
+/* The same command over elements other than two lines.
+ *
+ * Everything the original drew past Test5's own is read back: the last circle
+ * is its answer and what comes before are the elements it was given, in the
+ * order they were picked.  Each is pointed at on itself -- a line at its
+ * middle, a circle at its rim -- and, when there is a 半径, the circle is
+ * asked for where the original's came out, which is the place nearest that
+ * one of the several the radius allows.
+ *
+ * `radius` is what goes in the 半径 box; an empty one means the third element
+ * settles it instead, and then there is no placing click.
+ */
+static void run_el(const char *path, const char *radius, int want, int mult,
+                   const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *el[16], *circle;
+    int i, nb, nel = 0, before;
+
+    printf("%s\n", what);
+    app_resize(1264, 741);
+    b = slurp("orig/Test5.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open orig/Test5.jww\n");
+        fails++;
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    nb = d->ndrawn;
+
+    b = slurp(path, &n);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    /* the original leaves six CDataMoji of its own settings at the end of
+       every file it writes, so stop at the first thing that is neither a
+       line nor a circle */
+    for (i = nb; i < ref.ndrawn && nel < 16; i++) {
+        if (ref.obj[i].cls != JW_SEN && ref.obj[i].cls != JW_ENKO)
+            break;
+        el[nel++] = &ref.obj[i];
+    }
+    if (nel != want + mult) {
+        printf("BAD  %s has %d elements past Test5's own, not %d\n",
+               path, nel, want + mult);
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    nel -= mult;
+    circle = el[nel];           /* and mult - 1 more inside it */
+    ck(circle->cls == JW_ENKO, "  the original's answer is a circle");
+
+    for (i = 0; i < nel; i++) {
+        jw_obj *o = jw_add(d, el[i]->cls);
+        int k;
+
+        for (k = 0; k < 7; k++)
+            o->d[k] = el[i]->d[k];
+        o->n = el[i]->n;
+    }
+    app_fit();
+    before = d->ndrawn;
+
+    jw_cmd_set(JW_CMD_SEKIEN);
+    type_box(1411, radius);
+    if (mult > 1) {
+        char t[4];
+
+        t[0] = (char)('0' + mult);
+        t[1] = 0;
+        type_box(1417, t);
+    } else {
+        type_box(1417, "");
+    }
+    jw_cmd_set(JW_CMD_SEKIEN);
+    for (i = 0; i < nel; i++) {
+        double px, py;
+
+        if (el[i]->cls == JW_SEN) {
+            px = (el[i]->d[0] + el[i]->d[2]) / 2;
+            py = (el[i]->d[1] + el[i]->d[3]) / 2;
+        } else {
+            px = el[i]->d[0] + el[i]->d[2];
+            py = el[i]->d[1];
+        }
+        jw_cmd_point(d, app_view(), px, py, 0);
+        if (i < nel - 1 || *radius)
+            ck(d->ndrawn == before, "  nothing yet");
+    }
+    if (*radius) {
+        ck(d->ndrawn == before, "  the elements alone draw nothing");
+        jw_cmd_point(d, app_view(), circle->d[0], circle->d[1], 0);
+    }
+    ck(d->ndrawn == before + mult, mult > 1
+       ? "  that many circles come out" : "  one circle comes out");
+    if (d->ndrawn != before + mult) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < mult; i++) {
+        const jw_obj *o = &d->obj[before + i];
+        int same = near(o->d[0], circle[i].d[0])
+                && near(o->d[1], circle[i].d[1])
+                && near(o->d[2], circle[i].d[2]);
+
+        if (!same)
+            printf("     ours          %.6f,%.6f r=%.6f\n"
+                   "     the original's %.6f,%.6f r=%.6f\n",
+                   o->d[0], o->d[1], o->d[2],
+                   circle[i].d[0], circle[i].d[1], circle[i].d[2]);
+        ck(same, "  where the original put it, to the last digit");
+    }
+    jw_cmd_undo(d);
+    ck(d->ndrawn == before, "  元に戻る takes the lot back");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     run("decomp/res/sekien_l.jww", "the circle placed to the left:");
     run("decomp/res/sekien_r.jww", "to the right:");
     run("decomp/res/sekien_t.jww", "above:");
     run("decomp/res/sekien_b.jww", "below:");
+    run_el("decomp/res/seklc_a.jww", "20000", 2, 1,
+           "a line and a circle, r 100, the circle placed left:");
+    run_el("decomp/res/seklc_b.jww", "20000", 2, 1, "and right:");
+    run_el("decomp/res/sekcc_n.jww", "40000", 2, 1,
+           "two circles, r 200, placed above:");
+    run_el("decomp/res/sekcc_s.jww", "40000", 2, 1, "below:");
+    run_el("decomp/res/sekcc_e.jww", "40000", 2, 1, "to the right:");
+    run_el("decomp/res/sekcc_w.jww", "40000", 2, 1, "to the left:");
+    run_el("decomp/res/sek3.jww", "", 3, 1,
+           "three lines and an empty 半径 -- the circle inside them:");
+    run_el("decomp/res/sekmul_a.jww", "2000", 2, 3,
+           "two lines and 多重円 3 -- r, 2r/3 and r/3:");
+    run_el("decomp/res/sekmul_b.jww", "", 3, 3,
+           "three lines and 多重円 3, the same way:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
