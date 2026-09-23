@@ -108,6 +108,10 @@ echo "=== JWC 読み込み —— 原典が同じ JWC を開いた結果との�
 ./tests/jwcread_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 図形 —— 参照が定義をその場所・倍率・回転で描くか"
+./tests/block_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 
