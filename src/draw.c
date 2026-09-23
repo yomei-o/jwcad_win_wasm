@@ -46,7 +46,7 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
     { 0xfff99fffu, 32 },        /* 6 一点鎖2    */
     { 0xf24ff24fu, 16 },        /* 7 二点鎖1    */
     { 0xfff24fffu, 32 },        /* 8 二点鎖2    */
-    { 0x22222222u,  4 },        /* 9 補助線     */
+    { 0x44444444u,  4 },        /* 9 補助線     */
 };
 
 /* One bit of a line type pattern is one pixel along the line.
@@ -773,8 +773,32 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             arc(fb, v, d, o);
             break;
         case JW_TEN: {
-            int x = jw_sx(v, o->d[0]), y = jw_sy(v, o->d[1]);
+            int x = jw_sx(v, o->d[0]), y = jw_sy(v, o->d[1]), k;
+            /* 実点 -- the trailing long is 1 -- wears a little ring; 仮点,
+             * where it is 0, is the one pixel on its own.  The ring is the
+             * same eleven pixels wherever it appears, and it is not
+             * symmetric: read off two isolated points of Test3.jww, which
+             * agreed exactly.  Whatever the original hands GDI, this is what
+             * comes back.
+             *
+             *   dy\dx  -2  -1   0   1   2
+             *    -2     .   #   #   .   .
+             *    -1     #   .   .   #   .
+             *     0     #   .   .   .   #
+             *     1     #   .   .   .   #
+             *     2     .   #   #   #   .
+             */
+            static const signed char RING[11][2] = {
+                { -1, -2 }, { 0, -2 },
+                { -2, -1 }, { 1, -1 },
+                { -2, 0 }, { 2, 0 },
+                { -2, 1 }, { 2, 1 },
+                { -1, 2 }, { 0, 2 }, { 1, 2 },
+            };
             put(fb, &v->clip, x, y, col);
+            if (o->n == 1)
+                for (k = 0; k < 11; k++)
+                    put(fb, &v->clip, x + RING[k][0], y + RING[k][1], col);
             break;
         }
         case JW_MOJI:
