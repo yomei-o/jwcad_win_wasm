@@ -1248,6 +1248,67 @@ UTF-16 に移ります。ですから `tests/dxfread_test.c` は**要素と、�
 **まだ読めないもの:** TEXT・MTEXT・POLYLINE・LWPOLYLINE・INSERT・
 HATCH・DIMENSION・ELLIPSE。
 
+## SFC（読み解き中、まだ実装していません）
+
+**書き出しているのは原典ではありません。**`orig/common_lib.dll`（3.6 MB、
+SCADEC の SXF 共通ライブラリ、`SCADEC_API_Ver3.30`）が全部やります。
+原典は `GetProcAddress` で `?SXFopen_part21@@YGHQADHNNNHH0000@Z`・
+`?SXFwrite_next_feature@@YGHPADPAX@Z`・`?SXFclose_part21@@YGHXZ` などを
+引いて（`FUN_005db0..` のあたり、`decomp/decomp/all_005c7556.c`）、
+**番号を渡すだけ**です。`line_feature` といった綴りも `/*SXF` の囲いも
+`common_lib.dll` の中にしかありません。**P21 側は `common_lib_AP202.dll`**
+で、同じ関数の `_AP202` 版です。
+
+**出てくるもの**（`export:32976,<名前>` で作れます。中身は CRLF）:
+
+```
+ISO-10303-21; HEADER; FILE_DESCRIPTION(('SCADEC level2 feature_mode'),'2;1');
+FILE_NAME('<名前>','<日時>',(''),(''),'SCADEC_API_Ver3.30','Jw_cad','');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING')); ENDSEC; DATA;
+  /*SXF <番号> = <feature>(...) SXF*/   …空行で区切って並ぶ
+ENDSEC; END-ISO-10303-21;
+```
+
+**番号は 10 から 10 ずつ**。**文字列の引数は 2 通り** —— 名前は
+`\'…\'`（バックスラッシュ付き）、数や番号は `'…'` です。
+
+**並び**は 色 16（+ 足りないぶんの `user_defined_colour_feature`）、
+線種 16（+ `user_defined_font_feature`）、線幅、要素、`sfig_org_feature`・
+`sfig_locate_feature`・`drawing_sheet_feature`・`layer_feature` の順。
+
+**要素の書き方**（座標は DXF と同じ `(紙 + 用紙の半分) × 縮尺`）:
+
+```
+line_feature(層,色,線種,線幅, x0,y0,x1,y1)
+arc_feature(層,色,線種,線幅, cx,cy,r, 向き, 開始角, 終了角)   向き 0=左回り 1=右回り
+circle_feature(層,色,線種,線幅, cx,cy,r)
+point_marker_feature(層,色, x,y, 種, 回転, 倍率)
+polyline_feature(層,色,線種,線幅, 点数, '(x,…)', '(y,…)')   ← ソリッドはこれ
+  + composite_curve_org_feature(色,線種,線幅,'1') と
+    fill_area_style_colour_feature(層,色,…)
+```
+
+**色の名前は `common_lib.dll` の表**（`0x2ab71c` の並び）で
+black・red・green・blue・yellow・magenta・cyan・white・deeppink・brown・
+orange・lightgreen・lightblue・lavender・lightgray・darkgray ——
+**`.jww` の任意色 1〜16 の名前とぴったり同じ**です。ただし **SFC に書く
+順番はこれではありません**（red・deeppink・green・black・blue・yellow・
+magenta・cyan・white・brown…）。要素が言う番号は**書いた順の位置**です。
+
+**線種の対応はレジストリにありました** ——
+`HKCU\Software\Jw_cad\jw_win\SXF` の **`WriteLType`= `1,7,3,2,10,8,12,9`**
+がそのまま線種 1〜8 の番号です（線種 9 は `user_defined_font_feature`）。
+同じ鍵に `RGBTolerance`=5・`PenWidthTolerance`=15・`LyneTypeTolerance`=5
+（原文ママ）もあります。
+
+**まだ分からないのは線色と線幅の対応**です。線色 1〜9 は
+7・1・3・5・6・4・17・2・18、線幅は 11・2・3・4・12・5・13・6・11
+（**位置 + 1 が番号**です —— 幅は 10 個しか書かれていないのに 11 が出ます）。
+画面色・印刷色・画面線幅・印刷線幅のどれとも素直には合いません。ただし
+**線幅が全部 1 ドットの図面（`Test6.jww`）では全部 11（= 0.084667 mm =
+1/300 インチ）になる**ので、**ドット数 × 25.4/300** が効いているのは
+確かです。線色 9（補助線）と線種 9 は**レイヤ 2**（`補助線`）に行きます。
+
 ## 刺された罠
 
 **`w64devkit/bin` を PATH の先頭に置いてはいけません。**そこの

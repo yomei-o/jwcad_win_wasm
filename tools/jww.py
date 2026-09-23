@@ -147,12 +147,11 @@ def read_header(ar, note=print):
         TABLES['pen'] = [(ar.l(), ar.l()) for _ in range(10)]
         # and the ten printing pens: a COLORREF, a flag and a width in mm
         TABLES['ppen'] = [(ar.l(), ar.l(), ar.dbl()) for _ in range(10)]
-        for _ in range(2, 10):
-            ar.l(); ar.l(); ar.l(); ar.l()
-        for _ in range(0xb, 0x10):
-            ar.l(); ar.l(); ar.l(); ar.l(); ar.l()
-        for _ in range(0x10, 0x14):
-            ar.l(); ar.l(); ar.l(); ar.l()
+        TABLES['b1'] = [tuple(ar.l() for _ in range(4)) for _ in range(2, 10)]
+        TABLES['b2'] = [tuple(ar.l() for _ in range(5))
+                        for _ in range(0xb, 0x10)]
+        TABLES['b3'] = [tuple(ar.l() for _ in range(4))
+                        for _ in range(0x10, 0x14)]
         ar.l(); ar.l()
         if v > 0xd8:
             for _ in range(3):
@@ -331,7 +330,7 @@ def main():
     if '-l' in sys.argv[2:]:
         show(objs)
     if '-t' in sys.argv[2:]:
-        for k in ('pen', 'ppen', 'color', 'ltype', 'pcolor', 'pltype'):
+        for k in ('pen', 'ppen', 'b1', 'b2', 'b3', 'color', 'ltype', 'pcolor', 'pltype'):
             for i, e in enumerate(TABLES.get(k, [])):
                 print('%-7s %3d %s' % (k, i, e))
     import collections
