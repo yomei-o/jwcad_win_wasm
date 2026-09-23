@@ -154,7 +154,16 @@ static double ht_x[HT_MAX], ht_y[HT_MAX];
 static int ht_n;                /* corners in the ring, 0 when none */
 static double ht_cx, ht_cy, ht_r;
 static int ht_round;            /* the boundary is a circle */
+static void ht_mode_set(int id);
 static int ht_mode = 1689;      /* 1線, the one the original enters in */
+/* The bar keeps one set of numbers for 1線・2線・3線 and another for
+   ┬┴┬・図形, and pressing a mode button puts that set up: 1線 shows 角度 45・
+   ピッチ 10・線間隔 1, ┬┴┬ shows 角度 0・縦ピッチ 3・横ピッチ 6, and going
+   back shows 45・10・1 again, whatever was typed in between (read out of the
+   original with tools/jwdraw.ps1's `read:`). */
+static char ht_keep[2][3][16] = {
+    { "45", "10", "1" }, { "0", "3", "6" }
+};
 static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
@@ -428,7 +437,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_round = 0;
-        ht_mode = 1689;
+        ht_mode_set(1689);      /* and the bar's numbers with it */
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1501,6 +1510,8 @@ static int hatch_ring(const jw_drawing *d, int a)
 
 static int hatch_at(jw_drawing *d, double o, double ux, double uy,
                     double nx, double ny);
+static int hatch_grid(jw_drawing *d, double ux, double uy, double nx,
+                      double ny, double vp, double hp);
 
 static void hatch(jw_drawing *d)
 {
@@ -1511,8 +1522,8 @@ static void hatch(jw_drawing *d)
     double ux, uy, nx, ny, lo, hi, o;
     int i, k, k0, k1, made = 0, extra = 0;
 
-    if (ht_mode != 1689 && ht_mode != 1690 && ht_mode != 1691)
-        return;                 /* ┬┴┬ and 図形 are not done */
+    if (ht_mode < 1689 || ht_mode > 1692)
+        return;                 /* 図形 is not done */
     if (pitch <= 0.0)
         return;
     if (ht_mode != 1689) {
@@ -1528,6 +1539,12 @@ static void hatch(jw_drawing *d)
     uy = sin(ang * PI / 180.0);
     nx = uy;                    /* turn the direction a quarter turn */
     ny = -ux;
+    if (ht_mode == 1692) {      /* ┬┴┬ -- ピッチ is 縦ピッチ, 線間隔 is 横ピッチ */
+        made = hatch_grid(d, ux, uy, nx, ny, pitch, gap);
+        if (made)
+            op_push(made);
+        return;
+    }
     if (ht_round) {
         lo = nx * ht_cx + ny * ht_cy - ht_r;
         hi = lo + 2 * ht_r;
@@ -1567,58 +1584,162 @@ static void hatch(jw_drawing *d)
         op_push(made);
 }
 
+/* Where the region cuts the line that runs along (bx, by) at offset `o`
+ * across it, as pairs of positions along that line.  ┬┴┬ needs this with the
+ * two directions the other way round -- its cross pieces run across the hatch
+ * rather than along it -- so the two vectors are arguments. */
+static int hatch_cut(double o, double ax, double ay, double bx, double by,
+                     double *t)
+{
+    int i, nt = 0;
+
+    if (ht_round) {
+        double dd = o - (ax * ht_cx + ay * ht_cy);
+        double h = ht_r * ht_r - dd * dd;
+        double mid;
+
+        if (h <= 0.0)
+            return 0;           /* this one misses the circle */
+        h = sqrt(h);
+        mid = bx * ht_cx + by * ht_cy;
+        t[nt++] = mid - h;
+        t[nt++] = mid + h;
+        return nt;
+    }
+    for (i = 0; i + 1 < ht_n; i++) {
+        double a0 = ax * ht_x[i] + ay * ht_y[i];
+        double a1 = ax * ht_x[i + 1] + ay * ht_y[i + 1];
+        double f;
+
+        if ((a0 <= o) == (a1 <= o))
+            continue;           /* the edge does not cross this line */
+        f = (o - a0) / (a1 - a0);
+        if (nt < HT_MAX)
+            t[nt++] = bx * (ht_x[i] + f * (ht_x[i + 1] - ht_x[i]))
+                    + by * (ht_y[i] + f * (ht_y[i + 1] - ht_y[i]));
+    }
+    for (i = 1; i < nt; i++) {
+        double v = t[i];
+        int j = i - 1;
+        while (j >= 0 && t[j] > v) { t[j + 1] = t[j]; j--; }
+        t[j + 1] = v;
+    }
+    return nt;
+}
+
+/* How far the region reaches along (ax, ay). */
+static void hatch_span(double ax, double ay, double *lo, double *hi)
+{
+    int i;
+
+    if (ht_round) {
+        *lo = ax * ht_cx + ay * ht_cy - ht_r;
+        *hi = *lo + 2 * ht_r;
+        return;
+    }
+    *lo = *hi = ax * ht_x[0] + ay * ht_y[0];
+    for (i = 1; i < ht_n; i++) {
+        double o = ax * ht_x[i] + ay * ht_y[i];
+
+        if (o < *lo) *lo = o;
+        if (o > *hi) *hi = o;
+    }
+}
+
 static int hatch_at(jw_drawing *d, double o, double ux, double uy,
                     double nx, double ny)
 {
     double t[HT_MAX];
-    int i, nt = 0, made = 0;
+    int i, nt = hatch_cut(o, nx, ny, ux, uy, t), made = 0;
     jw_obj *ob;
 
-    {
-        if (ht_round) {
-            double dd = o - (nx * ht_cx + ny * ht_cy);
-            double h = ht_r * ht_r - dd * dd;
-            double mid;
-
-            if (h <= 0.0)
-                return 0;       /* this one misses the circle */
-            h = sqrt(h);
-            mid = ux * ht_cx + uy * ht_cy;
-            t[nt++] = mid - h;
-            t[nt++] = mid + h;
-        } else {
-            for (i = 0; i + 1 < ht_n; i++) {
-                double a0 = nx * ht_x[i] + ny * ht_y[i];
-                double a1 = nx * ht_x[i + 1] + ny * ht_y[i + 1];
-                double f;
-
-                if ((a0 <= o) == (a1 <= o))
-                    continue;   /* the edge does not cross this line */
-                f = (o - a0) / (a1 - a0);
-                if (nt < HT_MAX)
-                    t[nt++] = ux * (ht_x[i] + f * (ht_x[i + 1] - ht_x[i]))
-                            + uy * (ht_y[i] + f * (ht_y[i + 1] - ht_y[i]));
-            }
-            for (i = 1; i < nt; i++) {
-                double v = t[i];
-                int j = i - 1;
-                while (j >= 0 && t[j] > v) { t[j + 1] = t[j]; j--; }
-                t[j + 1] = v;
-            }
-        }
-        for (i = 0; i + 1 < nt; i += 2) {
-            if (t[i + 1] - t[i] <= 0.0)
-                continue;
-            ob = jw_add(d, JW_SEN);
-            if (!ob)
-                return made;
-            ob->d[0] = ux * t[i] + nx * o;
-            ob->d[1] = uy * t[i] + ny * o;
-            ob->d[2] = ux * t[i + 1] + nx * o;
-            ob->d[3] = uy * t[i + 1] + ny * o;
-            made++;
-        }
+    for (i = 0; i + 1 < nt; i += 2) {
+        if (t[i + 1] - t[i] <= 0.0)
+            continue;
+        ob = jw_add(d, JW_SEN);
+        if (!ob)
+            return made;
+        ob->d[0] = ux * t[i] + nx * o;
+        ob->d[1] = uy * t[i] + ny * o;
+        ob->d[2] = ux * t[i + 1] + nx * o;
+        ob->d[3] = uy * t[i + 1] + ny * o;
+        made++;
     }
+    return made;
+}
+
+/* ┬┴┬ (1692): a running bond, the way a brick wall is drawn.
+ *
+ * Lines all the way across the region every 縦ピッチ, and between them short
+ * cross pieces every 横ピッチ, half a 横ピッチ out of step from one course to
+ * the next.  Read off two runs of the original (decomp/res/hatch_r1692.jww,
+ * 角度 0・縦 3・横 6, and hatch_r1692b.jww, 角度 30・縦 20・横 50):
+ *
+ *   - the long lines sit where q, the distance across the hatch, is a whole
+ *     multiple of 縦ピッチ -- anchored at zero like every other hatch -- and
+ *     each is the chord of the region there;
+ *   - the cross pieces sit where p, the distance along the hatch, is a whole
+ *     multiple of **half** the 横ピッチ.  Call that multiple m and number the
+ *     courses by k (the one from k*縦 to (k+1)*縦): a piece is drawn when
+ *     **m + k is even**, which is what staggers them;
+ *   - each piece is one course long and is cut to the region like the lines
+ *     are -- the original left a 0.53 long stub where a course ran off the
+ *     bottom edge;
+ *   - the order is: the long lines with q rising, then every column with m
+ *     even, p falling, then every column with m odd.  Inside a column the
+ *     pieces come with q rising.
+ */
+static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
+                      double vp, double hp)
+{
+    /* the other way across: q = n2.point rises where the offset o falls */
+    double n2x = -nx, n2y = -ny;
+    double qlo, qhi, plo, phi, half = hp / 2;
+    int k, klo, khi, m, mlo, mhi, par, made = 0;
+
+    hatch_span(n2x, n2y, &qlo, &qhi);
+    hatch_span(ux, uy, &plo, &phi);
+    klo = (int)ceil(qlo / vp);
+    khi = (int)floor(qhi / vp);
+    mlo = (int)ceil(plo / half);
+    mhi = (int)floor(phi / half);
+    if (khi - klo > 100000 || mhi - mlo > 100000)
+        return 0;
+    for (k = klo; k <= khi; k++)
+        made += hatch_at(d, -(k * vp), ux, uy, nx, ny);
+    for (par = 0; par < 2; par++)
+        for (m = mhi; m >= mlo; m--) {
+            double t[HT_MAX], p = m * half;
+            int nt, i;
+
+            if (((m % 2) + 2) % 2 != par)
+                continue;
+            nt = hatch_cut(p, ux, uy, n2x, n2y, t);
+            /* one course below the lowest line to one above the highest: a
+               course can be cut off by the region and still show */
+            for (k = klo - 1; k <= khi; k++) {
+                double qa = k * vp, qb = qa + vp;
+
+                if (((m + k) % 2 + 2) % 2 != 0)
+                    continue;
+                for (i = 0; i + 1 < nt; i += 2) {
+                    double a = t[i] > qa ? t[i] : qa;
+                    double b = t[i + 1] < qb ? t[i + 1] : qb;
+                    jw_obj *ob;
+
+                    if (b - a <= 0.0)
+                        continue;
+                    ob = jw_add(d, JW_SEN);
+                    if (!ob)
+                        return made;
+                    ob->d[0] = ux * p + n2x * a;
+                    ob->d[1] = uy * p + n2y * a;
+                    ob->d[2] = ux * p + n2x * b;
+                    ob->d[3] = uy * p + n2y * b;
+                    made++;
+                }
+            }
+        }
     return made;
 }
 
@@ -1992,7 +2113,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
 {
     if (current == JW_CMD_HATCH) {
         if (id >= 1689 && id <= 1693) {
-            ht_mode = id;
+            ht_mode_set(id);
             return 1;
         }
         if (id == 1149) {       /* クリアー */
@@ -2065,6 +2186,38 @@ int jw_cmd_bar(jw_drawing *d, int id)
 int jw_cmd_sunpo_angle(void)
 {
     return sun_deg;
+}
+
+static void box_put(int id, const char *v)
+{
+    int i;
+
+    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++)
+        if (box[i].id == id && box[i].cmd == current) {
+            strncpy(box[i].t, v, sizeof box[i].t - 1);
+            box[i].t[sizeof box[i].t - 1] = 0;
+            return;
+        }
+}
+
+/* Switch the hatch to one of the five modes, swapping the bar's numbers over
+   when that crosses between the line modes and the grid ones. */
+static void ht_mode_set(int id)
+{
+    static const int ID[3] = { 1419, 1411, 1412 };
+    int was = ht_mode >= 1692, now = id >= 1692, i;
+
+    if (was != now)
+        for (i = 0; i < 3; i++) {
+            const char *t = jw_cmd_box(ID[i]);
+
+            if (t) {
+                strncpy(ht_keep[was][i], t, sizeof ht_keep[0][0] - 1);
+                ht_keep[was][i][sizeof ht_keep[0][0] - 1] = 0;
+            }
+            box_put(ID[i], ht_keep[now][i]);
+        }
+    ht_mode = id;
 }
 
 const char *jw_cmd_box(int id)
