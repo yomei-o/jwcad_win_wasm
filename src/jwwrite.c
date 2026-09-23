@@ -135,7 +135,8 @@ static void w_str(wbuf *w, const char *s, int wide)
 }
 
 static const char *CLASS_NAME[JW_NCLASS] = {
-    "CDataSen", "CDataEnko", "CDataTen", "CDataMoji", "CDataSolid"
+    "CDataSen", "CDataEnko", "CDataTen", "CDataMoji", "CDataSolid",
+    "CDataBlock", "CDataList"
 };
 
 /* CData::Serialize, the store side of FUN_0042e690 */
@@ -193,22 +194,45 @@ static void w_body(wbuf *w, const jw_drawing *d, int v, const jw_obj *o)
         if (o->color == 10)
             w_l(w, o->n);
         break;
+    case JW_BLOCK:
+        for (i = 0; i < 5; i++)
+            w_d(w, o->d[i]);
+        w_l(w, o->block);
+        break;
+    case JW_LIST:
+        for (i = 0; i < 3; i++)
+            w_l(w, o->list[i]);
+        w_str(w, jw_str(d, o->text), jw_str_wide(d, o->text));
+        /* the elements of the definition go here, in the list's own count
+           and sharing the numbering -- w_objs does that part */
+        break;
     }
 }
 
-/* One CObList: the count, then the objects with their class tags. */
-static void w_list(wbuf *w, const jw_drawing *d, int from, int to)
+/* How many elements this one takes with it: a definition carries its own,
+   straight after it in the array. */
+static int w_span(const jw_drawing *d, int i)
 {
-    int seen[JW_NCLASS];
-    int nload = 1;
+    int n = 1, k;
+
+    if (d->obj[i].cls == JW_LIST)
+        for (k = 0; k < d->obj[i].n; k++)
+            n += w_span(d, i + n);
+    return n;
+}
+
+/* The objects of one list, with their class tags.  `seen` and `nload` are
+   the numbering, which a definition's own list carries on rather than
+   starting again. */
+static void w_objs(wbuf *w, const jw_drawing *d, int from, int to,
+                   int *seen, int *nload)
+{
     int i;
 
-    for (i = 0; i < JW_NCLASS; i++)
-        seen[i] = 0;
-    w_count(w, to - from);
-    for (i = from; i < to; i++) {
+    for (i = from; i < to; ) {
         const jw_obj *o = &d->obj[i];
         int c = o->cls;
+
         if (c < 0 || c >= JW_NCLASS) {
             w->bad = 1;
             return;
@@ -218,14 +242,37 @@ static void w_list(wbuf *w, const jw_drawing *d, int from, int to)
             w_w(w, d->schema[c]);
             w_w(w, (unsigned)strlen(CLASS_NAME[c]));
             w_raw(w, CLASS_NAME[c], (long)strlen(CLASS_NAME[c]));
-            seen[c] = nload++;      /* the class takes a number */
+            seen[c] = (*nload)++;   /* the class takes a number */
         } else {
             w_w(w, 0x8000u | (unsigned)seen[c]);
         }
-        nload++;                    /* and so does the object */
+        (*nload)++;                 /* and so does the object */
         w_base(w, d->version, o);
         w_body(w, d, d->version, o);
+        if (c == JW_LIST) {
+            int span = w_span(d, i);
+
+            w_count(w, o->n);
+            w_objs(w, d, i + 1, i + span, seen, nload);
+            i += span;
+        } else {
+            i++;
+        }
     }
+}
+
+/* One CObList: the count, then the objects.  A definition's elements are
+   kept in the same array straight after it, so they are not counted here.
+   The numbering runs through both lists, not through one. */
+static void w_list(wbuf *w, const jw_drawing *d, int from, int to,
+                   int *seen, int *nload)
+{
+    int i, n = 0;
+
+    for (i = from; i < to; i += w_span(d, i))
+        n++;
+    w_count(w, n);
+    w_objs(w, d, from, to, seen, nload);
 }
 
 /* The three blocks of the header that hold names, written out of the
@@ -323,8 +370,14 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n)
         return 0;
     memset(&w, 0, sizeof w);
     w_head(&w, d);
-    w_list(&w, d, 0, d->ndrawn);
-    w_list(&w, d, d->ndrawn, d->nobj);
+    {
+        int seen[JW_NCLASS], nload = 1, i;
+
+        for (i = 0; i < JW_NCLASS; i++)
+            seen[i] = 0;
+        w_list(&w, d, 0, d->ndrawn, seen, &nload);
+        w_list(&w, d, d->ndrawn, d->nobj, seen, &nload);
+    }
     if (d->version > 0x275)
         w_l(&w, d->nimage);     /* the embedded image count, always 0 here */
     if (w.bad) {

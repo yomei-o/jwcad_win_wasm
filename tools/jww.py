@@ -248,7 +248,26 @@ def read_solid(ar, v, o):
         o['rgb'] = ar.l()
 
 
+def read_block(ar, v, o):
+    # CDataBlock::Serialize (0x0049b2c0): five doubles -- where the figure
+    # sits, how big and which way round -- and the number of the definition
+    # it stands for.
+    o['d'] = [ar.dbl() for _ in range(5)]
+    o['block'] = ar.l()
+
+
+def read_list(ar, v, o, load=None):
+    # CDataList::Serialize (0x0049b410): three numbers, a name, and then the
+    # elements of the definition itself, as a list of their own inside the
+    # list that holds this.
+    o['longs'] = [ar.l() for _ in range(3)]
+    o['name'] = ar.s()
+    o['members'] = read_objects(ar, v, note=lambda s: None, load=load)
+
+
 BODY = {
+    'CDataBlock': read_block,
+    'CDataList': read_list,
     'CDataSen': read_sen,
     'CDataEnko': read_enko,
     'CDataTen': read_ten,
@@ -257,8 +276,14 @@ BODY = {
 }
 
 
-def read_objects(ar, v, note=print):
-    """CObList::Serialize, then CArchive's tagged objects."""
+def read_objects(ar, v, note=print, load=None):
+    """CObList::Serialize, then CArchive's tagged objects.
+
+    The numbering runs through the whole file rather than through one list,
+    so `load` is handed on: the block definitions refer back to a class the
+    drawing itself introduced, and a definition's own elements are read in
+    the middle of the list that holds it.
+    """
     n = ar.w()
     if n == 0xffff:
         n = struct.unpack('<I', ar.raw(4))[0]
@@ -266,7 +291,8 @@ def read_objects(ar, v, note=print):
     # CArchive's load array holds classes and objects in one numbering, one
     # based, so an object's tag and a class's tag are indices into the same
     # list.  0x8000 marks a class; 0xffff means "a class not seen before".
-    load = [None]
+    if load is None:
+        load = [None]
     out = []
     for i in range(n):
         tag = ar.w()
@@ -292,7 +318,10 @@ def read_objects(ar, v, note=print):
         o = read_base(ar, v)
         o['class'] = name
         load.append(('obj', o))
-        body(ar, v, o)
+        if name == 'CDataList':
+            body(ar, v, o, load)
+        else:
+            body(ar, v, o)
         out.append(o)
     return out
 
@@ -302,7 +331,7 @@ def show(objs):
     for i, o in enumerate(objs):
         bits = ['%3d %-10s' % (i, o['class'])]
         for k in ('pen', 'type', 'width', 'f2e', 'f2f', 'flags', 'kind',
-                  'font', 'n'):
+                  'font', 'n', 'block'):
             if k in o:
                 bits.append('%s=%s' % (k, o[k]))
         for k in ('x0', 'y0', 'x1', 'y1', 'x', 'y', 'w', 'h', 'rgb'):
@@ -312,7 +341,12 @@ def show(objs):
             bits.append('d=[%s]' % ' '.join('%g' % v for v in o['d']))
         if 'pts' in o:
             bits.append('pts=[%s]' % ' '.join('%g' % v for v in o['pts']))
-        for k in ('face', 'text'):
+        if 'members' in o:
+            bits.append('members=%d' % len(o['members']))
+        for k in ('longs',):
+            if k in o:
+                bits.append('%s=%s' % (k, o[k]))
+        for k in ('name', 'face', 'text'):
             if k in o:
                 bits.append('%s=%r' % (k, o[k]))
         print(' '.join(bits))
@@ -323,10 +357,12 @@ def main():
     data = open(sys.argv[1], 'rb').read()
     ar = Ar(data)
     v, name, groups = read_header(ar)
-    objs = read_objects(ar, v)
+    load = [None]
+    objs = read_objects(ar, v, load=load)
     if v > 0x13:
         # the second list (piStack_bc95c[0x40]): the block definitions
-        objs += read_objects(ar, v, note=lambda s: print('block list: ' + s))
+        objs += read_objects(ar, v, note=lambda s: print('block list: ' + s),
+                             load=load)
     if '-l' in sys.argv[2:]:
         show(objs)
     if '-t' in sys.argv[2:]:

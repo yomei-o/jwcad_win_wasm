@@ -37,8 +37,10 @@ printf '    %s of %s\n' "$(./tests/jww_test.exe orig/*.jww | grep -c '^ok')" \
 
 echo
 echo "=== writing a drawing back out: the bytes have to be identical"
-./tests/write_test.exe orig/*.jww | grep -c '^ok' | sed 's/^/    /'
-./tests/write_test.exe orig/*.jww | grep '^BAD' || true
+# decomp/res/sfcin.jww is the one with a 図形 in it (tools/refanswers.sh)
+./tests/write_test.exe orig/*.jww decomp/res/sfcin.jww \
+    | grep -c '^ok' | sed 's/^/    /'
+./tests/write_test.exe orig/*.jww decomp/res/sfcin.jww | grep '^BAD' || true
 
 echo
 echo "=== what is under the mouse"

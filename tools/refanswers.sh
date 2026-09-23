@@ -594,6 +594,24 @@ $PS -Open tmp/rect.jww -NoSave \
 idle
 sh tools/refenv.sh >/dev/null
 
+# A drawing with a 図形 in it, which none of the shipped ones have: writing
+# an SFC and reading it back makes one, because an SFC keeps its elements
+# inside a figure (sfig_org_feature).  tests/write_test.c holds the bytes of
+# this one to account like the rest.
+echo "=== sfcin (a drawing with a 図形 in it)"
+idle
+sh tools/refenv.sh >/dev/null
+$PS -Open tmp/pens.jww -NoSave -Clicks 'export:32976,decomp/res/pens.sfc' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave \
+    -Clicks 'import:32975,decomp/res/pens.sfc;saveas:decomp/res/sfcin.jww' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # What the original makes of the 256 colour numbers a DXF can name: 255
 # lines, one per number, in two goes because a drawing has room for only so
 # many new colours.  tools/mkaci.py turns these into src/gen/aci.h.

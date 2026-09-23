@@ -14,6 +14,8 @@ enum {
     JW_TEN,         /* point         */
     JW_MOJI,        /* text          */
     JW_SOLID,       /* filled shape  */
+    JW_BLOCK,       /* a figure standing for one of the definitions */
+    JW_LIST,        /* one of those definitions: elements of its own       */
     JW_NCLASS
 };
 
@@ -40,6 +42,12 @@ typedef struct {
     int id;                     /* +0x04  a serial number, not the layer  */
     double d[8];                /* the geometry, class by class           */
     int n;                      /* the trailing long some classes carry   */
+    /* JW_BLOCK: which definition it stands for.  A definition (JW_LIST)
+       carries its own number in list[0], and this is that number. */
+    int block;
+    /* JW_LIST: the three numbers it keeps before its name -- its own
+       number, a flag, and the moment it was made. */
+    int list[3];
     int text, face;             /* byte offsets into the string pool, -1  */
 } jw_obj;
 

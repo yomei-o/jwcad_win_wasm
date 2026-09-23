@@ -328,6 +328,8 @@ static const struct {
     { "CDataTen",   JW_TEN   },
     { "CDataMoji",  JW_MOJI  },
     { "CDataSolid", JW_SOLID },
+    { "CDataBlock",  JW_BLOCK },
+    { "CDataList",   JW_LIST  },
 };
 #define NCLASSES ((int)(sizeof CLASSES / sizeof CLASSES[0]))
 
@@ -360,7 +362,17 @@ static void read_base(ar_t *a, int v, jw_obj *o)
         o->flags = (unsigned short)ar_w(a);
 }
 
-static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o)
+/* CArchive numbers classes and objects together as it reads, and a
+   definition's own list is read in the middle of the list that holds it, so
+   the numbering is one run through the lot.  This is that run. */
+typedef struct {
+    short *load;                /* -1 for an object, the class for a class */
+    int n, max;
+} lctx;
+
+static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n);
+
+static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
 {
     int i;
 
@@ -404,26 +416,46 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o)
         if (o->color == 10)
             o->n = ar_l(a);
         break;
+    case JW_BLOCK:
+        /* CDataBlock::Serialize (0x0049b2c0): where it sits, how big it is
+           each way, which way round, and which definition it stands for */
+        for (i = 0; i < 5; i++)
+            o->d[i] = ar_d(a);
+        o->block = ar_l(a);
+        break;
+    case JW_LIST: {
+        /* CDataList::Serialize (0x0049b410): three numbers, a name, and
+           then the elements of the definition itself.  They are kept in the
+           same array, straight after this one, and o->n says how many. */
+        int at = (int)(o - d->obj);
+        long m;
+
+        for (i = 0; i < 3; i++)
+            o->list[i] = ar_l(a);
+        o->text = ar_s(a, d);
+        m = ar_w(a);
+        if (m == 0xffff)
+            m = (long)(unsigned)ar_l(a);
+        read_objs(a, d, L, m);
+        d->obj[at].n = (int)m;
+        break;
+    }
     }
 }
 
 /* CObList::Serialize, then CArchive's tagged objects.  Classes and objects
  * share one numbering: 0xffff introduces a class, 0x8000 refers back to one,
- * anything else refers back to an object already read. */
-static void read_list(ar_t *a, jw_drawing *d)
+ * anything else refers back to an object already read.  `n` of -1 means the
+ * count has not been read yet, which is how a definition's own list comes. */
+static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
 {
-    /* the load array holds -1 for an object and the class index for a class */
-    static const int LOADMAX = 1 << 16;
-    short *load;
-    int nload = 1, i;
-    long n = ar_w(a);
+    short *load = L->load;
+    int i;
 
-    if (n == 0xffff)
-        n = (long)(unsigned)ar_l(a);
-    load = (short *)calloc((size_t)LOADMAX, sizeof *load);
-    if (!load) {
-        a->bad = 1;
-        return;
+    if (n < 0) {
+        n = ar_w(a);
+        if (n == 0xffff)
+            n = (long)(unsigned)ar_l(a);
     }
     for (i = 0; i < n && !a->bad; i++) {
         unsigned tag = ar_w(a);
@@ -461,11 +493,11 @@ static void read_list(ar_t *a, jw_drawing *d)
             }
             if (cls >= 0 && cls < JW_NCLASS)
                 d->schema[cls] = (unsigned short)schema;
-            if (nload < LOADMAX)
-                load[nload++] = (short)cls;
+            if (L->n < L->max)
+                load[L->n++] = (short)cls;
         } else if (tag & 0x8000) {
             unsigned ix = tag & 0x7fff;
-            if (ix >= (unsigned)nload) {
+            if (ix >= (unsigned)L->n) {
                 a->bad = 1;
                 break;
             }
@@ -473,8 +505,8 @@ static void read_list(ar_t *a, jw_drawing *d)
         } else {
             continue;           /* a second reference to an object we have */
         }
-        if (nload < LOADMAX)
-            load[nload++] = -1;
+        if (L->n < L->max)
+            load[L->n++] = -1;
         o = obj_new(d);
         if (!o) {
             a->bad = 1;
@@ -482,9 +514,35 @@ static void read_list(ar_t *a, jw_drawing *d)
         }
         o->cls = (unsigned char)cls;
         read_base(a, d->version, o);
-        read_body(a, d, d->version, o);
+        read_body(a, d, d->version, o, L);
     }
-    free(load);
+}
+
+/* The numbering runs through the whole file, not through one list: the
+   block definitions refer back to a class the drawing itself introduced. */
+static lctx *lctx_new(void)
+{
+    static const int LOADMAX = 1 << 16;
+    lctx *L = (lctx *)malloc(sizeof *L);
+
+    if (!L)
+        return 0;
+    L->load = (short *)calloc((size_t)LOADMAX, sizeof *L->load);
+    L->n = 1;
+    L->max = LOADMAX;
+    if (!L->load) {
+        free(L);
+        return 0;
+    }
+    return L;
+}
+
+static void lctx_free(lctx *L)
+{
+    if (L) {
+        free(L->load);
+        free(L);
+    }
 }
 
 /* The defaults are CData's constructor, FUN_0041f2d0 in the original:
@@ -710,10 +768,19 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     d->head = (unsigned char *)malloc((size_t)d->nhead);
     if (d->head)
         memcpy(d->head, b, (size_t)d->nhead);
-    read_list(&a, d);
-    d->ndrawn = d->nobj;
-    if (d->version > 0x13)
-        read_list(&a, d);       /* the block definitions */
+    {
+        lctx *L = lctx_new();
+
+        if (!L) {
+            d->error = "out of memory";
+            return 0;
+        }
+        read_objs(&a, d, L, -1);
+        d->ndrawn = d->nobj;
+        if (d->version > 0x13)
+            read_objs(&a, d, L, -1);    /* the block definitions */
+        lctx_free(L);
+    }
     if (d->version > 0x275) {
         /* Jw_cad 10 writes version 700, and after the two lists it puts the
          * embedded image files: a count, then that many names, each unpacked

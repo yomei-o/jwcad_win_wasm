@@ -780,6 +780,52 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
     }
 }
 
+/* A 図形: one of the definitions that follow the drawing, put where the
+   reference says.  A definition's elements are kept straight after it in the
+   same array (src/jww.c), so drawing one is drawing that stretch through the
+   reference's own place, size and turn.  A definition that holds a further
+   reference is followed too, but only so deep: one that somehow held itself
+   would never finish. */
+static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
+                  const jw_obj *ref, int depth)
+{
+    jw_drawing one;
+    jw_obj o;
+    int i, at = -1;
+
+    if (depth > 8)
+        return;
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == ref->block) {
+            at = i;
+            break;
+        }
+    if (at < 0)
+        return;
+    one = *d;
+    one.obj = &o;
+    one.nobj = one.ndrawn = 1;
+    one.mesh_ix = one.mesh_iy = 0.0;    /* the grid is already down */
+    for (i = at + 1; i < d->nobj && i <= at + d->obj[at].n; i++) {
+        o = d->obj[i];
+        if (o.cls == JW_LIST)
+            break;              /* a definition of its own, not a member */
+        if (o.cls == JW_BLOCK) {
+            /* the inner reference, carried by the outer one */
+            o.d[0] = o.d[0] * ref->d[2] + ref->d[0];
+            o.d[1] = o.d[1] * ref->d[3] + ref->d[1];
+            o.d[2] *= ref->d[2];
+            o.d[3] *= ref->d[3];
+            o.d[4] += ref->d[4];
+            block(fb, v, d, &o, depth + 1);
+            continue;
+        }
+        jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4],
+                     ref->d[0], ref->d[1]);
+        jw_draw(fb, v, &one);
+    }
+}
+
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
@@ -870,6 +916,9 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
         case JW_MOJI:
             jw_text(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
                     o->d[2], o->d[3], o->d[4], o->d[5], col);
+            break;
+        case JW_BLOCK:
+            block(fb, v, d, o, 0);
             break;
         default:
             break;
