@@ -173,6 +173,11 @@ static void w_body(wbuf *w, const jw_drawing *d, int v, const jw_obj *o)
         w_d(w, o->d[1]);
         if (v > 0x15)
             w_l(w, o->n);
+        if (v == 0xfc || (v > 299 && o->ltype == 100)) {
+            w_l(w, o->mark);        /* 任意点 */
+            w_d(w, o->turn);
+            w_d(w, o->size);
+        }
         break;
     case JW_MOJI:
         for (i = 0; i < 4; i++)

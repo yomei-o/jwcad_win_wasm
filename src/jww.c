@@ -392,8 +392,9 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
         if (v > 0x15)
             o->n = ar_l(a);
         if (v == 0xfc || (v > 299 && o->ltype == 100)) {
-            ar_l(a);
-            ar_skipd(a, 2);
+            o->mark = ar_l(a);
+            o->turn = ar_d(a);
+            o->size = ar_d(a);
         }
         break;
     case JW_MOJI:

@@ -48,6 +48,10 @@ typedef struct {
     /* JW_LIST: the three numbers it keeps before its name -- its own
        number, a flag, and the moment it was made. */
     int list[3];
+    /* JW_TEN with ltype 100 -- 任意点, which is what a point read from an
+       SFC is: which marker, how far round it is turned, and how big. */
+    int mark;
+    double turn, size;
     int text, face;             /* byte offsets into the string pool, -1  */
 } jw_obj;
 
@@ -193,6 +197,11 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 /* Write the drawing out as DXF, the way 「DXF形式で保存」 does (src/dxf.c).
    The caller frees *out. */
 int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
+
+/* Read an SFC into the drawing, the way 「SFCファイルを開く」 does
+   (src/sfcread.c).  What it draws lands inside a 図形, which is what the
+   original does with one.  Returns 0 if the bytes are not an SFC. */
+int jw_sfc_read(jw_drawing *d, const unsigned char *b, long n);
 
 /* Read a DXF into the drawing, the way 「DXFファイルを開く」 does
    (src/dxfread.c).  What was drawn goes; the header stays, except that the

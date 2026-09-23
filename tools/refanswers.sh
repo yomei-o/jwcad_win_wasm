@@ -611,6 +611,15 @@ $PS -Open tmp/rect.jww -NoSave \
     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
+# and one of arcs both ways round, circles and points, which a drawing of
+# lines does not exercise
+python tools/mksfc.py decomp/res/geo.sfc
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave \
+    -Clicks 'import:32975,decomp/res/geo.sfc;saveas:decomp/res/sfcgeo.jww' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
 
 # What the original makes of the 256 colour numbers a DXF can name: 255
 # lines, one per number, in two goes because a drawing has room for only so

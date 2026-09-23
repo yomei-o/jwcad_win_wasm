@@ -226,7 +226,9 @@ def read_ten(ar, v, o):
     if v > 0x15:
         o['kind'] = ar.l()
     if v == 0xfc or (v > 299 and o['pen'] == 100):
-        ar.l(); ar.dbl(); ar.dbl()
+        # 任意点: which marker, how far round it is turned, and how big
+        o['mark'] = ar.l()
+        o['turn'], o['size'] = ar.dbl(), ar.dbl()
 
 
 def read_moji(ar, v, o):
@@ -331,10 +333,11 @@ def show(objs):
     for i, o in enumerate(objs):
         bits = ['%3d %-10s' % (i, o['class'])]
         for k in ('pen', 'type', 'width', 'f2e', 'f2f', 'flags', 'kind',
-                  'font', 'n', 'block'):
+                  'font', 'n', 'block', 'mark'):
             if k in o:
                 bits.append('%s=%s' % (k, o[k]))
-        for k in ('x0', 'y0', 'x1', 'y1', 'x', 'y', 'w', 'h', 'rgb'):
+        for k in ('x0', 'y0', 'x1', 'y1', 'x', 'y', 'w', 'h', 'rgb',
+                  'turn', 'size'):
             if k in o:
                 bits.append('%s=%g' % (k, o[k]))
         if 'd' in o:

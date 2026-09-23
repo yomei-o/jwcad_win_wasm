@@ -231,6 +231,9 @@ int app_command(int cmd)
     case 32960:                         /* DXFファイルを開く */
         action = JW_ACT_OPEN_DXF;
         return 0;
+    case 32975:                         /* SFCファイルを開く */
+        action = JW_ACT_OPEN_SFC;
+        return 0;
     }
     /* a command the port does not do yet: it still becomes the one in force
        if it has a button, so the bar and the prompt follow */
@@ -513,6 +516,25 @@ int app_open_dxf(const unsigned char *b, long n)
         return 0;
     }
     have_file = 0;              /* the .dxf is not a file 上書 can write */
+    last_error = "";
+    jw_cmd_reset();
+    app_fit();
+    return 1;
+}
+
+/* 「SFCファイルを開く」.  Like a DXF, an SFC is read into whatever is
+   open rather than in place of it (src/sfcread.c). */
+int app_open_sfc(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        app_new();
+    if (!have_drawing)
+        return 0;
+    if (!jw_sfc_read(&drawing, b, n)) {
+        last_error = "not an SFC";
+        return 0;
+    }
+    have_file = 0;
     last_error = "";
     jw_cmd_reset();
     app_fit();

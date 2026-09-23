@@ -115,11 +115,12 @@ static int save_dxf(HWND wnd)
     return ok;
 }
 
-/* DXFファイルを開く.  The drawing it makes is not the file that 上書
- * writes, so what was open stays the file it came from. */
-static int open_dxf(HWND wnd)
+/* DXFファイルを開く and SFCファイルを開く.  What either of them
+ * makes is not the file that 上書 writes, so what was open stays the file it
+ * came from. */
+static int open_other(HWND wnd, const wchar_t *filter,
+                     int (*take)(const unsigned char *, long))
 {
-    static const wchar_t filter[] = L"DXF (*.dxf)\0*.dxf\0\0";
     OPENFILENAMEW o;
     wchar_t path[MAX_PATH];
     unsigned char *b;
@@ -145,7 +146,7 @@ static int open_dxf(HWND wnd)
     fseek(f, 0, SEEK_SET);
     b = (unsigned char *)malloc((size_t)n);
     if (b && fread(b, 1, (size_t)n, f) == (size_t)n)
-        ok = app_open_dxf(b, n);
+        ok = take(b, n);
     fclose(f);
     free(b);
     return ok;
@@ -308,7 +309,9 @@ static int do_action(HWND wnd)
         save_dxf(wnd);
         break;
     case JW_ACT_OPEN_DXF:
-        return open_dxf(wnd);
+        return open_other(wnd, L"DXF (*.dxf)\0*.dxf\0\0", app_open_dxf);
+    case JW_ACT_OPEN_SFC:
+        return open_other(wnd, L"SXF (*.sfc)\0*.sfc\0\0", app_open_sfc);
     }
     return 0;
 }
