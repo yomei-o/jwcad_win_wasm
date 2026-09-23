@@ -40,7 +40,6 @@ typedef struct {
 
 typedef struct {
     double x0, y0, x1, y1;
-    int bx0, by0, bx1, by1;     /* unused, kept for clarity */
 } hbox;
 
 /* the length of a line, and its unit direction */

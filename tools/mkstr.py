@@ -41,6 +41,8 @@ WANT = [
     (5330, 'where its line goes'),
     (5331, 'the first point it measures'),
     (5332, 'the second'),
+    (5327, 'the first corner of the box the weld works in'),
+    (5328, 'the second one, and what the two buttons do there'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

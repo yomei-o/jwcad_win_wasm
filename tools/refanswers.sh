@@ -712,7 +712,7 @@ sh tools/refenv.sh >/dev/null
 # leaves it alone, and this is what makes sure the port does too
 idle
 sh tools/refenv.sh >/dev/null
-cp "orig/ï¼¡ãã³ã·ã§ã³å¹³é¢ä¾.jww" tmp/man.jww
+cp "orig/Ａマンション平面例.jww" tmp/man.jww
 $PS -Open tmp/man.jww -Cmd 0 -Clicks 'cmd:32846;400,250;700,450;saveas:decomp/res/houraku12.jww'     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null

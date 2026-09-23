@@ -231,6 +231,51 @@ static const int WALL_ONE[] = {
     500, 150, 500, 500
 };
 
+/* One 元に戻る has to put the drawing back exactly as it was, however many
+   lines the weld changed, added or took out. */
+static void undo_case(const hcase *c)
+{
+    const jw_drawing *d;
+    jw_obj *was;
+    int i, n, bad = 0;
+
+    printf("%s, and then 元に戻る\n", c->name);
+    app_new();
+    {
+        const fb_t *fb = app_fb();
+        rect_t r;
+
+        ui_view_rect(fb->w, fb->h, &r);
+        jw_cmd_set(JW_CMD_SEN);
+        for (i = 0; i + 1 < c->nclick; i += 2)
+            app_press(r.x + c->clicks[i], r.y + c->clicks[i + 1], 0);
+        d = app_drawing();
+        n = d->ndrawn;
+        was = (jw_obj *)malloc((size_t)n * sizeof *was);
+        if (!was)
+            return;
+        memcpy(was, d->obj, (size_t)n * sizeof *was);
+        jw_cmd_set(JW_CMD_HOURAKU);
+        app_press(r.x + c->bx0, r.y + c->by0, 0);
+        app_press(r.x + c->bx1, r.y + c->by1, c->erase);
+    }
+    d = app_drawing();
+    ck(d->ndrawn != n || memcmp(was, d->obj, (size_t)n * sizeof *was) != 0,
+       "  the weld changed something");
+    ck(jw_cmd_can_undo(), "  and left something to undo");
+    jw_cmd_undo((jw_drawing *)app_drawing());
+    d = app_drawing();
+    if (d->ndrawn != n)
+        bad = 1;
+    for (i = 0; i < n && !bad; i++)
+        if (d->obj[i].cls != was[i].cls || !same(&d->obj[i], &was[i]))
+            bad = 1;
+    if (bad)
+        printf("     %d elements after the undo, %d before\n", d->ndrawn, n);
+    ck(!bad, "  元に戻る puts every line back where it was");
+    free(was);
+}
+
 int main(void)
 {
     static const hcase C[] = {
@@ -274,6 +319,9 @@ int main(void)
     app_resize(1264, 741);
     for (i = 0; i < (int)(sizeof C / sizeof C[0]); i++)
         one(&C[i]);
+    /* and that one press takes the whole of it back */
+    undo_case(&C[3]);           /* the closed cross, which loses four lines */
+    undo_case(&C[9]);           /* and a 範囲内消去, which cuts them */
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

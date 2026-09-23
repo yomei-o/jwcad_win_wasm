@@ -6,9 +6,10 @@
  * JWC形式で保存 (32810).  This writes the same drawing itself and the two
  * have to be the same bytes.
  *
- * Both answers come out of drawings that share Test5.jww's settings, which
- * is what makes a byte comparison fair: five fields of the first line of a
- * JWC are not understood and are baked from one of them (tools/mkjwc.py).
+ * Five fields of the first line are not understood and are baked from one
+ * of the answers (tools/mkjwc.py), so those five are allowed to differ --
+ * and they do: the 19th moves by one between runs, which is how we know it
+ * is not the drawing's.  Everything else has to be the same byte for byte.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,6 +122,21 @@ static void geom(jw_drawing *d)
 #undef LAY
 }
 
+/* the first line of text in a JWC, which sits at 0xc8 and ends at a NUL */
+static void line_of(const unsigned char *b, long n, char *out, size_t max)
+{
+    size_t k = 0;
+
+    out[0] = 0;
+    if (n < 0xc8 + 1)
+        return;
+    while (0xc8 + k < (size_t)n && b[0xc8 + k] && k + 1 < max) {
+        out[k] = (char)b[0xc8 + k];
+        k++;
+    }
+    out[k] = 0;
+}
+
 static void one(const char *jww, const char *jwc, int asgeom)
 {
     unsigned char *b, *mine = 0, *want;
@@ -147,9 +163,53 @@ static void one(const char *jww, const char *jwc, int asgeom)
         jw_free(&d);
         return;
     }
-    for (i = 0; i < m && i < wn; i++)
+    {   /* the first line, field by field: the five we cannot work out may
+           differ, and the test says so when they do */
+        static const int LOOSE[] = { 5, 6, 11, 12, 19 };
+        char a[256], b[256];
+        int fa = 0, fb = 0, k, loose = 0, bad = 0;
+        char *pa = a, *pb = b;
+
+        line_of(mine, m, a, sizeof a);
+        line_of(want, wn, b, sizeof b);
+        for (k = 1;; k++) {
+            char *ea = strchr(pa, ','), *eb = strchr(pb, ',');
+            size_t na = ea ? (size_t)(ea - pa) : strlen(pa);
+            size_t nb = eb ? (size_t)(eb - pb) : strlen(pb);
+            int soft = 0, j;
+
+            for (j = 0; j < (int)(sizeof LOOSE / sizeof LOOSE[0]); j++)
+                if (LOOSE[j] == k)
+                    soft = 1;
+            if (na != nb || memcmp(pa, pb, na)) {
+                if (soft) {
+                    loose++;
+                } else {
+                    printf("     the %dth of the first line is %.*s, the "
+                           "original's is %.*s\n", k, (int)na, pa,
+                           (int)nb, pb);
+                    bad = 1;
+                }
+            }
+            if (!ea || !eb)
+                break;
+            pa = ea + 1;
+            pb = eb + 1;
+        }
+        (void)fa;
+        (void)fb;
+        if (loose)
+            printf("     (%d of the five we cannot work out differ)\n",
+                   loose);
+        ck(!bad, "  the first line's fields, but for the five unknown ones");
+    }
+    /* and the rest of it to the byte, the first line left out */
+    for (i = 0; i < m && i < wn; i++) {
+        if (i >= 0xc8 && i < 0x190)
+            continue;
         if (mine[i] != want[i])
             break;
+    }
     if (i < m || i < wn) {
         FILE *g = fopen("tmp/mine.jwc", "wb");
 

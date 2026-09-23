@@ -606,6 +606,12 @@ const char *jw_cmd_prompt(void)
         return line_n ? JW_STR_5318 : JW_STR_5316;
     case JW_CMD_ZOKUSEI:
         return JW_STR_5263;
+    case JW_CMD_HOURAKU:
+        /* 「包絡範囲の始点指示を指示して下さい」 and then 「…終点を指示して
+           下さい　(L)包絡処理　(R)範囲内消去」.  The running original adds
+           「(Shift+L) (Ｌ←)中間消去」 to the second, which the string table
+           does not carry. */
+        return hou_step == 0 ? JW_STR_5327 : JW_STR_5328;
     case JW_CMD_FUKUSEN:
         /* 「複線にする図形を選択してください ﾏｳｽ(L)　前回値 ﾏｳｽ(R)」 then
            「複線方向を指示 ﾏｳｽ(L)…」 */
