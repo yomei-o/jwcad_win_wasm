@@ -67,6 +67,16 @@ typedef struct {
     double paper_hw, paper_hh;
     int paper_size;
 
+    /* 目盛 -- the grid of dots the original puts under a drawing.  Five
+       doubles at the end of the settings block, which this reader used to
+       step over: the smallest spacing in pixels it will draw at, the spacing
+       across and down in paper millimetres, and where the grid starts.
+       木造平面例.jww is the only one of the fifteen with 9 mm rather than 5,
+       and the only one the original draws a grid for: 9 mm at its A4 scale
+       is 29.4 pixels and the minimum is 15, while 5 mm comes to 11.5 at
+       best. */
+    double mesh_min, mesh_ix, mesh_iy, mesh_ox, mesh_oy;
+
     /* the ten screen pens.  The file stores a COLORREF, 0x00bbggrr. */
     unsigned int pen_rgb[10];
     int pen_width[10];

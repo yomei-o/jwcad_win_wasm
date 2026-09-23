@@ -718,6 +718,33 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
 
+    /* 目盛 first of all: a grid of single pixels under the drawing.
+     *
+     * The drawing carries its own spacing and the least number of pixels it
+     * is worth drawing at (jw_drawing's mesh_*).  Of the fifteen samples only
+     * 木造平面例.jww has 9 mm rather than 5, and it is the only one the
+     * original draws a grid for -- 9 mm at its A4 scale is 29.4 pixels and
+     * the minimum is 15, while 5 mm never reaches 11.6.  That one rule covers
+     * all fifteen.
+     */
+    if (d->mesh_ix > 0.0 && d->mesh_iy > 0.0
+        && d->mesh_ix / v->mmpp >= d->mesh_min
+        && d->mesh_iy / v->mmpp >= d->mesh_min) {
+        /* over the whole drawing area, not just the sheet: the original's
+           grid carries two more columns past each edge of the paper */
+        double lx = v->ox + (v->clip.x - v->bx) * v->mmpp;
+        double hx = v->ox + (v->clip.x + v->clip.w - v->bx) * v->mmpp;
+        double ly = v->oy - (v->clip.y + v->clip.h - v->by) * v->mmpp;
+        double hy = v->oy - (v->clip.y - v->by) * v->mmpp;
+        double x0 = d->mesh_ox, y0 = d->mesh_oy, x, y;
+        long k = (long)floor((lx - x0) / d->mesh_ix);
+        long j0 = (long)floor((ly - y0) / d->mesh_iy);
+
+        for (x = x0 + k * d->mesh_ix; x <= hx; x += d->mesh_ix)
+            for (y = y0 + j0 * d->mesh_iy; y <= hy; y += d->mesh_iy)
+                put(fb, &v->clip, jw_sx(v, x), jw_sy(v, y), d->pen_rgb[2]);
+    }
+
     /* The solids go down first, and everything else on top of them.
      *
      * Not in element order: Ａマンション平面例.jww has 79 of them making its

@@ -193,7 +193,13 @@ static void read_header(ar_t *a, jw_drawing *d)
     }
     if (v > 0x3d) {
         ar_l(a);
-        ar_skipd(a, 5);
+        /* 目盛: the least spacing it will draw at, across, down, and where
+           the grid starts.  See jw_drawing. */
+        d->mesh_min = ar_d(a);
+        d->mesh_ix = ar_d(a);
+        d->mesh_iy = ar_d(a);
+        d->mesh_ox = ar_d(a);
+        d->mesh_oy = ar_d(a);
     }
     if (v > 0x3f) {
         for (g = 0; g < 16; g++)
