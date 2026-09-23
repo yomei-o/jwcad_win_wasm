@@ -4,6 +4,7 @@ original what it makes of them.
     python tools/mkdxfin.py text   decomp/res/text.dxf
     python tools/mkdxfin.py poly   decomp/res/poly.dxf
     python tools/mkdxfin.py ellipse decomp/res/ell.dxf
+    python tools/mkdxfin.py hatch  decomp/res/hat.dxf
     python tools/mkdxfin.py insert decomp/res/ins.dxf
 
 The prologue -- the header, the tables and the layers -- is lifted from
@@ -134,6 +135,51 @@ def dimblock(lay):
     return b''.join(out)
 
 
+def hatches(lay):
+    """HATCH, the way AutoCAD lays one out.
+
+    The original only takes a 塗りつぶし (a pattern named SOLID): it starts
+    keeping the corners at the `2 SOLID` and stops at the `98` that counts
+    the seed points, so the elevation point in front and the seed points
+    behind are not corners.  Two shapes of boundary are tried -- a closed
+    polyline (92 with bit 2) and one edge per side (72 of 1) -- and one with
+    three corners rather than four, to see what the fourth becomes.
+    """
+    def head(x, y):
+        return (g(0, 'HATCH') + lay + i5(62, 5)
+                + g(10, x) + g(20, y) + g(30, 0)      # elevation, not a corner
+                + g(2, 'SOLID') + i5(70, 1) + i5(71, 0) + i5(91, 1))
+
+    def tail(x, y):
+        return (i5(97, 0) + i5(75, 0) + i5(76, 1) + i5(98, 1)
+                + g(10, x) + g(20, y))                # the seed, not a corner
+
+    out = []
+    # a square, as a closed polyline boundary
+    pts = [(64100, 61400), (70100, 61400), (70100, 67400), (64100, 67400)]
+    out.append(head(64100, 61400) + i5(92, 7) + i5(72, 0) + i5(73, 1)
+               + i5(93, len(pts)))
+    for x, y in pts:
+        out.append(g(10, x) + g(20, y))
+    out.append(tail(67100, 64400))
+    # the same shape a bit along, as four line edges
+    pts = [(74100, 61400), (80100, 61400), (80100, 67400), (74100, 67400)]
+    out.append(head(74100, 61400) + i5(92, 1) + i5(93, len(pts)))
+    for i in range(len(pts)):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % len(pts)]
+        out.append(i5(72, 1) + g(10, x0) + g(20, y0) + g(11, x1) + g(21, y1))
+    out.append(tail(77100, 64400))
+    # and a triangle, to see what the fourth corner becomes
+    pts = [(84100, 61400), (90100, 61400), (87100, 67400)]
+    out.append(head(84100, 61400) + i5(92, 7) + i5(72, 0) + i5(73, 1)
+               + i5(93, len(pts)))
+    for x, y in pts:
+        out.append(g(10, x) + g(20, y))
+    out.append(tail(87100, 63400))
+    return b''.join(out)
+
+
 def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else 'text'
     out = sys.argv[2] if len(sys.argv) > 2 else 'decomp/res/%s.dxf' % kind
@@ -147,6 +193,8 @@ def main():
         body = mtexts(lay)
     elif kind == 'ellipse':
         body = ellipses(lay)
+    elif kind == 'hatch':
+        body = hatches(lay)
     elif kind == 'dim':
         head = head.replace(b'  2\r\nBLOCKS\r\n',
                             b'  2\r\nBLOCKS\r\n' + dimblock(lay), 1)
@@ -156,7 +204,7 @@ def main():
                             b'  2\r\nBLOCKS\r\n' + block(lay), 1)
         body = inserts(lay)
     else:
-        print('which: text, mtext, poly, ellipse, insert or dim')
+        print('which: text, mtext, poly, ellipse, hatch, insert or dim')
         return
     io.open(out, 'wb').write(head + body + g(0, 'ENDSEC') + g(0, 'EOF'))
     print('%s: %s' % (out, kind))

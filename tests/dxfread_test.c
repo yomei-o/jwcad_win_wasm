@@ -274,6 +274,11 @@ int main(void)
     /* and its MTEXTs, which take the layer's colour and hang from the top */
     alike("orig/Test5.jww", "decomp/res/mt.dxf", "decomp/res/mtin.jww",
           "MTEXTs, read back");
+    /* and its HATCHes, each of which becomes one solid: a square as a
+       closed polyline, the same as four line edges, and a triangle whose
+       fourth corner the original leaves at the origin */
+    alike("orig/Test5.jww", "decomp/res/hat.dxf", "decomp/res/hatin.jww",
+          "hatches, read back");
     /* and its dimension, which is a reference to the block that draws it */
     alike("orig/Test5.jww", "decomp/res/dim.dxf", "decomp/res/dimin.jww",
           "a dimension, read back");

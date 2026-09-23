@@ -595,12 +595,13 @@ idle
 sh tools/refenv.sh >/dev/null
 # and the entities a drawing of lines does not exercise: texts turned,
 # squeezed, stretched and in CP932; polylines open and closed; and a block
-# with three references to it
-for k in text mtext poly ell ins dim; do
+# with three references to it; and hatches, which become solids
+for k in text mtext poly ell hat ins dim; do
     f=$k
     case $k in
     ins) python tools/mkdxfin.py insert decomp/res/ins.dxf ;;
     ell) python tools/mkdxfin.py ellipse decomp/res/ell.dxf ;;
+    hat) python tools/mkdxfin.py hatch decomp/res/hat.dxf ;;
     mtext) python tools/mkdxfin.py mtext decomp/res/mt.dxf; f=mt ;;
     *)   python tools/mkdxfin.py $k decomp/res/$k.dxf ;;
     esac

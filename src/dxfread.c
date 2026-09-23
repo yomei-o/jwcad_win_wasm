@@ -26,8 +26,8 @@
  *     a new 任意線種.
  *
  * HATCH is not read yet; the entities that are are LINE, ARC, CIRCLE,
- * ELLIPSE, POINT, SOLID, TEXT, MTEXT, POLYLINE, LWPOLYLINE, INSERT and
- * DIMENSION -- and with the last two, the BLOCKS section.
+ * ELLIPSE, POINT, SOLID, HATCH, TEXT, MTEXT, POLYLINE, LWPOLYLINE, INSERT
+ * and DIMENSION -- and with the last two, the BLOCKS section.
  */
 #include <math.h>
 #include <stdio.h>
@@ -720,6 +720,62 @@ static void ent_solid(dxfr *r)
     }
 }
 
+/* HATCH, which becomes one ソリッド and nothing else -- the original does
+ * not break a filled shape into a bundle of lines the way an SFC's fill is
+ * broken up.  What it keeps is four corners:
+ *
+ *   * it starts keeping them at a `2` that says `SOLID` (the pattern's
+ *     name) and stops at the `98` that counts the seed points, so the
+ *     elevation point in front and the seeds behind are left out;
+ *   * each `10` moves on to the next corner, and a `11` -- which is how a
+ *     boundary made of one edge per side gives the far end of each -- sets
+ *     the one after that, so both shapes of boundary come to the same four;
+ *   * there is room for four and no more, and a boundary with three
+ *     corners leaves the fourth at the origin.  That is what the original
+ *     does, odd as it looks (decomp FUN_004a16d0).
+ *
+ * A boundary of arcs (edge type 2 or 3) makes a 円ソリッド, which the port
+ * has nowhere to put yet, so those are left out here.
+ */
+static void ent_hatch(dxfr *r)
+{
+    double p[10];
+    int fill = 0, np = 0, arc = 0, i;
+    jw_obj *o;
+    attr a;
+
+    for (i = 0; i < 10; i++)
+        p[i] = 0.0;
+    attr_start(&a);
+    for (next(r); r->code > 0; next(r)) {
+        if (attr_take(r, &a))
+            continue;
+        if (r->code == 2)
+            fill = !strcmp(r->str, "SOLID");
+        else if (r->code == 98)
+            fill = 0;           /* what follows are seed points */
+        else if (r->code == 72 && (int)r->num >= 2)
+            arc = 1;            /* an arc or an ellipse: not read here */
+        else if (fill && r->code == 10) {
+            if (np < 4)
+                np++;
+            p[np * 2] = put_x(r, r->num);
+        } else if (fill && r->code == 20) {
+            p[np * 2 + 1] = put_y(r, r->num);
+        } else if (fill && r->code == 11 && np < 4) {
+            p[(np + 1) * 2] = put_x(r, r->num);
+        } else if (fill && r->code == 21 && np < 4) {
+            p[(np + 1) * 2 + 1] = put_y(r, r->num);
+        }
+    }
+    if (arc || np < 3)
+        return;
+    o = place(r, JW_SOLID, &a);
+    if (o)
+        for (i = 0; i < 8; i++)
+            o->d[i] = p[i + 2];
+}
+
 /* MTEXT, which is not TEXT with more in it: its colour comes from the layer
    rather than from the pen, the place it names is the *top* of the line
    rather than the foot of it, and 41 is how wide a box the words may fill
@@ -855,6 +911,8 @@ static void entity(dxfr *r)
         ent_arc(r, 1);
     else if (!strcmp(r->str, "POINT"))
         ent_point(r);
+    else if (!strcmp(r->str, "HATCH"))
+        ent_hatch(r);
     else if (!strcmp(r->str, "SOLID"))
         ent_solid(r);
     else if (!strcmp(r->str, "TEXT"))
