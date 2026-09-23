@@ -244,6 +244,10 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
     { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
+    { JW_CMD_FUKUSHA, 1411, "" },       /* 複写の倍率 */
+    { JW_CMD_FUKUSHA, 1412, "" },       /* 複写の回転角 */
+    { JW_CMD_IDOU, 1411, "" },          /* 移動の倍率 */
+    { JW_CMD_IDOU, 1412, "" },          /* 移動の回転角 */
     { JW_CMD_SUNPO, 1411, "0" },        /* 寸法の傾き */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
@@ -2631,9 +2635,27 @@ int jw_cmd_sel_erase(jw_drawing *d)
 }
 
 /* One click while the selection is being placed. */
+/* The bar's 倍率 (1411) and 回転角 (1412), which the second stage of 複写 and
+   移動 puts up.  Empty means 1 and 0. */
+static double sel_scale(void)
+{
+    const char *t = jw_cmd_box(1411);
+    double v = t ? atof(t) : 0.0;
+
+    return v > 0.0 ? v : 1.0;
+}
+
+static double sel_turn(void)
+{
+    const char *t = jw_cmd_box(1412);
+
+    return (t ? atof(t) : 0.0) * PI / 180.0;
+}
+
 static void sel_place(jw_drawing *d, double x, double y)
 {
     double dx = x - base_x, dy = y - base_y;
+    double sc = sel_scale(), ang = sel_turn();
     int i;
 
     if (!d || sel_n <= 0)
@@ -2646,7 +2668,7 @@ static void sel_place(jw_drawing *d, double x, double y)
                 continue;
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
-            jw_obj_move(&d->obj[at], dx, dy);
+            jw_obj_xform(&d->obj[at], base_x, base_y, sc, ang, dx, dy);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
@@ -2663,7 +2685,7 @@ static void sel_place(jw_drawing *d, double x, double y)
                 break;
             at = (int)(p - d->obj);
             *p = sel_was[i];
-            jw_obj_move(p, dx, dy);
+            jw_obj_xform(p, base_x, base_y, sc, ang, dx, dy);
             /* a copy is not itself selected: in the original the new
                elements come out in their own colours while the ones that
                were picked stay pink */

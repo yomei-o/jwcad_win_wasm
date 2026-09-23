@@ -48,6 +48,8 @@
 #                       modal dialog holds the script here; use pb: or dlg:b)
 #   pb:<id>             BM_CLICK posted instead, so a modal dialog does not
 #                       stop the rest of the steps
+#   m<x>,<y>            move the real cursor into the view without clicking --
+#                       複写・移動 read GetCursorPos for their 基準点
 #   off:<id>            turn a checkbox off (a click, so the app is told)
 #   type:<text>         the 文字 command's box, then Enter
 #   type::<text>        the same without Enter
@@ -474,6 +476,21 @@ try {
                 if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
                 [void][Jw]::SendMessageStr((EditOf $h), $WM_SETTEXT, [IntPtr]::Zero, $Matches[2])
                 Start-Sleep -Milliseconds $StepMs; break
+            }
+
+            '^m(-?\d+),(-?\d+)$' {
+                # Move the real cursor into the view without clicking.  Some
+                # stages read GetCursorPos rather than the message: 複写 and
+                # 移動 take their 基準点 from wherever the cursor is sitting
+                # when 選択確定 is pressed, not from any click.
+                $mx = [int]$Matches[1]
+                $my = [int]$Matches[2]
+                $pt = [Jw]::ScreenOf($view, $mx, $my)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0,
+                                        (LParam $mx $my))
+                Start-Sleep -Milliseconds $StepMs
+                break
             }
 
             '^pb:(\d+)$' {

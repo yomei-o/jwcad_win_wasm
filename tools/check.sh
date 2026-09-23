@@ -86,6 +86,10 @@ echo "=== 属性変更 —— 原典が変えた要素との突き合わせ"
 ./tests/zokuhen_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 複写・移動の倍率と回転角 —— 原典が置いたものとの突き合わせ"
+./tests/xform_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 
