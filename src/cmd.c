@@ -102,6 +102,11 @@ static double sel_x0, sel_y0, sel_x1, sel_y1;
    corner was given with -- unlike an ordinary box, where the left button
    leaves them out. */
 static int sel_outside;
+/* 切取り選択 (1344): what crosses the box is cut at its edge and the piece
+   inside is what gets picked.  Driving the original bears it out -- a line
+   that ran from -140.492 to -190.492 came back starting at the box's own
+   edge, -179.239 -- and the texts come along as with 範囲外選択. */
+static int sel_cut;
 static double base_x, base_y;   /* 基準点 */
 /* 反転 (the second stage's 1067): once pressed, the next click picks the
    基準線 to flip the selection across. */
@@ -483,6 +488,7 @@ void jw_cmd_set(int id)
     step = 0;
     hou_step = 0;
     sel_outside = 0;
+    sel_cut = 0;
     comp_n = 0;
     cut_step = 0;
     corner_step = 0;
@@ -2612,6 +2618,127 @@ static void sel_clear(jw_drawing *d)
  * the right button -- 「(L)文字を除く (R)文字を含む」, string 5326, and the
  * same run bears it out: 28 texts sat inside the box and a left click took
  * none of them. */
+/* How much of a line lies in the box, as two numbers along it (0 to 1).
+   The usual Liang-Barsky, and 0 when none of it does. */
+static int clip_seg(const jw_obj *o, double x0, double y0, double x1,
+                    double y1, double *t0, double *t1)
+{
+    double p[4], q[4];
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    int i;
+
+    p[0] = -dx; q[0] = o->d[0] - x0;
+    p[1] =  dx; q[1] = x1 - o->d[0];
+    p[2] = -dy; q[2] = o->d[1] - y0;
+    p[3] =  dy; q[3] = y1 - o->d[1];
+    *t0 = 0.0;
+    *t1 = 1.0;
+    for (i = 0; i < 4; i++) {
+        if (p[i] == 0.0) {
+            if (q[i] < 0.0)
+                return 0;       /* alongside the edge and outside it */
+            continue;
+        }
+        {
+            double t = q[i] / p[i];
+
+            if (p[i] < 0.0) {
+                if (t > *t1)
+                    return 0;
+                if (t > *t0)
+                    *t0 = t;
+            } else {
+                if (t < *t0)
+                    return 0;
+                if (t < *t1)
+                    *t1 = t;
+            }
+        }
+    }
+    return *t1 > *t0;
+}
+
+/* 切取り選択: cut what crosses the box at its edge, keep the outside pieces
+   where the element was, and pick the piece that is inside. */
+static void sel_cut_box(jw_drawing *d, double x0, double y0, double x1,
+                        double y1)
+{
+    struct { jw_obj was; double t0, t1; int at; } cut[256];
+    int ncut = 0, i, made = 0;
+    op_t *rec = 0;
+
+    for (i = 0; i < d->ndrawn && ncut < 256; i++) {
+        jw_obj *o = &d->obj[i];
+        double a, b, c2, e, t0, t1;
+
+        if (o->cls != JW_SEN)
+            continue;
+        jw_obj_box(o, &a, &b, &c2, &e);
+        if (a >= x0 && c2 <= x1 && b >= y0 && e <= y1)
+            continue;           /* wholly inside: picked as it is */
+        if (!clip_seg(o, x0, y0, x1, y1, &t0, &t1))
+            continue;           /* none of it is in the box */
+        if (t1 - t0 < 1e-12)
+            continue;
+        cut[ncut].was = *o;
+        cut[ncut].t0 = t0;
+        cut[ncut].t1 = t1;
+        cut[ncut].at = i;
+        ncut++;
+    }
+    if (ncut == 0)
+        return;
+    rec = op_new();
+    for (i = 0; i < ncut; i++) {
+        const jw_obj *w = &cut[i].was;
+        double ax = w->d[0], ay = w->d[1];
+        double bx = w->d[2], by = w->d[3];
+        double dx = bx - ax, dy = by - ay;
+        double t0 = cut[i].t0, t1 = cut[i].t1;
+        jw_obj *o = &d->obj[cut[i].at], *p;
+
+        op_keep(rec, d, cut[i].at, 0);
+        if (t0 > 1e-12) {       /* the piece before the box stays put */
+            o->d[2] = ax + dx * t0;
+            o->d[3] = ay + dy * t0;
+        } else {                /* nothing before it: the inside piece does */
+            o->d[0] = ax + dx * t0;
+            o->d[1] = ay + dy * t0;
+            o->d[2] = ax + dx * t1;
+            o->d[3] = ay + dy * t1;
+            o->flags = (unsigned short)(o->flags | 2u);
+            o->sel = 1;
+        }
+        if (t0 > 1e-12) {       /* and the inside piece is a new element */
+            p = jw_add(d, JW_SEN);
+            if (p) {
+                *p = *w;
+                p->d[0] = ax + dx * t0;
+                p->d[1] = ay + dy * t0;
+                p->d[2] = ax + dx * t1;
+                p->d[3] = ay + dy * t1;
+                p->flags = (unsigned short)(p->flags | 2u);
+                p->sel = 1;
+                p->id = 0;
+                made++;
+            }
+        }
+        if (t1 < 1.0 - 1e-12) { /* and the piece after it, if there is one */
+            p = jw_add(d, JW_SEN);
+            if (p) {
+                *p = *w;
+                p->d[0] = ax + dx * t1;
+                p->d[1] = ay + dy * t1;
+                p->flags = (unsigned short)(p->flags & ~2u);
+                p->sel = 0;
+                p->id = 0;
+                made++;
+            }
+        }
+    }
+    op_push(made);
+}
+
 static void sel_box(jw_drawing *d, int with_text)
 {
     double x0 = sel_x0 < sel_x1 ? sel_x0 : sel_x1;
@@ -2627,7 +2754,7 @@ static void sel_box(jw_drawing *d, int with_text)
         double a, b, c2, e;
         int take;
 
-        if (o->cls == JW_MOJI && !with_text && !sel_outside)
+        if (o->cls == JW_MOJI && !with_text && !sel_outside && !sel_cut)
             continue;
         jw_obj_box(o, &a, &b, &c2, &e);
         if (sel_outside)        /* nothing of it inside the box at all */
@@ -2639,6 +2766,8 @@ static void sel_box(jw_drawing *d, int with_text)
             o->sel = 1;
         }
     }
+    if (sel_cut && !sel_outside)
+        sel_cut_box(d, x0, y0, x1, y1);
 }
 
 /* 選択確定.  The selection is taken as it stands and 基準点 becomes where
@@ -2871,6 +3000,9 @@ int jw_cmd_bar_check(int id)
     if (id == 1334 && (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
                        || current == JW_CMD_IDOU))
         return sel_outside;
+    if (id == 1344 && (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
+                       || current == JW_CMD_IDOU))
+        return sel_cut;
     if (current == JW_CMD_HATCH && id == 1323)
         return ht_jisun;
     if (current == JW_CMD_ZOKUHEN && id == 1352)
@@ -2992,6 +3124,11 @@ int jw_cmd_bar(jw_drawing *d, int id)
         if (sel_step != 0)
             return 0;
         sel_outside = !sel_outside;
+        return 1;
+    case 1344:                  /* 切取り選択, likewise */
+        if (sel_step != 0)
+            return 0;
+        sel_cut = !sel_cut;
         return 1;
     case 1120:
         return sel_confirm(d);

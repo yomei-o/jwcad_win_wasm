@@ -333,6 +333,86 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 切取り選択 (1344): what crosses the box is cut at its edge, and 消去
+       takes the piece that was inside.  decomp/res/selcut.jww is what the
+       original was left with after the same box. */
+    {
+        jw_drawing ref;
+        unsigned char *b2;
+        long n2;
+        const jw_drawing *d2;
+        int k, m, nr = 0, nm = 0, nrt = 0, nmt = 0, bad = 0;
+
+        memset(&ref, 0, sizeof ref);
+        b2 = slurp("decomp/res/selcut.jww", &n2);
+        if (!b2 || !jw_parse(&ref, b2, n2)) {
+            printf("BAD  cannot read decomp/res/selcut.jww -- drive the "
+                   "original first\n");
+            fails++;
+        } else {
+            const fb_t *fb = app_fb();
+            rect_t r;
+
+            free(b2);
+            b2 = slurp("orig/Test5.jww", &n2);
+            if (b2 && app_open(b2, n2)) {
+                free(b2);
+                ui_view_rect(fb->w, fb->h, &r);
+                jw_cmd_set(JW_CMD_HANI);
+                ck(jw_cmd_bar((jw_drawing *)app_drawing(), 1344) == 1,
+                   "切取り選択 can be pressed");
+                ck(jw_cmd_bar_check(1344) == 1, "and goes down");
+                app_press(r.x + 250, r.y + 250, 0);
+                app_press(r.x + 850, r.y + 550, 0);
+                app_command(JW_CMD_SHOUKYO);
+                d2 = app_drawing();
+                for (k = 0; k < ref.ndrawn; k++)
+                    if (ref.obj[k].cls == JW_SEN)
+                        nr++;
+                    else if (ref.obj[k].cls == JW_MOJI)
+                        nrt++;
+                for (k = 0; k < d2->ndrawn; k++)
+                    if (d2->obj[k].cls == JW_SEN)
+                        nm++;
+                    else if (d2->obj[k].cls == JW_MOJI)
+                        nmt++;
+                ck(nm == nr, "the same number of lines as the original");
+                /* the original leaves six memo texts of its own behind */
+                ck(nmt == nrt - 6, "and the same texts, which it takes too");
+                if (nm != nr)
+                    printf("     ours %d, the original's %d\n", nm, nr);
+                for (k = 0; k < d2->ndrawn && !bad; k++) {
+                    if (d2->obj[k].cls != JW_SEN)
+                        continue;
+                    for (m = 0; m < ref.ndrawn; m++) {
+                        const jw_obj *o = &ref.obj[m];
+
+                        if (o->cls != JW_SEN)
+                            continue;
+                        if ((fabs(o->d[0] - d2->obj[k].d[0]) < 1e-6
+                             && fabs(o->d[1] - d2->obj[k].d[1]) < 1e-6
+                             && fabs(o->d[2] - d2->obj[k].d[2]) < 1e-6
+                             && fabs(o->d[3] - d2->obj[k].d[3]) < 1e-6)
+                            || (fabs(o->d[0] - d2->obj[k].d[2]) < 1e-6
+                                && fabs(o->d[1] - d2->obj[k].d[3]) < 1e-6
+                                && fabs(o->d[2] - d2->obj[k].d[0]) < 1e-6
+                                && fabs(o->d[3] - d2->obj[k].d[1]) < 1e-6))
+                            break;
+                    }
+                    if (m == ref.ndrawn) {
+                        printf("     ours has (%.4f %.4f)-(%.4f %.4f), the "
+                               "original has no such line\n",
+                               d2->obj[k].d[0], d2->obj[k].d[1],
+                               d2->obj[k].d[2], d2->obj[k].d[3]);
+                        bad = 1;
+                    }
+                }
+                ck(!bad, "and every line where the original left it");
+            }
+            jw_free(&ref);
+        }
+    }
+
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
