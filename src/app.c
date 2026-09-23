@@ -242,6 +242,9 @@ int app_command(int cmd)
     case 32809:                         /* JWCファイルを開く */
         action = JW_ACT_OPEN_JWC;
         return 0;
+    case 32810:                         /* JWC形式で保存 */
+        action = JW_ACT_SAVE_JWC;
+        return 0;
     }
     /* a command the port does not do yet: it still becomes the one in force
        if it has a button, so the bar and the prompt follow */
@@ -393,6 +396,14 @@ int app_save_sfc(const char *name, unsigned char **out, long *n)
     sprintf(stamp, "%d-%d-%dT%02d:%02d:%02d", t->tm_year + 1900,
             t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
     return jw_sfc_write(&drawing, name, stamp, out, n);
+}
+
+/* 「JWC形式で保存」 (src/jwcwrite.c). */
+int app_save_jwc(unsigned char **out, long *n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_jwc_write(&drawing, out, n);
 }
 
 int app_move(int x, int y)

@@ -205,6 +205,9 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
    (src/jwcread.c).  Returns 0 if the bytes are not a JWC. */
 int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n);
 
+/* 「JWC形式で保存」 (src/jwcwrite.c). */
+int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n);
+
 /* Write the drawing out as SFC, the way 「SFC形式で保存」 does
    (src/sfcwrite.c).  `name` goes in FILE_NAME and `stamp` is the moment it
    claims to have been written, which the caller supplies because the

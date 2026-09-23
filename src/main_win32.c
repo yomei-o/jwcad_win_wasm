@@ -115,6 +115,50 @@ static int save_dxf(HWND wnd)
     return ok;
 }
 
+/* 「JWC形式で保存」, which goes the same way as a DXF: the bytes first and
+ * the dialog after, because nothing in a JWC is the name it is saved under. */
+static int save_jwc(HWND wnd)
+{
+    static const wchar_t filter[] = L"JWC (*.jwc)\0*.jwc\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH];
+    unsigned char *b;
+    long n;
+    FILE *f;
+    int ok, i;
+
+    lstrcpynW(path, current_path, MAX_PATH);
+    for (i = 0; path[i]; i++)
+        ;
+    while (i > 0 && path[i] != L'.' && path[i] != L'\\' && path[i] != L'/')
+        i--;
+    if (i > 0 && path[i] == L'.')
+        path[i] = 0;
+    if (!app_save_jwc(&b, &n))
+        return 0;
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.lpstrDefExt = L"jwc";
+    o.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&o)) {
+        free(b);
+        return 0;
+    }
+    f = _wfopen(path, L"wb");
+    if (!f) {
+        free(b);
+        return 0;
+    }
+    ok = fwrite(b, 1, (size_t)n, f) == (size_t)n;
+    fclose(f);
+    free(b);
+    return ok;
+}
+
 /* 「SFC形式で保存」.  The name it is saved under goes in the file, so the
  * dialog comes first here and the bytes are made afterwards. */
 static int save_sfc(HWND wnd)
@@ -361,6 +405,9 @@ static int do_action(HWND wnd)
         return open_other(wnd, L"SXF (*.sfc)\0*.sfc\0\0", app_open_sfc);
     case JW_ACT_SAVE_SFC:
         save_sfc(wnd);
+        break;
+    case JW_ACT_SAVE_JWC:
+        save_jwc(wnd);
         break;
     case JW_ACT_OPEN_JWC:
         return open_other(wnd, L"JWC (*.jwc)\0*.jwc\0\0", app_open_jwc);

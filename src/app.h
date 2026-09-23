@@ -40,7 +40,7 @@ const fb_t *app_fb(void);
    dialog: app_press leaves one behind and app_take_action hands it over. */
 enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_SAVE_DXF, JW_ACT_OPEN_DXF, JW_ACT_OPEN_SFC,
-       JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC };
+       JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC };
 
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the
@@ -81,6 +81,8 @@ int  app_save_dxf(unsigned char **out, long *n);
 /* 「SFC形式で保存」.  The name goes in the file's own header, so the front end
    has to have asked for it first, and the moment comes off the clock. */
 int  app_save_sfc(const char *name, unsigned char **out, long *n);
+/* 「JWC形式で保存」, which needs nothing from outside the drawing. */
+int  app_save_jwc(unsigned char **out, long *n);
 /* a DXF read into what is open (src/dxfread.c) */
 int  app_open_dxf(const unsigned char *b, long n);
 /* and an SFC (src/sfcread.c) */

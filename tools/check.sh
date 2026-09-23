@@ -112,6 +112,10 @@ echo "=== JWC 読み込み —— 原典が同じ JWC を開いた結果との�
 ./tests/jwcread_test.exe | sed 's/^/    /'
 
 echo
+echo "=== JWC 書き出し —— 原典が書いた JWC との 1 バイトずつの突き合わせ"
+./tests/jwcwrite_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 図形 —— 参照が定義をその場所・倍率・回転で描くか"
 ./tests/block_test.exe | sed 's/^/    /'
 

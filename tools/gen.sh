@@ -101,6 +101,9 @@ python tools/mkdxf.py
 say 'the drawings the original itself makes, which the tests are scored against'
 sh tools/refanswers.sh
 python tools/mknew.py decomp/res/new.jww src/gen
+# and what the original puts at the top of a JWC, out of the one it has just
+# written (decomp/res/t5.jwc)
+python tools/mkjwc.py
 
 # What the original makes of the colour numbers in a DXF: refanswers.sh has
 # just had it open one line per number and save the lot.

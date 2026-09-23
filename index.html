@@ -27,6 +27,7 @@
   <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc"> .jww ・ .dxf ・ .sfc ・ .jwc を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
+  <button id="jwc" type="button">JWC で保存</button>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
@@ -244,6 +245,7 @@
   const save      = mod.cwrap('jw_save', 'number', []);
   const saveDxf   = mod.cwrap('jw_save_dxf', 'number', []);
   const saveSfc   = mod.cwrap('jw_save_sfc', 'number', ['string']);
+  const saveJwc   = mod.cwrap('jw_save_jwc', 'number', []);
   const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
   const savedFree = mod.cwrap('jw_saved_free', null, []);
 
@@ -277,6 +279,11 @@
     offer(saveSfc(name), name);
   }
 
+  // JWC形式で保存 (src/jwcwrite.c)
+  function downloadJwc() {
+    offer(saveJwc(), openedName.replace(/\.[^.]*$/, '') + '.jwc');
+  }
+
   async function load(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const p = mod._malloc(bytes.length);
@@ -299,6 +306,7 @@
 
   document.getElementById('dxf').addEventListener('click', () => downloadDxf());
   document.getElementById('sfc').addEventListener('click', () => downloadSfc());
+  document.getElementById('jwc').addEventListener('click', () => downloadJwc());
 
   document.getElementById('pick').addEventListener('change', e => {
     if (e.target.files[0]) load(e.target.files[0]);

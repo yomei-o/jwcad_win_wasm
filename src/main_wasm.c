@@ -245,6 +245,17 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_sfc(const char *name)
     return saved;
 }
 
+/* The same, as JWC. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_jwc(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_save_jwc(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_saved_len(void) { return (int)saved_n; }
 
 EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)
