@@ -617,6 +617,45 @@ void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
     }
 }
 
+/* Mirror about the line through (px, py) along the unit vector (ux, uy) --
+ * 複写・移動's 反転, which asks for a 基準線 and flips the selection across
+ * it.  A rectangle mirrored about a upright line in the original came back
+ * with every corner across it and the ends of each line still in their own
+ * order, which is what mirroring each point in place does.
+ *
+ * An arc's start angle goes to twice the line's angle less its far end, and
+ * its sweep keeps its sign, so it covers the same points the other way
+ * round; the tilt of an ellipse turns the same way.
+ */
+void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy)
+{
+    double phi = atan2(uy, ux);
+    int i, n;
+
+    switch (o->cls) {
+    case JW_ENKO: n = 1; break;
+    case JW_TEN:  n = 1; break;
+    case JW_SOLID: n = 4; break;
+    default: n = 2; break;
+    }
+    for (i = 0; i < n; i++) {
+        double x = o->d[i * 2] - px, y = o->d[i * 2 + 1] - py;
+        double t = x * ux + y * uy;
+
+        o->d[i * 2] = px + 2 * t * ux - x;
+        o->d[i * 2 + 1] = py + 2 * t * uy - y;
+    }
+    if (o->cls == JW_ENKO) {
+        double sweep = o->d[4] == 0.0 ? 0.0 : o->d[4];
+
+        o->d[3] = 2 * phi - (o->d[3] + sweep);
+        o->d[5] = 2 * phi - o->d[5];
+    } else if (o->cls == JW_MOJI) {
+        /* 文字方向補正無 is what the left button asks for, so the text goes
+           with the flip as it is */
+    }
+}
+
 void jw_remove(jw_drawing *d, int i)
 {
     if (i < 0 || i >= d->nobj)

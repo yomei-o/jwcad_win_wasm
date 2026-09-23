@@ -205,6 +205,120 @@ static void run(const char *path, int moving, const char *scale,
     jw_free(&ref);
 }
 
+/* 反転: the same two commands, flipping across a line instead of placing.
+ *
+ * Pressing 反転 (1067 -- 選択解除's id one stage on) changes the status line
+ * to 「基準線を指示してください。 文字方向補正無(L) 有(R)」 and the next click
+ * picks that line; there is no placing click afterwards.  The answers have
+ * the axis as their first line, then what came of the rectangle.
+ */
+static void run_flip(const char *path, int moving, const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *axis, *want[4];
+    int i, nl = 0, nw = 0, before;
+    double worst = 0;
+
+    printf("%s\n", what);
+    b = slurp(path, &n);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    axis = 0;
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls == JW_SEN) {
+            if (!axis)
+                axis = &ref.obj[i];     /* the 基準線 was drawn first */
+            else if (moving || nl >= 4)
+                { if (nw < 4) want[nw++] = &ref.obj[i]; }
+            else
+                nl++;                   /* 複写 keeps the first rectangle */
+        }
+    ck(axis && nw == 4, "  the original's line and four are in the file");
+    if (!axis || nw != 4) {
+        jw_free(&ref);
+        return;
+    }
+
+    app_resize(1264, 741);
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open decomp/res/new.jww\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    {   /* the axis first, the way the original drew it */
+        jw_obj *o = jw_add(d, JW_SEN);
+        int c;
+
+        for (c = 0; c < 4; c++)
+            o->d[c] = axis->d[c];
+    }
+    for (i = 0; i < 4; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+        int c;
+
+        for (c = 0; c < 4; c++)
+            o->d[c] = rect[i].d[c];
+    }
+    before = d->ndrawn;
+
+    jw_cmd_set(moving ? JW_CMD_IDOU : JW_CMD_FUKUSHA);
+    type_box(1411, "");
+    type_box(1412, "");
+    jw_cmd_point(d, app_view(), PX(250), PY(250), 0);
+    jw_cmd_point(d, app_view(), PX(550), PY(450), 0);
+    ck(jw_cmd_sel_count(d) == 4, "  the box takes the rectangle, not the line");
+    jw_cmd_track(PX(400), PY(350));
+    ck(jw_cmd_bar(d, 1120) == 1, "  選択確定 can be pressed");
+    ck(jw_cmd_bar(d, 1067) == 1, "  反転 can be pressed");
+    ck(d->ndrawn == before, "  and draws nothing on its own");
+    /* point at the middle of the axis */
+    jw_cmd_point(d, app_view(), (axis->d[0] + axis->d[2]) / 2,
+                 (axis->d[1] + axis->d[3]) / 2, 0);
+    ck(d->ndrawn == (moving ? before : before + 4),
+       moving ? "  移動 leaves the count alone" : "  複写 leaves four more");
+    if (d->ndrawn != (moving ? before : before + 4)) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < 4; i++) {
+        const jw_obj *o = &d->obj[moving ? before - 4 + i : before + i];
+        int c;
+
+        for (c = 0; c < 4; c++) {
+            double e = fabs(o->d[c] - want[i]->d[c]);
+
+            if (e > worst)
+                worst = e;
+        }
+    }
+    if (worst > 1e-6) {
+        const jw_obj *o = &d->obj[moving ? before - 4 : before];
+
+        printf("     worst disagreement %.6g\n"
+               "     ours   %.4f,%.4f -> %.4f,%.4f\n"
+               "     theirs %.4f,%.4f -> %.4f,%.4f\n", worst,
+               o->d[0], o->d[1], o->d[2], o->d[3],
+               want[0]->d[0], want[0]->d[1], want[0]->d[2], want[0]->d[3]);
+    }
+    ck(worst <= 1e-6, "  every corner across the line, ends in their order");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     if (!read_rect()) {
@@ -215,6 +329,10 @@ int main(void)
         "複写, 倍率 2 and 回転角 30:");
     run("decomp/res/movexf.jww", 1, "0.5", "-45",
         "移動, 倍率 0.5 and 回転角 -45:");
+    run_flip("decomp/res/flip.jww", 0,
+             "複写の反転, across an upright line:");
+    run_flip("decomp/res/flipmv.jww", 1,
+             "移動の反転, across a sloping one:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

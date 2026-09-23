@@ -113,11 +113,23 @@ xform() {               # xform <name> <cmd> <倍率> <回転角>
         -Clicks "300,300;500,400;cmd:$2;250,250;550,450;m400,350;btn:1120;ch:1411,$3;ch:1412,$4;700,500;saveas:decomp/res/$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 反転: the 基準線 is drawn first, then the rectangle; 反転 (1067, which is
+# 選択解除's id one stage on) takes the next click as that line.
+flip() {                # flip <name> <cmd> <the line's two clicks> <pick>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 0 \
+        -Clicks "$3;cmd:32772;300,300;500,400;cmd:$2;250,250;550,450;m400,350;btn:1120;pb:1067;$4;saveas:decomp/res/$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== 複写・移動 の 倍率 と 回転角"
+    echo "=== 複写・移動 の 倍率・回転角 と 反転"
     xform copyxf 32804 2 30
     xform movexf 32918 0.5 -45
+    flip flip 32804 "600,250;600,550" 600,400
+    flip flipmv 32918 "600,250;700,550" 650,400
     if [ ! -x tests/xform_test.exe ]; then
         echo "    (tests/xform_test.exe is not built -- not checked)"
         break
