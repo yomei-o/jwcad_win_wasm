@@ -101,6 +101,9 @@ static double base_x, base_y;   /* 基準点 */
 /* 反転 (the second stage's 1067): once pressed, the next click picks the
    基準線 to flip the selection across. */
 static int sel_flip;
+/* 基点変更 (the second stage's 1066): the next click is the new 基準点, and
+   the one after that places as usual. */
+static int sel_base_wait;
 /* What the selected elements looked like when 基準点 was taken, so a move
    can put them at that place plus the offset however often it is done. */
 static jw_obj *sel_was;
@@ -496,6 +499,7 @@ void jw_cmd_set(int id)
     }
     if (id == JW_CMD_ZOKUHEN)
         zh_type = zh_layer = 1;
+    sel_flip = sel_base_wait = 0;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_nreg = 0;
@@ -2789,12 +2793,13 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     switch (id) {
     case 1120:                  /* 選択確定 */
         return sel_step == 2 && jw_cmd_sel_count(d) > 0;
-    case 1064:                  /* 基準点変更 -- not done */
+    case 1064:                  /* 連続 -- not done */
         return 0;
-    case 1067:                  /* 選択解除 */
-        return jw_cmd_sel_count(d) > 0;
-    case 1066:                  /* 全選択 */
-        return sel_step != 3;
+    case 1067:                  /* 選択解除, and 反転 one stage on */
+        return sel_step == 3 || jw_cmd_sel_count(d) > 0;
+    case 1066:                  /* 全選択, and 基点変更 one stage on: the
+                                   original has both of them alive */
+        return 1;
     }
     return -1;                  /* not one this port knows about */
 }
@@ -2897,15 +2902,19 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
         sel_clear(d);
         sel_step = 0;
-        sel_flip = 0;
+        sel_flip = sel_base_wait = 0;
         return 1;
     case 1059:                  /* 0ﾟ/90ﾟ on 寸法's bar */
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
         return 1;
-    case 1066: {                /* 全選択: everything that is drawn */
+    case 1066: {                /* 全選択, or 基点変更 one stage on */
         int i;
         if (!d)
             return 0;
+        if (sel_step == 3) {
+            sel_base_wait = 1;
+            return 1;
+        }
         for (i = 0; i < d->ndrawn; i++) {
             d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
             d->obj[i].sel = 1;
@@ -3262,6 +3271,13 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         default:
             if (button != 0)
                 return;
+            if (sel_base_wait) {
+                /* 基点変更: this click is the 基準点, not a place to put it */
+                base_x = x;
+                base_y = y;
+                sel_base_wait = 0;
+                return;
+            }
             if (sel_flip) {
                 int i = jw_pick(d, v, x, y, 3);
 

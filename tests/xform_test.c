@@ -319,6 +319,103 @@ static void run_flip(const char *path, int moving, const char *what)
     jw_free(&ref);
 }
 
+/* 基点変更 (1066 -- 全選択's id one stage on).
+ *
+ * Pressing it asks 「基準点を指示して下さい」 and the next click is the new
+ * 基準点; the one after that places the copy, and the status line then reads
+ * 「複写先の点を指示して下さい」 with the offset in it.  So the copy lands at
+ * click - 基準点 away from where it was, the cursor no longer mattering.
+ */
+static void run_base(const char *path, const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *want[4];
+    int i, nw = 0, before;
+    double worst = 0;
+
+    printf("%s\n", what);
+    b = slurp(path, &n);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls == JW_SEN && i >= 4 && nw < 4)
+            want[nw++] = &ref.obj[i];
+    ck(nw == 4, "  the original's copy is in the file");
+    if (nw != 4) {
+        jw_free(&ref);
+        return;
+    }
+
+    app_resize(1264, 741);
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open decomp/res/new.jww\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    for (i = 0; i < 4; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+        int c;
+
+        for (c = 0; c < 4; c++)
+            o->d[c] = rect[i].d[c];
+    }
+    before = d->ndrawn;
+
+    jw_cmd_set(JW_CMD_FUKUSHA);
+    type_box(1411, "");
+    type_box(1412, "");
+    jw_cmd_point(d, app_view(), PX(250), PY(250), 0);
+    jw_cmd_point(d, app_view(), PX(550), PY(450), 0);
+    ck(jw_cmd_sel_count(d) == 4, "  the box takes the rectangle");
+    /* the cursor is somewhere else entirely, to show it is not used */
+    jw_cmd_track(PX(400), PY(350));
+    ck(jw_cmd_bar(d, 1120) == 1, "  選択確定 can be pressed");
+    ck(jw_cmd_bar(d, 1066) == 1, "  基点変更 can be pressed");
+    jw_cmd_point(d, app_view(), PX(350), PY(320), 0);
+    ck(d->ndrawn == before, "  the 基準点 draws nothing");
+    jw_cmd_point(d, app_view(), PX(700), PY(500), 0);
+    ck(d->ndrawn == before + 4, "  and the next click leaves the copy");
+    if (d->ndrawn != before + 4) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < 4; i++) {
+        const jw_obj *o = &d->obj[before + i];
+        int c;
+
+        for (c = 0; c < 4; c++) {
+            double e = fabs(o->d[c] - want[i]->d[c]);
+
+            if (e > worst)
+                worst = e;
+        }
+    }
+    if (worst > 1e-6)
+        printf("     worst disagreement %.6g\n"
+               "     ours   %.4f,%.4f -> %.4f,%.4f\n"
+               "     theirs %.4f,%.4f -> %.4f,%.4f\n", worst,
+               d->obj[before].d[0], d->obj[before].d[1],
+               d->obj[before].d[2], d->obj[before].d[3],
+               want[0]->d[0], want[0]->d[1], want[0]->d[2], want[0]->d[3]);
+    ck(worst <= 1e-6, "  where the original put it, counted from that point");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     if (!read_rect()) {
@@ -333,6 +430,8 @@ int main(void)
              "複写の反転, across an upright line:");
     run_flip("decomp/res/flipmv.jww", 1,
              "移動の反転, across a sloping one:");
+    run_base("decomp/res/basept.jww",
+             "複写の基点変更, the cursor no longer the 基準点:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
