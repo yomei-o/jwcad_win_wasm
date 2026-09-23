@@ -399,7 +399,7 @@ try {
         Start-Sleep -Milliseconds 150
     }
 
-    function Click($h, [int]$x, [int]$y, [bool]$right, [bool]$real) {
+    function Click($h, [int]$x, [int]$y, [bool]$right, [bool]$real, [bool]$shift = $false) {
         if ($real) {
             $pt = [Jw]::ScreenOf($h, $x, $y)
             [void][Jw]::SetCursorPos($pt.X, $pt.Y)
@@ -412,7 +412,9 @@ try {
             [void][Jw]::PostMessage($h, $WM_RBUTTONDOWN, [IntPtr]2, $l)
             [void][Jw]::PostMessage($h, $WM_RBUTTONUP,   [IntPtr]0, $l)
         } else {
-            [void][Jw]::PostMessage($h, $WM_LBUTTONDOWN, [IntPtr]1, $l)
+            # MK_LBUTTON, and MK_SHIFT with it when the step asked for it
+            $wp = if ($shift) { 5 } else { 1 }
+            [void][Jw]::PostMessage($h, $WM_LBUTTONDOWN, [IntPtr]$wp, $l)
             [void][Jw]::PostMessage($h, $WM_LBUTTONUP,   [IntPtr]0, $l)
         }
         Start-Sleep -Milliseconds $StepMs
@@ -780,6 +782,13 @@ try {
 
             '^r(\d+),(\d+)$' {
                 Click $view ([int]$Matches[1]) ([int]$Matches[2]) $true $false
+                break
+            }
+
+            # the left button with Shift held, which some commands read as a
+            # third way of clicking (包絡処理's 中間消去, for one)
+            '^s(\d+),(\d+)$' {
+                Click $view ([int]$Matches[1]) ([int]$Matches[2]) $false $false $true
                 break
             }
 

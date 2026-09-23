@@ -53,21 +53,39 @@ static int near(double a, double b)
     return fabs(a - b) < 1e-6;
 }
 
-/* the same line, either way round */
+/* the same line, either way round -- or, for an arc, the same seven numbers */
 static int same(const jw_obj *a, const jw_obj *b)
 {
+    if (a->cls != b->cls)
+        return 0;
+    if (a->cls == JW_ENKO) {
+        int i;
+
+        for (i = 0; i < 7; i++)
+            if (!near(a->d[i], b->d[i]))
+                return 0;
+        return 1;
+    }
     return (near(a->d[0], b->d[0]) && near(a->d[1], b->d[1])
             && near(a->d[2], b->d[2]) && near(a->d[3], b->d[3]))
         || (near(a->d[0], b->d[2]) && near(a->d[1], b->d[3])
             && near(a->d[2], b->d[0]) && near(a->d[3], b->d[1]));
 }
 
+/* a line or an arc: the two the weld may touch */
+static int drawn(const jw_obj *o)
+{
+    return o->cls == JW_SEN || o->cls == JW_ENKO;
+}
+
 typedef struct {
     const char *name;
     const char *answer;
     const char *base;           /* the drawing to start from, 0 for a new one */
-    const int *clicks;          /* pairs, ending at -1: the lines */
+    const int *clicks;          /* pairs: the lines */
     int nclick;
+    const int *circles;         /* pairs: centre and a point on the rim */
+    int ncircle;
     int bx0, by0, bx1, by1;     /* the box */
     int erase;                  /* the second corner with the right button */
 } hcase;
@@ -113,6 +131,11 @@ static void one(const hcase *c)
         jw_cmd_set(JW_CMD_SEN);
         for (i = 0; i + 1 < c->nclick; i += 2)
             app_press(r.x + c->clicks[i], r.y + c->clicks[i + 1], 0);
+        for (i = 0; i + 1 < c->ncircle; i += 2) {
+            if (i == 0)
+                jw_cmd_set(JW_CMD_ENKO);
+            app_press(r.x + c->circles[i], r.y + c->circles[i + 1], 0);
+        }
         jw_cmd_set(JW_CMD_HOURAKU);
         app_press(r.x + c->bx0, r.y + c->by0, 0);
         app_press(r.x + c->bx1, r.y + c->by1, c->erase);
@@ -120,20 +143,20 @@ static void one(const hcase *c)
     d = app_drawing();
 
     for (i = 0; i < ref.ndrawn; i++)
-        if (ref.obj[i].cls == JW_SEN)
+        if (drawn(&ref.obj[i]))
             nr++;
     for (i = 0; i < d->ndrawn; i++)
-        if (d->obj[i].cls == JW_SEN)
+        if (drawn(&d->obj[i]))
             nm++;
     if (nm != nr) {
         printf("     %d lines, the original made %d\n", nm, nr);
         bad = 1;
     }
     for (i = 0; i < d->ndrawn && !bad; i++) {
-        if (d->obj[i].cls != JW_SEN)
+        if (!drawn(&d->obj[i]))
             continue;
         for (j = 0; j < ref.ndrawn; j++)
-            if (ref.obj[j].cls == JW_SEN && same(&d->obj[i], &ref.obj[j]))
+            if (drawn(&ref.obj[j]) && same(&d->obj[i], &ref.obj[j]))
                 break;
         if (j == ref.ndrawn) {
             printf("     ours has (%.4f %.4f)-(%.4f %.4f), the original "
@@ -145,12 +168,12 @@ static void one(const hcase *c)
     if (bad) {
         printf("     the original's:\n");
         for (j = 0; j < ref.ndrawn; j++)
-            if (ref.obj[j].cls == JW_SEN)
+            if (drawn(&ref.obj[j]))
                 printf("       (%.4f %.4f)-(%.4f %.4f)\n", ref.obj[j].d[0],
                        ref.obj[j].d[1], ref.obj[j].d[2], ref.obj[j].d[3]);
         printf("     ours:\n");
         for (j = 0; j < d->ndrawn; j++)
-            if (d->obj[j].cls == JW_SEN)
+            if (drawn(&d->obj[j]))
                 printf("       (%.4f %.4f)-(%.4f %.4f)\n", d->obj[j].d[0],
                        d->obj[j].d[1], d->obj[j].d[2], d->obj[j].d[3]);
     }
@@ -195,6 +218,12 @@ static const int APART[] = {
     600, 200, 800, 200,  800, 200, 800, 300,
     800, 300, 600, 300,  600, 300, 600, 200
 };
+/* a level wall, open, with a circle through it */
+static const int WALL_OPEN[] = {
+    200, 300, 800, 300,  200, 340, 800, 340
+};
+static const int ONE_CIRCLE[] = { 500, 320, 500, 220 };
+
 /* the closed wall with one line straight through it */
 static const int WALL_ONE[] = {
     200, 300, 800, 300,  800, 300, 800, 340,
@@ -206,34 +235,38 @@ int main(void)
 {
     static const hcase C[] = {
         { "the open cross, the box round the crossing only",
-          "decomp/res/houraku1.jww", 0, CROSS, 16, 450, 270, 560, 380, 0 },
+          "decomp/res/houraku1.jww", 0, CROSS, 16, 0, 0, 450, 270, 560, 380, 0 },
         { "the open cross, the box round all of it",
-          "decomp/res/houraku2.jww", 0, CROSS, 16, 150, 100, 850, 550, 0 },
+          "decomp/res/houraku2.jww", 0, CROSS, 16, 0, 0, 150, 100, 850, 550, 0 },
         { "the closed cross, the box round the crossing only",
-          "decomp/res/houraku3.jww", 0, SHUT, 32, 450, 270, 560, 380, 0 },
+          "decomp/res/houraku3.jww", 0, SHUT, 32, 0, 0, 450, 270, 560, 380, 0 },
         { "the closed cross, the box round all of it",
-          "decomp/res/houraku4.jww", 0, SHUT, 32, 150, 100, 850, 550, 0 },
+          "decomp/res/houraku4.jww", 0, SHUT, 32, 0, 0, 150, 100, 850, 550, 0 },
         { "the open cross, the box round the upright pair only",
-          "decomp/res/houraku5.jww", 0, CROSS, 16, 300, 120, 700, 530, 0 },
+          "decomp/res/houraku5.jww", 0, CROSS, 16, 0, 0, 300, 120, 700, 530, 0 },
         { "a closed wall and an open pair through it",
-          "decomp/res/houraku6.jww", 0, WALL_PAIR, 24, 150, 100, 850, 550, 0 },
+          "decomp/res/houraku6.jww", 0, WALL_PAIR, 24, 0, 0, 150, 100, 850, 550, 0 },
         { "the same with the pair capped at the top",
-          "decomp/res/houraku7.jww", 0, WALL_U, 28, 150, 100, 850, 550, 0 },
+          "decomp/res/houraku7.jww", 0, WALL_U, 28, 0, 0, 150, 100, 850, 550, 0 },
         { "two closed rectangles that do not touch",
-          "decomp/res/houraku8.jww", 0, APART, 32, 150, 150, 850, 350, 0 },
+          "decomp/res/houraku8.jww", 0, APART, 32, 0, 0, 150, 150, 850, 350, 0 },
         { "a closed wall with one line through it",
-          "decomp/res/houraku9.jww", 0, WALL_ONE, 20, 150, 100, 850, 550, 0 },
+          "decomp/res/houraku9.jww", 0, WALL_ONE, 20, 0, 0, 150, 100, 850, 550, 0 },
         { "範囲内消去: the open cross, a box in the middle",
-          "decomp/res/houraku10.jww", 0, CROSS, 16, 450, 270, 560, 380, 1 },
+          "decomp/res/houraku10.jww", 0, CROSS, 16, 0, 0, 450, 270, 560, 380, 1 },
         { "範囲内消去: the closed cross, a wider box",
-          "decomp/res/houraku11.jww", 0, SHUT, 32, 300, 120, 700, 530, 1 },
+          "decomp/res/houraku11.jww", 0, SHUT, 32, 0, 0, 300, 120, 700, 530, 1 },
         /* and a real drawing, where the box catches a great deal but
            nothing of the same pen crosses anything of its own: the original
            leaves it alone, and so must the port */
         { "a real drawing, a box over the middle",
           "decomp/res/houraku12.jww",
           "orig/\x82\x60\x83}\x83\x93\x83V\x83\x87\x83\x93\x95\xbd\x96\xca\x97\xe1.jww",
-          0, 0, 400, 250, 700, 450, 0 },
+          0, 0, 0, 0, 400, 250, 700, 450, 0 },
+        /* a circle through a wall: the original welds lines and nothing
+           else, so it leaves all three alone */
+        { "a circle through a wall", "decomp/res/houraku13.jww", 0,
+          WALL_OPEN, 8, ONE_CIRCLE, 4, 350, 170, 650, 470, 0 },
     };
     (void)WALL;
     int i;

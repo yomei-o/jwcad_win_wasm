@@ -698,6 +698,15 @@ houraku houraku9 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,30
 # and the right button on the second corner, which is 範囲内消去
 houraku houraku10 '200,300;800,300;200,340;800,340;480,150;480,500;520,150;520,500' '450,270;r560,380'
 houraku houraku11 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;480,150;520,150;520,150;520,500;520,500;480,500;480,500;480,150' '300,120;r700,530'
+# a circle through a wall: 包絡 welds lines and nothing else, so all three
+# come back untouched
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/new.jww tmp/hou.jww
+$PS -Open tmp/hou.jww -Cmd 0     -Clicks '200,300;800,300;200,340;800,340;cmd:32773;500,320;500,220;cmd:32846;350,170;650,470;saveas:decomp/res/houraku13.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # and a real drawing, where the box catches a great deal but everything is
 # on layers that are merely editable rather than written to: the original
 # leaves it alone, and this is what makes sure the port does too
