@@ -184,6 +184,10 @@ static int cv_base;
 #define HT_REG 64
 static double ht_x[HT_MAX], ht_y[HT_MAX];
 static int ht_n;                /* corners used in ht_x/ht_y */
+/* the lines picked with the left button, in the order they were picked */
+#define HT_CHAIN 64
+static int ht_chain[HT_CHAIN];
+static int ht_nchain;
 /* What is being hatched.  One right click takes one ring or one circle, but
    範囲選択 takes a whole boxful at once, so this is a list: the original
    hatched two rectangles in one go and the lines came out interleaved, in
@@ -517,6 +521,7 @@ void jw_cmd_set(int id)
         ht_base = ht_base_wait = 0;
         ht_sel = 0;
         ht_mode_set(1689);      /* and the bar's numbers with it */
+        ht_nchain = 0;
     }
     if (id == JW_CMD_CHUSHIN) {
         chu_step = 0;
@@ -1749,6 +1754,30 @@ static int hatch_ring_from(const jw_drawing *d, int a, char *used, int only)
     return 0;
 }
 
+/* The boundary picked one line at a time with the left button.  The
+ * original's status line counts them -- 「■ 次の線・円をﾏｳｽ(L)で指示して
+ * ください。 【 n 】 < m >」 -- and the ring closes when a line already in
+ * the chain is picked again, not when the chain happens to come back to
+ * where it started: four picks round a rectangle leave 実行 greyed, and a
+ * fifth on the first line draws the hatch.
+ */
+static int hatch_chain(const jw_drawing *d)
+{
+    char used[HT_MAX];
+    int i, k, n = d->ndrawn > HT_MAX ? HT_MAX : d->ndrawn;
+
+    if (ht_nchain <= 0)
+        return 0;
+    for (i = 0; i < n; i++)
+        used[i] = 1;            /* everything but the chain is out of bounds */
+    for (k = 0; k < ht_nchain; k++)
+        if (ht_chain[k] >= 0 && ht_chain[k] < n)
+            used[ht_chain[k]] = 0;
+    ht_n = 0;
+    ht_nreg = 0;
+    return hatch_ring_from(d, ht_chain[0], used, 0);
+}
+
 static int hatch_ring(const jw_drawing *d, int a)
 {
     char used[HT_MAX];
@@ -2879,6 +2908,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         if (id == 1149) {       /* クリアー */
             ht_n = 0;
             ht_nreg = 0;
+            ht_nchain = 0;
             sel_clear(d);
             ht_sel = 0;
             return 1;
@@ -2887,6 +2917,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
             hatch(d);
             ht_n = 0;
             ht_nreg = 0;
+            ht_nchain = 0;
             return 1;
         }
         return 0;
@@ -3687,12 +3718,28 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         }
         if (!d)
             return;
-        if (button != 1)
-            return;             /* the left button picks one line at a time,
-                                   which this port does not do yet */
         i = jw_pick(d, v, x, y, 3);
         if (i < 0)
             return;
+        if (button != 1) {
+            /* (L) adds to the chain, and one that is in it already closes
+               the ring */
+            int k;
+
+            if (d->obj[i].cls != JW_SEN)
+                return;
+            for (k = 0; k < ht_nchain; k++)
+                if (ht_chain[k] == i)
+                    break;
+            if (k < ht_nchain) {
+                hatch_chain(d);
+                ht_nchain = 0;
+                return;
+            }
+            if (ht_nchain < HT_CHAIN)
+                ht_chain[ht_nchain++] = i;
+            return;
+        }
         if (d->obj[i].cls == JW_ENKO) {
             ht_n = 0;
             ht_nreg = 0;

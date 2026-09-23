@@ -361,6 +361,99 @@ static void run_sel(const char *path, const char *what)
     jw_free(&ref);
 }
 
+/* The boundary picked one line at a time with the left button: the same
+   rectangle drawn here, its four sides picked in turn, and then the first
+   one again, which is what closes the ring. */
+static int near(double a, double b)
+{
+    return fabs(a - b) < 1e-6;
+}
+
+static void pick_case(void)
+{
+    static const int RECT[] = {
+        300, 200, 700, 200,  700, 200, 700, 500,
+        700, 500, 300, 500,  300, 500, 300, 200
+    };
+    static const int PICK[] = {
+        500, 200,  700, 350,  500, 500,  300, 350,  480, 200
+    };
+    jw_drawing ref;
+    unsigned char *b;
+    long n;
+    const jw_drawing *d;
+    int i, nr = 0, nm = 0, bad = 0;
+
+    printf("a rectangle whose sides are picked one at a time:\n");
+    memset(&ref, 0, sizeof ref);
+    b = slurp("decomp/res/hatch_pick.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  cannot read decomp/res/hatch_pick.jww -- drive the "
+               "original first\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    app_new();
+    {
+        const fb_t *fb = app_fb();
+        rect_t r;
+
+        ui_view_rect(fb->w, fb->h, &r);
+        jw_cmd_set(JW_CMD_SEN);
+        for (i = 0; i + 1 < (int)(sizeof RECT / sizeof RECT[0]); i += 2)
+            app_press(r.x + RECT[i], r.y + RECT[i + 1], 0);
+        jw_cmd_set(JW_CMD_HATCH);
+        for (i = 0; i + 1 < (int)(sizeof PICK / sizeof PICK[0]); i += 2) {
+            app_press(r.x + PICK[i], r.y + PICK[i + 1], 0);
+            if (i + 2 < (int)(sizeof PICK / sizeof PICK[0]))
+                ck(app_drawing()->ndrawn == 4,
+                   "  a pick on its own draws nothing");
+        }
+    }
+    ck(jw_cmd_bar((jw_drawing *)app_drawing(), 1148) == 1, "  実行 runs");
+    d = app_drawing();
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls == JW_SEN)
+            nr++;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_SEN)
+            nm++;
+    if (nm != nr) {
+        printf("     %d lines, the original made %d\n", nm, nr);
+        bad = 1;
+    }
+    for (i = 0; i < d->ndrawn && !bad; i++) {
+        int k, got = 0;
+
+        if (d->obj[i].cls != JW_SEN)
+            continue;
+        for (k = 0; k < ref.ndrawn && !got; k++) {
+            const jw_obj *o = &ref.obj[k];
+
+            if (o->cls != JW_SEN)
+                continue;
+            got = (near(o->d[0], d->obj[i].d[0])
+                   && near(o->d[1], d->obj[i].d[1])
+                   && near(o->d[2], d->obj[i].d[2])
+                   && near(o->d[3], d->obj[i].d[3]))
+                || (near(o->d[0], d->obj[i].d[2])
+                    && near(o->d[1], d->obj[i].d[3])
+                    && near(o->d[2], d->obj[i].d[0])
+                    && near(o->d[3], d->obj[i].d[1]));
+        }
+        if (!got) {
+            printf("     ours has (%.4f %.4f)-(%.4f %.4f), the original has "
+                   "no such line\n", d->obj[i].d[0], d->obj[i].d[1],
+                   d->obj[i].d[2], d->obj[i].d[3]);
+            bad = 1;
+        }
+    }
+    ck(!bad, "  the same lines as the original's");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     static const char *const b[3] = { "30", "20", "50" };
@@ -392,6 +485,7 @@ int main(void)
         "the same rectangle again, 実寸 with ピッチ 2000 in a 1/200 drawing:");
     run_sel("decomp/res/hatch_sel.jww",
             "範囲選択 over two rectangles at once:");
+    pick_case();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

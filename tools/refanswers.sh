@@ -490,6 +490,17 @@ hatch_sel() {
         -Clicks "300,300;500,500;600,300;800,500;cmd:32874;pb:1067;250,250;850,550;btn:1120;btn:1148;saveas:decomp/res/hatch_sel.jww" \
         2>&1 | sed 's/^/        /'
 }
+# The boundary picked one line at a time with the left button.  Four picks
+# round a rectangle leave 実行 greyed; the ring closes when a line already in
+# the chain is picked again, which is what the fifth click is.
+hatch_pick() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 0 \
+        -Clicks "300,200;700,200;700,200;700,500;700,500;300,500;300,500;300,200;cmd:32874;500,200;700,350;500,500;300,350;480,200;btn:1148;saveas:decomp/res/hatch_pick.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
     echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸 基点変 範囲選択)"
@@ -503,6 +514,7 @@ while :; do
     hatch_rect_base
     hatch_rect_base92
     hatch_sel
+    hatch_pick
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

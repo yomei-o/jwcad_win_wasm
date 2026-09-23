@@ -473,6 +473,18 @@ try {
                 break
             }
 
+            # what the status line is asking for: the original tells you
+            # what it wants next there, which is how its stages are read off
+            '^stat$' {
+                $sb = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($frame)) {
+                    if ([Jw]::Cls($k) -eq 'msctls_statusbar32') { $sb = $k; break }
+                }
+                if ($sb -eq [IntPtr]::Zero) { Write-Host 'no status bar'; break }
+                Emit ('=== status [{0}]' -f [Jw]::TxtMsg($sb))
+                break
+            }
+
             '^read:(\d+)$' {
                 $h = Ctl ([int]$Matches[1])
                 if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
