@@ -295,6 +295,18 @@ bezier() {              # bezier <分割数>
     cp orig/Test5.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -Cmd 32908         -Clicks "btn:1692;ch:1411,$1;300,500;500,300;700,500;900,300;btn:1800;saveas:decomp/res/bezier_n$1.jww"         2>&1 | sed 's/^/        /'
 }
+# サイン曲線 (1689) と ２次曲線 (1690): these take a base line and then
+# points, not a string of points, so they have their own drive.  The clicks
+# are written down again in tests/curve_test.c, which turns them into the
+# drawing's units through the base line the original drew.
+curveline() {           # curveline <name> <the clicks>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0 \
+        -Clicks "$2;saveas:decomp/res/curve_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
     echo "=== curve (one spline at four 分割数, and the bezier over the same points)"
@@ -305,6 +317,12 @@ while :; do
     bezier 3
     bezier 7
     bezier 10
+    curveline sin_a "300,400;900,400;cmd:32908;btn:1689;600,400;400,400;500,300;600,400;400,400;800,400"
+    curveline sin_b "300,400;900,400;cmd:32908;btn:1689;600,400;400,380;500,300;600,400;450,420;850,400"
+    curveline sin_c "300,250;900,550;cmd:32908;btn:1689;600,400;450,300;550,300;700,450;500,350;850,500"
+    curveline q_a "300,400;900,400;cmd:32908;btn:1690;600,400;400,370;600,320;450,400;700,400"
+    curveline q_b "300,400;900,400;cmd:32908;btn:1690;600,400;400,370;600,320;470,400;700,400"
+    curveline q_c "300,250;900,550;cmd:32908;btn:1690;600,400;450,300;650,320;500,350;850,500"
     if [ ! -x tests/curve_test.exe ]; then
         echo "    (tests/curve_test.exe is not built -- not checked)"
         break

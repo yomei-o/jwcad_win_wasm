@@ -150,6 +150,10 @@ static int cv_n;
    original enters in; サイン (1689), ２次 (1690) and ベジェ (1692) are not
    done, and pressing 作図実行 in those draws nothing. */
 static int cv_mode = 1691;
+/* サイン曲線 and ２次曲線 measure everything from a line that is picked
+   first: this is its direction, and whether it has been picked yet. */
+static double cv_ux = 1.0, cv_uy;
+static int cv_base;
 /* ハッチ: the closed boundary that was picked, as a ring of corners, or a
    circle.  Right-clicking one line of a closed chain takes the whole chain;
    right-clicking a circle takes the circle. */
@@ -439,6 +443,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_KYOKUSEN) {
         cv_n = 0;
         cv_mode = 1691;
+        cv_base = 0;
     }
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
@@ -1376,6 +1381,149 @@ static void bezier_at(const double *vx, const double *vy, int n, double t,
     *oy = ay[0];
 }
 
+/* サイン曲線 (1689) and ２次曲線 (1690).
+ *
+ * Both are laid out along a line that is picked first -- the status line asks
+ * 「基準線を指示してください。」 -- and then take points:
+ *
+ *   サイン  原点, 振幅（頂点）の幅の点, １サイクル点, 始点, 終点
+ *   ２次    原点, 中間点, 始点, 終点
+ *
+ * Read them as coordinates along the picked line (s) and across it (h), both
+ * from the 原点 -- which is the click itself, not its foot on the line: the
+ * original was given an origin 20 pixels off the line and drew the curve
+ * about a line through it.  Then
+ *
+ *   サイン  h = A sin(2 pi s / L), with A the amplitude point's h and L the
+ *           cycle point's s.  Checked against the original to 1e-4 at every
+ *           vertex.
+ *   ２次    h = a s^2, with a from the middle point: a = h_m / s_m^2.
+ *
+ * The vertices sit on a grid **anchored at the 原点**, and the curve is cut
+ * to the 始点 and the 終点 (their s), so the first and last pieces are short.
+ * The spacing is where the two part company:
+ *
+ *   サイン  L / (2 * 分割数) -- a whole wave is 2n pieces, not n.
+ *   ２次    (s_end - s_start) / 分割数 -- the drawn span, divided up, but
+ *           still counted off from the 原点.  The original put a vertex at
+ *           3 * spacing when the start was 2.13 spacings out.
+ *
+ * Which way round the picked line is stored makes no difference: flipping it
+ * flips s and h together, and both formulas are unchanged.
+ */
+static void curve_draw(jw_drawing *d)
+{
+    const char *sz = jw_cmd_box(1411);
+    double nx = -cv_uy, ny = cv_ux;
+    double ox = cv_x[0], oy = cv_y[0];
+    double sm, hm, L = 0, a = 0, s0, s1, ss, s, px, py;
+    int nd = sz ? atoi(sz) : 0, sine = cv_mode == 1689, k, made = 0;
+
+    if (nd < 1)
+        return;
+    sm = cv_ux * (cv_x[1] - ox) + cv_uy * (cv_y[1] - oy);
+    hm = nx * (cv_x[1] - ox) + ny * (cv_y[1] - oy);
+    if (sine) {
+        L = cv_ux * (cv_x[2] - ox) + cv_uy * (cv_y[2] - oy);
+        if (fabs(L) < 1e-12)
+            return;
+        s0 = cv_ux * (cv_x[3] - ox) + cv_uy * (cv_y[3] - oy);
+        s1 = cv_ux * (cv_x[4] - ox) + cv_uy * (cv_y[4] - oy);
+        ss = fabs(L) / (2 * nd);
+    } else {
+        if (fabs(sm) < 1e-12)
+            return;
+        a = hm / (sm * sm);
+        s0 = cv_ux * (cv_x[2] - ox) + cv_uy * (cv_y[2] - oy);
+        s1 = cv_ux * (cv_x[3] - ox) + cv_uy * (cv_y[3] - oy);
+        ss = fabs(s1 - s0) / nd;
+    }
+    if (ss < 1e-9 || fabs(s1 - s0) < 1e-12)
+        return;
+
+#define CURVE_H(t) (sine ? hm * sin(2 * PI * (t) / L) : a * (t) * (t))
+#define CURVE_X(t) (ox + cv_ux * (t) + nx * CURVE_H(t))
+#define CURVE_Y(t) (oy + cv_uy * (t) + ny * CURVE_H(t))
+
+    s = s0;
+    px = CURVE_X(s0);
+    py = CURVE_Y(s0);
+    k = s1 > s0 ? (int)floor(s0 / ss) + 1 : (int)ceil(s0 / ss) - 1;
+    for (;;) {
+        double sn = k * ss, qx, qy;
+        jw_obj *o;
+
+        if (s1 > s0 ? sn >= s1 - 1e-9 : sn <= s1 + 1e-9)
+            break;
+        if (made > 100000)
+            break;
+        qx = CURVE_X(sn);
+        qy = CURVE_Y(sn);
+        o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->d[0] = px;
+        o->d[1] = py;
+        o->d[2] = qx;
+        o->d[3] = qy;
+        px = qx;
+        py = qy;
+        s = sn;
+        k += s1 > s0 ? 1 : -1;
+        made++;
+    }
+    if (fabs(s1 - s) > 1e-9) {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        if (o) {
+            o->d[0] = px;
+            o->d[1] = py;
+            o->d[2] = CURVE_X(s1);
+            o->d[3] = CURVE_Y(s1);
+            made++;
+        }
+    }
+#undef CURVE_H
+#undef CURVE_X
+#undef CURVE_Y
+    if (made)
+        op_push(made);
+}
+
+/* One click of サイン曲線 or ２次曲線: the line first, then the points. */
+static void curve_point(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int want = cv_mode == 1689 ? 5 : 4;
+
+    if (!cv_base) {
+        int i = jw_pick(d, v, x, y, 3);
+        double ux, uy, L;
+
+        if (i < 0 || d->obj[i].cls != JW_SEN)
+            return;
+        ux = d->obj[i].d[2] - d->obj[i].d[0];
+        uy = d->obj[i].d[3] - d->obj[i].d[1];
+        L = sqrt(ux * ux + uy * uy);
+        if (L < 1e-12)
+            return;
+        cv_ux = ux / L;
+        cv_uy = uy / L;
+        cv_base = 1;
+        cv_n = 0;
+        return;
+    }
+    if (cv_n < CV_MAX) {
+        cv_x[cv_n] = x;
+        cv_y[cv_n] = y;
+        cv_n++;
+    }
+    if (cv_n >= want) {
+        curve_draw(d);
+        cv_n = 0;
+        cv_base = 0;           /* ready for the next one */
+    }
+}
+
 static void kyokusen(jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
@@ -1383,7 +1531,7 @@ static void kyokusen(jw_drawing *d)
     int n = sz ? atoi(sz) : 0, i, k, made = 0;
 
     if (cv_mode != 1691 && cv_mode != 1692)
-        return;                 /* サイン and ２次 are not done */
+        return;                 /* サイン and ２次 go through curve_draw */
     if (cv_n < 2 || n < 1)
         return;
     if (cv_mode == 1692) {      /* ベジェ */
@@ -2424,6 +2572,8 @@ int jw_cmd_bar(jw_drawing *d, int id)
     if (current == JW_CMD_KYOKUSEN) {
         if (id >= 1689 && id <= 1692) {
             cv_mode = id;
+            cv_n = 0;
+            cv_base = 0;
             return 1;
         }
         if (id == 1800) {       /* 作図実行 */
@@ -3023,6 +3173,10 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_KYOKUSEN) {
         if (button != 0 || !d)
             return;
+        if (cv_mode == 1689 || cv_mode == 1690) {
+            curve_point(d, v, x, y);
+            return;
+        }
         if (cv_n < CV_MAX) {
             cv_x[cv_n] = x;
             cv_y[cv_n] = y;

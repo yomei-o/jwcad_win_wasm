@@ -291,6 +291,130 @@ static void run_bezier(int n, const char *path)
     jw_free(&ref);
 }
 
+/* サイン曲線 (1689) and ２次曲線 (1690) -- against six the original drew.
+ *
+ * These are not given a string of points but a line and then four or five
+ * places, so the clicks cannot be read back out of the answer the way the
+ * other curves' are.  They are written down here as the pixels that were
+ * clicked, and turned into the drawing's own units by the line itself: the
+ * base line was drawn with two of those same clicks, so the pair it came back
+ * as gives the scale and the offset exactly.  (The view is the one Test5
+ * opens in, the same as every other answer here.)
+ *
+ * The line comes first, then 原点, 振幅（頂点）の幅の点, １サイクル点, 始点,
+ * 終点 for サイン, and 原点, 中間点, 始点, 終点 for ２次.  The status line
+ * asks for them in those words.
+ */
+static void run_line(const char *path, int mode, const int *px,
+                     const int *py, int npt, const char *what)
+{
+    unsigned char *b;
+    long len;
+    jw_drawing ref, *d;
+    const jw_obj *base = 0, *seg[4096];
+    int i, ns = 0, nb, before;
+    double k, ox, oy, worst = 0;
+
+    printf("%s\n", what);
+    app_resize(1264, 741);
+    b = slurp("orig/Test5.jww", &len);
+    if (!b || !app_open(b, len)) {
+        printf("BAD  cannot open orig/Test5.jww\n");
+        fails++;
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    nb = d->ndrawn;
+
+    b = slurp(path, &len);
+    if (!b) {
+        printf("BAD  cannot read %s -- drive the original first\n", path);
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, len)) {
+        printf("BAD  %s: %s\n", path, ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    /* what the original drew: the base line first, then the curve */
+    for (i = nb; i < ref.ndrawn; i++) {
+        if (ref.obj[i].cls != JW_SEN)
+            break;
+        if (!base)
+            base = &ref.obj[i];
+        else if (ns < 4096)
+            seg[ns++] = &ref.obj[i];
+    }
+    ck(base && ns > 0, "  the original's line and curve are in the file");
+    if (!base || !ns) {
+        jw_free(&ref);
+        return;
+    }
+    /* the two clicks that drew the line give the view: paper = o + k * pixel,
+       with y the other way up */
+    k = (base->d[2] - base->d[0]) / (px[1] - px[0]);
+    ox = base->d[0] - k * px[0];
+    oy = base->d[1] + k * py[0];
+    ck(fabs(base->d[3] - (oy - k * py[1])) < 1e-9,
+       "  and the line pins the view down both ways");
+
+    {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        for (i = 0; i < 4; i++)
+            o->d[i] = base->d[i];
+    }
+    app_fit();
+    before = d->ndrawn;
+
+    jw_cmd_set(JW_CMD_KYOKUSEN);
+    /* the box keeps what an earlier run typed into it, the way the
+       original's does, and these were drawn with its own 7 */
+    type_box(1411, "7");
+    ck(jw_cmd_bar(d, mode) == 1, "  the mode button goes down");
+    /* the line, then the points */
+    jw_cmd_point(d, app_view(), (base->d[0] + base->d[2]) / 2,
+                 (base->d[1] + base->d[3]) / 2, 0);
+    ck(d->ndrawn == before, "  the base line on its own draws nothing");
+    for (i = 0; i < npt; i++) {
+        jw_cmd_point(d, app_view(), ox + k * px[i + 2], oy - k * py[i + 2], 0);
+        if (i < npt - 1)
+            ck(d->ndrawn == before, "  nor the points before the last");
+    }
+    ck(d->ndrawn == before + ns, "  as many pieces as the original drew");
+    if (d->ndrawn != before + ns) {
+        printf("     ours %d, the original's %d\n", d->ndrawn - before, ns);
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < ns; i++) {
+        int c;
+
+        for (c = 0; c < 4; c++) {
+            double e = fabs(d->obj[before + i].d[c] - seg[i]->d[c]);
+
+            if (e > worst)
+                worst = e;
+        }
+    }
+    if (worst > 1e-6)
+        printf("     worst disagreement %.6g\n"
+               "     ours   %.6f,%.6f -> %.6f,%.6f\n"
+               "     theirs %.6f,%.6f -> %.6f,%.6f\n", worst,
+               d->obj[before].d[0], d->obj[before].d[1],
+               d->obj[before].d[2], d->obj[before].d[3],
+               seg[0]->d[0], seg[0]->d[1], seg[0]->d[2], seg[0]->d[3]);
+    ck(worst <= 1e-6, "  every piece where the original put it, in its order");
+    ck(d->obj[before].color == 2 && d->obj[before].ltype == 1,
+       "  in the pen new elements get");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == before, "  元に戻る takes the whole curve back");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     run(3, "decomp/res/curve_n3.jww", 1);
@@ -300,6 +424,34 @@ int main(void)
     run_bezier(3, "decomp/res/bezier_n3.jww");
     run_bezier(7, "decomp/res/bezier_n7.jww");
     run_bezier(10, "decomp/res/bezier_n10.jww");
+    {
+        /* base line, then the clicks, as pixels */
+        static const int ax[] = { 300, 900, 400, 500, 600, 400, 800 };
+        static const int ay[] = { 400, 400, 400, 300, 400, 400, 400 };
+        static const int bx[] = { 300, 900, 400, 500, 600, 450, 850 };
+        static const int by[] = { 400, 400, 380, 300, 400, 420, 400 };
+        static const int cx[] = { 300, 900, 450, 550, 700, 500, 850 };
+        static const int cy[] = { 250, 550, 300, 300, 450, 350, 500 };
+        static const int dx[] = { 300, 900, 400, 600, 450, 700 };
+        static const int dy[] = { 400, 400, 370, 320, 400, 400 };
+        static const int ex[] = { 300, 900, 400, 600, 470, 700 };
+        static const int ey[] = { 400, 400, 370, 320, 400, 400 };
+        static const int fx[] = { 300, 900, 450, 650, 500, 850 };
+        static const int fy[] = { 250, 550, 300, 320, 350, 500 };
+
+        run_line("decomp/res/curve_sin_a.jww", 1689, ax, ay, 5,
+                 "サイン曲線, the origin on the line:");
+        run_line("decomp/res/curve_sin_b.jww", 1689, bx, by, 5,
+                 "サイン曲線, the origin off it and the ends between vertices:");
+        run_line("decomp/res/curve_sin_c.jww", 1689, cx, cy, 5,
+                 "サイン曲線 along a sloping line:");
+        run_line("decomp/res/curve_q_a.jww", 1690, dx, dy, 4,
+                 "２次曲線, the origin off the line:");
+        run_line("decomp/res/curve_q_b.jww", 1690, ex, ey, 4,
+                 "２次曲線 starting 2.13 spacings out:");
+        run_line("decomp/res/curve_q_c.jww", 1690, fx, fy, 4,
+                 "２次曲線 along a sloping line:");
+    }
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
