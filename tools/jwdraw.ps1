@@ -55,6 +55,9 @@
 #   type::<text>        the same without Enter
 #   top                 list the process's top-level windows and their children
 #   bar                 list the command bar's controls
+#   bar:<n>             the same, headed `=== command <n>` so tools/mkbars.py
+#                       can read it -- for a bar the command only puts up
+#                       part way through (複写・移動's second stage)
 #   box                 the 文字 command's input box, if it is up
 #   all                 every child of the frame
 #   size:<w>,<h>        resize the frame (this writes the dock layout back to
@@ -543,6 +546,14 @@ try {
                         ($r.Right - $r.Left), ($r.Bottom - $r.Top))
                     Dump $t
                 }
+                break
+            }
+
+            '^bar:(\d+)$' {
+                # the same as `bar`, but headed the way tools/mkbars.py reads
+                # it -- for the bars a command only puts up part way through
+                Emit ('=== command {0}' -f [int]$Matches[1])
+                DumpIn (CmdBar) $frame
                 break
             }
 
