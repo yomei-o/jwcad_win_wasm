@@ -77,9 +77,12 @@ static int ndbl(int cls)
     case JW_ENKO:  return 7;
     case JW_TEN:   return 2;
     case JW_SOLID: return 8;
+    case JW_MOJI:  return 8;
     }
     return 0;
 }
+
+static const jw_drawing *ja, *jb;
 
 static int same(const jw_obj *a, const jw_obj *b)
 {
@@ -87,6 +90,9 @@ static int same(const jw_obj *a, const jw_obj *b)
 
     if (a->cls != b->cls || a->ltype != b->ltype || a->color != b->color
         || a->layer != b->layer || a->lgroup != b->lgroup || a->n != b->n)
+        return 0;
+    if (a->cls == JW_MOJI && strcmp(ja ? jw_str(ja, a->text) : "",
+                                    jb ? jw_str(jb, b->text) : ""))
         return 0;
     for (i = 0; i < ndbl(a->cls); i++) {
         double x = a->d[i], y = b->d[i];
@@ -127,6 +133,8 @@ static void alike(const char *base, const char *dxf, const char *answer,
         fails++;
         return;
     }
+    ja = &mine;
+    jb = &ref;
     if (!jw_dxf_read(&mine, b, n)) {
         printf("BAD  %s did not read\n", dxf);
         fails++;
@@ -135,11 +143,13 @@ static void alike(const char *base, const char *dxf, const char *answer,
     }
     free(b);
 
-    /* The original leaves its own memo texts in the drawing; those come
-       from the document rather than the DXF, so only what the DXF put
-       there is compared -- everything up to the first text. */
-    for (i = 0; i < ref.ndrawn && ref.obj[i].cls != JW_MOJI; i++)
-        ;
+    /* The original leaves its own memo texts at the end of whatever it
+       saves -- six of them, all at 0,-1000 -- so they are counted off and
+       what the DXF itself put there is what is compared. */
+    i = ref.ndrawn;
+    while (i > 0 && ref.obj[i - 1].cls == JW_MOJI
+           && ref.obj[i - 1].d[1] == -1000.0)
+        i--;
     if (i != mine.ndrawn) {
         printf("BAD  %s: %d elements, the original made %d\n",
                what, mine.ndrawn, i);
@@ -227,6 +237,9 @@ int main(void)
           "a line of every colour number, 1 to 128");
     alike("orig/Test5.jww", "decomp/res/aci2.dxf", "decomp/res/aci2.jww",
           "and 129 to 255");
+    /* tools/mkdxfin.py's texts: turned, squeezed, stretched and in CP932 */
+    alike("orig/Test5.jww", "decomp/res/text.dxf", "decomp/res/textin.jww",
+          "texts, read back");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

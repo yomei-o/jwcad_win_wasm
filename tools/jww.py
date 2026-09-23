@@ -237,7 +237,7 @@ def read_moji(ar, v, o):
         o['font'] = ar.l()
     o['w'], o['h'] = ar.dbl(), ar.dbl()
     if v > 0x13:
-        ar.dbl()
+        o['sp'] = ar.dbl()          # the gap between characters
     ar.dbl()
     if v > 0x27:
         o['face'] = ar.s()
@@ -336,7 +336,7 @@ def show(objs):
                   'font', 'n', 'block', 'mark'):
             if k in o:
                 bits.append('%s=%s' % (k, o[k]))
-        for k in ('x0', 'y0', 'x1', 'y1', 'x', 'y', 'w', 'h', 'rgb',
+        for k in ('x0', 'y0', 'x1', 'y1', 'x', 'y', 'w', 'h', 'sp', 'rgb',
                   'turn', 'size'):
             if k in o:
                 bits.append('%s=%g' % (k, o[k]))

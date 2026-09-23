@@ -25,9 +25,9 @@
  *     (FUN_0049e380), so a DXF whose DASHED1 is not jw's 点線1 comes in as
  *     a new 任意線種.
  *
- * TEXT, MTEXT, POLYLINE, LWPOLYLINE, INSERT, HATCH, DIMENSION and ELLIPSE
- * are not read yet; the entities that are are LINE, ARC, CIRCLE, POINT and
- * SOLID.
+ * MTEXT, POLYLINE, LWPOLYLINE, INSERT, HATCH, DIMENSION and ELLIPSE are not
+ * read yet; the entities that are are LINE, ARC, CIRCLE, POINT, SOLID and
+ * TEXT.
  */
 #include <math.h>
 #include <stdlib.h>
@@ -37,6 +37,10 @@
 #include "gen/aci.h"
 
 #define PI 3.14159265358979323846
+
+/* The face a text comes in with: the original's own default, 「MS ゴシック」
+   in full width.  The DXF's own STYLE says nothing a Windows font can use. */
+#define JW_DXF_FACE "\x82\x6c\x82\x72 \x83\x53\x83\x56\x83\x62\x83\x4e"
 
 #define NAME 128        /* as much of a name as is kept */
 #define NLAYER 256
@@ -661,6 +665,61 @@ static void ent_solid(dxfr *r)
     }
 }
 
+/* TEXT.  The original's handler (FUN_004a6c90) has no case for the colour,
+   so a text comes in with the pen the document is writing with however the
+   DXF colours it; what it does read is the place, the height, how wide the
+   letters are against it, the turn, and the text.  The far end is worked out
+   rather than read: half the height per byte of CP932, which is what a
+   whole-width letter being twice a half-width one comes to. */
+static void ent_text(dxfr *r)
+{
+    double x = 0, y = 0, h = 0, wf = 1.0, rot = 0.0, len;
+    char txt[512];
+    jw_obj *o;
+    attr a;
+    int i, n = 0;
+
+    txt[0] = 0;
+    attr_start(&a);
+    for (next(r); r->code > 0; next(r)) {
+        if (r->code == 8) {
+            a.layer = layer_of(r, r->str);
+            continue;
+        }
+        switch (r->code) {
+        case 1:
+            for (i = 0; i < (int)sizeof txt - 1 && r->str[i]; i++)
+                txt[i] = r->str[i];
+            txt[i] = 0;
+            break;
+        case 10: x = put_x(r, r->num); break;
+        case 20: y = put_y(r, r->num); break;
+        case 40: h = put_l(r, r->num); break;
+        case 41: wf = r->num; break;
+        case 0x32: rot = r->num; break;
+        }
+    }
+    o = jw_add(r->d, JW_MOJI);
+    if (!o)
+        return;
+    o->layer = (unsigned short)(a.layer & 0xf);
+    o->lgroup = (unsigned short)((a.layer >> 4) & 0xf);
+    while (txt[n])
+        n++;
+    len = (double)n * h * wf / 2.0;
+    o->d[0] = x;
+    o->d[1] = y;
+    o->d[2] = x + len * cos(rot * PI / 180.0);
+    o->d[3] = y + len * sin(rot * PI / 180.0);
+    o->d[4] = h * wf;
+    o->d[5] = h;
+    o->d[6] = 0.0;              /* no gap between the letters */
+    o->d[7] = rot;              /* and the turn, in degrees */
+    o->n = 0;
+    o->text = jw_add_str(r->d, txt);
+    o->face = jw_add_str(r->d, JW_DXF_FACE);
+}
+
 /* Anything that is not read yet: step over it to the next entity. */
 static void ent_skip(dxfr *r)
 {
@@ -685,6 +744,8 @@ static void entities(dxfr *r)
             ent_point(r);
         else if (!strcmp(r->str, "SOLID"))
             ent_solid(r);
+        else if (!strcmp(r->str, "TEXT"))
+            ent_text(r);
         else
             ent_skip(r);
     }
