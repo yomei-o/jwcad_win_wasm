@@ -66,6 +66,10 @@ int  app_moji_focus(void);
 int  app_zokusel_open(void);
 const unsigned char *app_zokusel_on(void);
 
+/* ブロック化: whether its dialog is up, and what has been typed into it. */
+int  app_blkname_open(void);
+const char *app_blkname(void);
+
 /* The caption and the menu bar.  A front end with a window of its own --
    the native one -- gets them from Windows and leaves this off; the browser
    turns it on and the port draws them above the client.  app_rgba() then

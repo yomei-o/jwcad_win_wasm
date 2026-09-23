@@ -259,6 +259,11 @@ void jw_obj_move(jw_obj *o, double dx, double dy);
    Returns -1 if it could not. */
 int jw_add_str(jw_drawing *d, const char *s);
 
+/* Add an element at the very end, past the drawn ones: a block definition
+   and the elements inside it live there, and jw_add would put them in the
+   drawing itself.  Nothing is filled in but the class. */
+jw_obj *jw_add_def(jw_drawing *d, int cls);
+
 /* The text of an object, as CP932 bytes. */
 const char *jw_str(const jw_drawing *d, int off);
 

@@ -26,6 +26,7 @@ fi
 [ -f src/gen/zoku.h ]   || { echo "run tools/mkzoku.py first";  exit 1; }
 [ -f src/gen/moji.h ]   || { echo "run tools/mkmoji.py first";  exit 1; }
 [ -f src/gen/zokusel.h ] || { echo "run tools/mkzokusel.py first"; exit 1; }
+[ -f src/gen/blkname.h ] || { echo "run tools/mkblkname.py first"; exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -71,6 +72,11 @@ echo "=== 書込み文字種変更 —— 原典が描いたダイアログと�
 python tools/cmp.py docs/ref_moji.png tests/out/moji.png \
     -i docs/moji_textareas.txt -d tests/out/moji.diff.png \
     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== ブロック化 —— ダイアログと、原典が作った定義との突き合わせ"
+./tests/blkmake_test.exe tests/out/blkname.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_blkname.png tests/out/blkname.png     -i docs/blkname_textareas.txt -d tests/out/blkname.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "cmd.h"
 #include "pick.h"
@@ -319,6 +320,8 @@ typedef struct {
 
 typedef struct {
     int n;                      /* how many were added, at the end */
+    int ndef;                   /* and how many past the drawn ones, which
+                                   is what a new block definition is */
     int nitem, citem;
     op_item *item;              /* 移動 changes a whole selection at once,
                                    so there is no useful upper bound */
@@ -584,6 +587,12 @@ void jw_cmd_undo(jw_drawing *d)
     if (!d || nop <= 0)
         return;
     o = &op[nop - 1];
+    {   /* A definition and the elements inside it sit past the drawn ones,
+           at the very end, so they come off first. */
+        int n;
+        for (n = o->ndef; n > 0 && d->nobj > d->ndrawn; n--)
+            jw_remove(d, d->nobj - 1);
+    }
     {   /* Everything is added at the end of the drawn elements, so the last
            command's elements are the last ones there. */
         int n;
@@ -2923,6 +2932,145 @@ static int seiri(jw_drawing *d, int join)
     }
     (void)rec;
     return gone;
+}
+
+/* ------------------------------------------------------ ブロック化 -----
+ * The one point an element counts as, for working out where a block goes.
+ * The original averages one of these over everything picked, which is what
+ * driving it showed: two lines at y 20 and -40 put the block at y -10, and
+ * adding a circle centred at -80 moved it to -100/3.  A line and a text
+ * count as the middle of their two points, an arc and a point as where they
+ * are, and a solid as the middle of its corners -- three of them when the
+ * last two are the same point, which is how a triangle is written.
+ * decomp/res/blkmake.jww is the original doing it to twelve elements at
+ * once, and the sum comes out at 0.3125, -18.159722 exactly.
+ */
+static void blk_point(const jw_obj *o, double *x, double *y)
+{
+    switch (o->cls) {
+    case JW_SEN:
+    case JW_MOJI:
+        *x = (o->d[0] + o->d[2]) / 2.0;
+        *y = (o->d[1] + o->d[3]) / 2.0;
+        break;
+    case JW_SOLID: {
+        int n = (o->d[6] == o->d[4] && o->d[7] == o->d[5]) ? 3 : 4, k;
+        double sx = 0.0, sy = 0.0;
+
+        for (k = 0; k < n; k++) {
+            sx += o->d[k * 2];
+            sy += o->d[k * 2 + 1];
+        }
+        *x = sx / n;
+        *y = sy / n;
+        break;
+    }
+    default:                    /* an arc's centre, a point, a reference */
+        *x = o->d[0];
+        *y = o->d[1];
+        break;
+    }
+}
+
+int jw_cmd_block_point(const jw_drawing *d, double *x, double *y)
+{
+    double sx = 0.0, sy = 0.0, px, py;
+    int i, n = 0;
+
+    if (!d)
+        return 0;
+    for (i = 0; i < d->ndrawn; i++) {
+        if (!d->obj[i].sel)
+            continue;
+        blk_point(&d->obj[i], &px, &py);
+        sx += px;
+        sy += py;
+        n++;
+    }
+    if (!n)
+        return 0;
+    *x = sx / n;
+    *y = sy / n;
+    return 1;
+}
+
+/* ブロック化 (32853).  What is picked comes out of the drawing and goes into
+ * a definition of its own, kept past the drawn elements; one reference to it
+ * takes their place, on the write layer and in the write colour (the
+ * original does that even when everything inside was on layer 0 in colour 1).
+ * The elements inside are written relative to where the reference goes.
+ * The name the dialog asks for has @@SfigorgFlag@@4 put on the end of it.
+ */
+int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
+{
+    double px, py;
+    jw_obj *keep, *o;
+    op_t *rec;
+    char full[128];
+    int i, n = 0, num = 0, k;
+
+    (void)prefer_layer;         /* 元データのレイヤを優先する: not done */
+    if (!d || !jw_cmd_block_point(d, &px, &py))
+        return 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel)
+            n++;
+    keep = (jw_obj *)malloc((size_t)n * sizeof *keep);
+    if (!keep)
+        return 0;
+    /* a number no definition has yet */
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] >= num)
+            num = d->obj[i].list[0] + 1;
+
+    rec = op_new();
+    for (i = d->ndrawn - 1, k = n; i >= 0; i--) {
+        if (!d->obj[i].sel)
+            continue;
+        keep[--k] = d->obj[i];
+        erase(d, i, rec);
+    }
+    for (k = 0; k < n; k++) {
+        keep[k].sel = 0;
+        keep[k].flags = (unsigned short)(keep[k].flags & ~2u);
+        jw_obj_move(&keep[k], -px, -py);
+    }
+
+    strncpy(full, name ? name : "", sizeof full - 20);
+    full[sizeof full - 20] = 0;
+    strcat(full, "@@SfigorgFlag@@4");
+    o = jw_add_def(d, JW_LIST);
+    if (!o) {
+        free(keep);
+        return 0;
+    }
+    o->n = n;
+    o->list[0] = num;
+    o->list[1] = 1;
+    o->list[2] = (int)time(0);
+    o->text = jw_add_str(d, full);
+    for (k = 0; k < n; k++) {
+        o = jw_add_def(d, keep[k].cls);
+        if (!o)
+            break;
+        *o = keep[k];
+    }
+    free(keep);
+    if (rec)
+        rec->ndef = n + 1;
+
+    o = jw_add(d, JW_BLOCK);    /* which puts it on the write layer */
+    if (o) {
+        o->d[0] = px;
+        o->d[1] = py;
+        o->d[2] = 1.0;
+        o->d[3] = 1.0;
+        o->d[4] = 0.0;
+        o->block = num;
+        if (rec)
+            rec->n = 1;
+    }
+    return n;
 }
 
 /* Whether an element is one of the kinds the 属性選択 dialog has ticked. */

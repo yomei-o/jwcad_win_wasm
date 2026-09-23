@@ -804,6 +804,16 @@ for k in geom t5; do
     sh tools/refenv.sh >/dev/null
 done
 
+# ブロック化 (32853): a range and then the command, which asks for a name.
+# tools/mkgeom.c's drawing again, so that every class is in it.
+echo "=== blkmake (ブロック化)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32853,1827=BLK;saveas:decomp/res/blkmake.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # データ整理 (32910): a range, 選択確定, and then one of its buttons.  The
 # drawing is tools/mkseiri.c's ten pairs, each pair a different kind of "the
 # same"; tests/seiri_test.c holds what the port makes of it against these.

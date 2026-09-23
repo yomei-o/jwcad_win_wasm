@@ -136,6 +136,13 @@ int  ui_zokusel_hit(int cw, int ch, int x, int y);
 int  ui_zokusel_n(void);
 int  ui_zokusel_id(int i);
 
+/* ブロック化 -- the dialog 32853 puts up once a range is in.  `name` is what
+   has been typed into its box, `on` whether its checkbox is ticked, `caret`
+   whether the box has the caret in it. */
+void ui_blkname_rect(int cw, int ch, rect_t *r);
+void ui_blkname(fb_t *fb, const char *name, int on, int caret);
+int  ui_blkname_hit(int cw, int ch, int x, int y);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

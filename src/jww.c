@@ -784,6 +784,19 @@ void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy)
     }
 }
 
+jw_obj *jw_add_def(jw_drawing *d, int cls)
+{
+    jw_obj *o = obj_new(d);
+
+    if (!o)
+        return 0;
+    o->cls = (unsigned char)cls;
+    o->ltype = 1;
+    o->color = 1;
+    o->text = o->face = -1;
+    return o;
+}
+
 void jw_remove(jw_drawing *d, int i)
 {
     if (i < 0 || i >= d->nobj)

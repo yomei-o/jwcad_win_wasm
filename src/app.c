@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "ui.h"
+#include "text.h"
 #include "draw.h"
 #include "view.h"
 #include "cmd.h"
@@ -281,6 +282,68 @@ static int zsel_mask(void)
     return mask;
 }
 
+/* ---------------------------------------------------- ブロック化 -------
+ * The command puts a dialog up rather than doing anything at once: a box
+ * for the name, and 元データのレイヤを優先する beside it.
+ */
+static int blk_open, blk_pref;
+static char blk_name[64];
+
+int app_blkname_open(void)
+{
+    return blk_open;
+}
+
+const char *app_blkname(void)
+{
+    return blk_name;
+}
+
+static int press_blkname(int x, int y)
+{
+    int id = ui_blkname_hit(fb.w, fb.h, x, y);
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1) {                      /* OK */
+        if (have_drawing && blk_name[0])
+            jw_cmd_block_make(&drawing, blk_name, blk_pref);
+        blk_open = 0;
+    } else if (id == 2) {               /* キャンセル */
+        blk_open = 0;
+    } else if (id == 1323) {
+        blk_pref = !blk_pref;
+    }
+    return 1;
+}
+
+/* One key while the dialog is up: the name takes anything printable. */
+static int blk_key(int c)
+{
+    size_t n = strlen(blk_name);
+
+    if (c == 8) {
+        while (n && (unsigned char)blk_name[n - 1] >= 0x80
+               && !jw_is_lead((unsigned char)blk_name[n - 1]))
+            n--;                        /* the trail byte of a pair */
+        if (n)
+            blk_name[n - 1] = 0;
+        return 1;
+    }
+    if (c == 13) {                      /* Enter is the OK button */
+        if (have_drawing && blk_name[0])
+            jw_cmd_block_make(&drawing, blk_name, blk_pref);
+        blk_open = 0;
+        return 1;
+    }
+    if (c >= 0x20 && n + 1 < sizeof blk_name) {
+        blk_name[n] = (char)c;
+        blk_name[n + 1] = 0;
+        return 1;
+    }
+    return 0;
+}
+
 static int press_zokusel(int x, int y)
 {
     int id = ui_zokusel_hit(fb.w, fb.h, x, y), i, n = ui_zokusel_n();
@@ -394,6 +457,13 @@ int app_command(int cmd)
     }
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
+    case JW_CMD_BLOCK:                  /* ブロック化 */
+        if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
+            return 0;                   /* nothing picked: nothing to do */
+        blk_name[0] = 0;
+        blk_pref = 0;
+        blk_open = 1;
+        return 1;
     case JW_CMD_UNDO:
         if (!jw_cmd_can_undo())
             return 0;
@@ -497,6 +567,8 @@ int app_press(int x, int y, int button)
         return press_moji(x, y);
     if (zsel_open)
         return press_zokusel(x, y);
+    if (blk_open)
+        return press_blkname(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -571,6 +643,10 @@ static int moji_key(int c)
 
 int app_key(int c)
 {
+    if (blk_open && blk_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (moji_open && moji_focus && moji_key(c)) {
         app_paint();
         return 1;
@@ -891,6 +967,8 @@ void app_paint(void)
         ui_moji(&fb, &drawing, moji_style);
     if (zsel_open)
         ui_zokusel(&fb, zsel_on);
+    if (blk_open)
+        ui_blkname(&fb, blk_name, blk_pref, 1);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

@@ -116,6 +116,14 @@ cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokusel.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1069,docs/ref_zokusel.png' >/dev/null
 python tools/mkzokusel.py
 
+say 'ブロック化 dialog, likewise'
+# The command asks for a name once a range is in.  docs/ref_blkname.png is
+# the committed reference and tests/blkmake_test.c scores the port against it.
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkname.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:32853,docs/ref_blkname.png' >/dev/null
+python tools/mkblkname.py
+
 say 'what the original puts at the top of a DXF'
 # A drawing of one line per pen and per line type, written by the port's own
 # writer, exported by the original: the tables in it are the same in every

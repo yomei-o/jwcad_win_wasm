@@ -1,0 +1,14 @@
+# Where the ブロック化 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_blkname.png (the whole 343x149
+# window).  The frame and the caption go with them.  Written by
+# tools/mkblkname.py.
+
+0 0 343 31
+0 31 8 110
+335 31 8 110
+0 141 343 8
+239 64 82 15
+239 102 82 15
+19 60 209 22
+19 38 305 17
+34 98 194 26
