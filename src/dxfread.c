@@ -25,9 +25,9 @@
  *     (FUN_0049e380), so a DXF whose DASHED1 is not jw's 点線1 comes in as
  *     a new 任意線種.
  *
- * HATCH and DIMENSION are not read yet; the entities that are are LINE,
- * ARC, CIRCLE, ELLIPSE, POINT, SOLID, TEXT, MTEXT, POLYLINE, LWPOLYLINE and
- * INSERT -- and with the last of those, the BLOCKS section.
+ * HATCH is not read yet; the entities that are are LINE, ARC, CIRCLE,
+ * ELLIPSE, POINT, SOLID, TEXT, MTEXT, POLYLINE, LWPOLYLINE, INSERT and
+ * DIMENSION -- and with the last two, the BLOCKS section.
  */
 #include <math.h>
 #include <stdio.h>
@@ -835,6 +835,7 @@ static void ent_text(dxfr *r)
 static void ent_poly(dxfr *r, int lw);
 static void ent_ellipse(dxfr *r);
 static void ent_mtext(dxfr *r);
+static void ent_dim(dxfr *r);
 static void ent_insert(dxfr *r);
 static void ent_skip(dxfr *r);
 
@@ -868,6 +869,8 @@ static void entity(dxfr *r)
         ent_ellipse(r);
     else if (!strcmp(r->str, "MTEXT"))
         ent_mtext(r);
+    else if (!strcmp(r->str, "DIMENSION"))
+        ent_dim(r);
     else
         ent_skip(r);
 }
@@ -997,6 +1000,46 @@ static void ent_insert(dxfr *r)
     o->d[2] = sx;
     o->d[3] = sy;
     o->d[4] = rot * PI / 180.0;
+    o->block = num;
+}
+
+/* DIMENSION.  A dimension in a DXF draws nothing itself: it names a block
+   that holds the lines, the arrows and the number, in the drawing's own
+   coordinates.  So it comes in as a reference to that definition put at the
+   corner of the sheet, life size -- which lands its contents exactly where
+   they were.  A DIMENSION whose block is not in the file draws nothing,
+   which is what the original does too. */
+static void ent_dim(dxfr *r)
+{
+    char name[NAME];
+    jw_obj *o;
+    attr a;
+    int num;
+
+    name[0] = 0;
+    attr_start(&a);
+    for (next(r); r->code > 0; next(r)) {
+        if (attr_take(r, &a))
+            continue;
+        if (r->code == 2)
+            copy_name(name, r->str);
+    }
+    num = block_num(r, name);
+    if (num < 0)
+        return;
+    o = jw_add(r->d, JW_BLOCK);
+    if (!o)
+        return;
+    o->ltype = 1;
+    o->color = 2;
+    o->layer = (unsigned short)(a.layer & 0xf);
+    o->lgroup = (unsigned short)((a.layer >> 4) & 0xf);
+    o->width = 0;
+    o->d[0] = -r->d->paper_hw;
+    o->d[1] = -r->d->paper_hh;
+    o->d[2] = 1.0;
+    o->d[3] = 1.0;
+    o->d[4] = 0.0;
     o->block = num;
 }
 

@@ -114,6 +114,26 @@ def mtexts(lay):
     return b''.join(out)
 
 
+def dims(lay):
+    """A dimension names a block that holds what it draws."""
+    return (g(0, 'DIMENSION') + lay + i5(62, 3) + g(2, '*D1')
+            + g(10, 84100) + g(20, 71400) + i5(70, 0)
+            + g(13, 64100) + g(23, 61400) + g(14, 104100) + g(24, 61400)
+            + g(1, '40.00'))
+
+
+def dimblock(lay):
+    out = [g(0, 'BLOCK') + lay + g(2, '*D1') + i5(70, 1)
+           + g(10, 0) + g(20, 0) + g(3, '*D1')]
+    for x0, y0, x1, y1 in ((64100, 61400, 104100, 61400),
+                           (64100, 61400, 64100, 71400),
+                           (104100, 61400, 104100, 71400)):
+        out.append(g(0, 'LINE') + lay + g(6, 'CONTINUOUS') + i5(62, 3)
+                   + g(10, x0) + g(20, y0) + g(11, x1) + g(21, y1))
+    out.append(g(0, 'ENDBLK') + lay)
+    return b''.join(out)
+
+
 def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else 'text'
     out = sys.argv[2] if len(sys.argv) > 2 else 'decomp/res/%s.dxf' % kind
@@ -127,12 +147,16 @@ def main():
         body = mtexts(lay)
     elif kind == 'ellipse':
         body = ellipses(lay)
+    elif kind == 'dim':
+        head = head.replace(b'  2\r\nBLOCKS\r\n',
+                            b'  2\r\nBLOCKS\r\n' + dimblock(lay), 1)
+        body = dims(lay)
     elif kind == 'insert':
         head = head.replace(b'  2\r\nBLOCKS\r\n',
                             b'  2\r\nBLOCKS\r\n' + block(lay), 1)
         body = inserts(lay)
     else:
-        print('which: text, mtext, poly, ellipse or insert')
+        print('which: text, mtext, poly, ellipse, insert or dim')
         return
     io.open(out, 'wb').write(head + body + g(0, 'ENDSEC') + g(0, 'EOF'))
     print('%s: %s' % (out, kind))

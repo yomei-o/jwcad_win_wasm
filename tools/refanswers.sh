@@ -596,7 +596,7 @@ sh tools/refenv.sh >/dev/null
 # and the entities a drawing of lines does not exercise: texts turned,
 # squeezed, stretched and in CP932; polylines open and closed; and a block
 # with three references to it
-for k in text mtext poly ell ins; do
+for k in text mtext poly ell ins dim; do
     f=$k
     case $k in
     ins) python tools/mkdxfin.py insert decomp/res/ins.dxf ;;
