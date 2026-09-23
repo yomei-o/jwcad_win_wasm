@@ -44,7 +44,10 @@
 #                       any other and WM_GETTEXT hands its text over, so what
 #                       a command is asking for can be read rather than
 #                       photographed -- 「始点を指示してください」 and so on.
-#   btn:<id>            BM_CLICK a control
+#   btn:<id>            BM_CLICK a control (sent -- a button that opens a
+#                       modal dialog holds the script here; use pb: or dlg:b)
+#   pb:<id>             BM_CLICK posted instead, so a modal dialog does not
+#                       stop the rest of the steps
 #   off:<id>            turn a checkbox off (a click, so the app is told)
 #   type:<text>         the 文字 command's box, then Enter
 #   type::<text>        the same without Enter
@@ -473,6 +476,17 @@ try {
                 Start-Sleep -Milliseconds $StepMs; break
             }
 
+            '^pb:(\d+)$' {
+                # BM_CLICK posted rather than sent: a button that opens a
+                # modal dialog would otherwise hold this script until the
+                # dialog closes, and nothing here can close it.
+                $h = Ctl ([int]$Matches[1])
+                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             '^btn:(\d+)$' {
                 $h = Ctl ([int]$Matches[1])
                 if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
@@ -562,10 +576,11 @@ try {
                 break
             }
 
-            '^dlg:b?(\d+),(.+)$' {
-                $byButton = $s -match '^dlg:b'
-                $id  = [int]$Matches[1]
-                $png = $Matches[2]
+            '^dlg:(b?)(\d+),(.+)$' {
+                # every -match rewrites $Matches, so read the groups first
+                $byButton = $Matches[1] -eq 'b'
+                $id  = [int]$Matches[2]
+                $png = $Matches[3]
                 $before = [Jw]::Tops([uint32]$p.Id)
                 if ($byButton) {
                     $h = Ctl $id

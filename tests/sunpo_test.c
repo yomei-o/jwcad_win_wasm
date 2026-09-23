@@ -35,6 +35,18 @@ static int near(double a, double b)
     return fabs(a - b) < 1e-9;
 }
 
+static void type_box(int id, const char *v)
+{
+    int i;
+
+    jw_cmd_box_click(id);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    for (; *v; v++)
+        jw_cmd_box_key((unsigned char)*v);
+    jw_cmd_box_key(13);
+}
+
 static unsigned char *slurp(const char *path, long *n)
 {
     FILE *f = fopen(path, "rb");
@@ -54,18 +66,25 @@ static unsigned char *slurp(const char *path, long *n)
     return b;
 }
 
-int main(int argc, char **argv)
+/* One dimension, at whatever 傾き the bar was given.
+ *
+ * The seven things the original left past Test5's own come in the order it
+ * makes them: the line that was measured, the 寸法線, its two 端部 points,
+ * the two 引出線 and the 寸法値.  Reading them by position rather than by
+ * shape is what lets a slanted one be checked as well as a level one.
+ */
+static int run(const char *path, const char *angle)
 {
-    const char *path = argc > 1 ? argv[1] : "decomp/res/sunpo.jww";
     unsigned char *b;
     long n;
     jw_drawing ref;
     jw_drawing *d;
     const jw_obj *r_line = 0, *r_dim = 0, *r_ext = 0, *r_ext2 = 0, *r_txt = 0;
     const jw_obj *r_ten[2];
-    int i, nten = 0, before;
-    double ax, ay, bx, by, hy, ly;
+    int i, nten = 0, before, nb = 0;
+    double ax, ay, bx, by;
 
+    printf("傾き %s:\n", angle);
     r_ten[0] = r_ten[1] = 0;
     b = slurp(path, &n);
     if (!b) {
@@ -77,34 +96,6 @@ int main(int argc, char **argv)
         return 1;
     }
     free(b);
-    /* the six parts the original made, and the line they were put on */
-    for (i = 0; i < ref.ndrawn; i++) {
-        const jw_obj *o = &ref.obj[i];
-        if (o->cls == JW_SEN && o->flags == 0 && o->color == 2)
-            r_line = o;                         /* the line that was drawn */
-        if (o->cls == JW_SEN && (o->flags & 0x2000)) {
-            if (o->d[1] == o->d[3])
-                r_dim = o;                      /* level: the dimension    */
-            else if (!r_ext)
-                r_ext = o;                      /* upright: an extension   */
-            else if (!r_ext2)
-                r_ext2 = o;
-        }
-        if (o->cls == JW_TEN && (o->flags & 0x40) && nten < 2)
-            r_ten[nten++] = o;
-        if (o->cls == JW_MOJI && (o->flags & 0x4000))
-            r_txt = o;
-    }
-    ck(r_line && r_dim && r_ext && r_ext2 && r_txt && nten == 2,
-       "the original's dimension is in the file");
-    if (!r_line || !r_dim || !r_ext || !r_ext2 || !r_txt || nten != 2)
-        return 1;
-    ax = r_line->d[0];
-    ay = r_line->d[1];
-    bx = r_line->d[2];
-    by = r_line->d[3];
-    hy = r_ext->d[3];                   /* 引出し線の始点 */
-    ly = r_dim->d[1];                   /* 寸法線の位置   */
 
     /* the same drawing, with the same line on it */
     app_resize(1264, 741);
@@ -115,6 +106,33 @@ int main(int argc, char **argv)
     }
     free(b);
     d = (jw_drawing *)app_drawing();
+    nb = d->ndrawn;
+    /* what the original drew, in the order it drew it */
+    for (i = nb; i < ref.ndrawn; i++) {
+        const jw_obj *o = &ref.obj[i];
+
+        if (o->cls == JW_SEN && o->flags == 0 && o->color == 2 && !r_line)
+            r_line = o;                         /* the line that was drawn */
+        else if (o->cls == JW_SEN && (o->flags & 0x2000)) {
+            if (!r_dim)
+                r_dim = o;                      /* the 寸法線 comes first  */
+            else if (!r_ext)
+                r_ext = o;
+            else if (!r_ext2)
+                r_ext2 = o;
+        } else if (o->cls == JW_TEN && (o->flags & 0x40) && nten < 2)
+            r_ten[nten++] = o;
+        else if (o->cls == JW_MOJI && (o->flags & 0x4000))
+            r_txt = o;
+    }
+    ck(r_line && r_dim && r_ext && r_ext2 && r_txt && nten == 2,
+       "the original's dimension is in the file");
+    if (!r_line || !r_dim || !r_ext || !r_ext2 || !r_txt || nten != 2)
+        return 1;
+    ax = r_line->d[0];
+    ay = r_line->d[1];
+    bx = r_line->d[2];
+    by = r_line->d[3];
     {
         jw_obj *o = jw_add(d, JW_SEN);
         o->d[0] = ax;
@@ -127,8 +145,12 @@ int main(int argc, char **argv)
 
     jw_cmd_set(JW_CMD_SUNPO);
     ck(jw_cmd() == JW_CMD_SUNPO, "寸法 is the command");
-    jw_cmd_point(d, app_view(), 0.0, hy, 0);        /* 引出し線の始点 */
-    jw_cmd_point(d, app_view(), 0.0, ly, 0);        /* 寸法線の位置   */
+    type_box(1411, angle);
+    /* the first two clicks only say how far out the lines go, so the
+       original's own ends do for them: the far end of an extension, and a
+       point on the dimension line itself */
+    jw_cmd_point(d, app_view(), r_ext->d[2], r_ext->d[3], 0);
+    jw_cmd_point(d, app_view(), r_dim->d[0], r_dim->d[1], 0);
     ck(d->ndrawn == before, "the first two clicks draw nothing");
     jw_cmd_point(d, app_view(), ax + 1e6, ay, 0);   /* nothing to read here */
     ck(d->ndrawn == before, "a click with no point to read is ignored");
@@ -185,6 +207,17 @@ int main(int argc, char **argv)
     ck(d->ndrawn == before, "元に戻る takes all six back at once");
 
     jw_free(&ref);
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc > 1) {
+        run(argv[1], "0");
+    } else {
+        run("decomp/res/sunpo.jww", "0");
+        run("decomp/res/sunpo30.jww", "30");
+    }
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

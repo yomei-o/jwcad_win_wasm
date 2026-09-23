@@ -92,8 +92,14 @@ $PS -Open '' -Clicks 'saveas:decomp/res/new.jww' 2>&1 | sed 's/^/        /'
 
 # 寸法 (0x804f).  A line first: the third stage will not take a point there is
 # nothing to read at, so an empty drawing never gets past it.
+# The 傾き box (1411) keeps what was typed into it, so both of these say
+# which angle they want.  0 is a level dimension, 30 a slanted one -- the six
+# elements come out in the same order either way.
 make sunpo sunpo 0 \
-    '300,600;700,600;cmd:32847;400,500;400,450;r300,600;r700,600' || fails=$((fails+1))
+    '300,600;700,600;cmd:32847;ch:1411,0;400,500;400,450;r300,600;r700,600' \
+    sunpo30 0 \
+    '300,600;700,600;cmd:32847;ch:1411,30;400,500;400,450;r300,600;r700,600' \
+    || fails=$((fails+1))
 
 # 多角形 (0x807e).  角数 8, 寸法 3000, 底辺角度 30, then one click for the
 # centre -- the eight vertices follow from those three numbers.
@@ -295,6 +301,18 @@ bezier() {              # bezier <分割数>
     cp orig/Test5.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -Cmd 32908         -Clicks "btn:1692;ch:1411,$1;300,500;500,300;700,500;900,300;btn:1800;saveas:decomp/res/bezier_n$1.jww"         2>&1 | sed 's/^/        /'
 }
+# サイン曲線 (1689) と ２次曲線 (1690): these take a base line and then
+# points, not a string of points, so they have their own drive.  The clicks
+# are written down again in tests/curve_test.c, which turns them into the
+# drawing's units through the base line the original drew.
+curveline() {           # curveline <name> <the clicks>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0 \
+        -Clicks "$2;saveas:decomp/res/curve_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
     echo "=== curve (one spline at four 分割数, and the bezier over the same points)"
@@ -305,6 +323,12 @@ while :; do
     bezier 3
     bezier 7
     bezier 10
+    curveline sin_a "300,400;900,400;cmd:32908;btn:1689;600,400;400,400;500,300;600,400;400,400;800,400"
+    curveline sin_b "300,400;900,400;cmd:32908;btn:1689;600,400;400,380;500,300;600,400;450,420;850,400"
+    curveline sin_c "300,250;900,550;cmd:32908;btn:1689;600,400;450,300;550,300;700,450;500,350;850,500"
+    curveline q_a "300,400;900,400;cmd:32908;btn:1690;600,400;400,370;600,320;450,400;700,400"
+    curveline q_b "300,400;900,400;cmd:32908;btn:1690;600,400;400,370;600,320;470,400;700,400"
+    curveline q_c "300,250;900,550;cmd:32908;btn:1690;600,400;450,300;650,320;500,350;850,500"
     if [ ! -x tests/curve_test.exe ]; then
         echo "    (tests/curve_test.exe is not built -- not checked)"
         break
@@ -353,15 +377,47 @@ hatch_rect_1692b() {
     cp orig/Test5.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -Cmd 32772         -Clicks "300,300;800,600;cmd:32874;btn:1692;set:1419,30;set:1411,20;set:1412,50;r550,300;btn:1148;saveas:decomp/res/hatch_r1692b.jww"         2>&1 | sed 's/^/        /'
 }
+# 実寸 (1323): with it on the ピッチ is in the drawing's own units, so 2000
+# in a 1/200 drawing draws what 10 does with it off -- the same 49 lines.
+hatch_rect_jisun() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32772 \
+        -Clicks "300,300;800,600;cmd:32874;btn:1323;ch:1411,2000;r550,300;btn:1148;saveas:decomp/res/hatch_jisun.jww" \
+        2>&1 | sed 's/^/        /'
+}
+# 基点変 (1147): the next click is the point the pattern counts from.  Both
+# of these give it the rectangle's own first corner -- the same pixel that
+# drew it -- so the test can point at it exactly.
+hatch_rect_base() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32772 \
+        -Clicks "300,300;800,600;cmd:32874;pb:1147;300,300;r550,300;btn:1148;saveas:decomp/res/hatch_base.jww" \
+        2>&1 | sed 's/^/        /'
+}
+hatch_rect_base92() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32772 \
+        -Clicks "300,300;800,600;cmd:32874;btn:1692;set:1419,30;set:1411,20;set:1412,50;pb:1147;300,300;r550,300;btn:1148;saveas:decomp/res/hatch_base92.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬)"
+    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸 基点変)"
     hatch_circle
     hatch_rect
     hatch_rect_mode 1690
     hatch_rect_mode 1691
     hatch_rect_mode 1692
     hatch_rect_1692b
+    hatch_rect_jisun
+    hatch_rect_base
+    hatch_rect_base92
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

@@ -123,7 +123,18 @@ static int sun_step;
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
-static int sun_deg = 0;         /* 0 or 90 -- the bar's 0ﾟ/90ﾟ button      */
+/* 寸法's 傾き: any angle, not just the two.  The bar's 0ﾟ/90ﾟ button (1059)
+   only writes 0 or 90 into the box -- read out of the original with
+   tools/jwdraw.ps1's `read:1411` while pressing it -- so the box is the one
+   place the angle lives. */
+static void box_put(int id, const char *v);
+
+static double sun_angle(void)
+{
+    const char *t = jw_cmd_box(1411);
+
+    return t ? atof(t) : 0.0;
+}
 
 /* 中心線: the two lines it runs between, and the first of its two points */
 static int chu_a = -1, chu_b = -1, chu_step;
@@ -150,6 +161,10 @@ static int cv_n;
    original enters in; サイン (1689), ２次 (1690) and ベジェ (1692) are not
    done, and pressing 作図実行 in those draws nothing. */
 static int cv_mode = 1691;
+/* サイン曲線 and ２次曲線 measure everything from a line that is picked
+   first: this is its direction, and whether it has been picked yet. */
+static double cv_ux = 1.0, cv_uy;
+static int cv_base;
 /* ハッチ: the closed boundary that was picked, as a ring of corners, or a
    circle.  Right-clicking one line of a closed chain takes the whole chain;
    right-clicking a circle takes the circle. */
@@ -158,6 +173,21 @@ static double ht_x[HT_MAX], ht_y[HT_MAX];
 static int ht_n;                /* corners in the ring, 0 when none */
 static double ht_cx, ht_cy, ht_r;
 static int ht_round;            /* the boundary is a circle */
+/* ハッチの実寸 (the bar's 1323).  While it is off the ピッチ is in paper
+   millimetres, which is how the original comes up; turned on it is in the
+   drawing's own units, so it is divided by the write layer group's scale.
+   Pitch 2000 with it on drew exactly the same 49 lines as pitch 10 with it
+   off in a 1/200 drawing (decomp/res/hatch_jisun.jww against hatch_rect.jww).
+   It stays on across commands, the way the boxes keep their numbers. */
+static int ht_jisun;
+/* ハッチの基点変 (the bar's 1147).  It asks 「基準点を指示して下さい」 and the
+   next click is the point the whole pattern counts from: the lines then sit
+   where the distance across is that point's plus a whole ピッチ, and ┬┴┬'s
+   grid counts both ways from it.  It does not survive leaving the command --
+   the original went back to counting from zero on the way back in. */
+static int ht_base, ht_base_wait;
+static double ht_bx, ht_by;
+
 static void ht_mode_set(int id);
 static int ht_mode = 1689;      /* 1線, the one the original enters in */
 /* The bar keeps one set of numbers for 1線・2線・3線 and another for
@@ -199,6 +229,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
     { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
+    { JW_CMD_SUNPO, 1411, "0" },        /* 寸法の傾き */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
     { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
@@ -439,10 +470,12 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_KYOKUSEN) {
         cv_n = 0;
         cv_mode = 1691;
+        cv_base = 0;
     }
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_round = 0;
+        ht_base = ht_base_wait = 0;
         ht_mode_set(1689);      /* and the bar's numbers with it */
     }
     if (id == JW_CMD_CHUSHIN) {
@@ -1376,6 +1409,149 @@ static void bezier_at(const double *vx, const double *vy, int n, double t,
     *oy = ay[0];
 }
 
+/* サイン曲線 (1689) and ２次曲線 (1690).
+ *
+ * Both are laid out along a line that is picked first -- the status line asks
+ * 「基準線を指示してください。」 -- and then take points:
+ *
+ *   サイン  原点, 振幅（頂点）の幅の点, １サイクル点, 始点, 終点
+ *   ２次    原点, 中間点, 始点, 終点
+ *
+ * Read them as coordinates along the picked line (s) and across it (h), both
+ * from the 原点 -- which is the click itself, not its foot on the line: the
+ * original was given an origin 20 pixels off the line and drew the curve
+ * about a line through it.  Then
+ *
+ *   サイン  h = A sin(2 pi s / L), with A the amplitude point's h and L the
+ *           cycle point's s.  Checked against the original to 1e-4 at every
+ *           vertex.
+ *   ２次    h = a s^2, with a from the middle point: a = h_m / s_m^2.
+ *
+ * The vertices sit on a grid **anchored at the 原点**, and the curve is cut
+ * to the 始点 and the 終点 (their s), so the first and last pieces are short.
+ * The spacing is where the two part company:
+ *
+ *   サイン  L / (2 * 分割数) -- a whole wave is 2n pieces, not n.
+ *   ２次    (s_end - s_start) / 分割数 -- the drawn span, divided up, but
+ *           still counted off from the 原点.  The original put a vertex at
+ *           3 * spacing when the start was 2.13 spacings out.
+ *
+ * Which way round the picked line is stored makes no difference: flipping it
+ * flips s and h together, and both formulas are unchanged.
+ */
+static void curve_draw(jw_drawing *d)
+{
+    const char *sz = jw_cmd_box(1411);
+    double nx = -cv_uy, ny = cv_ux;
+    double ox = cv_x[0], oy = cv_y[0];
+    double sm, hm, L = 0, a = 0, s0, s1, ss, s, px, py;
+    int nd = sz ? atoi(sz) : 0, sine = cv_mode == 1689, k, made = 0;
+
+    if (nd < 1)
+        return;
+    sm = cv_ux * (cv_x[1] - ox) + cv_uy * (cv_y[1] - oy);
+    hm = nx * (cv_x[1] - ox) + ny * (cv_y[1] - oy);
+    if (sine) {
+        L = cv_ux * (cv_x[2] - ox) + cv_uy * (cv_y[2] - oy);
+        if (fabs(L) < 1e-12)
+            return;
+        s0 = cv_ux * (cv_x[3] - ox) + cv_uy * (cv_y[3] - oy);
+        s1 = cv_ux * (cv_x[4] - ox) + cv_uy * (cv_y[4] - oy);
+        ss = fabs(L) / (2 * nd);
+    } else {
+        if (fabs(sm) < 1e-12)
+            return;
+        a = hm / (sm * sm);
+        s0 = cv_ux * (cv_x[2] - ox) + cv_uy * (cv_y[2] - oy);
+        s1 = cv_ux * (cv_x[3] - ox) + cv_uy * (cv_y[3] - oy);
+        ss = fabs(s1 - s0) / nd;
+    }
+    if (ss < 1e-9 || fabs(s1 - s0) < 1e-12)
+        return;
+
+#define CURVE_H(t) (sine ? hm * sin(2 * PI * (t) / L) : a * (t) * (t))
+#define CURVE_X(t) (ox + cv_ux * (t) + nx * CURVE_H(t))
+#define CURVE_Y(t) (oy + cv_uy * (t) + ny * CURVE_H(t))
+
+    s = s0;
+    px = CURVE_X(s0);
+    py = CURVE_Y(s0);
+    k = s1 > s0 ? (int)floor(s0 / ss) + 1 : (int)ceil(s0 / ss) - 1;
+    for (;;) {
+        double sn = k * ss, qx, qy;
+        jw_obj *o;
+
+        if (s1 > s0 ? sn >= s1 - 1e-9 : sn <= s1 + 1e-9)
+            break;
+        if (made > 100000)
+            break;
+        qx = CURVE_X(sn);
+        qy = CURVE_Y(sn);
+        o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->d[0] = px;
+        o->d[1] = py;
+        o->d[2] = qx;
+        o->d[3] = qy;
+        px = qx;
+        py = qy;
+        s = sn;
+        k += s1 > s0 ? 1 : -1;
+        made++;
+    }
+    if (fabs(s1 - s) > 1e-9) {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        if (o) {
+            o->d[0] = px;
+            o->d[1] = py;
+            o->d[2] = CURVE_X(s1);
+            o->d[3] = CURVE_Y(s1);
+            made++;
+        }
+    }
+#undef CURVE_H
+#undef CURVE_X
+#undef CURVE_Y
+    if (made)
+        op_push(made);
+}
+
+/* One click of サイン曲線 or ２次曲線: the line first, then the points. */
+static void curve_point(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int want = cv_mode == 1689 ? 5 : 4;
+
+    if (!cv_base) {
+        int i = jw_pick(d, v, x, y, 3);
+        double ux, uy, L;
+
+        if (i < 0 || d->obj[i].cls != JW_SEN)
+            return;
+        ux = d->obj[i].d[2] - d->obj[i].d[0];
+        uy = d->obj[i].d[3] - d->obj[i].d[1];
+        L = sqrt(ux * ux + uy * uy);
+        if (L < 1e-12)
+            return;
+        cv_ux = ux / L;
+        cv_uy = uy / L;
+        cv_base = 1;
+        cv_n = 0;
+        return;
+    }
+    if (cv_n < CV_MAX) {
+        cv_x[cv_n] = x;
+        cv_y[cv_n] = y;
+        cv_n++;
+    }
+    if (cv_n >= want) {
+        curve_draw(d);
+        cv_n = 0;
+        cv_base = 0;           /* ready for the next one */
+    }
+}
+
 static void kyokusen(jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
@@ -1383,7 +1559,7 @@ static void kyokusen(jw_drawing *d)
     int n = sz ? atoi(sz) : 0, i, k, made = 0;
 
     if (cv_mode != 1691 && cv_mode != 1692)
-        return;                 /* サイン and ２次 are not done */
+        return;                 /* サイン and ２次 go through curve_draw */
     if (cv_n < 2 || n < 1)
         return;
     if (cv_mode == 1692) {      /* ベジェ */
@@ -1525,7 +1701,7 @@ static void hatch(jw_drawing *d)
     const char *sg = jw_cmd_box(1412);
     double ang = sa ? atof(sa) : 0.0, pitch = sp ? atof(sp) : 0.0;
     double gap = sg ? atof(sg) : 0.0;
-    double ux, uy, nx, ny, lo, hi, o;
+    double ux, uy, nx, ny, lo, hi, o, bo;
     int i, k, k0, k1, made = 0, extra = 0;
 
     if (ht_mode < 1689 || ht_mode > 1692)
@@ -1541,6 +1717,17 @@ static void hatch(jw_drawing *d)
     }
     if (!ht_round && ht_n < 4)
         return;
+    if (ht_jisun) {             /* 実寸: the numbers are the drawing's own */
+        int wg = 0, k;
+
+        for (k = 0; k < 16; k++)
+            if (d->group[k].state == 3)
+                wg = k;
+        if (d->group[wg].scale > 0.0) {
+            pitch /= d->group[wg].scale;
+            gap /= d->group[wg].scale;
+        }
+    }
     ux = cos(ang * PI / 180.0);
     uy = sin(ang * PI / 180.0);
     nx = uy;                    /* turn the direction a quarter turn */
@@ -1562,15 +1749,16 @@ static void hatch(jw_drawing *d)
             if (o > hi) hi = o;
         }
     }
-    k0 = (int)ceil(lo / pitch);
-    k1 = (int)floor(hi / pitch);
+    bo = ht_base ? nx * ht_bx + ny * ht_by : 0.0;
+    k0 = (int)ceil((lo - bo) / pitch);
+    k1 = (int)floor((hi - bo) / pitch);
     if (k1 - k0 > 100000)
         return;
     /* the original goes from the far side back: its first line is the one at
        the highest offset, and inside a ２線 or ３線 group the same way round
        -- 301, 300, 299, then 291, 290, 289 */
     for (k = k1 + extra; k >= k0 - extra; k--) {
-        o = k * pitch;
+        o = bo + k * pitch;
         switch (ht_mode) {
         case 1690:
             made += hatch_at(d, o + gap / 2, ux, uy, nx, ny);
@@ -1701,21 +1889,23 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
     /* the other way across: q = n2.point rises where the offset o falls */
     double n2x = -nx, n2y = -ny;
     double qlo, qhi, plo, phi, half = hp / 2;
+    double bq = ht_base ? n2x * ht_bx + n2y * ht_by : 0.0;
+    double bp = ht_base ? ux * ht_bx + uy * ht_by : 0.0;
     int k, klo, khi, m, mlo, mhi, par, made = 0;
 
     hatch_span(n2x, n2y, &qlo, &qhi);
     hatch_span(ux, uy, &plo, &phi);
-    klo = (int)ceil(qlo / vp);
-    khi = (int)floor(qhi / vp);
-    mlo = (int)ceil(plo / half);
-    mhi = (int)floor(phi / half);
+    klo = (int)ceil((qlo - bq) / vp);
+    khi = (int)floor((qhi - bq) / vp);
+    mlo = (int)ceil((plo - bp) / half);
+    mhi = (int)floor((phi - bp) / half);
     if (khi - klo > 100000 || mhi - mlo > 100000)
         return 0;
     for (k = klo; k <= khi; k++)
-        made += hatch_at(d, -(k * vp), ux, uy, nx, ny);
+        made += hatch_at(d, -(bq + k * vp), ux, uy, nx, ny);
     for (par = 0; par < 2; par++)
         for (m = mhi; m >= mlo; m--) {
-            double t[HT_MAX], p = m * half;
+            double t[HT_MAX], p = bp + m * half;
             int nt, i;
 
             if (((m % 2) + 2) % 2 != par)
@@ -1724,7 +1914,7 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
             /* one course below the lowest line to one above the highest: a
                course can be cut off by the region and still show */
             for (k = klo - 1; k <= khi; k++) {
-                double qa = k * vp, qb = qa + vp;
+                double qa = bq + k * vp, qb = qa + vp;
 
                 if (((m + k) % 2 + 2) % 2 != 0)
                     continue;
@@ -2386,6 +2576,15 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
     return 1;
 }
 
+/* Whether a tick box on the bar is ticked, for the ones the port works: -1
+   means "not one of them, use what the original came up with". */
+int jw_cmd_bar_check(int id)
+{
+    if (current == JW_CMD_HATCH && id == 1323)
+        return ht_jisun;
+    return -1;
+}
+
 int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
     switch (id) {
@@ -2408,6 +2607,14 @@ int jw_cmd_bar(jw_drawing *d, int id)
             ht_mode_set(id);
             return 1;
         }
+        if (id == 1147) {       /* 基点変 -- the next click is the point */
+            ht_base_wait = 1;
+            return 1;
+        }
+        if (id == 1323) {       /* 実寸 */
+            ht_jisun = !ht_jisun;
+            return 1;
+        }
         if (id == 1149) {       /* クリアー */
             ht_n = 0;
             ht_round = 0;
@@ -2424,6 +2631,8 @@ int jw_cmd_bar(jw_drawing *d, int id)
     if (current == JW_CMD_KYOKUSEN) {
         if (id >= 1689 && id <= 1692) {
             cv_mode = id;
+            cv_n = 0;
+            cv_base = 0;
             return 1;
         }
         if (id == 1800) {       /* 作図実行 */
@@ -2443,8 +2652,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
         return 0;
     }
-    if (current == JW_CMD_SUNPO)
-        return id == 1059 ? (sun_deg = sun_deg == 0 ? 90 : 0, 1) : 0;
+    if (current == JW_CMD_SUNPO) {
+        if (id != 1059)
+            return 0;
+        box_put(1411, sun_angle() == 0.0 ? "90" : "0");
+        return 1;
+    }
     if (current != JW_CMD_HANI && current != JW_CMD_FUKUSHA
         && current != JW_CMD_IDOU)
         return 0;
@@ -2458,7 +2671,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         sel_step = 0;
         return 1;
     case 1059:                  /* 0ﾟ/90ﾟ on 寸法's bar */
-        sun_deg = sun_deg == 0 ? 90 : 0;
+        box_put(1411, sun_angle() == 0.0 ? "90" : "0");
         return 1;
     case 1066: {                /* 全選択: everything that is drawn */
         int i;
@@ -2477,7 +2690,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
 
 int jw_cmd_sunpo_angle(void)
 {
-    return sun_deg;
+    return (int)sun_angle();
 }
 
 static void box_put(int id, const char *v)
@@ -2648,7 +2861,7 @@ static void sunpo_text(char *out, int n, double mm, double scale)
 /* Put the six elements of one dimension in the drawing. */
 static void sunpo_make(jw_drawing *d, double bx, double by)
 {
-    double a = sun_deg == 90 ? PI / 2.0 : 0.0;
+    double a = sun_angle() * PI / 180.0;
     double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
     /* along the dimension's own direction, and across it */
     double s0 = sun_sx * ux + sun_sy * uy, s1 = bx * ux + by * uy;
@@ -2999,6 +3212,14 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
     }
     if (current == JW_CMD_HATCH) {
         int i;
+
+        if (ht_base_wait && d) {
+            ht_bx = x;
+            ht_by = y;
+            ht_base = 1;
+            ht_base_wait = 0;
+            return;
+        }
         if (!d)
             return;
         if (button != 1)
@@ -3023,6 +3244,10 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_KYOKUSEN) {
         if (button != 0 || !d)
             return;
+        if (cv_mode == 1689 || cv_mode == 1690) {
+            curve_point(d, v, x, y);
+            return;
+        }
         if (cv_n < CV_MAX) {
             cv_x[cv_n] = x;
             cv_y[cv_n] = y;

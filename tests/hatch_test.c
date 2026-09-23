@@ -82,9 +82,12 @@ static void type_box(int id, const char *v)
 }
 
 /* `set` is the three numbers to type in, or 0 to leave the bar as the mode
-   brings it up. */
+   brings it up; `jisun` presses 実寸 first, which puts the ピッチ into the
+   drawing's own units instead of paper millimetres; `base` presses 基点変 and
+   gives it the rectangle's own first corner, so the pattern counts from
+   there rather than from zero. */
 static void run(const char *path, int skip, int want, int mode,
-                const char *const *set, const char *what)
+                const char *const *set, int jisun, int base, const char *what)
 {
     unsigned char *b;
     long len;
@@ -161,15 +164,30 @@ static void run(const char *path, int skip, int want, int mode,
        "  角度 45・ピッチ 10・線間隔 1 to start with, as the original has them");
     if (mode != 1689)
         ck(jw_cmd_bar(d, mode) == 1, "  the mode button can be pressed");
-    if (mode >= 1692)
+    /* only worth looking at when this run has not typed its own numbers in:
+       the boxes keep what an earlier one left there */
+    if (mode >= 1692 && !set)
         ck(jw_cmd_box(1419) && !strcmp(jw_cmd_box(1419), "0")
            && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "3")
            && jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "6"),
            "  and brings up 角度 0・縦ピッチ 3・横ピッチ 6");
+    ck(jw_cmd_bar_check(1323) == 0, "  実寸 is off to start with");
+    if (jisun) {
+        ck(jw_cmd_bar(d, 1323) == 1, "  実寸 can be pressed");
+        ck(jw_cmd_bar_check(1323) == 1, "  and goes down");
+    }
     if (set) {
         type_box(1419, set[0]);
         type_box(1411, set[1]);
         type_box(1412, set[2]);
+    }
+    if (base) {
+        /* the corner of the rectangle the original was given, which is the
+           very pixel it was clicked at */
+        ck(jw_cmd_bar(d, 1147) == 1, "  基点変 can be pressed");
+        jw_cmd_point(d, app_view(), d->obj[before - skip].d[0],
+                     d->obj[before - skip].d[1], 0);
+        ck(d->ndrawn == before, "  and the point it takes draws nothing");
     }
     /* the left button picks one line at a time, which is not done and which
        the original leaves 実行 greyed for anyway */
@@ -212,30 +230,40 @@ static void run(const char *path, int skip, int want, int mode,
        "  in the pen new elements get");
     jw_cmd_undo(d);
     ck(d->ndrawn == before, "  元に戻る takes the whole hatch back");
+    if (jisun)
+        jw_cmd_bar(d, 1323);    /* it stays on across commands, so put it back */
     jw_free(&ref);
 }
 
 int main(void)
 {
     static const char *const b[3] = { "30", "20", "50" };
+    static const char *const j[3] = { "45", "2000", "1" };
 
-    run("decomp/res/hatch_circle.jww", 0, 26, 1689, 0,
+    run("decomp/res/hatch_circle.jww", 0, 26, 1689, 0, 0, 0,
         "a circle, 45 degrees, pitch 10:");
-    run("decomp/res/hatch_rect.jww", 4, 49, 1689, 0, "a rectangle, the same:");
-    run("decomp/res/hatch_r1690.jww", 4, 98, 1690, 0,
+    run("decomp/res/hatch_rect.jww", 4, 49, 1689, 0, 0, 0,
+        "a rectangle, the same:");
+    run("decomp/res/hatch_r1690.jww", 4, 98, 1690, 0, 0, 0,
         "the same rectangle, ２線, 線間隔 1:");
-    run("decomp/res/hatch_r1691.jww", 4, 147, 1691, 0,
+    run("decomp/res/hatch_r1691.jww", 4, 147, 1691, 0, 0, 0,
         "the same rectangle, ３線, 線間隔 1:");
-    run("decomp/res/hatch_r1692.jww", 4, 6467, 1692, 0,
+    run("decomp/res/hatch_r1692.jww", 4, 6467, 1692, 0, 0, 0,
         "the same rectangle, ┬┴┬, 角度 0・縦 3・横 6:");
-    run("decomp/res/hatch_r1692b.jww", 4, 146, 1692, b,
+    run("decomp/res/hatch_r1692b.jww", 4, 146, 1692, b, 0, 0,
         "the same rectangle, ┬┴┬, 角度 30・縦 20・横 50:");
+    run("decomp/res/hatch_base.jww", 4, 48, 1689, 0, 0, 1,
+        "the same rectangle, 基点変 to its own corner:");
+    run("decomp/res/hatch_base92.jww", 4, 143, 1692, b, 0, 1,
+        "and ┬┴┬ counting from that corner:");
     jw_cmd_set(JW_CMD_HATCH);
     jw_cmd_bar((jw_drawing *)app_drawing(), 1692);
     jw_cmd_bar((jw_drawing *)app_drawing(), 1689);
     ck(jw_cmd_box(1419) && !strcmp(jw_cmd_box(1419), "45")
        && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "10"),
        "going back to 1線 brings back 角度 45・ピッチ 10");
+    run("decomp/res/hatch_jisun.jww", 4, 49, 1689, j, 1, 0,
+        "the same rectangle again, 実寸 with ピッチ 2000 in a 1/200 drawing:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

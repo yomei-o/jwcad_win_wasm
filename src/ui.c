@@ -1221,6 +1221,8 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             on = c[i].checked;
             if (cmd == JW_CMD_SEN && c[i].x == 71)
                 on = jw_cmd_hv();
+            else if (jw_cmd_bar_check(c[i].id) >= 0)
+                on = jw_cmd_bar_check(c[i].id);
             paint_checkbox(fb, c[i].x, c[i].y, on);
             jw_text_px(fb, c[i].x + CHECK_W + 3, c[i].y + (c[i].h - th) / 2,
                        c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);

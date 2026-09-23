@@ -113,6 +113,7 @@ int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
  * dispatches them too.  Returns 1 when the screen has to be redrawn. */
 int  jw_cmd_bar(jw_drawing *d, int id);
 /* Whether that button is there to be pressed, for the drawing of the bar. */
+int  jw_cmd_bar_check(int id);
 int  jw_cmd_bar_enabled(const jw_drawing *d, int id);
 
 /* The range box while its second corner is being chosen: the original draws
