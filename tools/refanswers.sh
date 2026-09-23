@@ -377,15 +377,26 @@ hatch_rect_1692b() {
     cp orig/Test5.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -Cmd 32772         -Clicks "300,300;800,600;cmd:32874;btn:1692;set:1419,30;set:1411,20;set:1412,50;r550,300;btn:1148;saveas:decomp/res/hatch_r1692b.jww"         2>&1 | sed 's/^/        /'
 }
+# 実寸 (1323): with it on the ピッチ is in the drawing's own units, so 2000
+# in a 1/200 drawing draws what 10 does with it off -- the same 49 lines.
+hatch_rect_jisun() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32772 \
+        -Clicks "300,300;800,600;cmd:32874;btn:1323;ch:1411,2000;r550,300;btn:1148;saveas:decomp/res/hatch_jisun.jww" \
+        2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬)"
+    echo "=== hatch (a circle and a rectangle, 1線 2線 3線 ┬┴┬ 実寸)"
     hatch_circle
     hatch_rect
     hatch_rect_mode 1690
     hatch_rect_mode 1691
     hatch_rect_mode 1692
     hatch_rect_1692b
+    hatch_rect_jisun
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

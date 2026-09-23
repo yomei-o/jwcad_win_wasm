@@ -173,6 +173,14 @@ static double ht_x[HT_MAX], ht_y[HT_MAX];
 static int ht_n;                /* corners in the ring, 0 when none */
 static double ht_cx, ht_cy, ht_r;
 static int ht_round;            /* the boundary is a circle */
+/* ハッチの実寸 (the bar's 1323).  While it is off the ピッチ is in paper
+   millimetres, which is how the original comes up; turned on it is in the
+   drawing's own units, so it is divided by the write layer group's scale.
+   Pitch 2000 with it on drew exactly the same 49 lines as pitch 10 with it
+   off in a 1/200 drawing (decomp/res/hatch_jisun.jww against hatch_rect.jww).
+   It stays on across commands, the way the boxes keep their numbers. */
+static int ht_jisun;
+
 static void ht_mode_set(int id);
 static int ht_mode = 1689;      /* 1線, the one the original enters in */
 /* The bar keeps one set of numbers for 1線・2線・3線 and another for
@@ -1701,6 +1709,17 @@ static void hatch(jw_drawing *d)
     }
     if (!ht_round && ht_n < 4)
         return;
+    if (ht_jisun) {             /* 実寸: the numbers are the drawing's own */
+        int wg = 0, k;
+
+        for (k = 0; k < 16; k++)
+            if (d->group[k].state == 3)
+                wg = k;
+        if (d->group[wg].scale > 0.0) {
+            pitch /= d->group[wg].scale;
+            gap /= d->group[wg].scale;
+        }
+    }
     ux = cos(ang * PI / 180.0);
     uy = sin(ang * PI / 180.0);
     nx = uy;                    /* turn the direction a quarter turn */
@@ -2546,6 +2565,15 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
     return 1;
 }
 
+/* Whether a tick box on the bar is ticked, for the ones the port works: -1
+   means "not one of them, use what the original came up with". */
+int jw_cmd_bar_check(int id)
+{
+    if (current == JW_CMD_HATCH && id == 1323)
+        return ht_jisun;
+    return -1;
+}
+
 int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
     switch (id) {
@@ -2566,6 +2594,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
     if (current == JW_CMD_HATCH) {
         if (id >= 1689 && id <= 1693) {
             ht_mode_set(id);
+            return 1;
+        }
+        if (id == 1323) {       /* 実寸 */
+            ht_jisun = !ht_jisun;
             return 1;
         }
         if (id == 1149) {       /* クリアー */
