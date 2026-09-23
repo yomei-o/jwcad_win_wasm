@@ -7,6 +7,7 @@
 #include "draw.h"
 #include "gen/circle.h"
 #include "gen/pens.h"
+#include "gen/wide.h"
 #include "text.h"
 
 #define PI 3.14159265358979323846
@@ -123,10 +124,20 @@ static int clip_major(double lo, double hi, double *p0, double *q0,
     return 1;
 }
 
-/* One pixel wide, the way GDI draws it -- Jw_cad goes through LineTo.  GDI
- * leaves the last point out; `open` says whether to do the same. */
-static void stroke(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
-                   unsigned int col, int wide, int open)
+/* The table in gen/wide.h is indexed by the width and by the offset across
+ * the line; this hands back one row of it. */
+static const signed char *wide_row(int wide, int xmaj, int d)
+{
+    int w = wide >= 1 && wide <= JW_WIDE_MAX ? wide : 1;
+
+    return xmaj ? JW_WIDE_H[w - 1][d] : JW_WIDE_V[w - 1][d];
+}
+
+/* One pass along the line, offset across it by (ox, oy) and running from `a`
+ * steps before its first pixel to `b` steps after its last.  A negative `b`
+ * stops short: that is how GDI's LineTo leaves its last point out. */
+static void stroke_at(fb_t *fb, const rect_t *c, int x0, int y0, int x1,
+                      int y1, unsigned int col, int ox, int oy, int a, int b)
 {
     int dx = x1 > x0 ? x1 - x0 : x0 - x1;
     int dy = y1 > y0 ? y1 - y0 : y0 - y1;
@@ -142,24 +153,82 @@ static void stroke(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
     int mj = xmaj ? dx : dy;
     int mn = xmaj ? dy : dx;
     int tie = xmaj ? (sy < 0) : (sx < 0);
+    int sxm = xmaj ? sx : 0, sym = xmaj ? 0 : sy;
     int e = 2 * mn - mj;
-    int k;
+    int k, last = mj + (b < 0 ? b : 0);
+    /* a positive `a` is the other way round: the outermost row of a level
+       line starts a pixel late, so the walk skips that many */
+    int first = a > 0 ? a : 0;
 
-    if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
-        return;
-    for (k = 0; k <= mj; k++) {
-        int i, j;
-        if (k == mj && open)
-            break;
-        for (j = 0; j < wide; j++)
-            for (i = 0; i < wide; i++)
-                put(fb, c, x0 + i, y0 + j, col);
+    /* the ends the round cap adds, straight on along the long axis */
+    for (k = a; k < 0; k++)
+        put(fb, c, x0 + sxm * k + ox, y0 + sym * k + oy, col);
+    for (k = 0; k <= last; k++) {
+        if (k >= first)
+            put(fb, c, x0 + ox, y0 + oy, col);
         if (e > 0 || (e == 0 && tie)) {
             if (xmaj) y0 += sy; else x0 += sx;
             e -= 2 * mj;
         }
         e += 2 * mn;
         if (xmaj) x0 += sx; else y0 += sy;
+    }
+    for (k = 1; k <= b; k++)
+        put(fb, c, x1 + sxm * k + ox, y1 + sym * k + oy, col);
+}
+
+/* A line as wide as its pen, the way GDI draws it -- Jw_cad goes through
+ * LineTo with CreatePen(PS_SOLID, width, colour) (FUN_004db560).
+ *
+ * A wide line is not a square stamp walked along the line.  GDI rounds the
+ * ends off, and for an even width it is not symmetric: the extra pixels go
+ * above a level line and to the left of an upright one, and the outermost
+ * row of a level one starts a pixel late.  tools/gdiwide.c asks GDI for all
+ * of that, as a start and an end delta for each offset across the line, and
+ * width 1 is in the same table (0, -1: LineTo leaves its last point out), so
+ * this one loop covers every pen.
+ *
+ * `open` says whether to leave the last point out, as before: the caller
+ * closes the last run of a dashed line so its far pixel is drawn. */
+static void stroke(fb_t *fb, const rect_t *c, int x0, int y0, int x1, int y1,
+                   unsigned int col, int wide, int open)
+{
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    int dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    int xmaj = dx > dy;
+    int w = wide >= 1 && wide <= JW_WIDE_MAX ? wide : 1;
+    int d;
+
+    if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
+        return;
+    for (d = 0; d < w; d++) {
+        const signed char *t = wide_row(w, xmaj, d);
+        int off = d - w / 2;
+
+        stroke_at(fb, c, x0, y0, x1, y1, col, xmaj ? 0 : off,
+                  xmaj ? off : 0, t[0], t[1] + (open ? 0 : 1));
+    }
+}
+
+/* One pixel of a line, as wide as the pen.  A walk that goes pixel by pixel
+ * -- a dotted line, a chord of an ellipse -- has no run to hand to stroke(),
+ * so it stamps this instead: the shape the table gives in the middle of a
+ * run, which is all such a walk can know. */
+static void wide_dot(fb_t *fb, const rect_t *c, int x, int y,
+                     unsigned int col, int wide, int xmaj)
+{
+    int w = wide >= 1 && wide <= JW_WIDE_MAX ? wide : 1;
+    int d, t;
+
+    if (w == 1) {
+        put(fb, c, x, y, col);
+        return;
+    }
+    for (d = 0; d < w; d++) {
+        int off = d - w / 2, e = wide_row(w, xmaj, d)[1];
+
+        for (t = -e; t <= e; t++)
+            put(fb, c, xmaj ? x + t : x + off, xmaj ? y + off : y + t, col);
     }
 }
 
@@ -244,11 +313,8 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
             return;
         for (k = 0; k <= mj; k++) {
-            int i, j;
             if (bits_set(ltype, step, ppb))
-                for (j = 0; j < wide; j++)
-                    for (i = 0; i < wide; i++)
-                        put(fb, c, x0 + i, y0 + j, col);
+                wide_dot(fb, c, x0, y0, col, wide, xmaj);
             step += 1.0;
             if (e > 0 || (e == 0 && tie)) {
                 if (xmaj) y0 += sy; else x0 += sx;
@@ -344,14 +410,16 @@ static unsigned int pen_colour(const jw_drawing *d, int pen)
     return d->pen_rgb[pen >= 1 && pen <= 9 ? pen : 2];
 }
 
-/* One pixel, always.  The file carries a width per pen and the original
- * honours it when printing, but not on the screen: Test1.jww's 道路中心線 is
- * pen 6, whose width is 2, and the original draws it one row high. */
+/* The width of a pen, from the drawing's own table.  Test3.jww has pen 6 at
+ * 2, 7 at 3 and 8 at 5, and the original draws them that wide: its blue
+ * dashed border comes out on rows 559 and 560 where the port had only 560,
+ * and on columns 427 and 428 where it had only 428.  That is 533 pixels of
+ * Test3.jww on its own. */
 static int pen_wide(const jw_drawing *d, int pen)
 {
-    (void)d;
-    (void)pen;
-    return 1;
+    int w = pen >= 1 && pen <= 9 ? d->pen_width[pen] : 1;
+
+    return w >= 1 && w <= JW_WIDE_MAX ? w : 1;
 }
 
 /* How an element is shown, exactly as FUN_0043b460 works it out:
@@ -583,7 +651,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             double a = a0 + tilt;
             int step = sweep < 0 ? -1 : 1;
             double span = sweep < 0 ? -sweep : sweep;
-            int start = 0, i, j;
+            int start = 0;
             double bestd = 1e9;
 
             /* Which boundary pixel the arc starts on.  The pixels are not
@@ -619,9 +687,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 sx = cxp + pts[2 * m];
                 sy = cyp + pts[2 * m + 1];
                 if (bits_set(lt, phase, ppb))
-                    for (j = 0; j < wide; j++)
-                        for (i = 0; i < wide; i++)
-                            put(fb, &v->clip, sx + i, sy + j, col);
+                    wide_dot(fb, &v->clip, sx, sy, col, wide, 1);
                 phase += 1.0;
                 if (dumpwalk)
                     fprintf(stderr, "walk %d %d %d %.3f\n", idx, sx, sy, phase);

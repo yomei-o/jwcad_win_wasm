@@ -56,6 +56,11 @@ $CC -O2 -o tmp/gdicirc.exe tools/gdicirc.c -lgdi32
 ./tmp/gdicirc.exe > decomp/res/circles.txt
 python tools/mkcirc.py
 
+say "and what GDI covers with a wide pen"
+$CC -O2 -o tmp/gdiwide.exe tools/gdiwide.c -lgdi32
+./tmp/gdiwide.exe > decomp/res/widepen.txt
+python tools/mkwide.py
+
 [ "$1" = "-q" ] && { echo; echo "stopped before the parts that run the original"; exit 0; }
 
 say 'the original has to run from here on'

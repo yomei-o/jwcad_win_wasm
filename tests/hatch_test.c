@@ -14,6 +14,21 @@
  * that offset.  A circle of radius 129.88 at 45 degrees and pitch 10 gave 26
  * chords at offsets 190 down to -60, and a rectangle 49 at 300 down to -180
  * (decomp/res/hatch_*.jww).  They come out far side first.
+ *
+ * ２線 (1690) and ３線 (1691) draw two and three lines per ピッチ, 線間隔
+ * apart and centred on where the one line would have been: the same rectangle
+ * came back with 98 lines at 300.5, 299.5, 290.5, 289.5 ... and with 147 at
+ * 301, 300, 299, 291, 290, 289 ... (decomp/res/hatch_r169*.jww).  So the
+ * group still goes far side first, and so does the group's own inside.
+ *
+ * ┬┴┬ (1692) is a running bond: lines all the way across every 縦ピッチ, and
+ * between them cross pieces every half a 横ピッチ, drawn where m + k is even
+ * (m counts the columns, k the courses) so they stagger.  Two runs of the
+ * original pin it down -- 角度 0・縦 3・横 6 as the bar comes up, and
+ * 角度 30・縦 20・横 50 typed in -- 6,467 pieces and 146.
+ *
+ * The bar keeps a set of numbers per mode: 1線 comes up 45・10・1 and ┬┴┬
+ * comes up 0・3・6, and going back shows 45・10・1 again.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,12 +69,27 @@ static unsigned char *slurp(const char *path, long *n)
 
 /* Test5's own 46 lines come first; `skip` more are the boundary the run drew
    before the hatch itself. */
-static void run(const char *path, int skip, int want, const char *what)
+static void type_box(int id, const char *v)
+{
+    int i;
+
+    jw_cmd_box_click(id);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    for (; *v; v++)
+        jw_cmd_box_key((unsigned char)*v);
+    jw_cmd_box_key(13);
+}
+
+/* `set` is the three numbers to type in, or 0 to leave the bar as the mode
+   brings it up. */
+static void run(const char *path, int skip, int want, int mode,
+                const char *const *set, const char *what)
 {
     unsigned char *b;
     long len;
     jw_drawing ref, *d;
-    const jw_obj *all[4096], *circle = 0, *seg[256];
+    const jw_obj *all[8192], *circle = 0, *seg[8192];
     int i, na = 0, before, ns = 0;
     double worst = 0;
 
@@ -77,7 +107,7 @@ static void run(const char *path, int skip, int want, const char *what)
     }
     free(b);
     for (i = 0; i < ref.ndrawn; i++) {
-        if (ref.obj[i].cls == JW_SEN && na < 4096)
+        if (ref.obj[i].cls == JW_SEN && na < 8192)
             all[na++] = &ref.obj[i];
         if (ref.obj[i].cls == JW_ENKO)
             circle = &ref.obj[i];
@@ -87,7 +117,7 @@ static void run(const char *path, int skip, int want, const char *what)
         jw_free(&ref);
         return;
     }
-    for (i = na - want; i < na && ns < 256; i++)
+    for (i = na - want; i < na && ns < 8192; i++)
         seg[ns++] = all[i];
 
     app_resize(1264, 741);
@@ -126,8 +156,21 @@ static void run(const char *path, int skip, int want, const char *what)
 
     jw_cmd_set(JW_CMD_HATCH);
     ck(jw_cmd_box(1419) && !strcmp(jw_cmd_box(1419), "45")
-       && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "10"),
-       "  角度 45 と ピッチ 10 to start with, as the original has them");
+       && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "10")
+       && jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "1"),
+       "  角度 45・ピッチ 10・線間隔 1 to start with, as the original has them");
+    if (mode != 1689)
+        ck(jw_cmd_bar(d, mode) == 1, "  the mode button can be pressed");
+    if (mode >= 1692)
+        ck(jw_cmd_box(1419) && !strcmp(jw_cmd_box(1419), "0")
+           && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "3")
+           && jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "6"),
+           "  and brings up 角度 0・縦ピッチ 3・横ピッチ 6");
+    if (set) {
+        type_box(1419, set[0]);
+        type_box(1411, set[1]);
+        type_box(1412, set[2]);
+    }
     /* the left button picks one line at a time, which is not done and which
        the original leaves 実行 greyed for anyway */
     jw_cmd_point(d, app_view(), seg[0]->d[0], seg[0]->d[1], 0);
@@ -174,8 +217,25 @@ static void run(const char *path, int skip, int want, const char *what)
 
 int main(void)
 {
-    run("decomp/res/hatch_circle.jww", 0, 26, "a circle, 45 degrees, pitch 10:");
-    run("decomp/res/hatch_rect.jww", 4, 49, "a rectangle, the same:");
+    static const char *const b[3] = { "30", "20", "50" };
+
+    run("decomp/res/hatch_circle.jww", 0, 26, 1689, 0,
+        "a circle, 45 degrees, pitch 10:");
+    run("decomp/res/hatch_rect.jww", 4, 49, 1689, 0, "a rectangle, the same:");
+    run("decomp/res/hatch_r1690.jww", 4, 98, 1690, 0,
+        "the same rectangle, ２線, 線間隔 1:");
+    run("decomp/res/hatch_r1691.jww", 4, 147, 1691, 0,
+        "the same rectangle, ３線, 線間隔 1:");
+    run("decomp/res/hatch_r1692.jww", 4, 6467, 1692, 0,
+        "the same rectangle, ┬┴┬, 角度 0・縦 3・横 6:");
+    run("decomp/res/hatch_r1692b.jww", 4, 146, 1692, b,
+        "the same rectangle, ┬┴┬, 角度 30・縦 20・横 50:");
+    jw_cmd_set(JW_CMD_HATCH);
+    jw_cmd_bar((jw_drawing *)app_drawing(), 1692);
+    jw_cmd_bar((jw_drawing *)app_drawing(), 1689);
+    ck(jw_cmd_box(1419) && !strcmp(jw_cmd_box(1419), "45")
+       && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "10"),
+       "going back to 1線 brings back 角度 45・ピッチ 10");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
