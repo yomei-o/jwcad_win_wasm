@@ -227,6 +227,16 @@ sekcc() {               # sekcc <name> <where the circle goes>
     cp orig/Test5.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -Cmd 32773         -Clicks "450,400;530,400;cmd:32773;800,400;860,400;cmd:32872;ch:1411,40000;450,320;800,340;$2;saveas:decomp/res/sekcc_$1.jww"         2>&1 | sed 's/^/        /'
 }
+# 多重円 (the box next to it, 1417): that many circles sharing the centre,
+# the radius divided up.
+sekmul() {              # sekmul <name> <the rest of the clicks>
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0 \
+        -Clicks "$2;saveas:decomp/res/sekmul_$1.jww" \
+        2>&1 | sed 's/^/        /'
+}
 sek3() {
     idle
     sh tools/refenv.sh >/dev/null
@@ -247,6 +257,8 @@ while :; do
     sekcc e 950,400
     sekcc w 300,400
     sek3
+    sekmul a "300,250;900,600;300,600;900,250;cmd:32872;ch:1417,3;ch:1411,2000;400,308;400,542;400,425"
+    sekmul b "300,250;900,250;300,250;600,600;900,250;600,600;cmd:32872;ch:1417,3;600,250;450,425;750,425"
     if [ ! -x tests/sekien_test.exe ]; then
         echo "    (tests/sekien_test.exe is not built -- not checked)"
         break

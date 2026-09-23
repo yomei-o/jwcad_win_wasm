@@ -195,6 +195,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
     { JW_CMD_NISEN, 1412, "" },         /* ２線の間隔, "a,b"         */
     { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
+    { JW_CMD_SEKIEN, 1417, "" },        /* 多重円 -- empty is one circle */
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
                                            comes up with 7 */
     { JW_CMD_SESSEN, 1412, "" },        /* 接線 角度指定 の角度 */
@@ -1950,6 +1951,13 @@ static int sek_places(const sek_el *p, const sek_el *q, double r,
     return n;
 }
 
+/* 多重円 (the box beside it, 1417): that many circles sharing the centre,
+ * the radius divided up.  Three of them leaves r, 2r/3 and r/3, biggest
+ * first, and it works the same for the three-element kind
+ * (decomp/res/sekmul_*.jww).
+ */
+static int sek_draw(jw_drawing *d, double cx, double cy, double r);
+
 static jw_obj *sek_add(jw_drawing *d, double cx, double cy, double r)
 {
     jw_obj *o = jw_add(d, JW_ENKO);
@@ -1965,6 +1973,21 @@ static jw_obj *sek_add(jw_drawing *d, double cx, double cy, double r)
     o->d[6] = 1.0;                      /* round, not squashed */
     o->n = 1;                           /* the trailing 1 a whole circle has */
     return o;
+}
+
+static int sek_draw(jw_drawing *d, double cx, double cy, double r)
+{
+    const char *sn = jw_cmd_box(1417);
+    int n = sn ? atoi(sn) : 0, k, made = 0;
+
+    if (n < 1)
+        n = 1;
+    if (n > 64)
+        n = 64;
+    for (k = n; k >= 1; k--)
+        if (sek_add(d, cx, cy, r * k / n))
+            made++;
+    return made;
 }
 
 /* The 半径 box, in the drawing's own units. */
@@ -2008,8 +2031,9 @@ static void sekien(jw_drawing *d, int a, int b, double x, double y)
     }
     if (best < 0)
         return;
-    if (sek_add(d, px[best], py[best], r))
-        op_push(1);
+    n = sek_draw(d, px[best], py[best], r);
+    if (n)
+        op_push(n);
 }
 
 /* 接円, three elements and an empty 半径 box: the circle that touches all
@@ -2081,8 +2105,9 @@ static void sekien3(jw_drawing *d, int a, int b, int c, double x, double y)
             }
     if (!have)
         return;
-    if (sek_add(d, bx, by, best))
-        op_push(1);
+    i = sek_draw(d, bx, by, best);
+    if (i)
+        op_push(i);
 }
 
 static void tensen(jw_drawing *d, int b, double px, double py,
