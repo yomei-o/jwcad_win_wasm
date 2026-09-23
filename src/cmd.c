@@ -186,6 +186,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
                                            comes up with 7 */
     { JW_CMD_HATCH, 1419, "45" },       /* ハッチの角度   */
     { JW_CMD_HATCH, 1411, "10" },       /* ハッチのピッチ */
+    { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
 };
 static int box_focus;
 
@@ -1498,17 +1499,29 @@ static int hatch_ring(const jw_drawing *d, int a)
     return 0;
 }
 
+static int hatch_at(jw_drawing *d, double o, double ux, double uy,
+                    double nx, double ny);
+
 static void hatch(jw_drawing *d)
 {
     const char *sa = jw_cmd_box(1419), *sp = jw_cmd_box(1411);
+    const char *sg = jw_cmd_box(1412);
     double ang = sa ? atof(sa) : 0.0, pitch = sp ? atof(sp) : 0.0;
+    double gap = sg ? atof(sg) : 0.0;
     double ux, uy, nx, ny, lo, hi, o;
-    int i, k, k0, k1, made = 0;
+    int i, k, k0, k1, made = 0, extra = 0;
 
-    if (ht_mode != 1689)
-        return;                 /* only 1線 is done */
+    if (ht_mode != 1689 && ht_mode != 1690 && ht_mode != 1691)
+        return;                 /* ┬┴┬ and 図形 are not done */
     if (pitch <= 0.0)
         return;
+    if (ht_mode != 1689) {
+        if (gap <= 0.0)
+            return;
+        /* a group whose middle falls outside the region can still have a
+           line of its own inside it */
+        extra = 1;
+    }
     if (!ht_round && ht_n < 4)
         return;
     ux = cos(ang * PI / 180.0);
@@ -1531,20 +1544,44 @@ static void hatch(jw_drawing *d)
     if (k1 - k0 > 100000)
         return;
     /* the original goes from the far side back: its first line is the one at
-       the highest offset */
-    for (k = k1; k >= k0; k--) {
-        double t[HT_MAX];
-        int nt = 0;
-        jw_obj *ob;
-
+       the highest offset, and inside a ２線 or ３線 group the same way round
+       -- 301, 300, 299, then 291, 290, 289 */
+    for (k = k1 + extra; k >= k0 - extra; k--) {
         o = k * pitch;
+        switch (ht_mode) {
+        case 1690:
+            made += hatch_at(d, o + gap / 2, ux, uy, nx, ny);
+            made += hatch_at(d, o - gap / 2, ux, uy, nx, ny);
+            break;
+        case 1691:
+            made += hatch_at(d, o + gap, ux, uy, nx, ny);
+            made += hatch_at(d, o, ux, uy, nx, ny);
+            made += hatch_at(d, o - gap, ux, uy, nx, ny);
+            break;
+        default:
+            made += hatch_at(d, o, ux, uy, nx, ny);
+            break;
+        }
+    }
+    if (made)
+        op_push(made);
+}
+
+static int hatch_at(jw_drawing *d, double o, double ux, double uy,
+                    double nx, double ny)
+{
+    double t[HT_MAX];
+    int i, nt = 0, made = 0;
+    jw_obj *ob;
+
+    {
         if (ht_round) {
             double dd = o - (nx * ht_cx + ny * ht_cy);
             double h = ht_r * ht_r - dd * dd;
             double mid;
 
             if (h <= 0.0)
-                continue;
+                return 0;       /* this one misses the circle */
             h = sqrt(h);
             mid = ux * ht_cx + uy * ht_cy;
             t[nt++] = mid - h;
@@ -1574,7 +1611,7 @@ static void hatch(jw_drawing *d)
                 continue;
             ob = jw_add(d, JW_SEN);
             if (!ob)
-                return;
+                return made;
             ob->d[0] = ux * t[i] + nx * o;
             ob->d[1] = uy * t[i] + ny * o;
             ob->d[2] = ux * t[i + 1] + nx * o;
@@ -1582,8 +1619,7 @@ static void hatch(jw_drawing *d)
             made++;
         }
     }
-    if (made)
-        op_push(made);
+    return made;
 }
 
 static void sekien(jw_drawing *d, int a, int b, double x, double y)

@@ -14,6 +14,12 @@
  * that offset.  A circle of radius 129.88 at 45 degrees and pitch 10 gave 26
  * chords at offsets 190 down to -60, and a rectangle 49 at 300 down to -180
  * (decomp/res/hatch_*.jww).  They come out far side first.
+ *
+ * ２線 (1690) and ３線 (1691) draw two and three lines per ピッチ, 線間隔
+ * apart and centred on where the one line would have been: the same rectangle
+ * came back with 98 lines at 300.5, 299.5, 290.5, 289.5 ... and with 147 at
+ * 301, 300, 299, 291, 290, 289 ... (decomp/res/hatch_r169*.jww).  So the
+ * group still goes far side first, and so does the group's own inside.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,7 +60,8 @@ static unsigned char *slurp(const char *path, long *n)
 
 /* Test5's own 46 lines come first; `skip` more are the boundary the run drew
    before the hatch itself. */
-static void run(const char *path, int skip, int want, const char *what)
+static void run(const char *path, int skip, int want, int mode,
+                const char *what)
 {
     unsigned char *b;
     long len;
@@ -126,8 +133,11 @@ static void run(const char *path, int skip, int want, const char *what)
 
     jw_cmd_set(JW_CMD_HATCH);
     ck(jw_cmd_box(1419) && !strcmp(jw_cmd_box(1419), "45")
-       && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "10"),
-       "  角度 45 と ピッチ 10 to start with, as the original has them");
+       && jw_cmd_box(1411) && !strcmp(jw_cmd_box(1411), "10")
+       && jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "1"),
+       "  角度 45・ピッチ 10・線間隔 1 to start with, as the original has them");
+    if (mode != 1689)
+        ck(jw_cmd_bar(d, mode) == 1, "  the mode button can be pressed");
     /* the left button picks one line at a time, which is not done and which
        the original leaves 実行 greyed for anyway */
     jw_cmd_point(d, app_view(), seg[0]->d[0], seg[0]->d[1], 0);
@@ -174,8 +184,13 @@ static void run(const char *path, int skip, int want, const char *what)
 
 int main(void)
 {
-    run("decomp/res/hatch_circle.jww", 0, 26, "a circle, 45 degrees, pitch 10:");
-    run("decomp/res/hatch_rect.jww", 4, 49, "a rectangle, the same:");
+    run("decomp/res/hatch_circle.jww", 0, 26, 1689,
+        "a circle, 45 degrees, pitch 10:");
+    run("decomp/res/hatch_rect.jww", 4, 49, 1689, "a rectangle, the same:");
+    run("decomp/res/hatch_r1690.jww", 4, 98, 1690,
+        "the same rectangle, ２線, 線間隔 1:");
+    run("decomp/res/hatch_r1691.jww", 4, 147, 1691,
+        "the same rectangle, ３線, 線間隔 1:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
