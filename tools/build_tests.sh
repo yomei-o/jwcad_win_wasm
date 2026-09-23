@@ -31,9 +31,10 @@ $CC $CFLAGS -o tests/mentori_test.exe tests/mentori_test.c tests/png.c $COMMON -
 $CC $CFLAGS -o tests/bunkatsu_test.exe tests/bunkatsu_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/nisen_test.exe tests/nisen_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/chushin_test.exe tests/chushin_test.c tests/png.c $COMMON -lm
+$CC $CFLAGS -o tests/zokuhen_test.exe tests/zokuhen_test.c $COMMON -lm
 $CC $CFLAGS -o tests/menu_test.exe tests/menu_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/sessen_test.exe tests/sessen_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/sekien_test.exe tests/sekien_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/curve_test.exe tests/curve_test.c tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/hatch_test.exe tests/hatch_test.c tests/png.c $COMMON -lm
-echo "built tests/frame.exe tests/shot.exe tests/jww_test.exe tests/pick_test.exe tests/read_test.exe tests/click_test.exe tests/write_test.exe tests/new_test.exe tests/sel_test.exe tests/layer_test.exe tests/sunpo_test.exe tests/zoku_test.exe tests/session_test.exe tests/poly_test.exe tests/mentori_test.exe tests/bunkatsu_test.exe tests/nisen_test.exe tests/chushin_test.exe tests/menu_test.exe tests/sessen_test.exe tests/sekien_test.exe tests/curve_test.exe tests/hatch_test.exe"
+echo "built tests/frame.exe tests/shot.exe tests/jww_test.exe tests/pick_test.exe tests/read_test.exe tests/click_test.exe tests/write_test.exe tests/new_test.exe tests/sel_test.exe tests/layer_test.exe tests/sunpo_test.exe tests/zoku_test.exe tests/session_test.exe tests/poly_test.exe tests/mentori_test.exe tests/bunkatsu_test.exe tests/nisen_test.exe tests/chushin_test.exe tests/zokuhen_test.exe tests/menu_test.exe tests/sessen_test.exe tests/sekien_test.exe tests/curve_test.exe tests/hatch_test.exe"

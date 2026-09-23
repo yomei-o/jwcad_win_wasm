@@ -189,6 +189,9 @@ static int ht_nreg;
    off in a 1/200 drawing (decomp/res/hatch_jisun.jww against hatch_rect.jww).
    It stays on across commands, the way the boxes keep their numbers. */
 static int ht_jisun;
+/* 属性変更's two ticks, both on when the command is entered:
+   線種・文字種変更 (1352) and 書込みレイヤに変更 (1353). */
+static int zh_type = 1, zh_layer = 1;
 /* ハッチの基点変 (the bar's 1147).  It asks 「基準点を指示して下さい」 and the
    next click is the point the whole pattern counts from: the lines then sit
    where the distance across is that point's plus a whole ピッチ, and ┬┴┬'s
@@ -484,6 +487,8 @@ void jw_cmd_set(int id)
         cv_mode = 1691;
         cv_base = 0;
     }
+    if (id == JW_CMD_ZOKUHEN)
+        zh_type = zh_layer = 1;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_nreg = 0;
@@ -1770,6 +1775,42 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx,
                       double ny, double vp, double hp);
 static void hatch_span(double ax, double ay, double *lo, double *hi);
 
+/* Give an element the write attributes.  It comes back at the end of the
+ * drawing, which is what the original does -- so what is drawn on top of what
+ * changes with it. */
+static void zoku_change(jw_drawing *d, int i)
+{
+    jw_obj was, *o;
+    op_t *rec;
+    unsigned short colour, lt;
+    unsigned char layer, lgroup;
+
+    if (!d || i < 0 || i >= d->ndrawn)
+        return;
+    was = d->obj[i];
+    rec = op_new();
+    if (!rec)
+        return;
+    erase(d, i, rec);
+    o = jw_add(d, was.cls);
+    if (!o)
+        return;
+    colour = o->color;          /* what a new element gets */
+    lt = o->ltype;
+    layer = o->layer;
+    lgroup = o->lgroup;
+    *o = was;
+    if (zh_type) {
+        o->color = colour;
+        o->ltype = lt;
+    }
+    if (zh_layer) {
+        o->layer = layer;
+        o->lgroup = lgroup;
+    }
+    rec->n = 1;
+}
+
 static void hatch(jw_drawing *d)
 {
     const char *sa = jw_cmd_box(1419), *sp = jw_cmd_box(1411);
@@ -2662,6 +2703,10 @@ int jw_cmd_bar_check(int id)
 {
     if (current == JW_CMD_HATCH && id == 1323)
         return ht_jisun;
+    if (current == JW_CMD_ZOKUHEN && id == 1352)
+        return zh_type;
+    if (current == JW_CMD_ZOKUHEN && id == 1353)
+        return zh_layer;
     return -1;
 }
 
@@ -2747,6 +2792,13 @@ int jw_cmd_bar(jw_drawing *d, int id)
             ses_a = -1;
             return 1;
         }
+        return 0;
+    }
+    if (current == JW_CMD_ZOKUHEN) {
+        if (id == 1352)
+            return zh_type = !zh_type, 1;
+        if (id == 1353)
+            return zh_layer = !zh_layer, 1;
         return 0;
     }
     if (current == JW_CMD_SUNPO) {
@@ -3158,6 +3210,35 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         op_push(1);
         line_n = 0;
         line_gen++;
+        return;
+    }
+    if (current == JW_CMD_ZOKUHEN) {
+        /* 属性変更 (0x80b8).  「変更するデータを指示してください。 線・円・
+         * 実点(L) 文字(R)」 -- one click on one element, no range and no
+         * button: the earlier note here had it as unresolved because it was
+         * tried by confirming a range first.
+         *
+         * What it does is give that element the write pen, line type and
+         * layer, and **move it to the end of the drawing**: the original's
+         * saved file has the changed line last, with everything after it
+         * shifted up one.  The bar's two ticks say which halves to apply --
+         * 線種・文字種変更 (1352) and 書込みレイヤに変更 (1353), both on when
+         * the command is entered.
+         */
+        int i;
+
+        if (!d)
+            return;
+        i = jw_pick(d, v, x, y, button ? 1 : 3);
+        if (i < 0)
+            return;
+        if (button != 0) {
+            if (d->obj[i].cls != JW_MOJI)
+                return;         /* (R) is for texts */
+        } else if (d->obj[i].cls == JW_MOJI) {
+            return;             /* and (L) for everything else */
+        }
+        zoku_change(d, i);
         return;
     }
     if (current == JW_CMD_ZOKUSEI) {

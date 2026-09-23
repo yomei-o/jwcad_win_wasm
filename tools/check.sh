@@ -82,6 +82,10 @@ echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 ./tests/chushin_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 属性変更 —— 原典が変えた要素との突き合わせ"
+./tests/zokuhen_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 

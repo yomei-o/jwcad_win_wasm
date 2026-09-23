@@ -101,6 +101,11 @@ make sunpo sunpo 0 \
     '300,600;700,600;cmd:32847;ch:1411,30;400,500;400,450;r300,600;r700,600' \
     || fails=$((fails+1))
 
+# 属性変更 (0x80b8).  One click on one element -- no range, no button.  It
+# gives Test5's first line the write layer and moves it to the end of the
+# drawing; (394,534) is that line's middle on this view.
+make zokuhen zokuhen 32952 '394,534' || fails=$((fails+1))
+
 # 多角形 (0x807e).  角数 8, 寸法 3000, 底辺角度 30, then one click for the
 # centre -- the eight vertices follow from those three numbers.
 make poly poly 32894 \
