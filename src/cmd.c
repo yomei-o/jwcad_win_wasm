@@ -98,6 +98,9 @@ static int tracking;
 static int sel_step;
 static double sel_x0, sel_y0, sel_x1, sel_y1;
 static double base_x, base_y;   /* 基準点 */
+/* 反転 (the second stage's 1067): once pressed, the next click picks the
+   基準線 to flip the selection across. */
+static int sel_flip;
 /* What the selected elements looked like when 基準点 was taken, so a move
    can put them at that place plus the offset however often it is done. */
 static jw_obj *sel_was;
@@ -2532,6 +2535,8 @@ int jw_cmd_sel_count(const jw_drawing *d)
     return n;
 }
 
+static void sel_mirror(jw_drawing *d, const jw_obj *axis);
+
 static void sel_clear(jw_drawing *d)
 {
     int i;
@@ -2650,6 +2655,53 @@ static double sel_turn(void)
     const char *t = jw_cmd_box(1412);
 
     return (t ? atof(t) : 0.0) * PI / 180.0;
+}
+
+/* 反転: every picked element across the line that was just pointed at.  A
+ * copy for 複写, in place for 移動 -- the same split sel_place() makes. */
+static void sel_mirror(jw_drawing *d, const jw_obj *axis)
+{
+    double ux = axis->d[2] - axis->d[0], uy = axis->d[3] - axis->d[1];
+    double len = sqrt(ux * ux + uy * uy);
+    int i;
+
+    if (!d || sel_n <= 0 || len < 1e-12)
+        return;
+    ux /= len;
+    uy /= len;
+    if (current == JW_CMD_IDOU) {
+        op_t *o = op_new();
+
+        for (i = 0; i < sel_n; i++) {
+            int at = sel_at[i];
+
+            if (at >= d->nobj)
+                continue;
+            op_keep(o, d, at, 0);
+            d->obj[at] = sel_was[i];
+            jw_obj_mirror(&d->obj[at], axis->d[0], axis->d[1], ux, uy);
+            d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
+            d->obj[at].sel = 1;
+        }
+        return;
+    }
+    {
+        int made = 0;
+
+        for (i = 0; i < sel_n; i++) {
+            jw_obj *p = jw_add(d, sel_was[i].cls);
+
+            if (!p)
+                break;
+            *p = sel_was[i];
+            jw_obj_mirror(p, axis->d[0], axis->d[1], ux, uy);
+            p->flags = (unsigned short)(p->flags & ~2u);
+            p->sel = 0;
+            p->id = 0;
+            made++;
+        }
+        op_push(made);
+    }
 }
 
 static void sel_place(jw_drawing *d, double x, double y)
@@ -2838,8 +2890,14 @@ int jw_cmd_bar(jw_drawing *d, int id)
     case 1120:
         return sel_confirm(d);
     case 1067:
+        if (sel_step == 3) {    /* 反転 -- the same id as 選択解除, one stage
+                                   on, where the bar puts 反転 in its place */
+            sel_flip = 1;
+            return 1;
+        }
         sel_clear(d);
         sel_step = 0;
+        sel_flip = 0;
         return 1;
     case 1059:                  /* 0ﾟ/90ﾟ on 寸法's bar */
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
@@ -3204,6 +3262,15 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         default:
             if (button != 0)
                 return;
+            if (sel_flip) {
+                int i = jw_pick(d, v, x, y, 3);
+
+                if (i < 0 || d->obj[i].cls != JW_SEN)
+                    return;     /* 基準線を指示してください */
+                sel_mirror(d, &d->obj[i]);
+                sel_flip = 0;
+                return;
+            }
             sel_place(d, x, y);
             return;
         }

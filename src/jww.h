@@ -149,6 +149,7 @@ void jw_remove(jw_drawing *d, int i);
    its radius and its angles, a text its size, a solid has four corners. */
 void jw_obj_box(const jw_obj *o, double *x0, double *y0,
                 double *x1, double *y1);
+void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy);
 void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
                   double dx, double dy);
 void jw_obj_move(jw_obj *o, double dx, double dy);
