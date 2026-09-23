@@ -123,13 +123,22 @@ flip() {                # flip <name> <cmd> <the line's two clicks> <pick>
         -Clicks "$3;cmd:32772;300,300;500,400;cmd:$2;250,250;550,450;m400,350;btn:1120;pb:1067;$4;saveas:decomp/res/$1.jww" \
         2>&1 | sed 's/^/        /'
 }
+# 基点変更 (1066, 全選択 の id が 1 段目の次では 基点変更 になります): 押した
+# 次のクリックが基準点で、その次が複写先。カーソルの位置は使われません。
+basept() {
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/blank.jww
+    $PS -Open tmp/blank.jww -Cmd 32772         -Clicks "300,300;500,400;cmd:32804;250,250;550,450;m400,350;btn:1120;pb:1066;350,320;700,500;saveas:decomp/res/basept.jww"         2>&1 | sed 's/^/        /'
+}
 try=1
 while :; do
-    echo "=== 複写・移動 の 倍率・回転角 と 反転"
+    echo "=== 複写・移動 の 倍率・回転角・反転・基点変更"
     xform copyxf 32804 2 30
     xform movexf 32918 0.5 -45
     flip flip 32804 "600,250;600,550" 600,400
     flip flipmv 32918 "600,250;700,550" 650,400
+    basept
     if [ ! -x tests/xform_test.exe ]; then
         echo "    (tests/xform_test.exe is not built -- not checked)"
         break
