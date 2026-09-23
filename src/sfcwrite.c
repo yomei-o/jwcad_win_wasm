@@ -273,6 +273,25 @@ static int want_font(sfcw *s, int lt)
     return 1;
 }
 
+/* A solid's curves are wrapped in a composite curve, and after the group's
+ * elements comes one fill_area_style_colour_feature for each of them saying
+ * it is filled -- which is the only thing that tells an SXF reader the
+ * outline is not just an outline.  This writes the composite and remembers
+ * what the fill will need.
+ */
+static void solid_end(sfcw *s, int *nfill, int *fill, int lay, int col,
+                      int fon, int wid)
+{
+    char t[128];
+
+    sprintf(t, "composite_curve_org_feature('%d','%d','%d','1')",
+            col, fon, wid);
+    feature(&s->w, t);
+    fill[*nfill * 2] = lay;
+    fill[*nfill * 2 + 1] = col;
+    (*nfill)++;
+}
+
 /* Which of the layers in use this element is on, numbered from one. */
 static int want_layer(sfcw *s, const jw_obj *o)
 {
@@ -291,6 +310,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
 {
     sfcw *s = (sfcw *)calloc(1, sizeof *s);
     char t[1024], a[32], b[32], c[32];
+    int *fill;                  /* the layer and colour of each solid */
     int i, g;
 
     *out = 0;
@@ -309,7 +329,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
 
             for (k = 0; k < d->ndrawn; k++)
                 if ((d->obj[k].lgroup & 15) == g && (d->obj[k].layer & 15) == l
-                    && d->obj[k].color != 9 && d->obj[k].ltype != 9)
+                    && d->obj[k].color != 9 && d->obj[k].ltype != 9
+                    && jw_text_drawn(&d->obj[k]))
                     break;
             if (k < d->ndrawn && s->nlay < MAXLAY) {
                 s->lay[s->nlay].g = g;
@@ -324,7 +345,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
 
-        if (o->cls == JW_LIST || o->cls == JW_BLOCK)
+        if (o->cls == JW_LIST || o->cls == JW_BLOCK || !jw_text_drawn(o))
             continue;
         want_colour(s, o->color);
         want_font(s, o->ltype);
@@ -376,7 +397,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
         int face = -1;
 
         for (i = 0; i < d->ndrawn; i++)
-            if (d->obj[i].cls == JW_MOJI && d->obj[i].face >= 0) {
+            if (d->obj[i].cls == JW_MOJI && d->obj[i].face >= 0
+                && jw_text_drawn(&d->obj[i])) {
                 face = d->obj[i].face;
                 break;
             }
@@ -387,9 +409,14 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
     }
 
     /* ----------------------------------------------------- the elements */
+    fill = (int *)malloc((size_t)(d->ndrawn + 1) * 2 * sizeof *fill);
+    if (!fill) {
+        free(s);
+        return 0;
+    }
     for (g = 0; g < 16; g++) {
         double sc = d->group[g].scale > 0.0 ? d->group[g].scale : 1.0;
-        int any = 0;
+        int any = 0, nfill = 0;
 
         for (i = 0; i < d->ndrawn; i++) {
             const jw_obj *o = &d->obj[i];
@@ -399,6 +426,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
             if ((o->lgroup & 15) != g || o->cls == JW_LIST
                 || o->cls == JW_BLOCK)
                 continue;
+            if (!jw_text_drawn(o))
+                continue;       /* a text with no length is not written */
             any = 1;
             lay = want_layer(s, o);
             col = want_colour(s, o->color);
@@ -499,9 +528,99 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                 feature(&s->w, t);
                 break;
             }
+            case JW_SOLID: {
+                /* A solid is written as the outline of what it fills, with
+                 * nothing saying it is filled -- the original writes no
+                 * fill_area_style of its own for one.  Four corners come out
+                 * as a closed polyline of five points, the first corner and
+                 * then the other three backwards; a 円ソリッド comes out as
+                 * its rim, a whole one split into two halves and a part of
+                 * one closed by the chord between its ends.
+                 * decomp/res/rsolid.sfc is the original doing all three.
+                 */
+                jw_obj round;
+                char xs[256], ys[256];
+
+                if (jw_round_solid(o, &round)) {
+                    double cx = (round.d[0] + hw) * sc, cy = (round.d[1] + hh) * sc;
+                    double r = round.d[2] * sc, sw = round.d[4];
+                    double s0 = f32((round.d[3] + round.d[5]) / PI * 180.0);
+                    double s1 = s0 + sw / PI * 180.0;
+                    int whole = sw >= 2.0 * PI - 1e-9 || sw <= -2.0 * PI + 1e-9;
+
+                    while (s0 < 0.0) s0 += 360.0;
+                    while (s0 >= 360.0) s0 -= 360.0;
+                    while (s1 < 0.0) s1 += 360.0;
+                    while (s1 >= 360.0) s1 -= 360.0;
+                    if (whole) {
+                        double half = s0 + 180.0;
+
+                        while (half >= 360.0) half -= 360.0;
+                        ang(a, s0);
+                        ang(b, half);
+                        sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                                   "'%.6f','%.6f','0','%s','%s')", lay, col,
+                                fon, wid, cx, cy, r, a, b);
+                        feature(&s->w, t);
+                        ang(a, half);
+                        ang(b, s0);
+                        sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                                   "'%.6f','%.6f','0','%s','%s')", lay, col,
+                                fon, wid, cx, cy, r, a, b);
+                        feature(&s->w, t);
+                    } else {
+                        double e0 = s0 * PI / 180.0, e1 = s1 * PI / 180.0;
+
+                        ang(a, s0);
+                        ang(b, s1);
+                        sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                                   "'%.6f','%.6f','%d','%s','%s')", lay, col,
+                                fon, wid, cx, cy, r, sw < 0.0, a, b);
+                        feature(&s->w, t);
+                        /* and the chord back, from where it ends to where
+                           it starts */
+                        sprintf(xs, "(%.6f,%.6f)", cx + r * cos(e1),
+                                cx + r * cos(e0));
+                        sprintf(ys, "(%.6f,%.6f)", cy + r * sin(e1),
+                                cy + r * sin(e0));
+                        sprintf(t, "polyline_feature('%d','%d','%d','%d',"
+                                   "'2','%s','%s')", lay, col, fon, wid,
+                                xs, ys);
+                        feature(&s->w, t);
+                    }
+                    solid_end(s, &nfill, fill, lay, col, fon, wid);
+                    break;
+                }
+                {   /* the four corners, the last three backwards */
+                    static const int K[5] = { 0, 3, 2, 1, 0 };
+                    int q, nx = 0, ny = 0;
+
+                    for (q = 0; q < 5; q++) {
+                        nx += sprintf(xs + nx, q ? ",%.6f" : "(%.6f",
+                                      (o->d[K[q] * 2] + hw) * sc);
+                        ny += sprintf(ys + ny, q ? ",%.6f" : "(%.6f",
+                                      (o->d[K[q] * 2 + 1] + hh) * sc);
+                    }
+                    strcpy(xs + nx, ")");
+                    strcpy(ys + ny, ")");
+                }
+                sprintf(t, "polyline_feature('%d','%d','%d','%d','5','%s',"
+                           "'%s')", lay, col, fon, wid, xs, ys);
+                feature(&s->w, t);
+                solid_end(s, &nfill, fill, lay, col, fon, wid);
+                break;
+            }
             default:
                 break;
             }
+        }
+        /* What says the solids are filled, one line each, after all the
+           elements of the group: which layer, which colour, and which of
+           the composite curves above it is the fill of, counted from one. */
+        for (i = 0; i < nfill; i++) {
+            sprintf(t, "fill_area_style_colour_feature('%d','%d','%d','0',"
+                       "'()')", fill[i * 2], fill[i * 2 + 1], i + 1);
+            feature(&s->w, t);
         }
         if (any) {
             /* the name carries the group's own name as far as its first
@@ -516,6 +635,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
         }
     }
 
+    free(fill);
+
     /* ------------------------------------------- the figures and the rest */
     for (g = 0; g < 16; g++) {
         double sc = d->group[g].scale > 0.0 ? d->group[g].scale : 1.0;
@@ -524,7 +645,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
 
         for (i = 0; i < d->ndrawn; i++)
             if ((d->obj[i].lgroup & 15) == g && d->obj[i].cls != JW_LIST
-                && d->obj[i].cls != JW_BLOCK)
+                && d->obj[i].cls != JW_BLOCK && jw_text_drawn(&d->obj[i]))
                 any = 1;
         if (!any)
             continue;

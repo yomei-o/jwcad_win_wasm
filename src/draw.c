@@ -772,7 +772,6 @@ static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
     static short pts[2 * (ARC_MAX + 2)];
     double r = o->d[2], flat = o->d[6] > 0.0 ? 1.0 : 1.0;
     double a0 = o->d[5], sw = o->d[6], tilt = o->d[4], ratio = o->d[3];
-    int cx = jw_sx(v, o->d[0]), cy = jw_sy(v, o->d[1]);
     int rp = (int)(r / v->mmpp + 0.5), n = 0, k, steps;
     unsigned int col;
 
@@ -789,16 +788,14 @@ static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
         ? (unsigned)(((o->n & 0xff) << 16) | (o->n & 0xff00)
                      | ((o->n >> 16) & 0xff))
         : obj_colour(d, o);
-    /* a point every pixel or so along the rim, and the centre closing it
-       when it is not the whole circle */
+    /* A point every pixel or so along the rim, and nothing else: part of a
+       circle is closed by the chord between its two ends rather than by the
+       centre, which is a 弓形 and not a 扇形.  The original says so itself
+       when it writes one out -- decomp/res/rsolid.sfc closes the boundary of
+       its 45..270 solid with a two-point polyline between the ends. */
     steps = (int)(sw * rp) + 8;
     if (steps > ARC_MAX)
         steps = ARC_MAX;
-    if (sw < 2.0 * PI - 1e-9) {
-        pts[0] = (short)cx;
-        pts[1] = (short)cy;
-        n = 1;
-    }
     for (k = 0; k <= steps && n < ARC_MAX + 2; k++) {
         double t = a0 + sw * k / steps;
         double x = r * cos(t), y = r * ratio * sin(t);

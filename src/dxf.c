@@ -327,6 +327,8 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *e = &d->obj[i];
 
+        if (!jw_text_drawn(e))
+            continue;           /* and so its layer is not named either */
         if (e->lgroup < 16 && e->layer < 16 && !used[e->lgroup][e->layer]) {
             used[e->lgroup][e->layer] = 1;
             nlayer++;
@@ -366,7 +368,17 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
         const jw_obj *e = &d->obj[i];
         double s = group_scale(d, e->lgroup);
         double x0, y0, x1, y1;
+        jw_obj round;
 
+        /* A 円ソリッド comes out as the bare CIRCLE or ARC of its rim: the
+           original drops the fill, and writes no line closing a part of a
+           circle either -- decomp/res/rsolid.dxf has the two of them as one
+           CIRCLE and one ARC and nothing else. */
+        if (jw_round_solid(e, &round))
+            e = &round;
+        /* a text with no length to it is not written at all */
+        if (!jw_text_drawn(e))
+            continue;
         /* a 補助線 goes on the layer the original keeps for them */
         if ((e->ltype % 100) == 9)
             strcpy(name, "ADD_LINE");

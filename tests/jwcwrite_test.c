@@ -230,6 +230,8 @@ int main(void)
 {
     one("orig/Test5.jww", "decomp/res/geom.jwc", 1);
     one("orig/Test5.jww", "decomp/res/t5.jwc", 0);
+    /* and a drawing with 円ソリッド in it, which is written as arcs */
+    one("decomp/res/hatin.jww", "decomp/res/rsolid.jwc", 0);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

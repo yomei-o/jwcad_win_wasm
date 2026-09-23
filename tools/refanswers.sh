@@ -804,6 +804,25 @@ for k in geom t5; do
     sh tools/refenv.sh >/dev/null
 done
 
+# 円ソリッド -- a solid whose line type is 101, which only the DXF reader can
+# make (a HATCH whose boundary is one arc).  decomp/res/hatin.jww is that
+# drawing, and here the original writes it back out in all three formats:
+# tests/dxf_test.c, tests/sfcwrite_test.c and tests/jwcwrite_test.c score the
+# port's writers against these.  The original drops the fill in a DXF and
+# writes the bare CIRCLE or ARC; an SFC gets the boundary and a
+# fill_area_style_colour_feature to say it is filled, a whole circle split
+# into two halves and a part of one closed by the chord between its ends; a
+# JWC gets one arc record and nothing else.
+echo "=== rsolid (the original writing a drawing with 円ソリッド in it)"
+cp decomp/res/hatin.jww tmp/rs.jww
+for e in 32961,dxf 32976,sfc 32810,jwc; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    $PS -Open tmp/rs.jww -NoSave         -Clicks "export:${e%,*},decomp/res/rsolid.${e#*,}"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+
 # What the original makes of the 256 colour numbers a DXF can name: 255
 # lines, one per number, in two goes because a drawing has room for only so
 # many new colours.  tools/mkaci.py turns these into src/gen/aci.h.

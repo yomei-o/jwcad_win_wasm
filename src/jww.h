@@ -265,4 +265,23 @@ const char *jw_str(const jw_drawing *d, int off);
 /* Whether the file held that string as UTF-16 (version 700 does). */
 int jw_str_wide(const jw_drawing *d, int off);
 
+/* A 円ソリッド is a CDataSolid whose line type is 101, and its eight numbers
+ * are an arc's rather than four corners: centre, radius, how flat, the turn,
+ * where it starts, how far it goes, and a 5.  This fills *arc in as though
+ * it were a CDataEnko, so that whoever writes an arc can write one of these
+ * the same way -- which is what the original does in all three of its
+ * formats.  Returns 0 when o is not one.
+ */
+int jw_round_solid(const jw_obj *o, jw_obj *arc);
+
+/* Whether a text has a baseline with some length to it.  The original leaves
+ * out of a DXF, an SFC and a JWC any text whose two ends are the same point,
+ * which is how the six memo texts a DXF import leaves behind (Printer_
+ * Orientation and the rest, at 0,-1000 with no length) stay out of them.
+ * Driving it bears it out: of four texts differing one field at a time, the
+ * one with no length was the only one missing from the DXF -- 補助線色 and
+ * 文字種9 both came out.
+ */
+int jw_text_drawn(const jw_obj *o);
+
 #endif

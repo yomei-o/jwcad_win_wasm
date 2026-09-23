@@ -869,6 +869,29 @@ int jw_add_str(jw_drawing *d, const char *s)
     return pool_put(d, (const unsigned char *)s, n, 0);
 }
 
+int jw_round_solid(const jw_obj *o, jw_obj *arc)
+{
+    if (o->cls != JW_SOLID || o->ltype != 101)
+        return 0;
+    *arc = *o;
+    arc->cls = JW_ENKO;
+    arc->ltype = 1;
+    arc->d[0] = o->d[0];        /* the centre */
+    arc->d[1] = o->d[1];
+    arc->d[2] = o->d[2];        /* the radius */
+    arc->d[3] = o->d[5];        /* where it starts */
+    arc->d[4] = o->d[6];        /* how far it goes */
+    arc->d[5] = o->d[4];        /* the turn */
+    arc->d[6] = o->d[3] > 0.0 ? o->d[3] : 1.0;      /* how flat */
+    arc->d[7] = 0.0;
+    return 1;
+}
+
+int jw_text_drawn(const jw_obj *o)
+{
+    return o->cls != JW_MOJI || o->d[0] != o->d[2] || o->d[1] != o->d[3];
+}
+
 const char *jw_str(const jw_drawing *d, int off)
 {
     return off < 0 ? "" : d->pool + off;

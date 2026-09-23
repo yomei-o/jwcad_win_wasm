@@ -255,6 +255,9 @@ int main(void)
     jw_free(&d);
     whole("orig/Test5.jww", "decomp/res/test5.dxf");
     alike("decomp/res/mansion.jww", "decomp/res/mansion.dxf");
+    /* 円ソリッド: the original writes the bare rim of one, a CIRCLE for a
+       whole turn and an ARC for part of one, and leaves the fill out */
+    whole("decomp/res/hatin.jww", "decomp/res/rsolid.dxf");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

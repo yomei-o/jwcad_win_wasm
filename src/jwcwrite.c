@@ -218,7 +218,10 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
         double x[4], y[4];
+        jw_obj round;
 
+        if (!jw_text_drawn(o))
+            continue;           /* a text with no length is not written */
         switch (o->cls) {
         case JW_SEN:   nline++; break;
         case JW_ENKO:  narc++; break;
@@ -227,7 +230,14 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
             pool += (int)strlen(jw_str(d, o->text)) + 1;
             break;
         case JW_TEN:   npoint++; break;
-        case JW_SOLID: nline += corners(o, x, y); break;
+        case JW_SOLID:
+            /* a 円ソリッド is one arc and no lines at all -- the original
+               does not even close a part of a circle in a JWC */
+            if (jw_round_solid(o, &round))
+                narc++;
+            else
+                nline += corners(o, x, y);
+            break;
         default: break;
         }
     }
@@ -298,7 +308,7 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
         double x[4], y[4];
         int k, m;
 
-        if (o->cls != JW_SOLID)
+        if (o->cls != JW_SOLID || o->ltype == 101)
             continue;
         m = corners(o, x, y);
         for (k = 0; k < m; k++) {
@@ -317,9 +327,12 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
     }
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
+        jw_obj round;
         int a0, a1;
 
-        if (o->cls != JW_ENKO)
+        if (jw_round_solid(o, &round))
+            o = &round;
+        else if (o->cls != JW_ENKO)
             continue;
         /* the start is where the sweep begins when it runs the other way,
            because a JWC arc always goes anticlockwise */
@@ -353,7 +366,7 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
             int st;
             double dx, dy, len, far, x1, y1;
 
-            if (o->cls != JW_MOJI)
+            if (o->cls != JW_MOJI || !jw_text_drawn(o))
                 continue;
             st = style_of(d, o);
             dx = o->d[2] - o->d[0];
@@ -385,7 +398,7 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
             const jw_obj *o = &d->obj[i];
             const char *s;
 
-            if (o->cls != JW_MOJI)
+            if (o->cls != JW_MOJI || !jw_text_drawn(o))
                 continue;
             s = jw_str(d, o->text);
             put(&w, s, (long)strlen(s) + 1);

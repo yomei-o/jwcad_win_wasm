@@ -659,6 +659,8 @@ try {
 
             # Open a dialog, type into some of its boxes and press OK.
             #   dlgin:b1843,1491=30,1492=40,1493=2
+            # A value of ! presses the control instead, for a checkbox:
+            #   dlgin:b1069,1804=!
             # The leading b means the id is a button to press rather than a
             # command to send.  The text goes in as real WM_CHARs after the
             # box is selected whole, because Jw_cad keeps its own copy of
@@ -689,10 +691,17 @@ try {
                         if ([Jw]::GetDlgCtrlID($k) -eq $cid) { $box = $k; break }
                     }
                     if ($box -eq [IntPtr]::Zero) { throw "no control $cid in the dialog" }
-                    [void][Jw]::SetFocus($box)
-                    [void][Jw]::SendMessageW($box, 0x00B1, [IntPtr]0, [IntPtr](-1))  # EM_SETSEL
-                    Start-Sleep -Milliseconds 80
-                    Chars $box $txt
+                    # a lone ! means press it rather than type into it, which
+                    # is how a checkbox or a radio in a dialog is worked
+                    if ($txt -eq '!') {
+                        [void][Jw]::PostMessage($box, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                        Start-Sleep -Milliseconds 200
+                    } else {
+                        [void][Jw]::SetFocus($box)
+                        [void][Jw]::SendMessageW($box, 0x00B1, [IntPtr]0, [IntPtr](-1))  # EM_SETSEL
+                        Start-Sleep -Milliseconds 80
+                        Chars $box $txt
+                    }
                 }
                 Start-Sleep -Milliseconds 200
                 Emit ('=== dialog {0} filled' -f $id)

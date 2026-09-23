@@ -220,6 +220,8 @@ int main(void)
     one("orig/Test5.jww", "decomp/res/ellip.sfc", 2);
     one("orig/Test5.jww", "decomp/res/sfcw5.sfc", 0);
     one("orig/Test6.jww", "decomp/res/sfcw6.sfc", 0);
+    /* and a drawing with solids in it, flat ones and 円ソリッド */
+    one("decomp/res/hatin.jww", "decomp/res/rsolid.sfc", 0);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
