@@ -25,11 +25,12 @@
  *     (FUN_0049e380), so a DXF whose DASHED1 is not jw's 点線1 comes in as
  *     a new 任意線種.
  *
- * MTEXT, POLYLINE, LWPOLYLINE, INSERT, HATCH, DIMENSION and ELLIPSE are not
- * read yet; the entities that are are LINE, ARC, CIRCLE, POINT, SOLID and
- * TEXT.
+ * MTEXT, HATCH, DIMENSION and ELLIPSE are not read yet; the entities that
+ * are are LINE, ARC, CIRCLE, POINT, SOLID, TEXT, POLYLINE, LWPOLYLINE and
+ * INSERT -- and with the last of those, the BLOCKS section.
  */
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -80,6 +81,17 @@ typedef struct {
 
     unsigned int col[357];      /* 1..10 the printing pens, 101.. the rest */
     int ncol;
+
+    /* The BLOCKS section, which becomes the definitions a drawing keeps
+       after its own elements.  Inside one the sheet's middle is not taken
+       off: a definition holds what it draws about its own origin. */
+    int in_block;
+    struct {
+        char name[NAME];
+        int num;
+    } blk[64];
+    int nblk;
+    int ndef;                   /* how many objects the definitions took   */
 } dxfr;
 
 /* ------------------------------------------------------------- the lexer */
@@ -141,8 +153,15 @@ static int is(dxfr *r, int code, const char *s)
 
 /* ------------------------------------------------------------- the paper */
 
-static double put_x(dxfr *r, double v) { return (v - r->cx) / r->scale; }
-static double put_y(dxfr *r, double v) { return (v - r->cy) / r->scale; }
+static double put_x(dxfr *r, double v)
+{
+    return (r->in_block ? v : v - r->cx) / r->scale;
+}
+
+static double put_y(dxfr *r, double v)
+{
+    return (r->in_block ? v : v - r->cy) / r->scale;
+}
 static double put_l(dxfr *r, double v) { return v / r->scale; }
 
 /* ------------------------------------------------------------ the colour */
@@ -720,6 +739,168 @@ static void ent_text(dxfr *r)
     o->face = jw_add_str(r->d, JW_DXF_FACE);
 }
 
+static void ent_poly(dxfr *r, int lw);
+static void ent_insert(dxfr *r);
+static void ent_skip(dxfr *r);
+
+/* One entity, wherever it stands: the ENTITIES section, or between a BLOCK
+   and its ENDBLK. */
+static void entity(dxfr *r)
+{
+    if (r->code != 0) {
+        next(r);
+        return;
+    }
+    if (!strcmp(r->str, "LINE"))
+        ent_line(r);
+    else if (!strcmp(r->str, "ARC"))
+        ent_arc(r, 0);
+    else if (!strcmp(r->str, "CIRCLE"))
+        ent_arc(r, 1);
+    else if (!strcmp(r->str, "POINT"))
+        ent_point(r);
+    else if (!strcmp(r->str, "SOLID"))
+        ent_solid(r);
+    else if (!strcmp(r->str, "TEXT"))
+        ent_text(r);
+    else if (!strcmp(r->str, "LWPOLYLINE"))
+        ent_poly(r, 1);
+    else if (!strcmp(r->str, "POLYLINE"))
+        ent_poly(r, 0);
+    else if (!strcmp(r->str, "INSERT"))
+        ent_insert(r);
+    else
+        ent_skip(r);
+}
+
+/* POLYLINE and LWPOLYLINE both come apart into plain lines, one per leg,
+   and a closed one gets the leg back to where it started.  A POLYLINE keeps
+   its corners in VERTEX entities of their own, so both are read here and
+   the caller is left on whatever follows. */
+static void ent_poly(dxfr *r, int lw)
+{
+    double x[256], y[256];
+    int n = 0, close = 0, i;
+    attr a;
+
+    attr_start(&a);
+    if (lw) {
+        for (next(r); r->code > 0; next(r)) {
+            if (attr_take(r, &a))
+                continue;
+            if (r->code == 0x46)
+                close = (int)r->num & 1;
+            if (r->code == 10 && n < 256) {
+                x[n] = put_x(r, r->num);
+                y[n] = 0.0;
+                n++;
+            }
+            if (r->code == 20 && n > 0)
+                y[n - 1] = put_y(r, r->num);
+        }
+    } else {
+        for (next(r); r->code > 0; next(r)) {
+            if (attr_take(r, &a))
+                continue;
+            if (r->code == 0x46)
+                close = (int)r->num & 1;
+        }
+        /* the corners, each its own entity, until SEQEND */
+        while (r->code == 0 && !strcmp(r->str, "VERTEX")) {
+            double vx = 0, vy = 0;
+
+            for (next(r); r->code > 0; next(r)) {
+                if (r->code == 10)
+                    vx = put_x(r, r->num);
+                if (r->code == 20)
+                    vy = put_y(r, r->num);
+            }
+            if (n < 256) {
+                x[n] = vx;
+                y[n] = vy;
+                n++;
+            }
+        }
+        if (r->code == 0 && !strcmp(r->str, "SEQEND"))
+            for (next(r); r->code > 0; next(r))
+                ;
+    }
+    for (i = 0; i + 1 < n; i++) {
+        jw_obj *o = place(r, JW_SEN, &a);
+
+        if (!o)
+            return;
+        o->d[0] = x[i];
+        o->d[1] = y[i];
+        o->d[2] = x[i + 1];
+        o->d[3] = y[i + 1];
+    }
+    if (close && n > 2) {
+        jw_obj *o = place(r, JW_SEN, &a);
+
+        if (o) {
+            o->d[0] = x[n - 1];
+            o->d[1] = y[n - 1];
+            o->d[2] = x[0];
+            o->d[3] = y[0];
+        }
+    }
+}
+
+/* Which definition this name is, or -1. */
+static int block_num(dxfr *r, const char *name)
+{
+    int i;
+
+    for (i = 0; i < r->nblk; i++)
+        if (!strcmp(name, r->blk[i].name))
+            return r->blk[i].num;
+    return -1;
+}
+
+/* INSERT: a reference to one of the definitions, where it says, as big as it
+   says and turned as it says. */
+static void ent_insert(dxfr *r)
+{
+    double x = 0, y = 0, sx = 1.0, sy = 1.0, rot = 0.0;
+    char name[NAME];
+    jw_obj *o;
+    attr a;
+    int num;
+
+    name[0] = 0;
+    attr_start(&a);
+    for (next(r); r->code > 0; next(r)) {
+        if (attr_take(r, &a))
+            continue;
+        switch (r->code) {
+        case 2:  copy_name(name, r->str); break;
+        case 10: x = put_x(r, r->num); break;
+        case 20: y = put_y(r, r->num); break;
+        case 41: sx = r->num; break;
+        case 42: sy = r->num; break;
+        case 0x32: rot = r->num; break;
+        }
+    }
+    num = block_num(r, name);
+    if (num < 0)
+        return;
+    o = jw_add(r->d, JW_BLOCK);
+    if (!o)
+        return;
+    o->ltype = 1;
+    o->color = 2;
+    o->layer = (unsigned short)(a.layer & 0xf);
+    o->lgroup = (unsigned short)((a.layer >> 4) & 0xf);
+    o->width = 0;
+    o->d[0] = x;
+    o->d[1] = y;
+    o->d[2] = sx;
+    o->d[3] = sy;
+    o->d[4] = rot * PI / 180.0;
+    o->block = num;
+}
+
 /* Anything that is not read yet: step over it to the next entity. */
 static void ent_skip(dxfr *r)
 {
@@ -727,28 +908,63 @@ static void ent_skip(dxfr *r)
         ;
 }
 
-static void entities(dxfr *r)
+/* The BLOCKS section: each BLOCK becomes one of the definitions that follow
+   the drawing, holding whatever is drawn between it and its ENDBLK.  The
+   flag in the name is the 4 the original puts there for a DXF -- an SFC's
+   figure gets a 1. */
+static void blocks(dxfr *r)
 {
     while (r->code >= 0 && !is(r, 0, "ENDSEC")) {
-        if (r->code != 0) {
+        char name[NAME];
+        int at, first;
+        jw_obj *o;
+
+        if (!is(r, 0, "BLOCK")) {
             next(r);
             continue;
         }
-        if (!strcmp(r->str, "LINE"))
-            ent_line(r);
-        else if (!strcmp(r->str, "ARC"))
-            ent_arc(r, 0);
-        else if (!strcmp(r->str, "CIRCLE"))
-            ent_arc(r, 1);
-        else if (!strcmp(r->str, "POINT"))
-            ent_point(r);
-        else if (!strcmp(r->str, "SOLID"))
-            ent_solid(r);
-        else if (!strcmp(r->str, "TEXT"))
-            ent_text(r);
-        else
-            ent_skip(r);
+        name[0] = 0;
+        for (next(r); r->code > 0; next(r))
+            if (r->code == 2)
+                copy_name(name, r->str);
+        o = jw_add(r->d, JW_LIST);
+        if (!o)
+            return;
+        at = (int)(o - r->d->obj);
+        first = r->d->nobj;
+        r->in_block = 1;
+        while (r->code >= 0 && !is(r, 0, "ENDBLK") && !is(r, 0, "ENDSEC"))
+            entity(r);
+        r->in_block = 0;
+        if (is(r, 0, "ENDBLK"))
+            for (next(r); r->code > 0; next(r))
+                ;
+        r->d->obj[at].n = r->d->nobj - first;
+        r->d->obj[at].list[0] = r->nblk;
+        r->d->obj[at].list[1] = 1;
+        r->d->obj[at].list[2] = 0;
+        r->d->obj[at].ltype = 1;
+        r->d->obj[at].color = 2;
+        r->d->obj[at].layer = 0;
+        r->d->obj[at].lgroup = 0;
+        {
+            char nm[NAME * 2];
+
+            sprintf(nm, "%s@@SfigorgFlag@@4", name);
+            r->d->obj[at].text = jw_add_str(r->d, nm);
+        }
+        if (r->nblk < 64) {
+            copy_name(r->blk[r->nblk].name, name);
+            r->blk[r->nblk].num = r->nblk;
+            r->nblk++;
+        }
     }
+}
+
+static void entities(dxfr *r)
+{
+    while (r->code >= 0 && !is(r, 0, "ENDSEC"))
+        entity(r);
 }
 
 /* ------------------------------------------------------------------ read */
@@ -794,12 +1010,35 @@ int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
                 head(r);
             else if (is(r, 2, "TABLES"))
                 tables(r);
+            else if (is(r, 2, "BLOCKS")) {
+                blocks(r);
+                r->ndef = r->d->nobj;   /* how far the definitions reach */
+            }
             else if (is(r, 2, "ENTITIES"))
                 entities(r);
             continue;
         }
         next(r);
     }
+    /* The BLOCKS section comes before the ENTITIES one, so the definitions
+       were made first; a drawing keeps them after its own elements, so the
+       two stretches change places. */
+    if (r->ndef > 0 && r->ndef < d->nobj) {
+        jw_obj *tmp = (jw_obj *)malloc((size_t)r->ndef * sizeof *tmp);
+
+        if (tmp) {
+            memcpy(tmp, d->obj, (size_t)r->ndef * sizeof *tmp);
+            memmove(d->obj, d->obj + r->ndef,
+                    (size_t)(d->nobj - r->ndef) * sizeof *tmp);
+            memcpy(d->obj + (d->nobj - r->ndef), tmp,
+                   (size_t)r->ndef * sizeof *tmp);
+            free(tmp);
+        }
+        d->ndrawn = d->nobj - r->ndef;
+    } else if (r->ndef >= d->nobj) {
+        d->ndrawn = 0;
+    }
+
     /* the colour is in the header twice and the original changes both */
     for (i = 0; i <= 256; i++) {
         d->xcolor[i] = r->col[100 + i];

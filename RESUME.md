@@ -1254,8 +1254,17 @@ UTF-16 に移ります。ですから `tests/dxfread_test.c` は**要素と、�
 原典の既定「ＭＳ ゴシック」です。答えは `tools/mkdxfin.py` が作る
 `text.dxf` → `textin.jww`。
 
-**まだ読めないもの:** MTEXT・POLYLINE・LWPOLYLINE・INSERT・
-HATCH・DIMENSION・ELLIPSE。
+**連続線と図形も読みます。**`POLYLINE`（`VERTEX` が続くほう）も
+`LWPOLYLINE` も**ただの線に分かれます** —— 角の数より 1 本少なく、
+**閉じていれば（70 の 1）最後にもう 1 本**戻ります。`INSERT` は**図形の
+参照**になり、`BLOCKS` 節の `BLOCK` が**その定義**（`CDataList`、名前は
+`<名前>@@SfigorgFlag@@4` —— SFC の 1 と違います）です。**定義の中では
+用紙の真ん中を引きません**（`FUN_004a8f90` の「ブロックの中」の旗）ので、
+座標は**基点からの紙 mm** になります。参照は `41`・`42` の倍率と `50` の
+回転（ラジアンで持ちます）を持ちます。**定義は図面の要素の後ろ**に来るので、
+`BLOCKS` が先に来るぶん読み終わりに前後を入れ替えます。
+
+**まだ読めないもの:** MTEXT・HATCH・DIMENSION・ELLIPSE。
 
 ## SFC 書き出し（まだです、読み解き中）
 

@@ -78,6 +78,7 @@ static int ndbl(int cls)
     case JW_TEN:   return 2;
     case JW_SOLID: return 8;
     case JW_MOJI:  return 8;
+    case JW_BLOCK: return 5;
     }
     return 0;
 }
@@ -89,8 +90,16 @@ static int same(const jw_obj *a, const jw_obj *b)
     int i;
 
     if (a->cls != b->cls || a->ltype != b->ltype || a->color != b->color
-        || a->layer != b->layer || a->lgroup != b->lgroup || a->n != b->n)
+        || a->layer != b->layer || a->lgroup != b->lgroup || a->n != b->n
+        || a->block != b->block)
         return 0;
+    if (a->cls == JW_LIST) {
+        /* list[2] is when it was made, which cannot be the same */
+        if (a->list[0] != b->list[0] || a->list[1] != b->list[1]
+            || strcmp(ja ? jw_str(ja, a->text) : "",
+                      jb ? jw_str(jb, b->text) : ""))
+            return 0;
+    }
     if (a->cls == JW_MOJI && strcmp(ja ? jw_str(ja, a->text) : "",
                                     jb ? jw_str(jb, b->text) : ""))
         return 0;
@@ -150,6 +159,12 @@ static void alike(const char *base, const char *dxf, const char *answer,
     while (i > 0 && ref.obj[i - 1].cls == JW_MOJI
            && ref.obj[i - 1].d[1] == -1000.0)
         i--;
+    if (ref.nobj - ref.ndrawn != mine.nobj - mine.ndrawn) {
+        printf("BAD  %s: %d definitions, the original made %d\n", what,
+               mine.nobj - mine.ndrawn, ref.nobj - ref.ndrawn);
+        fails++;
+        return;
+    }
     if (i != mine.ndrawn) {
         printf("BAD  %s: %d elements, the original made %d\n",
                what, mine.ndrawn, i);
@@ -160,11 +175,19 @@ static void alike(const char *base, const char *dxf, const char *answer,
                 bad = i;
                 break;
             }
+        /* and the definitions, which sit after them in both */
+        for (i = mine.ndrawn; bad < 0 && i < mine.nobj; i++)
+            if (!same(&mine.obj[i],
+                      &ref.obj[ref.ndrawn + (i - mine.ndrawn)])) {
+                bad = i;
+                break;
+            }
         ck(bad < 0, what);
         if (bad >= 0) {
             printf("     element %d:\n", bad);
             show("port    ", &mine.obj[bad]);
-            show("original", &ref.obj[bad]);
+            show("original", &ref.obj[bad < mine.ndrawn ? bad
+                 : ref.ndrawn + (bad - mine.ndrawn)]);
         }
     }
     {
@@ -240,6 +263,11 @@ int main(void)
     /* tools/mkdxfin.py's texts: turned, squeezed, stretched and in CP932 */
     alike("orig/Test5.jww", "decomp/res/text.dxf", "decomp/res/textin.jww",
           "texts, read back");
+    /* and its polylines, open and closed, and its references to a block */
+    alike("orig/Test5.jww", "decomp/res/poly.dxf", "decomp/res/polyin.jww",
+          "polylines, read back");
+    alike("orig/Test5.jww", "decomp/res/ins.dxf", "decomp/res/insin.jww",
+          "a block and three references to it, read back");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

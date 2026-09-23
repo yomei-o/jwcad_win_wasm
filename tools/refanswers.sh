@@ -593,14 +593,19 @@ $PS -Open tmp/rect.jww -NoSave \
     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
-# and one of texts -- turned, squeezed, stretched, and in CP932
-python tools/mkdxfin.py decomp/res/text.dxf
-cp orig/Test5.jww tmp/rect.jww
-$PS -Open tmp/rect.jww -NoSave \
-    -Clicks 'import:32960,decomp/res/text.dxf;saveas:decomp/res/textin.jww' \
-    2>&1 | sed 's/^/        /'
-idle
-sh tools/refenv.sh >/dev/null
+# and the entities a drawing of lines does not exercise: texts turned,
+# squeezed, stretched and in CP932; polylines open and closed; and a block
+# with three references to it
+for k in text poly ins; do
+    [ $k = ins ] && python tools/mkdxfin.py insert decomp/res/ins.dxf \
+                 || python tools/mkdxfin.py $k decomp/res/$k.dxf
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave \
+        -Clicks "import:32960,decomp/res/$k.dxf;saveas:decomp/res/${k}in.jww" \
+        2>&1 | sed 's/^/        /'
+    idle
+    sh tools/refenv.sh >/dev/null
+done
 
 # A drawing with a 図形 in it, which none of the shipped ones have: writing
 # an SFC and reading it back makes one, because an SFC keeps its elements
