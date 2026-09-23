@@ -198,6 +198,10 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n);
    The caller frees *out. */
 int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
 
+/* Read a JWC into the drawing, the way 「JWCファイルを開く」 does
+   (src/jwcread.c).  Returns 0 if the bytes are not a JWC. */
+int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n);
+
 /* Read an SFC into the drawing, the way 「SFCファイルを開く」 does
    (src/sfcread.c).  What it draws lands inside a 図形, which is what the
    original does with one.  Returns 0 if the bytes are not an SFC. */

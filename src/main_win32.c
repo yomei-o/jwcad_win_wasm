@@ -312,6 +312,8 @@ static int do_action(HWND wnd)
         return open_other(wnd, L"DXF (*.dxf)\0*.dxf\0\0", app_open_dxf);
     case JW_ACT_OPEN_SFC:
         return open_other(wnd, L"SXF (*.sfc)\0*.sfc\0\0", app_open_sfc);
+    case JW_ACT_OPEN_JWC:
+        return open_other(wnd, L"JWC (*.jwc)\0*.jwc\0\0", app_open_jwc);
     }
     return 0;
 }

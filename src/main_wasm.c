@@ -213,6 +213,15 @@ EMSCRIPTEN_KEEPALIVE int jw_open_sfc(unsigned char *b, int n)
     return 1;
 }
 
+/* 「JWCファイルを開く」, the same way. */
+EMSCRIPTEN_KEEPALIVE int jw_open_jwc(unsigned char *b, int n)
+{
+    if (!app_open_jwc(b, n))
+        return 0;
+    app_paint();
+    return 1;
+}
+
 /* The same, as DXF: the page offers it as a second download. */
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_dxf(void)
 {

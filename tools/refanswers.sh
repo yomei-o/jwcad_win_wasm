@@ -639,6 +639,31 @@ $PS -Open tmp/rect.jww -NoSave \
 idle
 sh tools/refenv.sh >/dev/null
 
+# JWC, both ways: the original writes one out of a drawing with everything
+# in it and one out of Test5 (which has texts), and then opens both again.
+# tests/jwcread_test.c holds what src/jwcread.c makes of them against those.
+echo "=== jwcin, jwct5 (the original opening a JWC it wrote itself)"
+idle
+sh tools/refenv.sh >/dev/null
+$PS -Open tmp/geom.jww -NoSave -Clicks 'export:32810,decomp/res/geom.jwc' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave -Clicks 'export:32810,decomp/res/t5.jwc' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+for k in geom t5; do
+    cp orig/Test5.jww tmp/rect.jww
+    [ $k = geom ] && out=jwcin || out=jwct5
+    $PS -Open tmp/rect.jww -NoSave \
+        -Clicks "import:32809,decomp/res/$k.jwc;saveas:decomp/res/$out.jww" \
+        2>&1 | sed 's/^/        /'
+    idle
+    sh tools/refenv.sh >/dev/null
+done
+
 # What the original makes of the 256 colour numbers a DXF can name: 255
 # lines, one per number, in two goes because a drawing has room for only so
 # many new colours.  tools/mkaci.py turns these into src/gen/aci.h.

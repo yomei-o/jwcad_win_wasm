@@ -234,6 +234,9 @@ int app_command(int cmd)
     case 32975:                         /* SFCファイルを開く */
         action = JW_ACT_OPEN_SFC;
         return 0;
+    case 32809:                         /* JWCファイルを開く */
+        action = JW_ACT_OPEN_JWC;
+        return 0;
     }
     /* a command the port does not do yet: it still becomes the one in force
        if it has a button, so the bar and the prompt follow */
@@ -532,6 +535,24 @@ int app_open_sfc(const unsigned char *b, long n)
         return 0;
     if (!jw_sfc_read(&drawing, b, n)) {
         last_error = "not an SFC";
+        return 0;
+    }
+    have_file = 0;
+    last_error = "";
+    jw_cmd_reset();
+    app_fit();
+    return 1;
+}
+
+/* 「JWCファイルを開く」 (src/jwcread.c), like the other two. */
+int app_open_jwc(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        app_new();
+    if (!have_drawing)
+        return 0;
+    if (!jw_jwc_read(&drawing, b, n)) {
+        last_error = "not a JWC";
         return 0;
     }
     have_file = 0;

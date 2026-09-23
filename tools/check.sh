@@ -104,6 +104,10 @@ echo "=== SFC 読み込み —— 原典が同じ SFC を開いた結果との�
 ./tests/sfcread_test.exe | sed 's/^/    /'
 
 echo
+echo "=== JWC 読み込み —— 原典が同じ JWC を開いた結果との突き合わせ"
+./tests/jwcread_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 

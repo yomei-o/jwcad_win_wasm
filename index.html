@@ -24,7 +24,7 @@
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
 <div id="note">
-  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc"> .jww ・ .dxf ・ .sfc を開く</label>
+  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc"> .jww ・ .dxf ・ .sfc ・ .jwc を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
@@ -69,6 +69,7 @@
   const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
   const openDxf = mod.cwrap('jw_open_dxf', 'number', ['number', 'number']);
   const openSfc = mod.cwrap('jw_open_sfc', 'number', ['number', 'number']);
+  const openJwc = mod.cwrap('jw_open_jwc', 'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
@@ -275,6 +276,7 @@
     // place of it, which is what the original does with those two.
     const ok = /\.dxf$/i.test(file.name) ? openDxf(p, bytes.length)
              : /\.sfc$/i.test(file.name) ? openSfc(p, bytes.length)
+             : /\.jwc$/i.test(file.name) ? openJwc(p, bytes.length)
              : open(p, bytes.length);
     mod._free(p);
     if (ok) {
