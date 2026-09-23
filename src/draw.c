@@ -46,7 +46,7 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
     { 0xfff99fffu, 32 },        /* 6 一点鎖2    */
     { 0xf24ff24fu, 16 },        /* 7 二点鎖1    */
     { 0xfff24fffu, 32 },        /* 8 二点鎖2    */
-    { 0x22222222u,  4 },        /* 9 補助線     */
+    { 0x44444444u,  4 },        /* 9 補助線     */
 };
 
 /* One bit of a line type pattern is one pixel along the line.
