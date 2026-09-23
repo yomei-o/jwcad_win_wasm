@@ -90,6 +90,10 @@ echo "=== 複写・移動の倍率と回転角 —— 原典が置いたもの�
 ./tests/xform_test.exe | sed 's/^/    /'
 
 echo
+echo "=== DXF 書き出し —— 原典が書いた DXF との突き合わせ"
+./tests/dxf_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 

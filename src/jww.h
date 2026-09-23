@@ -141,6 +141,10 @@ jw_obj *jw_add(jw_drawing *d, int cls);
    Returns 0 if it could not (no header kept, or out of memory). */
 int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 
+/* Write the drawing out as DXF, the way 「DXF形式で保存」 does (src/dxf.c).
+   The caller frees *out. */
+int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
+
 /* Take element `i` out of the drawing. */
 void jw_remove(jw_drawing *d, int i);
 

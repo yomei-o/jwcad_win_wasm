@@ -521,6 +521,32 @@ while :; do
     echo "    tests/hatch_test.exe disagrees -- drawing it again ($try/$TRIES)"
 done
 
+# DXF: what the original writes for a drawing, which tests/dxf_test.c holds
+# the port's own DXF against.  The pens drawing is made by the port itself
+# (tools/mkpens.c) and is also what tools/mkdxf.py reads; Ａマンション平面例 is
+# copied under an ASCII name so the test can name it.
+echo "=== dxf (the original's own DXF for three drawings)"
+idle
+sh tools/refenv.sh >/dev/null
+$CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null \
+    || gcc -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c
+./tmp/mkpens.exe orig/Test5.jww tmp/pens.jww
+$PS -Open tmp/pens.jww -NoSave -Clicks 'export:32961,decomp/res/pens.dxf' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave -Clicks 'export:32961,decomp/res/test5.dxf' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+cp "orig/Ａマンション平面例.jww" decomp/res/mansion.jww
+cp decomp/res/mansion.jww tmp/mansion.jww
+$PS -Open tmp/mansion.jww -NoSave -Clicks 'export:32961,decomp/res/mansion.dxf' \
+    2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

@@ -80,6 +80,18 @@ powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Clicks 'dlg:32807,tmp/zoku.png' >/dev/null
 python tools/mkzoku.py
 
+say 'what the original puts at the top of a DXF'
+# A drawing of one line per pen and per line type, written by the port's own
+# writer, exported by the original: the tables in it are the same in every
+# DXF, and the colours it gives each pen are in the entities.
+$CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c
+./tmp/mkpens.exe orig/Test5.jww tmp/pens.jww
+sh tools/refenv.sh >/dev/null
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
+    -Open tmp/pens.jww -NoSave -Clicks 'export:32961,decomp/res/pens.dxf' >/dev/null
+sh tools/refenv.sh >/dev/null
+python tools/mkdxf.py
+
 say 'the drawings the original itself makes, which the tests are scored against'
 sh tools/refanswers.sh
 python tools/mknew.py decomp/res/new.jww src/gen
