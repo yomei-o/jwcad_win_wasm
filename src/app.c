@@ -354,6 +354,14 @@ int app_save(unsigned char **out, long *n)
     return jw_write(&drawing, out, n);
 }
 
+/* The same drawing as DXF, which is what 「DXF形式で保存」 writes. */
+int app_save_dxf(unsigned char **out, long *n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_dxf_write(&drawing, out, n);
+}
+
 int app_move(int x, int y)
 {
     double mx, my;

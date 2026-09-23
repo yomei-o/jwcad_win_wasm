@@ -74,6 +74,8 @@ void app_title(const char *name);
 /* The drawing as bytes, ready to write to a file.  The caller frees *out.
    0 when there is nothing that can be written. */
 int  app_save(unsigned char **out, long *n);
+/* the same drawing written as DXF (src/dxf.c) */
+int  app_save_dxf(unsigned char **out, long *n);
 
 /* RGBA bytes for a canvas, in the buffer app_rgba() returns. */
 unsigned char *app_rgba(void);

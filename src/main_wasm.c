@@ -194,6 +194,17 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save(void)
     return saved;
 }
 
+/* The same, as DXF: the page offers it as a second download. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_dxf(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_save_dxf(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_saved_len(void) { return (int)saved_n; }
 
 EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)

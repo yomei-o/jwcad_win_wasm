@@ -66,6 +66,8 @@
 #   dlg:<cmd>,<png>     open a dialog with a command, write its children out
 #                       and paint it into a PNG, then cancel it
 #   dlg:b<id>,<png>     the same, opened by pressing a bar button
+#   import:<cmd>,<path> open a file of another kind -- 32960 DXF, 32975 SFC,
+#                       32809 JWC -- through the same common dialog
 #   export:<cmd>,<name> the same, but sending <cmd> instead of 名前を付けて
 #                       保存 -- 32961 is DXF形式で保存, 32976 SFC形式で保存,
 #                       32810 JWC形式で保存
@@ -287,7 +289,7 @@ function DumpIn($container, $frame) {
 # --- start it -----------------------------------------------------------
 
 $exePath = (Resolve-Path $Exe).Path
-$needCommon = $Clicks -match '(saveas|export):'
+$needCommon = $Clicks -match '(saveas|export|import):'
 if ($needCommon) {
     # The original's own file box (resource 290) has a read-only name field
     # that ignores WM_SETTEXT.  This makes it use Windows' common dialog,
@@ -676,6 +678,31 @@ try {
                 Start-Sleep -Milliseconds 300
                 [void][Jw]::PostMessage($frame, 0x0100, [IntPtr]27, [IntPtr]1)
                 Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^import:(\d+),(.+)$' {
+                # Open a file of another kind: 32960 is DXFファイルを開く,
+                # 32975 SFCファイルを開く, 32809 JWCファイルを開く.  The same
+                # common dialog as saveas:, without the overwrite question.
+                $cmdid = [int]$Matches[1]
+                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[2]))
+                if (-not (Test-Path $full)) { throw "import: $full is not there" }
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                NewDialog $before 10000
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'the open dialog did not come up' }
+                Start-Sleep -Milliseconds 600
+                $edit = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::Cls($k) -eq 'Edit') { $edit = $k; break }
+                }
+                if ($edit -eq [IntPtr]::Zero) { throw 'no name field in the open dialog' }
+                [void][Jw]::SendMessageStr($edit, $WM_SETTEXT, [IntPtr]::Zero, $full)
+                Start-Sleep -Milliseconds 250
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds 2500
                 break
             }
 
