@@ -698,6 +698,15 @@ houraku houraku9 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,30
 # and the right button on the second corner, which is 範囲内消去
 houraku houraku10 '200,300;800,300;200,340;800,340;480,150;480,500;520,150;520,500' '450,270;r560,380'
 houraku houraku11 '200,300;800,300;800,300;800,340;800,340;200,340;200,340;200,300;480,150;520,150;520,150;520,500;520,500;480,500;480,500;480,150' '300,120;r700,530'
+# and a real drawing, where the box catches a great deal but everything is
+# on layers that are merely editable rather than written to: the original
+# leaves it alone, and this is what makes sure the port does too
+idle
+sh tools/refenv.sh >/dev/null
+cp "orig/ï¼¡ãã³ã·ã§ã³å¹³é¢ä¾.jww" tmp/man.jww
+$PS -Open tmp/man.jww -Cmd 0 -Clicks 'cmd:32846;400,250;700,450;saveas:decomp/res/houraku12.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
 if [ -x tests/houraku_test.exe ]; then
     ./tests/houraku_test.exe >tmp/refanswers.out 2>&1 \
         && echo "    ok -- tests/houraku_test.exe agrees" \

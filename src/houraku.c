@@ -463,6 +463,17 @@ int jw_houraku(const jw_drawing *d, double x0, double y0, double x1,
 
         if (o->cls != JW_SEN)
             continue;
+        /* Only what is on the **write layer** takes part.  The original's
+           gather says so plainly (FUN_0042dd10 lets an element through only
+           when its layer's state is 3), and it is why a box over a real
+           drawing's walls does nothing: they are on layers that are merely
+           editable. */
+        {
+            int g = o->lgroup & 15, la = o->layer & 15;
+
+            if (d->group[g].state != 3 || d->group[g].layer[la].state != 3)
+                continue;
+        }
         for (k = 0; k < nltype; k++)
             if (ltypes[k] == (int)o->ltype)
                 break;
@@ -486,26 +497,28 @@ int jw_houraku(const jw_drawing *d, double x0, double y0, double x1,
         return no;
     }
     /* one batch of the same pen and layer at a time */
-    for (i = 0; i < n; i++) {
-        hl batch[512];
-        int nb = 0, j;
-        const jw_obj *a;
+    {
+        hl *batch = (hl *)calloc((size_t)n + 1, sizeof *batch);
 
-        if (used[i])
-            continue;
-        a = &d->obj[l[i].at];
-        for (j = i; j < n; j++) {
-            const jw_obj *b = &d->obj[l[j].at];
+        for (i = 0; batch && i < n; i++) {
+            int nb = 0, j;
+            const jw_obj *a;
 
-            if (used[j] || b->ltype != a->ltype || b->color != a->color
-                || b->layer != a->layer || b->lgroup != a->lgroup)
+            if (used[i])
                 continue;
-            if (nb < (int)(sizeof batch / sizeof batch[0])) {
+            a = &d->obj[l[i].at];
+            for (j = i; j < n; j++) {
+                const jw_obj *b = &d->obj[l[j].at];
+
+                if (used[j] || b->ltype != a->ltype || b->color != a->color
+                    || b->layer != a->layer || b->lgroup != a->lgroup)
+                    continue;
                 batch[nb++] = l[j];
                 used[j] = 1;
             }
+            weld(batch, nb, &w, &out, &no, &cap);
         }
-        weld(batch, nb, &w, &out, &no, &cap);
+        free(batch);
     }
     free(l);
     free(used);
