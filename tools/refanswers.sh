@@ -596,9 +596,12 @@ sh tools/refenv.sh >/dev/null
 # and the entities a drawing of lines does not exercise: texts turned,
 # squeezed, stretched and in CP932; polylines open and closed; and a block
 # with three references to it
-for k in text poly ins; do
-    [ $k = ins ] && python tools/mkdxfin.py insert decomp/res/ins.dxf \
-                 || python tools/mkdxfin.py $k decomp/res/$k.dxf
+for k in text poly ell ins; do
+    case $k in
+    ins) python tools/mkdxfin.py insert decomp/res/ins.dxf ;;
+    ell) python tools/mkdxfin.py ellipse decomp/res/ell.dxf ;;
+    *)   python tools/mkdxfin.py $k decomp/res/$k.dxf ;;
+    esac
     cp orig/Test5.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -NoSave \
         -Clicks "import:32960,decomp/res/$k.dxf;saveas:decomp/res/${k}in.jww" \

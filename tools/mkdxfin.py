@@ -3,6 +3,7 @@ original what it makes of them.
 
     python tools/mkdxfin.py text   decomp/res/text.dxf
     python tools/mkdxfin.py poly   decomp/res/poly.dxf
+    python tools/mkdxfin.py ellipse decomp/res/ell.dxf
     python tools/mkdxfin.py insert decomp/res/ins.dxf
 
 The prologue -- the header, the tables and the layers -- is lifted from
@@ -89,6 +90,19 @@ def inserts(lay):
     return b''.join(out)
 
 
+def ellipses(lay):
+    """centre, the longer half axis as an offset, how flat, the two ends"""
+    out = []
+    for cx, cy, mx, my, flat, t0, t1 in (
+            (64100, 61400, 6000, 0, 0.5, 0, 6.283185307179586),
+            (78100, 61400, 0, 6000, 0.25, 0, 3.141592653589793),
+            (92100, 61400, 4000, 4000, 0.5, 0.5, 4.0)):
+        out.append(g(0, 'ELLIPSE') + lay + g(6, 'CONTINUOUS') + i5(62, 3)
+                   + g(10, cx) + g(20, cy) + g(11, mx) + g(21, my)
+                   + g(40, flat) + g(41, t0) + g(42, t1))
+    return b''.join(out)
+
+
 def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else 'text'
     out = sys.argv[2] if len(sys.argv) > 2 else 'decomp/res/%s.dxf' % kind
@@ -98,12 +112,14 @@ def main():
         body = texts(lay)
     elif kind == 'poly':
         body = polys(lay)
+    elif kind == 'ellipse':
+        body = ellipses(lay)
     elif kind == 'insert':
         head = head.replace(b'  2\r\nBLOCKS\r\n',
                             b'  2\r\nBLOCKS\r\n' + block(lay), 1)
         body = inserts(lay)
     else:
-        print('which: text, poly or insert')
+        print('which: text, poly, ellipse or insert')
         return
     io.open(out, 'wb').write(head + body + g(0, 'ENDSEC') + g(0, 'EOF'))
     print('%s: %s' % (out, kind))

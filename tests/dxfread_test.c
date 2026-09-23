@@ -268,6 +268,9 @@ int main(void)
           "polylines, read back");
     alike("orig/Test5.jww", "decomp/res/ins.dxf", "decomp/res/insin.jww",
           "a block and three references to it, read back");
+    /* and its ellipses, which a drawing keeps as a flattened arc */
+    alike("orig/Test5.jww", "decomp/res/ell.dxf", "decomp/res/ellin.jww",
+          "ellipses, read back");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

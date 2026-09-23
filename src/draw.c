@@ -820,6 +820,10 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
             block(fb, v, d, &o, depth + 1);
             continue;
         }
+        /* One scale, not two: an element can be turned and made bigger,
+           but nothing in a drawing is stretched more one way than the
+           other, so a reference with two different scales is drawn with
+           the first of them. */
         jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4],
                      ref->d[0], ref->d[1]);
         jw_draw(fb, v, &one);

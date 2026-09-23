@@ -25,8 +25,8 @@
  *     (FUN_0049e380), so a DXF whose DASHED1 is not jw's 点線1 comes in as
  *     a new 任意線種.
  *
- * MTEXT, HATCH, DIMENSION and ELLIPSE are not read yet; the entities that
- * are are LINE, ARC, CIRCLE, POINT, SOLID, TEXT, POLYLINE, LWPOLYLINE and
+ * MTEXT, HATCH and DIMENSION are not read yet; the entities that are are
+ * LINE, ARC, CIRCLE, ELLIPSE, POINT, SOLID, TEXT, POLYLINE, LWPOLYLINE and
  * INSERT -- and with the last of those, the BLOCKS section.
  */
 #include <math.h>
@@ -629,6 +629,42 @@ static void ent_arc(dxfr *r, int circle)
     }
 }
 
+/* ELLIPSE, which a drawing keeps as an arc with a flattening: the centre,
+   the longer half axis as an offset from it, how flat it is against that,
+   and the two ends as parameters rather than angles. */
+static void ent_ellipse(dxfr *r)
+{
+    double cx = 0, cy = 0, mx = 0, my = 0, flat = 1.0, t0 = 0, t1 = 0;
+    jw_obj *o;
+    attr a;
+
+    attr_start(&a);
+    for (next(r); r->code > 0; next(r)) {
+        if (attr_take(r, &a))
+            continue;
+        switch (r->code) {
+        case 10: cx = put_x(r, r->num); break;
+        case 20: cy = put_y(r, r->num); break;
+        case 11: mx = put_l(r, r->num); break;
+        case 21: my = put_l(r, r->num); break;
+        case 40: flat = r->num; break;
+        case 41: t0 = r->num; break;
+        case 42: t1 = r->num; break;
+        }
+    }
+    o = place(r, JW_ENKO, &a);
+    if (o) {
+        o->d[0] = cx;
+        o->d[1] = cy;
+        o->d[2] = sqrt(mx * mx + my * my);
+        o->d[3] = t0;
+        o->d[4] = t1 - t0;
+        o->d[5] = atan2(my, mx);
+        o->d[6] = flat;
+        o->n = o->d[4] >= 2.0 * PI - 1e-9 || o->d[4] <= -2.0 * PI + 1e-9;
+    }
+}
+
 static void ent_point(dxfr *r)
 {
     double x = 0, y = 0;
@@ -740,6 +776,7 @@ static void ent_text(dxfr *r)
 }
 
 static void ent_poly(dxfr *r, int lw);
+static void ent_ellipse(dxfr *r);
 static void ent_insert(dxfr *r);
 static void ent_skip(dxfr *r);
 
@@ -769,6 +806,8 @@ static void entity(dxfr *r)
         ent_poly(r, 0);
     else if (!strcmp(r->str, "INSERT"))
         ent_insert(r);
+    else if (!strcmp(r->str, "ELLIPSE"))
+        ent_ellipse(r);
     else
         ent_skip(r);
 }
