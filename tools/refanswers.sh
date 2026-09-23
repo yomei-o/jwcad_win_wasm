@@ -804,6 +804,21 @@ for k in geom t5; do
     sh tools/refenv.sh >/dev/null
 done
 
+# データ整理 (32910): a range, 選択確定, and then one of its buttons.  The
+# drawing is tools/mkseiri.c's ten pairs, each pair a different kind of "the
+# same"; tests/seiri_test.c holds what the port makes of it against these.
+echo "=== seiri (重複整理・連結整理)"
+$CC -O2 -Isrc -o tmp/mkseiri.exe tools/mkseiri.c src/jww.c src/jwwrite.c     src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mkseiri.exe tools/mkseiri.c src/jww.c            src/jwwrite.c src/cp932.c
+./tmp/mkseiri.exe orig/Test5.jww tmp/seiri.jww
+for k in 1064,seiridup 1065,seirijoin; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp tmp/seiri.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:32910;60,60;r1150,650;raw:v,5136,0,0;pb:${k%,*};wait:1500;saveas:decomp/res/${k#*,}.jww"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+
 # 属性選択 (1069): with a box already in, the dialog narrows what is picked
 # to one kind of element -- or, with 《指定属性除外》, to everything else.
 # One tick each, then 消去, and what is left is the answer.  The drawing is

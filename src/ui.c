@@ -1557,8 +1557,17 @@ static int bar_now(const jw_ctl_t **c)
 {
     int cmd = jw_cmd(), i;
 
+    /* Once a range is settled the command puts up a bar of its own -- the
+       one tools/bars2.ps1 reads, filed under 100000 + the command.  範囲選択
+       has none, so it keeps the one it started with. */
+    if (jw_cmd_sel_stage() == 3)
+        for (i = 0; i < JW_NBARS; i++)
+            if (jw_bars[i].cmd == 100000u + (unsigned)cmd) {
+                *c = jw_bars[i].c;
+                return jw_bars[i].n;
+            }
     for (i = 0; i < JW_NBARS; i++)
-        if (jw_bars[i].cmd == cmd) {
+        if (jw_bars[i].cmd == (unsigned)cmd) {
             *c = jw_bars[i].c;
             return jw_bars[i].n;
         }

@@ -181,6 +181,10 @@ static double text_len(const jw_drawing *d, const jw_obj *o, int style)
     }
     if (half <= 0.0)
         return 0.0;
+    /* Test5's JWC comes out byte for byte the original's with this, and it
+       does have 文字種 with a gap between the letters -- so this is the rule
+       here, whatever the .jww reader does to a text's baseline (which is a
+       different sum again: see RESUME.md). */
     return half / 2.0 * (w + sp) - sp;
 }
 

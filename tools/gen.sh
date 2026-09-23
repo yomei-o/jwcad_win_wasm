@@ -74,6 +74,16 @@ sh tools/refenv.sh
 
 say 'the command bar for each command, read out of the running original'
 powershell -ExecutionPolicy Bypass -File tools/bars.ps1 -Out decomp/res/bars.txt >/dev/null
+# and the bar a few commands put up once a range is settled, which
+# tools/bars.ps1 cannot reach -- one run each, because after the first the
+# command is still holding a copy and the next one's clicks miss
+: > decomp/res/bars2.txt
+for c in 32804 32918 32910; do
+    sh tools/refenv.sh >/dev/null
+    powershell -ExecutionPolicy Bypass -File tools/bars2.ps1 \
+        -Cmd $c -Out tmp/bar2_$c.txt >/dev/null
+    cat tmp/bar2_$c.txt >> decomp/res/bars2.txt
+done
 python tools/mkbars.py
 
 say '線属性 dialog, likewise'

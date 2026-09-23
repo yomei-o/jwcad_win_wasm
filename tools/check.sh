@@ -73,6 +73,10 @@ python tools/cmp.py docs/ref_moji.png tests/out/moji.png \
     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"
+./tests/seiri_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 属性選択 —— ダイアログと、原典の選び方との突き合わせ"
 ./tests/zokusel_test.exe tests/out/zokusel.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_zokusel.png tests/out/zokusel.png     -i docs/zokusel_textareas.txt -d tests/out/zokusel.diff.png     | head -2 | sed 's/^/    /'

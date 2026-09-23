@@ -96,6 +96,14 @@ static int tracking;
  * with a selection keeps it, which is how the rule below was read off the
  * original: it was given a box and the file it wrote said what was in it. */
 static int sel_step;
+
+/* The commands that start by taking a range: 範囲選択 and the ones built on
+   it.  They all run through the same first two stages. */
+static int range_cmd(int c)
+{
+    return c == JW_CMD_HANI || c == JW_CMD_FUKUSHA || c == JW_CMD_IDOU
+        || c == JW_CMD_SEIRI;
+}
 static double sel_x0, sel_y0, sel_x1, sel_y1;
 /* 範囲外選択 (1334): the box takes what lies wholly *outside* it instead.
    Driving the original says the texts come too, whichever button the second
@@ -505,7 +513,7 @@ void jw_cmd_set(int id)
        command, so it stays until a new box is begun.  That is how the
        original can be given a range in 範囲選択 and then told what to do
        with it. */
-    if (id == JW_CMD_HANI || id == JW_CMD_FUKUSHA || id == JW_CMD_IDOU) {
+    if (range_cmd(id)) {
         sel_step = 0;
         sel_free();
     }
@@ -664,6 +672,7 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_HANI:
     case JW_CMD_FUKUSHA:
     case JW_CMD_IDOU:
+    case JW_CMD_SEIRI:
         /* 5383 while the box has no first corner, 5326 while it is being
            dragged, then 5314 基準点 and 5307/5311 for where it goes. */
         if (sel_step == 1)
@@ -2780,6 +2789,142 @@ static void sel_box(jw_drawing *d, int with_text)
         sel_cut_box(d, x0, y0, x1, y1);
 }
 
+int jw_cmd_sel_stage(void)
+{
+    return sel_step;
+}
+
+/* ------------------------------------------------------ データ整理 -----
+ * 重複整理 (1064) and 連結整理 (1065), the two of its bar this port does.
+ * What each one does was read off the original by giving it a drawing of
+ * pairs (tools/mkseiri.c) and pressing one button:
+ *
+ *  - Two elements exactly on top of each other become one, whatever they
+ *    are: the pairs of lines, arcs, points and texts all came back as one.
+ *    They have to match in colour, line type and layer -- the three pairs
+ *    that differed in one of those were left alone by both buttons.
+ *  - Two lines that overlap along part of their length become one line
+ *    covering both: -80..-30 and -55..-5 came back as -80..-5.
+ *  - Two lines that only meet end to end are joined by 連結整理 and left
+ *    alone by 重複整理.  A bent pair is left alone by both.
+ *
+ * So 連結整理 is 重複整理 and the joining as well; pressing it alone took
+ * the duplicates out too.  decomp/res/seiridup.jww and seirijoin.jww are
+ * the two answers.  What is left keeps the place in the list of the earlier
+ * of the two, and stays picked.
+ */
+#define SEIRI_EPS 1e-6
+
+static int seiri_attr(const jw_obj *a, const jw_obj *b)
+{
+    return a->cls == b->cls && a->color == b->color && a->ltype == b->ltype
+        && (a->layer & 15) == (b->layer & 15)
+        && (a->lgroup & 15) == (b->lgroup & 15);
+}
+
+/* The same thing in the same place -- for everything that is not a line,
+   where being the same is all there is to it. */
+static int seiri_same(const jw_drawing *d, const jw_obj *a, const jw_obj *b)
+{
+    int k;
+
+    for (k = 0; k < 8; k++)
+        if (a->d[k] != b->d[k])
+            return 0;
+    if (a->cls == JW_MOJI)
+        return a->n == b->n
+            && !strcmp(jw_str(d, a->text), jw_str(d, b->text));
+    return 1;
+}
+
+/* Where b's two ends fall along a, measured from a's first point.  Returns
+   0 unless b lies on a's own infinite line. */
+static int seiri_along(const jw_obj *a, const jw_obj *b, double *len,
+                       double *t0, double *t1)
+{
+    double ux = a->d[2] - a->d[0], uy = a->d[3] - a->d[1];
+    double n0, n1;
+
+    *len = sqrt(ux * ux + uy * uy);
+    if (*len < SEIRI_EPS)
+        return 0;
+    ux /= *len;
+    uy /= *len;
+    n0 = (b->d[0] - a->d[0]) * -uy + (b->d[1] - a->d[1]) * ux;
+    n1 = (b->d[2] - a->d[0]) * -uy + (b->d[3] - a->d[1]) * ux;
+    if (n0 > SEIRI_EPS || n0 < -SEIRI_EPS
+        || n1 > SEIRI_EPS || n1 < -SEIRI_EPS)
+        return 0;
+    *t0 = (b->d[0] - a->d[0]) * ux + (b->d[1] - a->d[1]) * uy;
+    *t1 = (b->d[2] - a->d[0]) * ux + (b->d[3] - a->d[1]) * uy;
+    return 1;
+}
+
+static int seiri(jw_drawing *d, int join)
+{
+    op_t *rec;
+    int gone = 0, changed = 1, guard = 0;
+
+    if (!d)
+        return 0;
+    rec = op_new();
+    while (changed && guard++ < 10000) {
+        int i, j;
+
+        changed = 0;
+        for (i = 0; i < d->ndrawn && !changed; i++) {
+            if (!d->obj[i].sel)
+                continue;
+            for (j = i + 1; j < d->ndrawn; j++) {
+                jw_obj *a = &d->obj[i], *b = &d->obj[j];
+                double len, t0, t1, lo, hi, ov, ux, uy;
+
+                if (!b->sel || !seiri_attr(a, b))
+                    continue;
+                if (a->cls != JW_SEN) {
+                    if (!seiri_same(d, a, b))
+                        continue;
+                    erase(d, j, rec);
+                    gone++;
+                    changed = 1;
+                    break;
+                }
+                if (!seiri_along(a, b, &len, &t0, &t1))
+                    continue;
+                lo = t0 < t1 ? t0 : t1;
+                hi = t0 < t1 ? t1 : t0;
+                ov = (hi < len ? hi : len) - (lo > 0.0 ? lo : 0.0);
+                /* 重複整理 wants them to share some length; 連結整理 takes
+                   them meeting at a point as well */
+                if (join ? ov < -SEIRI_EPS : ov <= SEIRI_EPS)
+                    continue;
+                ux = (a->d[2] - a->d[0]) / len;
+                uy = (a->d[3] - a->d[1]) / len;
+                op_keep(rec, d, i, 0);
+                if (lo < 0.0) {
+                    double x0 = a->d[0] + ux * lo, y0 = a->d[1] + uy * lo;
+
+                    a->d[0] = x0;
+                    a->d[1] = y0;
+                }
+                if (hi > len) {
+                    double x1 = a->d[0] + ux * (hi - (lo < 0.0 ? lo : 0.0));
+                    double y1 = a->d[1] + uy * (hi - (lo < 0.0 ? lo : 0.0));
+
+                    a->d[2] = x1;
+                    a->d[3] = y1;
+                }
+                erase(d, j, rec);
+                gone++;
+                changed = 1;
+                break;
+            }
+        }
+    }
+    (void)rec;
+    return gone;
+}
+
 /* Whether an element is one of the kinds the 属性選択 dialog has ticked. */
 static int zok_is(const jw_obj *o, int mask)
 {
@@ -3055,11 +3200,9 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
-    if (id == 1334 && (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
-                       || current == JW_CMD_IDOU))
+    if (id == 1334 && range_cmd(current))
         return sel_outside;
-    if (id == 1344 && (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
-                       || current == JW_CMD_IDOU))
+    if (id == 1344 && range_cmd(current))
         return sel_cut;
     if (current == JW_CMD_HATCH && id == 1323)
         return ht_jisun;
@@ -3094,6 +3237,16 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 
 int jw_cmd_bar(jw_drawing *d, int id)
 {
+    if (current == JW_CMD_SEIRI && sel_step == 3) {
+        if (id == 1064 || id == 1065)   /* 重複整理, 連結整理 */
+            return seiri(d, id == 1065) > 0;
+        if (id == 1072) {               /* 範囲選択: take another one */
+            sel_clear(d);
+            sel_step = 0;
+            return 1;
+        }
+        return 0;
+    }
     if (current == JW_CMD_HATCH) {
         if (id >= 1689 && id <= 1693) {
             ht_mode_set(id);
@@ -3176,8 +3329,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
         return 1;
     }
-    if (current != JW_CMD_HANI && current != JW_CMD_FUKUSHA
-        && current != JW_CMD_IDOU)
+    if (!range_cmd(current))
         return 0;
     if (!jw_cmd_bar_enabled(d, id))
         return 0;
@@ -3678,8 +3830,7 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         sun_step = 2;           /* ready for the next one */
         return;
     }
-    if (current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
-        || current == JW_CMD_IDOU) {
+    if (range_cmd(current)) {
         switch (sel_step) {
         case 0:
             if (button != 0)    /* (R) picks a 連続線, which is not done */

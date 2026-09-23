@@ -18,7 +18,12 @@ h=24, and the rest.
 import os
 import re
 
-SRC = 'decomp/res/bars.txt'
+# decomp/res/bars.txt is every command's bar as it is entered; bars2.txt is
+# the one a few of them put up once a range is settled, which tools/bars.ps1
+# cannot reach.  Those come in headed `=== command 1<cmd>` -- the command
+# with a 1 in front -- and go into the same table, so the port looks the
+# second stage up by 100000 + the command.
+SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt']
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar
@@ -58,7 +63,11 @@ def kind_of(cls, style):
 
 def read():
     bars, cur = [], None
-    for line in open(SRC, encoding='utf-8'):
+    lines = []
+    for p in SRC:
+        if os.path.exists(p):
+            lines += list(open(p, encoding='utf-8'))
+    for line in lines:
         line = line.rstrip('\n')
         m = re.match(r'=== command (\d+)$', line)
         if m:
@@ -109,13 +118,15 @@ def main():
                            esc(text)))
             f.write('};\n\n')
         f.write('typedef struct {\n'
-                '    unsigned short cmd;\n'
+                '    unsigned int cmd;      /* 100000 + it for the bar the\n'
+                '                              command puts up once a range\n'
+                '                              is settled */\n'
                 '    unsigned short n;\n'
                 '    const jw_ctl_t *c;\n'
                 '} jw_bar_t;\n\n')
         f.write('static const jw_bar_t jw_bars[] = {\n')
         for cmd, ctls in bars:
-            f.write('    { %5d, %2d, jw_bar_%d },\n' % (cmd, len(ctls), cmd))
+            f.write('    { %6d, %2d, jw_bar_%d },\n' % (cmd, len(ctls), cmd))
         f.write('};\n#define JW_NBARS %d\n\n' % len(bars))
         f.write('#endif\n')
     print('%s: %d bars, %d controls'

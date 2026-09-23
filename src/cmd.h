@@ -52,6 +52,7 @@ enum {
     JW_CMD_KYOKUSEN = 0x808c,       /* 曲線 -- スプライン only so far */
     JW_CMD_HOURAKU = 0x804e,        /* 包絡処理 -- CZukeiHouraku */
     JW_CMD_HATCH = 0x806a,          /* ハッチ -- 1線 only so far */
+    JW_CMD_SEIRI = 0x808e,          /* データ整理 -- CZukeiSeiri */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -147,6 +148,11 @@ enum {
     JW_ZOK_BLOCK = 64           /* ブロック図形指定 1802 */
 };
 int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude);
+
+/* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
+   range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The
+   bar for a command changes at 3, so the drawing of it has to know. */
+int  jw_cmd_sel_stage(void);
 
 /* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
    (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */
