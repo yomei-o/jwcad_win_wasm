@@ -564,7 +564,18 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
          * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
          * cx+r in the first.  So a whole circle is half a pixel off centre
          * and an arc is not. */
-        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI);
+        /* A whole circle goes into a box 2r across, a part of one into a box
+         * 2r+1 -- but only while it is solid.  Drawn dashed, the original's
+         * whole circle comes out on the bigger ring: a 40 mm circle at this
+         * scale has its solid outline centred on 435.50,278.49 with a mean
+         * radius of 64.32 and its dashed one on 436.54,279.30 at 65.11,
+         * while the port drew both the same.  Reading it as "a dashed circle
+         * is drawn as arcs, and an arc gets the 2r+1 box" takes
+         * 天空率表.jww from 2,451 mismatched pixels to 2,016. */
+        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI) || lt != 1;
+        /* debugging hook: write the boundary walk out, so a render can be
+           sampled along it and held against the original's */
+        int dumpwalk = getenv("JW_ARC_WALK") != 0;
         int n = circle_points(rp, odd, pts);
         if (n > 0) {
             int full = !odd;
@@ -611,6 +622,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                         for (i = 0; i < wide; i++)
                             put(fb, &v->clip, sx + i, sy + j, col);
                 phase += 1.0;
+                if (dumpwalk)
+                    fprintf(stderr, "walk %d %d %d %.3f\n", idx, sx, sy, phase);
             }
             return;
         }
