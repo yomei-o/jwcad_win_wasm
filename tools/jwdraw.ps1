@@ -562,10 +562,11 @@ try {
                 break
             }
 
-            '^dlg:b?(\d+),(.+)$' {
-                $byButton = $s -match '^dlg:b'
-                $id  = [int]$Matches[1]
-                $png = $Matches[2]
+            '^dlg:(b?)(\d+),(.+)$' {
+                # every -match rewrites $Matches, so read the groups first
+                $byButton = $Matches[1] -eq 'b'
+                $id  = [int]$Matches[2]
+                $png = $Matches[3]
                 $before = [Jw]::Tops([uint32]$p.Id)
                 if ($byButton) {
                     $h = Ctl $id
