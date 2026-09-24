@@ -4849,20 +4849,35 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         read_mode = 0;
     }
     if (read_mode == 33017 && d) {
-        /* 線上点・交点取得: the first click picks a line -- the prompt then
-           reads 「■■線上点指示■■ (L)free (R)Read <<交点>> (L)他の線・円」
-           -- and the next point is dropped onto it at right angles.  The
-           交点 half, and picking a circle rather than a line, are not done.
-        */
+        /* 線上点・交点取得: the first click picks a line or a circle -- the
+           prompt then reads 「■■線上点指示■■ (L)free (R)Read <<交点>>
+           (L)他の線・円」 -- and the next point lands on it: at right angles
+           for a line, straight out from the centre for a circle (a read
+           beside the r=15 circle at (60,-30) came back exactly 15 away from
+           it, along the line from the centre to where it was clicked).
+           Only line-crosses-line is done for 《交点》. */
         if (read_pick < 0) {
             int i = jw_pick(d, v, x, y, 1);
 
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i < 0 || (d->obj[i].cls != JW_SEN
+                          && d->obj[i].cls != JW_ENKO))
                 return;
             read_pick = i;
             return;
         }
-        {
+        if (d->obj[read_pick].cls == JW_ENKO) {
+            const jw_obj *o = &d->obj[read_pick];
+            double dx = x - o->d[0], dy = y - o->d[1];
+            double len = sqrt(dx * dx + dy * dy);
+
+            read_pick = -1;
+            read_mode = 0;
+            if (len <= 0.0)
+                return;
+            x = o->d[0] + o->d[2] * dx / len;
+            y = o->d[1] + o->d[2] * dy / len;
+            button = 0;
+        } else {
             const jw_obj *o = &d->obj[read_pick];
             double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
             double len = dx * dx + dy * dy, t;

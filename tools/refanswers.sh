@@ -1018,6 +1018,16 @@ $PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;
 idle
 sh tools/refenv.sh >/dev/null
 
+# 線上点 on a circle: the point comes out straight out from the centre,
+# through where the second click was, at the radius.
+echo "=== snapcirc (円の線上点)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;wait:300;cmd:33017;wait:500;r638,374;wait:600;620,350;wait:800;saveas:decomp/res/snapcirc.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 《交点》: two lines are drawn crossing first, and the second click of
 # 線上点・交点取得 lands on the other one.
 echo "=== snapcross (交点)"
