@@ -1030,6 +1030,17 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,deco
 idle
 sh tools/refenv.sh >/dev/null
 
+# and reading one back: ファイル読込 (1066) makes a 図形 of the file, whose
+# (0, 0) goes where it is clicked.  A blank sheet is at 1/100, so what was
+# written out of the 1/200 drawing comes back half the size.
+echo "=== coordin (座標ファイルの読込)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/new.jww tmp/blank.jww
+$PS -Open tmp/blank.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,decomp/res/coord.txt;wait:1000;pb:1066;wait:1500;400,300;wait:1200;saveas:decomp/res/coordin.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 線上点 on a circle: the point comes out straight out from the centre,
 # through where the second click was, at the radius.
 echo "=== snapcirc (円の線上点)"

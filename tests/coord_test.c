@@ -105,6 +105,92 @@ int main(int argc, char **argv)
     }
     free(mine);
     free(ref);
+
+    /* and the other way: ファイル読込 makes a 図形 of the same file, whose
+       (0, 0) lands on the click.  decomp/res/coordin.jww is the original's,
+       read into a blank sheet -- which is at 1/100, so what was written out
+       of a 1/200 drawing comes back half the size. */
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open decomp/res/new.jww\n");
+        free(b);
+        printf("SOME BAD\n");
+        return 1;
+    }
+    free(b);
+    b = slurp("decomp/res/coord.txt", &n);
+    if (!b) {
+        printf("BAD  cannot read decomp/res/coord.txt\n");
+        printf("SOME BAD\n");
+        return 1;
+    }
+    ck(app_coord(b, n), "the file is read back as a figure");
+    free(b);
+    ck(jw_cmd() == JW_CMD_ZUKEI, "  which enters 図形読込");
+    ui_view_rect(fb->w, fb->h, &r);
+    app_press(r.x + 400, r.y + 300, 0);
+    {
+        const jw_drawing *d = app_drawing();
+        jw_drawing rf;
+        int j, bad = 0;
+
+        memset(&rf, 0, sizeof rf);
+        b = slurp("decomp/res/coordin.jww", &n);
+        if (!b || !jw_parse(&rf, b, n)) {
+            printf("BAD  cannot read decomp/res/coordin.jww -- drive the "
+                   "original first\n");
+            fails++;
+            free(b);
+            printf("SOME BAD\n");
+            return 1;
+        }
+        free(b);
+        for (i = 0, j = 0; i < rf.ndrawn && j < d->ndrawn; i++) {
+            const jw_obj *q = &rf.obj[i], *p;
+            int k;
+
+            if (!jw_text_drawn(q))
+                continue;
+            while (j < d->ndrawn && !jw_text_drawn(&d->obj[j]))
+                j++;
+            if (j >= d->ndrawn)
+                break;
+            p = &d->obj[j++];
+            if (p->cls != q->cls || p->color != q->color
+                || p->ltype != q->ltype || p->width != q->width
+                || (p->layer & 15) != (q->layer & 15)) {
+                printf("     the %dth is cls=%d col=%d lt=%d w=%d lay=%d "
+                       "where the original's is cls=%d col=%d lt=%d w=%d "
+                       "lay=%d\n", i, p->cls, p->color, p->ltype, p->width,
+                       p->layer & 15, q->cls, q->color, q->ltype, q->width,
+                       q->layer & 15);
+                bad = 1;
+                continue;
+            }
+            for (k = 0; k < 8; k++) {
+                double a = p->d[k], c = q->d[k];
+
+                if (p->cls == JW_ENKO && k == 3) {
+                    /* The port holds the angle the file gave (270 degrees);
+                       the original held it too and wrote it into the .jww,
+                       but **reading** one brings it into (-pi, pi], so the
+                       answer comes back as -90.  See RESUME.md. */
+                    while (a > 3.141592653589793)
+                        a -= 6.283185307179586;
+                    while (c > 3.141592653589793)
+                        c -= 6.283185307179586;
+                }
+                if (a - c > 1e-6 || c - a > 1e-6) {
+                    printf("     the %dth's d[%d] is %.6f, the original's "
+                           "%.6f\n", i, k, p->d[k], q->d[k]);
+                    bad = 1;
+                }
+            }
+        }
+        ck(!bad, "  and every element is the original's, to six places");
+        jw_free(&rf);
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

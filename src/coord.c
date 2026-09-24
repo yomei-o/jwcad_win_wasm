@@ -273,3 +273,164 @@ int jw_write_coord(const jw_drawing *d, double ox, double oy,
     *n = w.n;
     return 1;
 }
+
+/* ------------------------------------------------------ reading one -----
+ * 座標ファイル's ファイル読込 turns the file into a **図形**: the prompt
+ * becomes 「【図形】の複写位置を指示してください」 and the bar is 図形読込's,
+ * with 倍率 and 回転角.  So this only reads the text into a drawing of its
+ * own, in the file's own real millimetres with every layer group at 1, and
+ * the figure machinery places it -- the scale that then falls out is
+ * 1 / the write group's, which is what the original does (a file written
+ * from a 1/200 drawing came back into a 1/100 one at half the size).
+ *
+ * The file's (0, 0) is where the click goes.
+ *
+ * `lw` becomes the element's own width -- the elements that came back
+ * carried 8, 17, 25, 34 and 42 -- except on a solid, which gets none.
+ */
+static const char *eat_line(const char *p, const char *end, char *buf,
+                            int cap)
+{
+    int n = 0;
+
+    while (p < end && *p != '\r' && *p != '\n') {
+        if (n < cap - 1)
+            buf[n++] = *p;
+        p++;
+    }
+    buf[n] = 0;
+    while (p < end && (*p == '\r' || *p == '\n'))
+        p++;
+    return p;
+}
+
+/* the numbers of a line, space separated */
+static int nums(const char *s, double *v, int max)
+{
+    int n = 0;
+
+    while (*s && n < max) {
+        char *e;
+        double d;
+
+        while (*s == ' ' || *s == '\t')
+            s++;
+        if (!*s)
+            break;
+        d = strtod(s, &e);
+        if (e == s)
+            break;
+        v[n++] = d;
+        s = e;
+    }
+    return n;
+}
+
+int jw_parse_coord(jw_drawing *d, const unsigned char *b, long n)
+{
+    const char *p = (const char *)b, *end = (const char *)b + n;
+    char t[512];
+    int lc = 2, pn = 2, lt = 1, lw = 0, ly = 0, head = 1, g;
+
+    memset(d, 0, sizeof *d);
+    d->off_names = d->end_names = -1;
+    d->off_ctab = d->end_ctab = -1;
+    d->off_sxf = d->end_sxf = -1;
+    d->version = 700;
+    for (g = 0; g < 16; g++)
+        d->group[g].scale = 1.0;
+    while (p < end) {
+        double v[16];
+        int k;
+        jw_obj *o;
+
+        p = eat_line(p, end, t, (int)sizeof t);
+        if (!t[0])
+            continue;
+        if (t[0] == '#') {
+            head = 0;
+            continue;
+        }
+        if (t[0] == 'l' && t[1] == 'y') { ly = (int)strtol(t + 2, 0, 16); continue; }
+        if (t[0] == 'l' && t[1] == 'g') { continue; }
+        if (t[0] == 'l' && t[1] == 'c') { lc = atoi(t + 2); continue; }
+        if (t[0] == 'l' && t[1] == 't') { lt = atoi(t + 2); continue; }
+        if (t[0] == 'l' && t[1] == 'w') { lw = atoi(t + 2); continue; }
+        if (t[0] == 'p' && t[1] == 'n') { pn = atoi(t + 2); continue; }
+        if (t[0] == 'c' && t[1] == 'n') { continue; }   /* the 文字種 */
+        if (head)
+            continue;
+        if (t[0] == 'c' && t[1] == 'i') {
+            k = nums(t + 2, v, 8);
+            if (k < 3)
+                continue;
+            o = jw_add(d, JW_ENKO);
+            if (!o)
+                return 0;
+            o->d[0] = v[0];
+            o->d[1] = v[1];
+            o->d[2] = v[2];
+            if (k >= 5) {
+                double a0 = v[3] * PI / 180.0, a1 = v[4] * PI / 180.0;
+                double sw = a1 - a0;
+
+                while (sw < 0.0)
+                    sw += 2 * PI;
+                o->d[3] = a0;
+                o->d[4] = sw;
+                o->d[5] = k >= 7 ? v[6] * PI / 180.0 : 0.0;
+                o->d[6] = k >= 6 ? v[5] : 1.0;
+            } else {
+                o->d[3] = 0.0;
+                o->d[4] = 2 * PI;
+                o->d[5] = 0.0;
+                o->d[6] = 1.0;
+                o->n = 1;
+            }
+            o->color = (unsigned short)lc;
+            o->ltype = (unsigned char)lt;
+            o->width = (unsigned short)lw;
+        } else if (t[0] == 'p' && t[1] == 't') {
+            if (nums(t + 2, v, 2) < 2)
+                continue;
+            o = jw_add(d, JW_TEN);
+            if (!o)
+                return 0;
+            o->d[0] = v[0];
+            o->d[1] = v[1];
+            o->color = (unsigned short)pn;
+            o->ltype = (unsigned char)lt;
+            o->width = (unsigned short)lw;
+        } else if (t[0] == 's' && t[1] == 'l') {
+            k = nums(t + 2, v, 8);
+            if (k < 6)
+                continue;
+            o = jw_add(d, JW_SOLID);
+            if (!o)
+                return 0;
+            for (g = 0; g < 8; g++)
+                o->d[g] = g < k ? v[g] : v[k - 2 + (g & 1)];
+            o->color = (unsigned short)lc;
+            o->ltype = (unsigned char)lt;
+            o->width = 0;               /* a solid takes no lw */
+        } else if (t[0] == ' ' || t[0] == '-' || (t[0] >= '0' && t[0] <= '9')) {
+            if (nums(t, v, 4) < 4)
+                continue;
+            o = jw_add(d, JW_SEN);
+            if (!o)
+                return 0;
+            o->d[0] = v[0];
+            o->d[1] = v[1];
+            o->d[2] = v[2];
+            o->d[3] = v[3];
+            o->color = (unsigned short)lc;
+            o->ltype = (unsigned char)lt;
+            o->width = (unsigned short)lw;
+        } else {
+            continue;                   /* cn2, cc0, cz -- not read yet */
+        }
+        d->obj[d->ndrawn - 1].layer = (unsigned short)ly;
+        d->obj[d->ndrawn - 1].lgroup = 0;
+    }
+    return d->ndrawn > 0;
+}

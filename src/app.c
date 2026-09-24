@@ -449,6 +449,14 @@ int app_figure_save(unsigned char **out, long *n)
     return jw_cmd_figure_save(&drawing, fig_bx, fig_by, out, n);
 }
 
+/* 座標ファイル: the text, which the original reads as a 図形. */
+int app_coord(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_cmd_coord_load(&drawing, b, n);
+}
+
 /* 図形読込 (32862): the bytes of a .jws, in place of the original's own
    file window.  The figure then hangs on the cursor until a point is
    clicked. */

@@ -231,6 +231,15 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_fig(void)
     return saved;
 }
 
+/* And the text of a coordinate file, which the original reads as a 図形. */
+EMSCRIPTEN_KEEPALIVE int jw_coord(unsigned char *b, int n)
+{
+    if (!app_coord(b, n))
+        return 0;
+    app_paint();
+    return 1;
+}
+
 /* 座標ファイル (32895): the command hands back 5 from a press, and the page
    calls this for the text to download. */
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_coord(void)

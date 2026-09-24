@@ -24,7 +24,7 @@
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
 <div id="note">
-  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws を開く</label>
+  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
@@ -75,6 +75,7 @@
   const figure = mod.cwrap('jw_figure', 'number', ['number', 'number']);
   const saveFig = mod.cwrap('jw_save_fig', 'number', []);
   const saveCoord = mod.cwrap('jw_save_coord', 'number', []);
+  const coord = mod.cwrap('jw_coord', 'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
@@ -307,10 +308,12 @@
     // place of it, which is what the original does with those two.
     // A .jws is a 図形: it enters 図形読込 and hangs on the cursor until a
     // point is clicked, so it does not become the drawing that is open.
-    const fig = /\.jws$/i.test(file.name);
+    // a .txt is a 座標ファイル, which the original also reads as a 図形
+    const fig = /\.(jws|txt)$/i.test(file.name);
     const ok = /\.dxf$/i.test(file.name) ? openDxf(p, bytes.length)
              : /\.sfc$/i.test(file.name) ? openSfc(p, bytes.length)
              : /\.jwc$/i.test(file.name) ? openJwc(p, bytes.length)
+             : /\.txt$/i.test(file.name) ? coord(p, bytes.length)
              : fig ? figure(p, bytes.length)
              : open(p, bytes.length);
     mod._free(p);

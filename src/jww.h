@@ -204,6 +204,11 @@ int  jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
 int  jw_write_coord(const jw_drawing *d, double ox, double oy,
                     unsigned char **out, long *n);
 
+/* And reading one: ファイル読込 makes a 図形 of it, so this only fills a
+   drawing in the file's own units with every group at scale 1, and the
+   figure machinery puts it down. */
+int  jw_parse_coord(jw_drawing *d, const unsigned char *b, long n);
+
 /* And out again -- 図形登録 (32946).  Every drawn element of `d` goes in,
    keeping the coordinates it has, and (bx, by) is the base point the header
    carries.  Jw_cad 10 stamps its own version on one, not the drawing's. */

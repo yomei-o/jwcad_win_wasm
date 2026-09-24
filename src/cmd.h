@@ -221,6 +221,9 @@ int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
 int  jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n);
 int  jw_cmd_figure_ready(void);
 
+/* 座標ファイル (32895) の ファイル読込 -- the same, from the text file. */
+int  jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n);
+
 /* The 倍率 and 回転角 of its bar, which the next placement goes down at.
  * Driving the original with 倍率 2 and 回転角 30 put the figure down at
  * click + R(30) * 2 * (scale ratio) * (point - base point), to six places

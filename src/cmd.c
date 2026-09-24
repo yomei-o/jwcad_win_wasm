@@ -3816,6 +3816,32 @@ int jw_cmd_figure_save(const jw_drawing *d, double bx, double by,
     return ok;
 }
 
+/* 座標ファイル's ファイル読込 hands the text over the same way: the original
+ * turns it into a 図形 -- 「【図形】の複写位置を指示してください」 with
+ * 図形読込's own bar -- and its (0, 0) is what lands on the click.
+ */
+int jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n)
+{
+    jw_drawing next;
+
+    memset(&next, 0, sizeof next);
+    if (!jw_parse_coord(&next, b, n)) {
+        jw_free(&next);
+        return 0;
+    }
+    if (fig_have)
+        jw_free(&fig);
+    fig = next;
+    fig_bx = 0.0;
+    fig_by = 0.0;
+    fig_have = 1;
+    fig_mag = 1.0;
+    fig_deg = 0.0;
+    jw_cmd_set(JW_CMD_ZUKEI);
+    (void)d;
+    return 1;
+}
+
 /* Put the figure down with its base point at (x, y). */
 static int figure_place(jw_drawing *d, double x, double y)
 {

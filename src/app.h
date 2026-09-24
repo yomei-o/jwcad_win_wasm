@@ -99,6 +99,10 @@ int  app_figure_save(unsigned char **out, long *n);
    original's text file.  The command leaves JW_ACT_SAVE_COORD behind for
    the front end to ask for a name with.  The caller frees *out. */
 int  app_coord_save(unsigned char **out, long *n);
+
+/* And the other way: 座標ファイル's ファイル読込, which the original makes a
+   図形 of.  The next press puts it down. */
+int  app_coord(const unsigned char *b, long n);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --
