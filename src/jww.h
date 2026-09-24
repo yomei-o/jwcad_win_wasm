@@ -185,6 +185,18 @@ typedef struct {
 
 /* Parse `n` bytes.  Returns 0 and sets d->error on a malformed file. */
 int  jw_parse(jw_drawing *d, const unsigned char *b, long n);
+
+/* The same for a 図形 file (.jws), which 図形読込 (32862) puts up a file
+ * dialog for.  It is the same CArchive stream behind a header of its own:
+ * "JwsData.", 192 bytes of the memo the figure was filed with (padded with
+ * '.'), the version, the figure's base point, the sixteen layer-group
+ * scales, a few tables the port does not need and the figure's bounding
+ * box -- 452 bytes all told, the same in every one of the 189 figures
+ * Jw_cad ships.  The elements that follow are in the figure's own paper
+ * millimetres; *bx and *by (either may be NULL) come back with the base
+ * point, which is where the cursor holds it. */
+int  jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
+                  double *bx, double *by);
 void jw_free(jw_drawing *d);
 
 /* Add an element to the drawing, before the block definitions.  It comes out

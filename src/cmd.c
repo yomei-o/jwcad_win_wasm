@@ -3715,6 +3715,76 @@ int jw_cmd_block_free(jw_drawing *d)
     return n;
 }
 
+/* ------------------------------------------------- 図形読込 (32862) ----
+ * The figure that was picked in the original's own file window.  The port
+ * has none, so the front end reads the .jws and hands the bytes over.
+ */
+static jw_drawing fig;
+static int fig_have;
+static double fig_bx, fig_by;
+
+int jw_cmd_figure_ready(void)
+{
+    return fig_have;
+}
+
+int jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n)
+{
+    jw_drawing next;
+    double bx = 0.0, by = 0.0;
+
+    memset(&next, 0, sizeof next);
+    if (!jw_parse_jws(&next, b, n, &bx, &by)) {
+        jw_free(&next);
+        return 0;
+    }
+    if (fig_have)
+        jw_free(&fig);
+    fig = next;
+    fig_bx = bx;
+    fig_by = by;
+    fig_have = 1;
+    jw_cmd_set(JW_CMD_ZUKEI);
+    (void)d;
+    return 1;
+}
+
+/* Put the figure down with its base point at (x, y). */
+static int figure_place(jw_drawing *d, double x, double y)
+{
+    int i, wg = 0, wl, made = 0;
+    double f;
+
+    if (!d || !fig_have)
+        return 0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    wl = d->group[wg].write_layer & 15;
+    for (i = 0; i < fig.ndrawn; i++) {
+        const jw_obj *p = &fig.obj[i];
+        jw_obj *o = jw_add(d, p->cls);
+        double fs = fig.group[p->lgroup & 15].scale;
+
+        if (!o)
+            break;
+        f = fs > 0.0 && d->group[wg].scale > 0.0 ? fs / d->group[wg].scale
+                                                 : 1.0;
+        *o = *p;
+        /* the strings belong to the figure's pool, so they are copied over */
+        o->text = p->text >= 0 ? jw_add_str(d, jw_str(&fig, p->text)) : -1;
+        o->face = p->face >= 0 ? jw_add_str(d, jw_str(&fig, p->face)) : -1;
+        o->layer = (unsigned short)wl;
+        o->lgroup = (unsigned short)wg;
+        o->sel = 0;
+        jw_obj_xform(o, fig_bx, fig_by, f, 0.0, x - fig_bx, y - fig_by);
+        made++;
+    }
+    if (made)
+        op_push(made);
+    return made;
+}
+
 int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group)
 {
     op_t *rec;
@@ -5197,6 +5267,12 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
             return;
         x = sxr;
         y = syr;
+    }
+    if (current == JW_CMD_ZUKEI) {
+        /* 図形読込: the figure hangs on the cursor and a point puts it
+           down.  It stays on it, so another point puts down another. */
+        figure_place(d, x, y);
+        return;
     }
     if (current == JW_CMD_TEN) {
         /* CZukeiTen: one point and it is placed.  Its own prompt never

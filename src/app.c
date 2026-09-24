@@ -401,6 +401,16 @@ static int br_open;
 static unsigned char br_on[64];
 static char br_zoom[32];
 
+/* 図形読込 (32862): the bytes of a .jws, in place of the original's own
+   file window.  The figure then hangs on the cursor until a point is
+   clicked. */
+int app_figure(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_cmd_figure_load(&drawing, b, n);
+}
+
 int app_bairitsu_open(void)
 {
     return br_open;
@@ -790,6 +800,11 @@ int app_command(int cmd)
     case 32811:                         /* 画面倍率・文字表示 */
         br_start();
         return 1;
+    case 32862:                         /* 図形読込 */
+        /* The original puts up a file window of its own here.  The port has
+           none: the front end reads the .jws and calls app_figure, which is
+           what enters the command. */
+        return 0;
     case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;

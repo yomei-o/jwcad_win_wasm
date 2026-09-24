@@ -90,6 +90,10 @@ echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合�
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 図形読込 —— 原典が置いた図形との突き合わせ"
+./tests/figure_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 画面倍率・文字表示 —— 原典が描いたダイアログとの突き合わせ"
 ./tests/bairitsu_test.exe tests/out/bairitsu.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_bairitsu.png tests/out/bairitsu.png     -i docs/bairitsu_textareas.txt -d tests/out/bairitsu.diff.png     | head -2 | sed 's/^/    /'

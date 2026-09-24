@@ -58,6 +58,7 @@ enum {
     JW_CMD_BLOCK_ATTR = 0x80ca,     /* ブロック属性 */
     JW_CMD_BLOCK_EDIT = 0x80da,     /* ブロック編集 */
     JW_CMD_BLOCK_DONE = 0x80d9,     /* ブロック編集終了 */
+    JW_CMD_ZUKEI = 0x805e,          /* 図形読込 -- CZukeiZukei */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -185,6 +186,26 @@ int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude);
  * known.  Returns how many elements were changed.
  */
 int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group);
+
+/* 図形読込 (32862).  The original puts up a file window of its own -- not a
+ * common dialog -- and once a .jws is picked the figure hangs on the cursor
+ * until a point is clicked.  The port has no file window, so the front end
+ * hands the bytes over here; that enters the command, and the next point
+ * places the figure.  Returns 0 if the file is not a figure.
+ *
+ * What the original does with it, read out of decomp/res/figin.jww (Test5,
+ * whose write group is at 1/200, given the 1/100 figure decomp/res/fig.jws):
+ *
+ *   * the figure is scaled by **its own layer-group scale over the write
+ *     group's** -- 100/200, so the 6mm box came in 3mm wide.  The figure
+ *     keeps the size it stands for on the ground, not on the paper.
+ *   * the base point in the .jws header lands on the clicked point.
+ *   * colour and line type come with the figure; the layer and the layer
+ *     group are the drawing's write ones (the figure's own layer 4 became
+ *     layer 8).
+ */
+int  jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n);
+int  jw_cmd_figure_ready(void);
 
 /* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
    range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The

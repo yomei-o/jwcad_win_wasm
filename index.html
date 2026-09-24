@@ -24,7 +24,7 @@
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
 <div id="note">
-  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc"> .jww ・ .dxf ・ .sfc ・ .jwc を開く</label>
+  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
@@ -72,6 +72,7 @@
   const openDxf = mod.cwrap('jw_open_dxf', 'number', ['number', 'number']);
   const openSfc = mod.cwrap('jw_open_sfc', 'number', ['number', 'number']);
   const openJwc = mod.cwrap('jw_open_jwc', 'number', ['number', 'number']);
+  const figure = mod.cwrap('jw_figure', 'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
@@ -290,17 +291,23 @@
     mod.HEAPU8.set(bytes, p);
     // A .dxf or .sfc is read into the drawing that is open rather than in
     // place of it, which is what the original does with those two.
+    // A .jws is a 図形: it enters 図形読込 and hangs on the cursor until a
+    // point is clicked, so it does not become the drawing that is open.
+    const fig = /\.jws$/i.test(file.name);
     const ok = /\.dxf$/i.test(file.name) ? openDxf(p, bytes.length)
              : /\.sfc$/i.test(file.name) ? openSfc(p, bytes.length)
              : /\.jwc$/i.test(file.name) ? openJwc(p, bytes.length)
+             : fig ? figure(p, bytes.length)
              : open(p, bytes.length);
     mod._free(p);
-    if (ok) {
+    if (ok && !fig) {
       openedName = file.name;
       setName(file.name);
     }
     document.getElementById('msg').textContent =
-      ok ? `${file.name} — ${nobj()} 個の要素` : `${file.name}: ${error()}`;
+      !ok ? `${file.name}: ${error()}`
+      : fig ? `${file.name} — 置く点を指示してください`
+      : `${file.name} — ${nobj()} 個の要素`;
     present();
   }
 

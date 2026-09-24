@@ -881,6 +881,74 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     return 1;
 }
 
+/* A 図形 file (.jws).  The header is a fixed 452 bytes -- see jww.h -- and
+ * what follows it is the same list of elements a .jww carries.  The version
+ * matters to the element reader (it decides which fields a record has), so
+ * it is taken out of the header rather than left at zero.
+ */
+int jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
+                 double *bx, double *by)
+{
+    ar_t a;
+    const unsigned char *sig;
+
+    memset(d, 0, sizeof *d);
+    d->off_names = d->end_names = -1;
+    d->off_ctab = d->end_ctab = -1;
+    d->off_sxf = d->end_sxf = -1;
+    a.b = b;
+    a.n = n;
+    a.o = 0;
+    a.bad = 0;
+
+    sig = ar_raw(&a, 8);
+    if (!sig || memcmp(sig, "JwsData.", 8)) {
+        d->error = "not a .jws";
+        return 0;
+    }
+    a.o = 0xc8;                         /* past the memo */
+    d->version = ar_l(&a);
+    {
+        double x = ar_d(&a), y = ar_d(&a);
+        if (bx)
+            *bx = x;
+        if (by)
+            *by = y;
+    }
+    {   /* the sixteen layer-group scales, which say what the figure was
+           drawn at */
+        int g;
+        for (g = 0; g < 16; g++)
+            d->group[g].scale = ar_d(&a);
+    }
+    if (a.bad) {
+        d->error = "the file ends in the middle of the header";
+        return 0;
+    }
+    a.o = 0x1c4;                        /* the tables in between are not read */
+    d->nhead = a.o;
+    d->head = (unsigned char *)malloc((size_t)d->nhead);
+    if (d->head)
+        memcpy(d->head, b, (size_t)d->nhead);
+    {
+        lctx *L = lctx_new();
+
+        if (!L) {
+            d->error = "out of memory";
+            return 0;
+        }
+        read_objs(&a, d, L, -1);
+        d->ndrawn = d->nobj;
+        lctx_free(L);
+    }
+    if (a.bad) {
+        if (!d->error)
+            d->error = "the figure ends in the middle of a record";
+        return 0;
+    }
+    return 1;
+}
+
 int jw_add_str(jw_drawing *d, const char *s)
 {
     long n = 0;

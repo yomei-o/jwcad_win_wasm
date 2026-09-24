@@ -82,6 +82,11 @@ const char *app_jikkaku_angle(void);
 /* 寸法設定: whether its dialog is up */
 int  app_sunpodlg_open(void);
 int  app_bairitsu_open(void);
+
+/* 図形読込 (32862) -- the .jws the original would have put a file window up
+   for.  Returns 0 if it is not a figure.  The command is entered, and the
+   next press puts the figure down. */
+int  app_figure(const unsigned char *b, long n);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --

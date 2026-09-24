@@ -68,6 +68,14 @@
 #   dlg:b<id>,<png>     the same, opened by pressing a bar button
 #   import:<cmd>,<path> open a file of another kind -- 32960 DXF, 32975 SFC,
 #                       32809 JWC -- through the same common dialog
+#   figin:<cmd>,<path>  the same for Jw_cad's own 「ファイル選択」 window --
+#                       the one 図形読込 (32862)・図形登録 (32946)・
+#                       線記号変形 (32869)・建具 (32848/32866/32865) and the
+#                       hatch bar's 図形 put up.  It is not a common dialog:
+#                       it draws the figures itself, so there is nothing to
+#                       click with a posted message.  It does take a path
+#                       typed into its wide Edit 1487 and then OK, which is
+#                       what this does.
 #   export:<cmd>,<name> the same, but sending <cmd> instead of 名前を付けて
 #                       保存 -- 32961 is DXF形式で保存, 32976 SFC形式で保存,
 #                       32810 JWC形式で保存
@@ -298,6 +306,24 @@ if ($needCommon) {
     New-Item -Path 'HKCU:\Software\Jw_cad\jw_win\Dialog' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\Software\Jw_cad\jw_win\Dialog' `
                      -Name 'FileCommonDialog' -Value 1 -Type DWord
+}
+
+if ($Clicks -match 'figin:\d+,([^;]+)') {
+    # Jw_cad's own 「ファイル選択」 window opens at the folder HKCU keeps in
+    # Folder\ZUKEI, and it reads that **at start-up** -- writing it once the
+    # process is up does nothing.  So the figure is copied into a folder of
+    # its own and that folder is pointed at before the launch; the one file
+    # is then the only row of the list, and the figin: step takes it from
+    # there.  tools/refenv.sh puts the key back.
+    $figFull = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[1].Trim()))
+    if (-not (Test-Path $figFull)) { throw "figin: $figFull is not there" }
+    $figPen = Join-Path (Get-Location) 'tmp\figsel'
+    if (Test-Path $figPen) { Remove-Item "$figPen\*" -Force -ErrorAction SilentlyContinue }
+    else { [void](New-Item -ItemType Directory -Force -Path $figPen) }
+    Copy-Item $figFull $figPen
+    New-Item -Path 'HKCU:\Software\Jw_cad\jw_win\Folder' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\Software\Jw_cad\jw_win\Folder' `
+                     -Name 'ZUKEI' -Value $figPen
 }
 
 $argList = @()
@@ -821,6 +847,52 @@ try {
                 Start-Sleep -Milliseconds 250
                 [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)
                 Start-Sleep -Milliseconds 2500
+                break
+            }
+
+            '^figin:(\d+),(.+)$' {
+                # Jw_cad's own file window, not a common dialog: 1110x640,
+                # a folder tree on the left and the figures drawn into the
+                # right by the window itself.  Nothing there answers a
+                # posted click, but the wide Edit at the top (1487) takes a
+                # path, and OK then opens it.
+                # The folder was pointed at the figure before the launch (see
+                # above), so the window opens on it.  The figures themselves
+                # are drawn into the right-hand pane by the window, and
+                # nothing there answers a posted click -- but 「リスト表示」
+                # (1323) turns that pane into a plain SysListView32, and a
+                # standard control does answer one.  One row, so row 0.
+                $cmdid = [int]$Matches[1]
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                NewDialog $before 10000
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'the file window did not come up' }
+                Start-Sleep -Milliseconds 1200
+                $box = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::GetDlgCtrlID($k) -eq 1323 -and [Jw]::Cls($k) -eq 'Button') { $box = $k }
+                }
+                if ($box -eq [IntPtr]::Zero) { throw 'no リスト表示 box in the file window' }
+                [void][Jw]::SendMessageW($box, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)  # BM_CLICK
+                Start-Sleep -Milliseconds 1200
+                $lv = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::Cls($k) -eq 'SysListView32') { $lv = $k }
+                }
+                if ($lv -eq [IntPtr]::Zero) { throw 'the file window has no list' }
+                $lp = [IntPtr](((8 -shl 16) -bor 40))
+                [void][Jw]::PostMessage($lv, $WM_LBUTTONDOWN, [IntPtr]1, $lp)
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($lv, $WM_LBUTTONUP, [IntPtr]::Zero, $lp)
+                Start-Sleep -Milliseconds 200
+                [void][Jw]::PostMessage($lv, 0x0203, [IntPtr]1, $lp)    # DBLCLK
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($lv, $WM_LBUTTONUP, [IntPtr]::Zero, $lp)
+                Start-Sleep -Milliseconds 2000
+                if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) {
+                    throw 'the file window would not take the figure'
+                }
                 break
             }
 

@@ -204,6 +204,17 @@ EMSCRIPTEN_KEEPALIVE int jw_open_dxf(unsigned char *b, int n)
     return 1;
 }
 
+/* 図形読込 (32862): the original puts up a file window of its own, so the
+   page picks the .jws and hands the bytes over.  The figure then hangs on
+   the cursor and the next press puts it down. */
+EMSCRIPTEN_KEEPALIVE int jw_figure(unsigned char *b, int n)
+{
+    if (!app_figure(b, n))
+        return 0;
+    app_paint();
+    return 1;
+}
+
 /* 「SFCファイルを開く」, the same way. */
 EMSCRIPTEN_KEEPALIVE int jw_open_sfc(unsigned char *b, int n)
 {

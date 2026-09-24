@@ -1030,6 +1030,21 @@ done
 idle
 sh tools/refenv.sh >/dev/null
 
+# 図形読込 (32862).  The original's own file window, not a common dialog --
+# tools/jwdraw.ps1's figin: step points HKCU's Folder\ZUKEI at a folder with
+# just this figure in it, ticks リスト表示 so the pane becomes a plain list,
+# and double-clicks the one row.  The figure is one Jw_cad ships: six lines
+# making a 6mm box with a cross in it, drawn at 1/100.  Test5's write group
+# is at 1/200, so it comes in half that size.
+echo "=== figin (図形読込)"
+idle
+sh tools/refenv.sh >/dev/null
+cp "orig/《図形01》建築１/07冷蔵庫-60.jws" decomp/res/fig.jws
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'figin:32862,decomp/res/fig.jws;wait:1000;400,300;wait:1000;saveas:decomp/res/figin.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 idle
 sh tools/refenv.sh >/dev/null
 echo
