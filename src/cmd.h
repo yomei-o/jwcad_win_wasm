@@ -210,6 +210,13 @@ int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group);
 int  jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n);
 int  jw_cmd_figure_ready(void);
 
+/* The 倍率 and 回転角 of its bar, which the next placement goes down at.
+ * Driving the original with 倍率 2 and 回転角 30 put the figure down at
+ * click + R(30) * 2 * (scale ratio) * (point - base point), to six places
+ * (decomp/res/figin2.jww).  Reading a figure puts them back at 1 and 0.
+ */
+void jw_cmd_figure_at(double mag, double deg);
+
 /* 図形登録 (32946): the elements picked by a range go out as a .jws, with
  * (bx, by) -- the 基準点 the command asks for after 選択確定 -- in its
  * header.  The caller frees *out.  Returns 0 if it could not.

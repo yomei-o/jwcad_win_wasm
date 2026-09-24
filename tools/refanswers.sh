@@ -1058,6 +1058,15 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'figin:32862,decomp/res/fig.jws;wait:
 idle
 sh tools/refenv.sh >/dev/null
 
+# and the same figure with 倍率 2 and 回転角 30 typed into the bar first.
+# The boxes take real WM_CHARs (ch:), not WM_SETTEXT.
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'figin:32862,decomp/res/fig.jws;wait:800;ch:1431,2;wait:400;ch:1412,30;wait:600;400,300;wait:1000;saveas:decomp/res/figin2.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

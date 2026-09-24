@@ -3722,6 +3722,13 @@ int jw_cmd_block_free(jw_drawing *d)
 static jw_drawing fig;
 static int fig_have;
 static double fig_bx, fig_by;
+static double fig_mag = 1.0, fig_deg;
+
+void jw_cmd_figure_at(double mag, double deg)
+{
+    fig_mag = mag;
+    fig_deg = deg;
+}
 
 int jw_cmd_figure_ready(void)
 {
@@ -3744,6 +3751,8 @@ int jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n)
     fig_bx = bx;
     fig_by = by;
     fig_have = 1;
+    fig_mag = 1.0;                      /* the bar comes up empty */
+    fig_deg = 0.0;
     jw_cmd_set(JW_CMD_ZUKEI);
     (void)d;
     return 1;
@@ -3835,7 +3844,9 @@ static int figure_place(jw_drawing *d, double x, double y)
         o->layer = (unsigned short)wl;
         o->lgroup = (unsigned short)wg;
         o->sel = 0;
-        jw_obj_xform(o, fig_bx, fig_by, f, 0.0, x - fig_bx, y - fig_by);
+        jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
+                     fig_deg * 3.141592653589793 / 180.0,
+                     x - fig_bx, y - fig_by);
         made++;
     }
     if (made)

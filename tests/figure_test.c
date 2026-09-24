@@ -5,12 +5,14 @@
  * The original was opened on Test5 and given decomp/res/fig.jws -- one of
  * the figures Jw_cad ships, six lines making a 6mm box with a cross in it,
  * drawn at 1/100 -- and the figure was put down at (400, 300) in the view.
- * decomp/res/figin.jww is what it saved.
+ * decomp/res/figin.jww is what it saved, and decomp/res/figin2.jww the same
+ * with 倍率 2 and 回転角 30 typed into the bar first.
  *
  * Test5's write group is at 1/200, so the box came in **3mm** wide: the
  * figure keeps the size it stands for on the ground.  Its base point (the
  * one in the .jws header) landed on the clicked point, its colour and line
- * type came with it, and its layer became the drawing's write layer.
+ * type came with it, and its layer became the drawing's write layer.  The
+ * 倍率 multiplies that, and the 回転角 turns it about the same point.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,7 +51,7 @@ static unsigned char *slurp(const char *path, long *n)
     return b;
 }
 
-int main(void)
+static void one(const char *answer, double mag, double deg)
 {
     const fb_t *fb;
     const jw_drawing *d;
@@ -59,12 +61,14 @@ int main(void)
     rect_t r;
     int i, j, was, bad = 0;
 
-    app_resize(1264, 741);
+    printf("%s -- 倍率 %g, 回転角 %g\n", answer, mag, deg);
     fb = app_fb();
     b = slurp("orig/Test5.jww", &n);
     if (!b || !app_open(b, n)) {
         printf("BAD  cannot open orig/Test5.jww\n");
-        return 1;
+        fails++;
+        free(b);
+        return;
     }
     free(b);
     was = app_drawing()->ndrawn;
@@ -73,27 +77,27 @@ int main(void)
     if (!b) {
         printf("BAD  cannot read decomp/res/fig.jws -- run "
                "tools/refanswers.sh\n");
-        return 1;
+        fails++;
+        return;
     }
-    ck(app_figure(b, n), "the figure is read");
+    ck(app_figure(b, n), "  the figure is read");
     free(b);
-    ck(jw_cmd() == JW_CMD_ZUKEI, "and reading it enters 図形読込");
-    ck(jw_cmd_figure_ready(), "which says it has one");
+    ck(jw_cmd() == JW_CMD_ZUKEI, "  and reading it enters 図形読込");
+    ck(jw_cmd_figure_ready(), "  which says it has one");
+    jw_cmd_figure_at(mag, deg);
 
     ui_view_rect(fb->w, fb->h, &r);
     app_press(r.x + 400, r.y + 300, 0);
     d = app_drawing();
-    ck(d->ndrawn == was + 6, "a point puts its six lines down");
+    ck(d->ndrawn == was + 6, "  a point puts its six lines down");
 
     memset(&ref, 0, sizeof ref);
-    b = slurp("decomp/res/figin.jww", &n);
+    b = slurp(answer, &n);
     if (!b || !jw_parse(&ref, b, n)) {
-        printf("BAD  cannot read decomp/res/figin.jww -- drive the original "
-               "first\n");
+        printf("BAD  cannot read %s -- drive the original first\n", answer);
         fails++;
         free(b);
-        printf("%s\n", fails ? "SOME BAD" : "all ok");
-        return 1;
+        return;
     }
     free(b);
     for (i = was, j = was; i < ref.ndrawn && j < d->ndrawn; i++) {
@@ -124,8 +128,15 @@ int main(void)
                 bad = 1;
             }
     }
-    ck(!bad, "and every one of them is the original's, to six places");
+    ck(!bad, "  and every one of them is the original's, to six places");
     jw_free(&ref);
+}
+
+int main(void)
+{
+    app_resize(1264, 741);
+    one("decomp/res/figin.jww", 1.0, 0.0);
+    one("decomp/res/figin2.jww", 2.0, 30.0);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
