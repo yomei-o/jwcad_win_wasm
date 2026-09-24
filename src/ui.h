@@ -136,6 +136,14 @@ int  ui_zokusel_hit(int cw, int ch, int x, int y);
 int  ui_zokusel_n(void);
 int  ui_zokusel_id(int i);
 
+/* 属性変更 -- the same dialog with its other half showing (1070). */
+void ui_zokuhen_rect(int cw, int ch, rect_t *r);
+void ui_zokuhen(fb_t *fb, const unsigned char *on);
+int  ui_zokuhen_hit(int cw, int ch, int x, int y);
+int  ui_zokuhen_n(void);
+int  ui_zokuhen_id(int i);
+int  ui_zokuhen_on(int i);
+
 /* ブロック化 -- the dialog 32853 puts up once a range is in.  `name` is what
    has been typed into its box, `on` whether its checkbox is ticked, `caret`
    whether the box has the caret in it. */

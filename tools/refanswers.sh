@@ -946,6 +946,17 @@ done
 idle
 sh tools/refenv.sh >/dev/null
 
+# 属性変更 (範囲選択's 1070): the other half of the same dialog.  Only
+# 書込【レイヤ】に変更 does anything that can be seen -- 指定【線色】に変更
+# and 指定 線種 に変更 changed nothing at all -- so that is the answer kept.
+echo "=== zhlayer (属性変更: 書込レイヤに変更)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:b1070,1825=!;saveas:decomp/res/zhlayer.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 属性選択 (1069): with a box already in, the dialog narrows what is picked
 # to one kind of element -- or, with 《指定属性除外》, to everything else.
 # One tick each, then 消去, and what is left is the answer.  The drawing is

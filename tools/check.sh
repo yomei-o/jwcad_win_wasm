@@ -26,6 +26,7 @@ fi
 [ -f src/gen/zoku.h ]   || { echo "run tools/mkzoku.py first";  exit 1; }
 [ -f src/gen/moji.h ]   || { echo "run tools/mkmoji.py first";  exit 1; }
 [ -f src/gen/zokusel.h ] || { echo "run tools/mkzokusel.py first"; exit 1; }
+[ -f src/gen/zokuhen.h ] || { echo "run tools/mkzokuhen.py first"; exit 1; }
 [ -f src/gen/blkname.h ] || { echo "run tools/mkblkname.py first"; exit 1; }
 [ -f src/gen/blkedit.h ] || { echo "run tools/mkblkedit.py first"; exit 1; }
 [ -f src/gen/kihon.h ]   || { echo "run tools/mkkihon.py first";   exit 1; }
@@ -110,6 +111,11 @@ python tools/cmp.py docs/ref_blkedit.png tests/out/blkedit.png     -i docs/blked
 echo
 echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"
 ./tests/seiri_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 属性変更（範囲から） —— ダイアログと、原典が変えたものとの突き合わせ"
+./tests/zokuhen2_test.exe tests/out/zokuhen.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_zokuhen.png tests/out/zokuhen.png     -i docs/zokuhen_textareas.txt -d tests/out/zokuhen.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== 属性選択 —— ダイアログと、原典の選び方との突き合わせ"

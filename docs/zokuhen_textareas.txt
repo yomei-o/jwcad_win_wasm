@@ -1,0 +1,32 @@
+# Where the 属性選択 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_zokuhen.png (the whole 287x476
+# window).  The frame and the caption go with them: Windows
+# draws those itself.  Written by tools/mkzokuhen.py.
+#
+#   python tools/cmp.py docs/ref_zokuhen.png tests/out/zokuhen.png -i docs/zokuhen_textareas.txt
+
+0 0 287 31
+0 31 8 437
+279 31 8 437
+0 468 287 8
+23 37 239 18
+57 84 159 14
+57 110 141 14
+57 144 132 14
+57 174 127 14
+57 204 94 14
+57 234 96 14
+57 264 159 14
+57 309 122 14
+57 339 159 14
+57 369 159 14
+169 204 111 14
+169 234 111 14
+204 111 64 13
+208 129 73 14
+208 144 73 14
+208 159 73 14
+208 174 69 14
+210 384 61 16
+57 399 185 14
+23 441 239 18

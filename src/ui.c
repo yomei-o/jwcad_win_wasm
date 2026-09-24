@@ -9,6 +9,7 @@
 #include "gen/zoku.h"
 #include "gen/moji.h"
 #include "gen/zokusel.h"
+#include "gen/zokuhen.h"
 #include "gen/blkname.h"
 #include "gen/blkedit.h"
 #include "gen/kihon.h"
@@ -1594,6 +1595,119 @@ int ui_zokusel_hit(int cw, int ch, int x, int y)
         const jw_zs_t *z = &jw_zokusel[i];
 
         if (z->kind == JW_ZS_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ---------------------------------------------------- 属性変更 (1070) --
+ * The same window as 属性選択 with the other half of its controls showing.
+ */
+void ui_zokuhen_rect(int cw, int ch, rect_t *r)
+{
+    ui_zokusel_rect(cw, ch, r);         /* the same window */
+}
+
+int ui_zokuhen_n(void)
+{
+    return JW_NZOKUHEN;
+}
+
+int ui_zokuhen_id(int i)
+{
+    return i >= 0 && i < JW_NZOKUHEN ? jw_zokuhen[i].id : 0;
+}
+
+int ui_zokuhen_on(int i)
+{
+    return i >= 0 && i < JW_NZOKUHEN ? jw_zokuhen[i].on : 0;
+}
+
+void ui_zokuhen(fb_t *fb, const unsigned char *on)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_zokuhen_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_ZH_CAPTION, MJ_CAPTION_BG);
+    for (i = 0; i < 9; i++) {           /* the close cross, and no title */
+        fb_fill(fb, r.x + JW_ZH_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_ZH_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_ZH_BORDER;
+    cy = r.y + JW_ZH_CAPTION;
+    fb_fill(fb, cx, cy, JW_ZH_CW, JW_ZH_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NZOKUHEN; i++) {
+        const jw_zh_t *z = &jw_zokuhen[i];
+        int x = cx + z->x, y = cy + z->y;
+        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+
+        switch (z->kind) {
+        case JW_ZH_OK:
+        case JW_ZH_PUSH: {
+            int k2 = z->kind == JW_ZH_OK && z->id == 2;
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            {
+                int tw = jw_text_px_w(z->text), tx = x + (z->w - tw) / 2;
+
+                if (tx < x + 3)
+                    tx = x + 3;
+                zs_text(fb, tx, y + (z->h - th) / 2, x + z->w - 3 - tx,
+                        z->text, col);
+            }
+            break;
+        }
+        case JW_ZH_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+            int lit = on ? on[i] : z->on;
+
+            paint_checkbox(fb, x, by, lit);
+            if (!z->enabled) {
+                fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
+                        C_BTNFACE);
+                if (lit)
+                    paint_tick_col(fb, x, by, C_BTNSHADOW);
+            }
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, col);
+            break;
+        }
+        case JW_ZH_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, col);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_zokuhen_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_zokuhen_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_ZH_BORDER;
+    y -= r.y + JW_ZH_CAPTION;
+    for (i = 0; i < JW_NZOKUHEN; i++) {
+        const jw_zh_t *z = &jw_zokuhen[i];
+
+        if (z->kind == JW_ZH_STATIC || !z->enabled)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

@@ -3715,6 +3715,38 @@ int jw_cmd_block_free(jw_drawing *d)
     return n;
 }
 
+int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group)
+{
+    op_t *rec;
+    int i, n = 0, g, wg = 0, wl;
+
+    if (!d || (!to_layer && !to_group))
+        return 0;
+    for (g = 0; g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    wl = d->group[wg].write_layer & 15;
+    rec = op_new();
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+        unsigned short lay = o->layer, grp = o->lgroup;
+
+        if (!o->sel)
+            continue;
+        if (to_layer)
+            lay = (unsigned short)wl;
+        if (to_group)
+            grp = (unsigned short)wg;
+        if (lay == o->layer && grp == o->lgroup)
+            continue;
+        op_keep(rec, d, i, 0);
+        o->layer = lay;
+        o->lgroup = grp;
+        n++;
+    }
+    return n;
+}
+
 /* Whether an element is one of the kinds the 属性選択 dialog has ticked. */
 static int zok_is(const jw_obj *o, int mask)
 {

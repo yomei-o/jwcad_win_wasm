@@ -175,6 +175,17 @@ enum {
 };
 int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude);
 
+/* 属性変更 (範囲選択's 1070) -- the same dialog with its other half showing.
+ * Only the two that could be driven are done: 書込【レイヤ】に変更 moves
+ * everything picked to the write layer (twelve elements on layer 0 came back
+ * on layer 8, decomp/res/zhlayer.jww) and 書込レイヤグループに変更 does the
+ * same for the group.  指定【線色】に変更 and 指定 線種 に変更 changed
+ * nothing at all when they were driven, the same way the 指定【線色】指定
+ * filter matches everything -- where the "指定" one comes from is still not
+ * known.  Returns how many elements were changed.
+ */
+int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group);
+
 /* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
    range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The
    bar for a command changes at 3, so the drawing of it has to know. */

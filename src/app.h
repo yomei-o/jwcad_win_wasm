@@ -65,6 +65,8 @@ int  app_moji_focus(void);
    (one byte per control of src/gen/zokusel.h). */
 int  app_zokusel_open(void);
 const unsigned char *app_zokusel_on(void);
+/* 属性変更: whether its dialog is up */
+int  app_zokuhen_open(void);
 
 /* ブロック化: whether its dialog is up, and what has been typed into it. */
 int  app_blkname_open(void);

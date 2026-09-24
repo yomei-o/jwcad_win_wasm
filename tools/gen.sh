@@ -131,6 +131,12 @@ cp decomp/res/blkmake.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
 python tools/mkblkedit.py
 
+say '属性変更 dialog -- the other half of 属性選択's window'
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokuhen.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1070,docs/ref_zokuhen.png' >/dev/null
+python tools/mkzokuhen.py
+
 say '寸法設定 dialog'
 sh tools/refenv.sh >/dev/null
 cp orig/Test5.jww tmp/rect.jww

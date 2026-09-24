@@ -565,6 +565,52 @@ static int blk_key(int c)
     return 0;
 }
 
+/* 属性変更 (1070): the same window as 属性選択 with the other half up */
+static int zhen_open;
+static unsigned char zhen_on[64];
+
+int app_zokuhen_open(void)
+{
+    return zhen_open;
+}
+
+static void zhen_start(void)
+{
+    int i, n = ui_zokuhen_n();
+
+    for (i = 0; i < n && i < (int)sizeof zhen_on; i++)
+        zhen_on[i] = (unsigned char)ui_zokuhen_on(i);
+    zhen_open = 1;
+}
+
+static int press_zokuhen(int x, int y)
+{
+    int id = ui_zokuhen_hit(fb.w, fb.h, x, y), i, n = ui_zokuhen_n();
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1 || id == 2) {           /* either OK does the same thing */
+        int lay = 0, grp = 0;
+
+        for (i = 0; i < n && i < (int)sizeof zhen_on; i++) {
+            if (!zhen_on[i])
+                continue;
+            if (ui_zokuhen_id(i) == 1825)
+                lay = 1;                /* 書込【レイヤ】に変更 */
+            if (ui_zokuhen_id(i) == 1826)
+                grp = 1;                /* 書込レイヤグループに変更 */
+        }
+        if (have_drawing)
+            jw_cmd_zokuhen_range(&drawing, lay, grp);
+        zhen_open = 0;
+        return 1;
+    }
+    for (i = 0; i < n && i < (int)sizeof zhen_on; i++)
+        if (ui_zokuhen_id(i) == id)
+            zhen_on[i] = (unsigned char)!zhen_on[i];
+    return 1;
+}
+
 static int press_zokusel(int x, int y)
 {
     int id = ui_zokusel_hit(fb.w, fb.h, x, y), i, n = ui_zokusel_n();
@@ -822,6 +868,8 @@ int app_press(int x, int y, int button)
         return press_moji(x, y);
     if (zsel_open)
         return press_zokusel(x, y);
+    if (zhen_open)
+        return press_zokuhen(x, y);
     if (blk_open)
         return press_blkname(x, y);
     if (be_open)
@@ -837,6 +885,12 @@ int app_press(int x, int y, int button)
         return press_layer(g, n, button);
 
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
+                                             1069) > 0) {
+            /* 属性変更 -- the same window, its other half */
+            zhen_start();
+            return 1;
+        }
         if (id == 1069 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
                                              1069) > 0) {
             /* 範囲選択's own button, which only comes alive once a box is
@@ -1247,6 +1301,8 @@ void app_paint(void)
         ui_moji(&fb, &drawing, moji_style);
     if (zsel_open)
         ui_zokusel(&fb, zsel_on);
+    if (zhen_open)
+        ui_zokuhen(&fb, zhen_on);
     if (blk_open)
         ui_blkname(&fb, blk_name, blk_pref, !blk_attr, blk_attr);
     if (be_open)
