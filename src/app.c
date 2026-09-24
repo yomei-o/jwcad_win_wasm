@@ -430,6 +430,15 @@ static int br_open;
 static unsigned char br_on[64];
 static char br_zoom[32];
 
+int app_coord_save(unsigned char **out, long *n)
+{
+    double x, y;
+
+    if (!have_drawing || !jw_cmd_block_point(&drawing, &x, &y))
+        return 0;
+    return jw_write_coord(&drawing, x, y, out, n);
+}
+
 /* 図形登録's 基準点, kept from the press that gave it. */
 static double fig_bx, fig_by;
 
@@ -845,6 +854,12 @@ int app_command(int cmd)
         /* 消去 with a settled range in hand empties it at once */
         if (cmd == JW_CMD_SHOUKYO && have_drawing)
             jw_cmd_sel_erase(&drawing);
+        /* 座標ファイル: the original's bar asks for a file name and then a
+           range of its own.  The port has no bar for it, so entering the
+           command with something already picked is what writes the file --
+           the front end is handed JW_ACT_SAVE_COORD to ask for a name. */
+        if (cmd == 32895 && have_drawing && jw_cmd_sel_count(&drawing) > 0)
+            action = JW_ACT_SAVE_COORD;
         return 1;
     }
     /* an action: it runs, and never becomes "the command" */

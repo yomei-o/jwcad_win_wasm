@@ -97,6 +97,10 @@ echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合�
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 座標ファイル —— 原典が書いた座標ファイルとのバイト突き合わせ"
+./tests/coord_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 中心点取得 —— 線の中点・円の中心を読ませたものとの突き合わせ"
 ./tests/snap_test.exe | sed 's/^/    /'
 

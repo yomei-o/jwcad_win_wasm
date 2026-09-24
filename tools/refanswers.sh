@@ -1018,6 +1018,18 @@ $PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;
 idle
 sh tools/refenv.sh >/dev/null
 
+# 座標ファイル (32895) の ファイル書込.  ファイル名設定 (1064) puts Windows'
+# own 開く box up, so import:b drives it; the file has to exist already.
+# Then ファイル書込 (1069) asks for a range: 全選択 and 選択確定.
+echo "=== coord (座標ファイル)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+: > decomp/res/coord.txt
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,decomp/res/coord.txt;wait:1000;pb:1069;wait:1000;btn:1066;wait:800;btn:1120;wait:1500'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # 線上点 on a circle: the point comes out straight out from the centre,
 # through where the second click was, at the radius.
 echo "=== snapcirc (円の線上点)"

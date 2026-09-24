@@ -74,6 +74,7 @@
   const openJwc = mod.cwrap('jw_open_jwc', 'number', ['number', 'number']);
   const figure = mod.cwrap('jw_figure', 'number', ['number', 'number']);
   const saveFig = mod.cwrap('jw_save_fig', 'number', []);
+  const saveCoord = mod.cwrap('jw_save_coord', 'number', []);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
@@ -275,6 +276,11 @@
     offer(saveFig(), name.replace(/\.[^.]*$/, '') + '.jws');
   }
 
+  // 座標ファイル: what is picked, as the original's own text file.
+  function downloadCoord() {
+    offer(saveCoord(), openedName.replace(/\.[^.]*$/, '') + '.txt');
+  }
+
   // DXF形式で保存: the same drawing written the way the original's DXF
   // export writes it (src/dxf.c).
   function downloadDxf() {
@@ -364,6 +370,7 @@
       if (r === 2) document.getElementById('pick').click();
       else if (r === 3) download();
       else if (r === 4) downloadFig();
+      else if (r === 5) downloadCoord();
       else if (r) present();
       setTimeout(aim, 0);     /* after the browser has moved the focus */
       return;

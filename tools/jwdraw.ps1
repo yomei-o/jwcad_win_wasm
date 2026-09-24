@@ -68,6 +68,8 @@
 #   dlg:b<id>,<png>     the same, opened by pressing a bar button
 #   import:<cmd>,<path> open a file of another kind -- 32960 DXF, 32975 SFC,
 #                       32809 JWC -- through the same common dialog
+#   import:b<id>,<path> the same, opened by pressing a bar button instead of
+#                       sending a command (座標ファイル's ファイル名設定)
 #   figin:<cmd>,<path>  the same for Jw_cad's own 「ファイル選択」 window --
 #                       the one 図形読込 (32862)・図形登録 (32946)・
 #                       線記号変形 (32869)・建具 (32848/32866/32865) and the
@@ -889,15 +891,22 @@ try {
                 break
             }
 
-            '^import:(\d+),(.+)$' {
+            '^import:(b?)(\d+),(.+)$' {
                 # Open a file of another kind: 32960 is DXFファイルを開く,
                 # 32975 SFCファイルを開く, 32809 JWCファイルを開く.  The same
                 # common dialog as saveas:, without the overwrite question.
-                $cmdid = [int]$Matches[1]
-                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[2]))
+                $byButton = $Matches[1] -eq 'b'
+                $cmdid = [int]$Matches[2]
+                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[3]))
                 if (-not (Test-Path $full)) { throw "import: $full is not there" }
                 $before = [Jw]::Tops([uint32]$p.Id)
-                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                if ($byButton) {
+                    $h = Ctl $cmdid
+                    if ($h -eq [IntPtr]::Zero) { throw "no button $cmdid" }
+                    [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                } else {
+                    [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                }
                 NewDialog $before 10000
                 $dlg = $script:dlg
                 if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'the open dialog did not come up' }

@@ -198,6 +198,12 @@ int  jw_parse(jw_drawing *d, const unsigned char *b, long n);
 int  jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
                   double *bx, double *by);
 
+/* 座標ファイル (32895) の ファイル書込: what is picked goes out as lines of
+   text.  (ox, oy) is the point everything is measured from -- the same one
+   ブロック化 uses, see src/coord.c.  The caller frees *out. */
+int  jw_write_coord(const jw_drawing *d, double ox, double oy,
+                    unsigned char **out, long *n);
+
 /* And out again -- 図形登録 (32946).  Every drawn element of `d` goes in,
    keeping the coordinates it has, and (bx, by) is the base point the header
    carries.  Jw_cad 10 stamps its own version on one, not the drawing's. */

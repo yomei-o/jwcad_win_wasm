@@ -41,7 +41,7 @@ const fb_t *app_fb(void);
 enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_SAVE_DXF, JW_ACT_OPEN_DXF, JW_ACT_OPEN_SFC,
        JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC,
-       JW_ACT_SAVE_FIG };
+       JW_ACT_SAVE_FIG, JW_ACT_SAVE_COORD };
 
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the
@@ -94,6 +94,11 @@ int  app_figure(const unsigned char *b, long n);
    this writes the .jws for the front end to put somewhere.  The caller
    frees *out. */
 int  app_figure_save(unsigned char **out, long *n);
+
+/* 座標ファイル (32895) の ファイル書込 -- what is picked goes out as the
+   original's text file.  The command leaves JW_ACT_SAVE_COORD behind for
+   the front end to ask for a name with.  The caller frees *out. */
+int  app_coord_save(unsigned char **out, long *n);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --

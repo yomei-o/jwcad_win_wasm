@@ -174,6 +174,8 @@ EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
         return 3;
     case JW_ACT_SAVE_FIG:
         return 4;               /* 図形登録: the figure wants a name */
+    case JW_ACT_SAVE_COORD:
+        return 5;               /* 座標ファイル: so does that one */
     }
     if (redraw)
         app_paint();
@@ -225,6 +227,18 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_fig(void)
     saved = 0;
     saved_n = 0;
     if (!app_figure_save(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
+/* 座標ファイル (32895): the command hands back 5 from a press, and the page
+   calls this for the text to download. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_coord(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_coord_save(&saved, &saved_n))
         return 0;
     return saved;
 }
