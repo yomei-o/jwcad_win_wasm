@@ -290,6 +290,78 @@ static int blk_open, blk_pref, blk_attr;
 /* ブロック編集's own dialog, which comes up before the mode starts */
 static int be_open, be_all = 1;
 /* 基本設定: one byte per control, 1 for ticked */
+/* 軸角・目盛・オフセット */
+static int jk_open;
+static char jk_angle[16];
+static unsigned char jk_on[32];
+
+int app_jikkaku_open(void)
+{
+    return jk_open;
+}
+
+const char *app_jikkaku_angle(void)
+{
+    return jk_angle;
+}
+
+static void jk_start(void)
+{
+    int i, n = ui_jikkaku_n();
+    double a = jw_cmd_axis();
+
+    for (i = 0; i < n && i < (int)sizeof jk_on; i++)
+        jk_on[i] = (unsigned char)ui_jikkaku_on(i);
+    if (a == 0.0)
+        strcpy(jk_angle, "0");
+    else
+        sprintf(jk_angle, "%g", a);
+    jk_open = 1;
+}
+
+static int press_jikkaku(int x, int y)
+{
+    int id = ui_jikkaku_hit(fb.w, fb.h, x, y), i, n = ui_jikkaku_n();
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1) {                      /* Ok: the angle is applied */
+        jw_cmd_set_axis(atof(jk_angle));
+        jk_open = 0;
+        return 1;
+    }
+    if (id == 1411)
+        return 1;                       /* the box the typing goes into */
+    for (i = 0; i < n && i < (int)sizeof jk_on; i++)
+        if (ui_jikkaku_id(i) == id)
+            jk_on[i] = (unsigned char)!jk_on[i];
+    return 1;
+}
+
+/* One key while it is up: the 軸角 box takes it. */
+static int jk_key(int c)
+{
+    size_t n = strlen(jk_angle);
+
+    if (c == 8) {
+        if (n)
+            jk_angle[n - 1] = 0;
+        return 1;
+    }
+    if (c == 13) {
+        jw_cmd_set_axis(atof(jk_angle));
+        jk_open = 0;
+        return 1;
+    }
+    if (((c >= '0' && c <= '9') || c == '.' || c == '-')
+        && n + 1 < sizeof jk_angle) {
+        jk_angle[n] = (char)c;
+        jk_angle[n + 1] = 0;
+        return 1;
+    }
+    return 0;
+}
+
 static int kh_open, kh_tab;
 static unsigned char kh_on[8][256];
 
@@ -579,6 +651,9 @@ int app_command(int cmd)
     case 32891:                         /* 基本設定 */
         kh_start();
         return 1;
+    case 32842:                         /* 軸角・目盛・オフセット */
+        jk_start();
+        return 1;
     case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;
@@ -716,6 +791,8 @@ int app_press(int x, int y, int button)
         return press_blkedit(x, y);
     if (kh_open)
         return press_kihon(x, y);
+    if (jk_open)
+        return press_jikkaku(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -799,6 +876,10 @@ static int moji_key(int c)
 
 int app_key(int c)
 {
+    if (jk_open && jk_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (be_open && be_key(c)) {
         app_paint();
         return 1;
@@ -1133,6 +1214,8 @@ void app_paint(void)
         ui_blkedit(&fb, be_name, be_all);
     if (kh_open)
         ui_kihon(&fb, kh_tab, kh_on[kh_tab]);
+    if (jk_open)
+        ui_jikkaku(&fb, jk_angle, jk_on, 1);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

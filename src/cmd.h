@@ -87,6 +87,17 @@ const char *jw_cmd_compose(void);
 void jw_cmd_compose_clear(void);
 void jw_cmd_compose_key(int c);
 
+/* 軸角 -- the angle the sheet's own axes are turned to, in degrees.  It is
+ * typed into the 軸角・目盛・オフセット dialog (32842) and Ok applies it;
+ * from then on 水平・垂直 snaps to it and to it plus ninety rather than to
+ * flat and upright.  The original bears it out to the last digit: with 30
+ * set, a drag that came out at -2.862 degrees without it made a line at
+ * exactly 30 (decomp/res/jikkaku30.jww), as far along the axis as the drag
+ * reached.
+ */
+double jw_cmd_axis(void);
+void   jw_cmd_set_axis(double deg);
+
 /* Whether 線's 水平・垂直 is on.  Pressing 線 while already in 線 flips it,
    which is all that arm of FUN_004fdc40 does when the command before was 線
    as well; with it on a line keeps whichever way the drag went further. */

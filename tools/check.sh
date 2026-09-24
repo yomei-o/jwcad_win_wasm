@@ -29,6 +29,7 @@ fi
 [ -f src/gen/blkname.h ] || { echo "run tools/mkblkname.py first"; exit 1; }
 [ -f src/gen/blkedit.h ] || { echo "run tools/mkblkedit.py first"; exit 1; }
 [ -f src/gen/kihon.h ]   || { echo "run tools/mkkihon.py first";   exit 1; }
+[ -f src/gen/jikkaku.h ] || { echo "run tools/mkjikkaku.py first"; exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -79,6 +80,11 @@ echo
 echo "=== ブロック化 —— ダイアログと、原典が作った定義との突き合わせ"
 ./tests/blkmake_test.exe tests/out/blkname.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_blkname.png tests/out/blkname.png     -i docs/blkname_textareas.txt -d tests/out/blkname.diff.png     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== 軸角 —— ダイアログと、原典が引いた軸上の線との突き合わせ"
+./tests/jikkaku_test.exe tests/out/jikkaku.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_jikkaku.png tests/out/jikkaku.png     -i docs/jikkaku_textareas.txt -d tests/out/jikkaku.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== 基本設定 —— 原典が描いた 8 枚のタブとの突き合わせ"

@@ -514,6 +514,20 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     return 1;
 }
 
+/* 軸角, in degrees.  Not kept in the file: opening a drawing does not bring
+   one back, the same way the write pen does not. */
+static double axis_deg;
+
+double jw_cmd_axis(void)
+{
+    return axis_deg;
+}
+
+void jw_cmd_set_axis(double deg)
+{
+    axis_deg = deg;
+}
+
 int jw_cmd_hv(void)
 {
     return hv;
@@ -771,10 +785,19 @@ static int figure(jw_obj *o, int max, double x, double y)
     switch (current) {
     case JW_CMD_SEN:
         if (hv) {
-            if (fabs(x - sx) > fabs(y - sy))
-                y = sy;
+            /* along the axis or across it, whichever the drag went further
+               -- which is flat and upright when 軸角 is nothing */
+            double a = axis_deg * PI / 180.0;
+            double ca = cos(a), sa = sin(a);
+            double dx = x - sx, dy = y - sy;
+            double u = dx * ca + dy * sa, v = -dx * sa + dy * ca;
+
+            if (fabs(u) > fabs(v))
+                v = 0.0;
             else
-                x = sx;
+                u = 0.0;
+            x = sx + u * ca - v * sa;
+            y = sy + u * sa + v * ca;
         }
         o->cls = JW_SEN;
         o->d[0] = sx;

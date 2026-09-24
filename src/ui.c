@@ -12,6 +12,7 @@
 #include "gen/blkname.h"
 #include "gen/blkedit.h"
 #include "gen/kihon.h"
+#include "gen/jikkaku.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -2014,6 +2015,145 @@ int ui_kihon_hit(int cw, int ch, int tab, int x, int y)
 
         if (z->kind == JW_KH_STATIC || z->kind == JW_KH_GROUP
             || !z->shown || !z->enabled)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ---------------------------------------------- 軸角・目盛・オフセット --
+ * Three group boxes with a combo in the first two.  The angle is typed into
+ * the 軸角 one and Ok applies it -- see jw_cmd_set_axis.
+ */
+void ui_jikkaku_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_JK_W;
+    r->h = JW_JK_H;
+    r->x = (cw - JW_JK_W) / 2;
+    r->y = (ch - 42 - JW_JK_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_jikkaku_n(void)
+{
+    return JW_NJIKKAKU;
+}
+
+int ui_jikkaku_id(int i)
+{
+    return i >= 0 && i < JW_NJIKKAKU ? jw_jikkaku[i].id : 0;
+}
+
+int ui_jikkaku_on(int i)
+{
+    return i >= 0 && i < JW_NJIKKAKU ? jw_jikkaku[i].on : 0;
+}
+
+void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
+                int caret)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_jikkaku_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_JK_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_JK_CAPTION - th) / 2, JW_JK_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_JK_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_JK_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_JK_BORDER;
+    cy = r.y + JW_JK_CAPTION;
+    fb_fill(fb, cx, cy, JW_JK_CW, JW_JK_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NJIKKAKU; i++) {
+        const jw_jk_t *z = &jw_jikkaku[i];
+        int x = cx + z->x, y = cy + z->y;
+
+        switch (z->kind) {
+        case JW_JK_OK:
+        case JW_JK_PUSH:
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (z->kind == JW_JK_OK)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + (z->kind == JW_JK_OK),
+                    y + (z->kind == JW_JK_OK),
+                    z->w - 2 * (z->kind == JW_JK_OK),
+                    z->h - 2 * (z->kind == JW_JK_OK),
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + (z->kind == JW_JK_OK) + 1,
+                    y + (z->kind == JW_JK_OK) + 1,
+                    z->w - 2 * (z->kind == JW_JK_OK) - 2,
+                    z->h - 2 * (z->kind == JW_JK_OK) - 2,
+                    C_3DLIGHT, C_BTNSHADOW);
+            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            break;
+        case JW_JK_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+
+            paint_checkbox(fb, x, by, on ? on[i] : z->on);
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_JK_COMBO: {
+            const char *t = z->id == 1411 ? angle : "";
+            int tw = jw_text_px_w(t ? t : "");
+
+            mj_sunken(fb, x, y, z->w, z->h);
+            mj_combo_button(fb, x, y, z->w, z->h);
+            zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 22, t ? t : "",
+                    C_BTNTEXT);
+            if (caret && z->id == 1411)
+                fb_fill(fb, x + 3 + tw, y + (z->h - th) / 2, 1, th,
+                        C_BTNTEXT);
+            break;
+        }
+        case JW_JK_GROUP: {
+            int gy = y + th / 2, gh = z->h - th / 2;
+
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_JK_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            break;
+        case JW_JK_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, C_BTNTEXT);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_jikkaku_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_jikkaku_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_JK_BORDER;
+    y -= r.y + JW_JK_CAPTION;
+    for (i = 0; i < JW_NJIKKAKU; i++) {
+        const jw_jk_t *z = &jw_jikkaku[i];
+
+        if (z->kind == JW_JK_STATIC || z->kind == JW_JK_GROUP)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

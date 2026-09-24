@@ -814,6 +814,19 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32
 idle
 sh tools/refenv.sh >/dev/null
 
+# 軸角 (32842): 30 typed into the dialog's 軸角 combo, Ok, and then a line
+# dragged with 水平・垂直 -- which is on to start with, so it is not pressed.
+# The line comes out along the axis; tests/jikkaku_test.c scores the port
+# against it.  The 軸角設定 checkbox beside the combo is something else and
+# takes the combo away, so the angle goes in on its own.
+echo "=== jikkaku30 (軸角)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/new.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32771;dlgin:32842,1411=30;300,300;700,320;saveas:decomp/res/jikkaku30.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # ブロック編集 (32986): a range over the file above, the command, one line
 # drawn inside the mode and then ブロック編集終了 (32985).  The line lands in
 # the definition rather than in the drawing.

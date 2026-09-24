@@ -131,6 +131,12 @@ cp decomp/res/blkmake.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
 python tools/mkblkedit.py
 
+say '軸角・目盛・オフセット dialog'
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/jikkaku.txt     -Clicks 'dlg:32842,docs/ref_jikkaku.png' >/dev/null
+python tools/mkjikkaku.py
+
 say '基本設定 dialog, all eight tabs'
 # The original does not build a tab's controls until it is shown, so each
 # one is read with a dlgat: -- open the dialog, click that tab, read it.

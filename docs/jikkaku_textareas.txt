@@ -1,0 +1,30 @@
+# Where the 軸角 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_jikkaku.png (the whole 294x299
+# window).  The frame and the caption go with them.  Written by
+# tools/mkjikkaku.py.
+
+0 0 294 31
+0 31 8 260
+286 31 8 260
+0 291 294 8
+22 85 246 18
+18 33 254 17
+40 47 76 23
+151 48 112 22
+18 111 254 17
+25 129 121 14
+151 126 112 22
+29 153 89 15
+194 152 69 17
+25 177 160 14
+215 174 48 22
+40 192 40 23
+136 192 64 23
+40 212 31 23
+89 212 26 23
+136 212 33 23
+187 212 31 23
+236 212 27 23
+18 240 254 17
+40 254 104 20
+166 254 97 20

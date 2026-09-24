@@ -164,6 +164,16 @@ int  ui_kihon_id(int tab, int i);
 int  ui_kihon_on(int tab, int i);
 int  ui_kihon_ntabs(void);
 
+/* 軸角・目盛・オフセット -- the dialog 32842 puts up.  `angle` is what its
+   軸角 combo holds, `on` one byte per control of src/gen/jikkaku.h. */
+void ui_jikkaku_rect(int cw, int ch, rect_t *r);
+void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
+                int caret);
+int  ui_jikkaku_hit(int cw, int ch, int x, int y);
+int  ui_jikkaku_n(void);
+int  ui_jikkaku_id(int i);
+int  ui_jikkaku_on(int i);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

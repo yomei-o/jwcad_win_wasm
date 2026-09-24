@@ -74,6 +74,9 @@ const char *app_blkedit_name(void);
 /* 基本設定: whether its dialog is up */
 int  app_kihon_open(void);
 int  app_kihon_tab(void);
+/* 軸角・目盛・オフセット: whether it is up, and what its 軸角 box holds */
+int  app_jikkaku_open(void);
+const char *app_jikkaku_angle(void);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --
