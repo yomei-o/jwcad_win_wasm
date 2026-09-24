@@ -30,6 +30,7 @@ fi
 [ -f src/gen/blkedit.h ] || { echo "run tools/mkblkedit.py first"; exit 1; }
 [ -f src/gen/kihon.h ]   || { echo "run tools/mkkihon.py first";   exit 1; }
 [ -f src/gen/jikkaku.h ] || { echo "run tools/mkjikkaku.py first"; exit 1; }
+[ -f src/gen/sunpodlg.h ] || { echo "run tools/mksunpodlg.py first"; exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -80,6 +81,11 @@ echo
 echo "=== ブロック化 —— ダイアログと、原典が作った定義との突き合わせ"
 ./tests/blkmake_test.exe tests/out/blkname.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_blkname.png tests/out/blkname.png     -i docs/blkname_textareas.txt -d tests/out/blkname.diff.png     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合わせ"
+./tests/sunpodlg_test.exe tests/out/sunpodlg.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== 軸角 —— ダイアログと、原典が引いた軸上の線との突き合わせ"

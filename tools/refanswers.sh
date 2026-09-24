@@ -827,6 +827,18 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32771;dlgin:32842,1411=30;300,30
 idle
 sh tools/refenv.sh >/dev/null
 
+# 包絡 with the axis turned: the same box as houraku1 with 軸角 30 set
+# first.  It comes out the same file, which is how we know the box does not
+# follow the axis.  The dialog has to be opened with a command in force or
+# the angle does not stick, so 線 is entered first.
+echo "=== houtilt (包絡の枠は軸角に従わない)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/new.jww tmp/hou.jww
+$PS -Open tmp/hou.jww -Cmd 0     -Clicks '200,300;800,300;200,340;800,340;480,150;480,500;520,150;520,500;cmd:32771;dlgin:32842,1411=30;cmd:32846;450,270;560,380;saveas:decomp/res/houtilt.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # ブロック編集 (32986): a range over the file above, the command, one line
 # drawn inside the mode and then ブロック編集終了 (32985).  The line lands in
 # the definition rather than in the drawing.

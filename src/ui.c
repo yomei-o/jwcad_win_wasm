@@ -13,6 +13,7 @@
 #include "gen/blkedit.h"
 #include "gen/kihon.h"
 #include "gen/jikkaku.h"
+#include "gen/sunpodlg.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -2154,6 +2155,151 @@ int ui_jikkaku_hit(int cw, int ch, int x, int y)
         const jw_jk_t *z = &jw_jikkaku[i];
 
         if (z->kind == JW_JK_STATIC || z->kind == JW_JK_GROUP)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* -------------------------------------------------------- 寸法設定 -----
+ * The numbers a dimension is drawn with.  The picture only: what each one
+ * does has not been followed up.
+ */
+void ui_sunpodlg_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_SD_W;
+    r->h = JW_SD_H;
+    r->x = (cw - JW_SD_W) / 2;
+    r->y = (ch - 42 - JW_SD_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_sunpodlg_n(void)
+{
+    return JW_NSUNPODLG;
+}
+
+int ui_sunpodlg_id(int i)
+{
+    return i >= 0 && i < JW_NSUNPODLG ? jw_sunpodlg[i].id : 0;
+}
+
+int ui_sunpodlg_on(int i)
+{
+    return i >= 0 && i < JW_NSUNPODLG ? jw_sunpodlg[i].on : 0;
+}
+
+void ui_sunpodlg(fb_t *fb, const unsigned char *on)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_sunpodlg_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_SD_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_SD_CAPTION - th) / 2, JW_SD_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_SD_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_SD_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_SD_BORDER;
+    cy = r.y + JW_SD_CAPTION;
+    fb_fill(fb, cx, cy, JW_SD_CW, JW_SD_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NSUNPODLG; i++) {
+        const jw_sd_t *z = &jw_sunpodlg[i];
+        int x = cx + z->x, y = cy + z->y;
+
+        switch (z->kind) {
+        case JW_SD_OK:
+        case JW_SD_PUSH: {
+            int k2 = z->deflt;          /* BS_DEFPUSHBUTTON */
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_SD_RADIO: {
+            int by = y + (z->h - JW_MJ_RADIO_H) / 2;
+
+            if (z->enabled)
+                mj_radio(fb, x, by, on ? on[i] : z->on);
+            else
+                mj_radio_off(fb, x, by, on ? on[i] : z->on);
+            zs_text(fb, x + 17, y + (z->h - th) / 2, z->w - 17, z->text,
+                    z->enabled ? C_BTNTEXT : C_BTNSHADOW);
+            break;
+        }
+        case JW_SD_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+            int lit = on ? on[i] : z->on;
+
+            paint_checkbox(fb, x, by, lit);
+            if (!z->enabled) {          /* greyed, like 基本設定's */
+                fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
+                        C_BTNFACE);
+                if (lit)
+                    paint_tick_col(fb, x, by, C_BTNSHADOW);
+            }
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text,
+                    z->enabled ? C_BTNTEXT : C_BTNSHADOW);
+            break;
+        }
+        case JW_SD_COMBO:
+            mj_sunken(fb, x, y, z->w, z->h);
+            mj_combo_button(fb, x, y, z->w, z->h);
+            break;
+        case JW_SD_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            break;
+        case JW_SD_GROUP: {
+            int gy = y + th / 2, gh = z->h - th / 2;
+
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_SD_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, C_BTNTEXT);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_sunpodlg_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_sunpodlg_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_SD_BORDER;
+    y -= r.y + JW_SD_CAPTION;
+    for (i = 0; i < JW_NSUNPODLG; i++) {
+        const jw_sd_t *z = &jw_sunpodlg[i];
+
+        if (z->kind == JW_SD_STATIC || z->kind == JW_SD_GROUP)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

@@ -174,6 +174,15 @@ int  ui_jikkaku_n(void);
 int  ui_jikkaku_id(int i);
 int  ui_jikkaku_on(int i);
 
+/* 寸法設定 -- the dialog 32925 puts up.  The picture only: nothing on it is
+   wired up yet.  `on` is one byte per control of src/gen/sunpodlg.h. */
+void ui_sunpodlg_rect(int cw, int ch, rect_t *r);
+void ui_sunpodlg(fb_t *fb, const unsigned char *on);
+int  ui_sunpodlg_hit(int cw, int ch, int x, int y);
+int  ui_sunpodlg_n(void);
+int  ui_sunpodlg_id(int i);
+int  ui_sunpodlg_on(int i);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

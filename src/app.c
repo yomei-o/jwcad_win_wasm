@@ -362,6 +362,40 @@ static int jk_key(int c)
     return 0;
 }
 
+/* 寸法設定 -- the picture only */
+static int sd_open;
+static unsigned char sd_on[128];
+
+int app_sunpodlg_open(void)
+{
+    return sd_open;
+}
+
+static void sd_start(void)
+{
+    int i, n = ui_sunpodlg_n();
+
+    for (i = 0; i < n && i < (int)sizeof sd_on; i++)
+        sd_on[i] = (unsigned char)ui_sunpodlg_on(i);
+    sd_open = 1;
+}
+
+static int press_sunpodlg(int x, int y)
+{
+    int id = ui_sunpodlg_hit(fb.w, fb.h, x, y), i, n = ui_sunpodlg_n();
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1 || id == 2) {           /* neither does anything yet */
+        sd_open = 0;
+        return 1;
+    }
+    for (i = 0; i < n && i < (int)sizeof sd_on; i++)
+        if (ui_sunpodlg_id(i) == id)
+            sd_on[i] = (unsigned char)!sd_on[i];
+    return 1;
+}
+
 static int kh_open, kh_tab;
 static unsigned char kh_on[8][256];
 
@@ -654,6 +688,9 @@ int app_command(int cmd)
     case 32842:                         /* 軸角・目盛・オフセット */
         jk_start();
         return 1;
+    case 32925:                         /* 寸法設定 */
+        sd_start();
+        return 1;
     case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;
@@ -793,6 +830,8 @@ int app_press(int x, int y, int button)
         return press_kihon(x, y);
     if (jk_open)
         return press_jikkaku(x, y);
+    if (sd_open)
+        return press_sunpodlg(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -1216,6 +1255,8 @@ void app_paint(void)
         ui_kihon(&fb, kh_tab, kh_on[kh_tab]);
     if (jk_open)
         ui_jikkaku(&fb, jk_angle, jk_on, 1);
+    if (sd_open)
+        ui_sunpodlg(&fb, sd_on);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

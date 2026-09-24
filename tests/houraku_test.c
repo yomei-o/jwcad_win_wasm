@@ -312,13 +312,26 @@ int main(void)
            else, so it leaves all three alone */
         { "a circle through a wall", "decomp/res/houraku13.jww", 0,
           WALL_OPEN, 8, ONE_CIRCLE, 4, 350, 170, 650, 470, 0 },
+        /* **The box does not follow 軸角.**  The first case again with the
+           axis turned to 30 first: the original's answer came out the same
+           file as with no axis at all (decomp/res/houtilt.jww against
+           houraku1.jww), so the box is square to the sheet whatever the
+           axis says. */
+        { "the open cross with the axis at 30, which changes nothing",
+          "decomp/res/houtilt.jww", 0, CROSS, 16, 0, 0, 450, 270, 560, 380,
+          0 },
     };
     (void)WALL;
     int i;
 
     app_resize(1264, 741);
-    for (i = 0; i < (int)(sizeof C / sizeof C[0]); i++)
+    for (i = 0; i < (int)(sizeof C / sizeof C[0]); i++) {
+        /* the last one is the same as the first with the axis turned: the
+           port has to ignore it the way the original does */
+        jw_cmd_set_axis(i == (int)(sizeof C / sizeof C[0]) - 1 ? 30.0 : 0.0);
         one(&C[i]);
+    }
+    jw_cmd_set_axis(0.0);
     /* and that one press takes the whole of it back */
     undo_case(&C[3]);           /* the closed cross, which loses four lines */
     undo_case(&C[9]);           /* and a 範囲内消去, which cuts them */
