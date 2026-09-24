@@ -11,6 +11,7 @@
 #include "gen/zokusel.h"
 #include "gen/blkname.h"
 #include "gen/blkedit.h"
+#include "gen/kihon.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -863,7 +864,7 @@ static void paint_status(fb_t *fb)
  * BS_AUTOCHECKBOX printed into a memory bitmap with WM_PRINTCLIENT
  * (tmp/dfc2.c -- no window is ever shown), so it is the button control's own
  * glyph, not a drawing of one.  Rows and columns are from the box's corner. */
-static void paint_tick(fb_t *fb, int x, int y)
+static void paint_tick_col(fb_t *fb, int x, int y, unsigned int col)
 {
     /* col ranges per row, from the control's own bitmap */
     static const signed char run[7][4] = {
@@ -880,7 +881,12 @@ static void paint_tick(fb_t *fb, int x, int y)
     for (r = 0; r < 7; r++)
         for (i = 0; i < 4; i += 2)
             for (c = run[r][i]; run[r][i] >= 0 && c <= run[r][i + 1]; c++)
-                fb_fill(fb, x + c, y + 3 + r, 1, 1, C_BTNTEXT);
+                fb_fill(fb, x + c, y + 3 + r, 1, 1, col);
+}
+
+static void paint_tick(fb_t *fb, int x, int y)
+{
+    paint_tick_col(fb, x, y, C_BTNTEXT);
 }
 
 static void paint_checkbox(fb_t *fb, int x, int y, int checked)
@@ -1760,6 +1766,149 @@ int ui_blkedit_hit(int cw, int ch, int x, int y)
         const jw_be_t *z = &jw_blkedit[i];
 
         if (z->kind == JW_BE_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ------------------------------------------------------- 基本設定 -----
+ * The big one: eight tabs of which only 一般(1) can be read out of the
+ * original, because it does not build the others until they are shown.  The
+ * strip of tabs across the top is a themed Windows control and the port
+ * draws a plain one, so it is scored with the caption rather than against
+ * the original (see tools/mkkihon.py).
+ */
+void ui_kihon_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_KH_W;
+    r->h = JW_KH_H;
+    r->x = (cw - JW_KH_W) / 2;
+    r->y = (ch - 42 - JW_KH_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_kihon_n(void)
+{
+    return JW_NKIHON;
+}
+
+int ui_kihon_id(int i)
+{
+    return i >= 0 && i < JW_NKIHON ? jw_kihon[i].id : 0;
+}
+
+void ui_kihon(fb_t *fb, const unsigned char *on)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height(), tx;
+
+    ui_kihon_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_KH_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_KH_CAPTION - th) / 2, JW_KH_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_KH_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_KH_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_KH_BORDER;
+    cy = r.y + JW_KH_CAPTION;
+    fb_fill(fb, cx, cy, JW_KH_CW, JW_KH_CH, C_BTNFACE);
+
+    /* The tab control: its whole rectangle is raised the way a button is
+       -- white and dark shadow outside, light and shadow inside -- and the
+       tabs are drawn over the top of it. */
+    fb_edge(fb, cx + JW_KH_TAB_X, cy + JW_KH_TAB_Y, JW_KH_TAB_W,
+            JW_KH_TAB_H, C_BTNHILIGHT, C_3DDKSHADOW);
+    fb_edge(fb, cx + JW_KH_TAB_X + 1, cy + JW_KH_TAB_Y + 1,
+            JW_KH_TAB_W - 2, JW_KH_TAB_H - 2, C_3DLIGHT, C_BTNSHADOW);
+    tx = cx + JW_KH_TAB_X + 2;
+    for (i = 0; i < JW_NKIHON_TABS; i++) {
+        int w = jw_text_px_w(jw_kihon_tabs[i]) + 12;
+        int y = cy + JW_KH_TAB_Y + (i ? 2 : 0);
+        int h = JW_KH_TAB_ROW - (i ? 2 : 0) + 1;
+
+        fb_fill(fb, tx, y, w, h, C_BTNFACE);
+        fb_edge(fb, tx, y, w, h, C_BTNHILIGHT, C_BTNSHADOW);
+        zs_text(fb, tx + 6, y + (h - th) / 2, w - 12, jw_kihon_tabs[i],
+                C_BTNTEXT);
+        tx += w;
+    }
+
+    for (i = 0; i < JW_NKIHON; i++) {
+        const jw_kh_t *z = &jw_kihon[i];
+        int x = cx + z->x, y = cy + z->y;
+        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+
+        if (!z->shown)
+            continue;
+        switch (z->kind) {
+        case JW_KH_PUSH: {
+            int k2 = z->id == 1;        /* OK is the default one */
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text, col);
+            break;
+        }
+        case JW_KH_CHECK:
+        case JW_KH_RADIO: {
+            int by = y + (z->h - CHECK_W) / 2;
+
+            paint_checkbox(fb, x, by, on ? on[i] : z->on);
+            /* A box that cannot be pressed has the dialog's face inside it
+               rather than white, and its tick comes out in the shadow
+               colour rather than black. */
+            if (!z->enabled) {
+                fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
+                        C_BTNFACE);
+                if (on ? on[i] : z->on)
+                    paint_tick_col(fb, x, by, C_BTNSHADOW);
+            }
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
+                         C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, col);
+            break;
+        }
+        case JW_KH_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            break;
+        case JW_KH_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, col);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_kihon_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_kihon_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_KH_BORDER;
+    y -= r.y + JW_KH_CAPTION;
+    for (i = 0; i < JW_NKIHON; i++) {
+        const jw_kh_t *z = &jw_kihon[i];
+
+        if (z->kind == JW_KH_STATIC || !z->shown || !z->enabled)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

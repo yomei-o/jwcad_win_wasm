@@ -151,6 +151,16 @@ void ui_blkedit_rect(int cw, int ch, rect_t *r);
 void ui_blkedit(fb_t *fb, const char *name, int all);
 int  ui_blkedit_hit(int cw, int ch, int x, int y);
 
+/* 基本設定 -- the tabbed dialog 32891 puts up.  Only 一般(1) is drawn: the
+   original does not build the other seven until they are shown, so there is
+   nothing to copy them from.  `on` is one byte per control of
+   src/gen/kihon.h, 1 for ticked. */
+void ui_kihon_rect(int cw, int ch, rect_t *r);
+void ui_kihon(fb_t *fb, const unsigned char *on);
+int  ui_kihon_hit(int cw, int ch, int x, int y);
+int  ui_kihon_n(void);
+int  ui_kihon_id(int i);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

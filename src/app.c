@@ -11,6 +11,7 @@
 #include "cmd.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
+#include "gen/kihon.h"
 #include "gen/newjww.h"
 
 static fb_t fb;
@@ -289,6 +290,41 @@ static int zsel_mask(void)
 static int blk_open, blk_pref, blk_attr;
 /* ブロック編集's own dialog, which comes up before the mode starts */
 static int be_open, be_all = 1;
+/* 基本設定: one byte per control, 1 for ticked */
+static int kh_open;
+static unsigned char kh_on[128];
+
+int app_kihon_open(void)
+{
+    return kh_open;
+}
+
+static void kh_start(void)
+{
+    int i, n = ui_kihon_n();
+
+    for (i = 0; i < n && i < (int)sizeof kh_on; i++)
+        kh_on[i] = jw_kihon[i].on;
+    kh_open = 1;
+}
+
+static int press_kihon(int x, int y)
+{
+    int id = ui_kihon_hit(fb.w, fb.h, x, y), i, n = ui_kihon_n();
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1 || id == 2) {           /* OK, キャンセル -- neither does
+                                           anything yet: what the boxes mean
+                                           has not been worked out */
+        kh_open = 0;
+        return 1;
+    }
+    for (i = 0; i < n && i < (int)sizeof kh_on; i++)
+        if (ui_kihon_id(i) == id && jw_kihon[i].kind != JW_KH_PUSH)
+            kh_on[i] = (unsigned char)!kh_on[i];
+    return 1;
+}
 static char be_name[64];
 
 int app_blkedit_open(void)
@@ -529,6 +565,9 @@ int app_command(int cmd)
     }
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
+    case 32891:                         /* 基本設定 */
+        kh_start();
+        return 1;
     case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;
@@ -664,6 +703,8 @@ int app_press(int x, int y, int button)
         return press_blkname(x, y);
     if (be_open)
         return press_blkedit(x, y);
+    if (kh_open)
+        return press_kihon(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -1079,6 +1120,8 @@ void app_paint(void)
         ui_blkname(&fb, blk_name, blk_pref, !blk_attr, blk_attr);
     if (be_open)
         ui_blkedit(&fb, be_name, be_all);
+    if (kh_open)
+        ui_kihon(&fb, kh_on);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

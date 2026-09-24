@@ -28,6 +28,7 @@ fi
 [ -f src/gen/zokusel.h ] || { echo "run tools/mkzokusel.py first"; exit 1; }
 [ -f src/gen/blkname.h ] || { echo "run tools/mkblkname.py first"; exit 1; }
 [ -f src/gen/blkedit.h ] || { echo "run tools/mkblkedit.py first"; exit 1; }
+[ -f src/gen/kihon.h ]   || { echo "run tools/mkkihon.py first";   exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -78,6 +79,11 @@ echo
 echo "=== ブロック化 —— ダイアログと、原典が作った定義との突き合わせ"
 ./tests/blkmake_test.exe tests/out/blkname.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_blkname.png tests/out/blkname.png     -i docs/blkname_textareas.txt -d tests/out/blkname.diff.png     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== 基本設定 —— 原典が描いたダイアログとの突き合わせ"
+./tests/kihon_test.exe tests/out/kihon.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_kihon.png tests/out/kihon.png     -i docs/kihon_textareas.txt -d tests/out/kihon.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== ブロック編集 —— ダイアログと、原典が変えた定義との突き合わせ"

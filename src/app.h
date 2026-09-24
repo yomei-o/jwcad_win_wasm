@@ -71,6 +71,8 @@ int  app_blkname_open(void);
 int  app_blkedit_open(void);
 /* what its name box holds */
 const char *app_blkedit_name(void);
+/* 基本設定: whether its dialog is up */
+int  app_kihon_open(void);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --
