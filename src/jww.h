@@ -207,7 +207,12 @@ int  jw_write_coord(const jw_drawing *d, double ox, double oy,
 /* And reading one: ファイル読込 makes a 図形 of it, so this only fills a
    drawing in the file's own units with every group at scale 1, and the
    figure machinery puts it down. */
-int  jw_parse_coord(jw_drawing *d, const unsigned char *b, long n);
+int  jw_parse_coord(jw_drawing *d, const jw_drawing *host,
+                    const unsigned char *b, long n);
+
+/* How long a text read out of one is: the file's (dx, dy) only says which
+   way it runs, and the far end comes from the text's own size. */
+double jw_coord_text_len(const jw_drawing *d, const jw_obj *o);
 
 /* And out again -- 図形登録 (32946).  Every drawn element of `d` goes in,
    keeping the coordinates it has, and (bx, by) is the base point the header

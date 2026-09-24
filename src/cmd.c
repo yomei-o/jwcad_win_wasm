@@ -3723,6 +3723,9 @@ static jw_drawing fig;
 static int fig_have;
 static double fig_bx, fig_by;
 static double fig_mag = 1.0, fig_deg;
+/* whether the figure came out of a coordinate file, whose texts keep their
+   own size and work their far end out from it (see src/coord.c) */
+static int fig_coord;
 
 void jw_cmd_figure_at(double mag, double deg)
 {
@@ -3751,6 +3754,7 @@ int jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n)
     fig_bx = bx;
     fig_by = by;
     fig_have = 1;
+    fig_coord = 0;
     fig_mag = 1.0;                      /* the bar comes up empty */
     fig_deg = 0.0;
     jw_cmd_set(JW_CMD_ZUKEI);
@@ -3825,7 +3829,7 @@ int jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n)
     jw_drawing next;
 
     memset(&next, 0, sizeof next);
-    if (!jw_parse_coord(&next, b, n)) {
+    if (!jw_parse_coord(&next, d, b, n)) {
         jw_free(&next);
         return 0;
     }
@@ -3835,6 +3839,7 @@ int jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n)
     fig_bx = 0.0;
     fig_by = 0.0;
     fig_have = 1;
+    fig_coord = 1;
     fig_mag = 1.0;
     fig_deg = 0.0;
     jw_cmd_set(JW_CMD_ZUKEI);
@@ -3873,6 +3878,24 @@ static int figure_place(jw_drawing *d, double x, double y)
         jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
                      fig_deg * 3.141592653589793 / 180.0,
                      x - fig_bx, y - fig_by);
+        if (fig_coord && o->cls == JW_MOJI) {
+            /* a coordinate file's text keeps the size the file named, in
+               millimetres on the paper, and its far end follows from that */
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+            double len = sqrt(dx * dx + dy * dy), want;
+
+            o->d[4] = p->d[4];
+            o->d[5] = p->d[5];
+            o->d[6] = p->d[6];
+            want = jw_coord_text_len(d, o);
+            if (len > 0.0) {
+                o->d[2] = o->d[0] + dx / len * want;
+                o->d[3] = o->d[1] + dy / len * want;
+            }
+            /* and the angle it runs at, in degrees, which the original
+               fills in from the same direction */
+            o->d[7] = atan2(dy, dx) * 180.0 / 3.141592653589793;
+        }
         made++;
     }
     if (made)

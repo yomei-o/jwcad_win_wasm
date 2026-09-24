@@ -1030,6 +1030,16 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,deco
 idle
 sh tools/refenv.sh >/dev/null
 
+# the same from Test5, which has 43 texts of three kinds (cz, ck and ch)
+echo "=== coord2 (座標ファイル、文字のあるもの)"
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+: > decomp/res/coord2.txt
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,decomp/res/coord2.txt;wait:1000;pb:1069;wait:1000;btn:1066;wait:800;btn:1120;wait:1500'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # and reading one back: ファイル読込 (1066) makes a 図形 of the file, whose
 # (0, 0) goes where it is clicked.  A blank sheet is at 1/100, so what was
 # written out of the 1/200 drawing comes back half the size.
@@ -1038,6 +1048,14 @@ idle
 sh tools/refenv.sh >/dev/null
 cp decomp/res/new.jww tmp/blank.jww
 $PS -Open tmp/blank.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,decomp/res/coord.txt;wait:1000;pb:1066;wait:1500;400,300;wait:1200;saveas:decomp/res/coordin.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
+# and the one with texts in it, read back the same way
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/new.jww tmp/blank.jww
+$PS -Open tmp/blank.jww -NoSave     -Clicks 'cmd:32895;wait:800;import:b1064,decomp/res/coord2.txt;wait:1200;pb:1066;wait:1800;400,300;wait:1500;saveas:decomp/res/coordin2.jww'     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
 
