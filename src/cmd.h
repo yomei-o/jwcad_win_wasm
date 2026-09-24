@@ -177,7 +177,13 @@ enum {
     JW_ZOK_HOJO  = 32,          /* 補助線指定 2431 */
     JW_ZOK_BLOCK = 64           /* ブロック図形指定 1802 */
 };
-int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude);
+/* `color` and `ltype` are 指定【線色】指定 and 指定 線種 指定: ticking
+ * either and pressing OK puts the **線属性 dialog** up, and what is picked
+ * there is what the filter means.  That is where the "指定" came from.
+ * 0 for one means it was not asked for.
+ */
+int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude, int color,
+                    int ltype);
 
 /* 属性変更 (範囲選択's 1070) -- the same dialog with its other half showing.
  * Only the two that could be driven are done: 書込【レイヤ】に変更 moves
@@ -188,7 +194,12 @@ int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude);
  * filter matches everything -- where the "指定" one comes from is still not
  * known.  Returns how many elements were changed.
  */
-int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group);
+/* `to_color` and `to_ltype` come from the same 線属性 dialog, which
+ * 指定【線色】に変更 and 指定 線種 に変更 put up on OK.  The colour goes on
+ * everything picked; the line type reaches lines and arcs only.
+ */
+int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
+                          int to_color, int to_ltype);
 
 /* 図形読込 (32862).  The original puts up a file window of its own -- not a
  * common dialog -- and once a .jws is picked the figure hangs on the cursor

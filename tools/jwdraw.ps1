@@ -83,6 +83,9 @@
 #                       name into the 新規作成 dialog and presses OK.  The
 #                       file lands in the folder the window is on (tmp\figsel
 #                       -- see figin:) and is copied to <path>.
+#   dlgnow:<ctl>=<val>,… the same as dlgin: but for a dialog that is already
+#                       up -- 属性選択's 指定【線色】指定 puts the 線属性
+#                       dialog up when its own OK is pressed
 #   export:<cmd>,<name> the same, but sending <cmd> instead of 名前を付けて
 #                       保存 -- 32961 is DXF形式で保存, 32976 SFC形式で保存,
 #                       32810 JWC形式で保存
@@ -801,6 +804,48 @@ try {
                 Emit ('=== dialog {0} filled' -f $id)
                 Dump $dlg
                 [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)   # IDOK
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^dlgnow:(.+)$' {
+                # The same as dlgin:, but for a dialog that is **already**
+                # up -- 属性選択's 指定【線色】指定 puts the 線属性 dialog up
+                # when its OK is pressed, and that is where the colour it
+                # means is chosen.
+                $sets = $Matches[1] -split ','
+                $dlg = [IntPtr]::Zero
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if ($t -eq $frame) { continue }
+                    if ([Jw]::Cls($t) -eq '#32770' -and [Jw]::IsWindowVisible($t)) {
+                        $dlg = $t
+                    }
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no dialog is up' }
+                Start-Sleep -Milliseconds 500
+                foreach ($set in $sets) {
+                    if ($set -notmatch '^(\d+)=(.*)$') { continue }
+                    $cid = [int]$Matches[1]
+                    $txt = $Matches[2]
+                    $box = [IntPtr]::Zero
+                    foreach ($k in [Jw]::Kids($dlg)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq $cid) { $box = $k; break }
+                    }
+                    if ($box -eq [IntPtr]::Zero) { throw "no control $cid in the dialog" }
+                    if ($txt -eq '!') {
+                        [void][Jw]::PostMessage($box, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                        Start-Sleep -Milliseconds 200
+                    } else {
+                        [void][Jw]::SetFocus($box)
+                        [void][Jw]::SendMessageW($box, 0x00B1, [IntPtr]0, [IntPtr](-1))
+                        Start-Sleep -Milliseconds 80
+                        Chars $box $txt
+                    }
+                }
+                Start-Sleep -Milliseconds 200
+                Emit '=== the dialog that was up, filled'
+                Dump $dlg
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)
                 Start-Sleep -Milliseconds $StepMs
                 break
             }

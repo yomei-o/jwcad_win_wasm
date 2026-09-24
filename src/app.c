@@ -151,6 +151,25 @@ static int press_layer(int g, int n, int button)
 /* 線属性 (0x8027): the dialog is up, and what it has picked so far.  The
  * original applies them when Ok is pressed and drops them on キャンセル. */
 static int zoku_open, zoku_color, zoku_ltype;
+/* Who put the 線属性 dialog up: 0 the 線属性 command itself, which sets the
+ * write pen; 1 属性選択's 指定【線色】指定 / 指定 線種 指定, which is where
+ * that "指定" comes from; 2 属性変更's 指定…に変更.  The rest is what those
+ * two had settled before the dialog came up.
+ */
+static int zoku_for;
+static int zs_mask, zs_exclude, zs_wantc, zs_wantl;
+static int zh_lay, zh_grp, zh_wantc, zh_wantl;
+
+/* Put the 線属性 dialog up on top of one of them. */
+static void zoku_ask(int who)
+{
+    zoku_color = have_drawing && drawing.write_color
+                 ? drawing.write_color : 2;
+    zoku_ltype = have_drawing && drawing.write_ltype
+                 ? drawing.write_ltype : 1;
+    zoku_for = who;
+    zoku_open = 1;
+}
 
 int app_zoku_open(void)
 {
@@ -168,12 +187,22 @@ static int press_zoku(int x, int y)
     else if (id >= 2449 && id <= 2457)
         zoku_ltype = id - 2448;
     else if (id == 1) {                 /* Ok */
-        if (have_drawing) {
+        if (have_drawing && zoku_for == 1)
+            jw_cmd_zokusel(&drawing, zs_mask, zs_exclude,
+                           zs_wantc ? zoku_color : 0,
+                           zs_wantl ? zoku_ltype : 0);
+        else if (have_drawing && zoku_for == 2)
+            jw_cmd_zokuhen_range(&drawing, zh_lay, zh_grp,
+                                 zh_wantc ? zoku_color : 0,
+                                 zh_wantl ? zoku_ltype : 0);
+        else if (have_drawing) {
             drawing.write_color = (unsigned short)zoku_color;
             drawing.write_ltype = (unsigned char)zoku_ltype;
         }
+        zoku_for = 0;
         zoku_open = 0;
     } else if (id == 2) {               /* キャンセル */
+        zoku_for = 0;
         zoku_open = 0;
     }
     return 1;
@@ -654,7 +683,7 @@ static int press_zokuhen(int x, int y)
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1 || id == 2) {           /* either OK does the same thing */
-        int lay = 0, grp = 0;
+        int lay = 0, grp = 0, wantc = 0, wantl = 0;
 
         for (i = 0; i < n && i < (int)sizeof zhen_on; i++) {
             if (!zhen_on[i])
@@ -663,10 +692,23 @@ static int press_zokuhen(int x, int y)
                 lay = 1;                /* 書込【レイヤ】に変更 */
             if (ui_zokuhen_id(i) == 1826)
                 grp = 1;                /* 書込レイヤグループに変更 */
+            if (ui_zokuhen_id(i) == 1822)
+                wantc = 1;              /* 指定【線色】に変更 */
+            if (ui_zokuhen_id(i) == 1823)
+                wantl = 1;              /* 指定   線種   に変更 */
+        }
+        zhen_open = 0;
+        if (wantc || wantl) {
+            /* the colour and the line type are asked for next */
+            zh_lay = lay;
+            zh_grp = grp;
+            zh_wantc = wantc;
+            zh_wantl = wantl;
+            zoku_ask(2);
+            return 1;
         }
         if (have_drawing)
-            jw_cmd_zokuhen_range(&drawing, lay, grp);
-        zhen_open = 0;
+            jw_cmd_zokuhen_range(&drawing, lay, grp, 0, 0);
         return 1;
     }
     for (i = 0; i < n && i < (int)sizeof zhen_on; i++)
@@ -682,14 +724,29 @@ static int press_zokusel(int x, int y)
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1 || id == 2) {           /* either OK does the same thing */
-        int exclude = 0;
+        int exclude = 0, wantc = 0, wantl = 0;
 
-        for (i = 0; i < n && i < (int)sizeof zsel_on; i++)
-            if (ui_zokusel_id(i) == 1324 && zsel_on[i])
+        for (i = 0; i < n && i < (int)sizeof zsel_on; i++) {
+            if (!zsel_on[i])
+                continue;
+            if (ui_zokusel_id(i) == 1324)
                 exclude = 1;
-        if (have_drawing)
-            jw_cmd_zokusel(&drawing, zsel_mask(), exclude);
+            if (ui_zokusel_id(i) == 1810)
+                wantc = 1;              /* 指定【線色】指定 */
+            if (ui_zokusel_id(i) == 1811)
+                wantl = 1;              /* 指定   線種   指定 */
+        }
         zsel_open = 0;
+        if (wantc || wantl) {
+            zs_mask = zsel_mask();
+            zs_exclude = exclude;
+            zs_wantc = wantc;
+            zs_wantl = wantl;
+            zoku_ask(1);
+            return 1;
+        }
+        if (have_drawing)
+            jw_cmd_zokusel(&drawing, zsel_mask(), exclude, 0, 0);
         return 1;
     }
     for (i = 0; i < n && i < (int)sizeof zsel_on; i++) {

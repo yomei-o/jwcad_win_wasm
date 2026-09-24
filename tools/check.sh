@@ -97,6 +97,10 @@ echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合�
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 属性選択・属性変更の「指定」—— 線属性ダイアログで選んだ色・線種"
+./tests/zokattr_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 図形登録 —— 原典が書いた .jws とのバイト突き合わせ"
 ./tests/figreg_test.exe | sed 's/^/    /'
 

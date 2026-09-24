@@ -3854,12 +3854,13 @@ static int figure_place(jw_drawing *d, double x, double y)
     return made;
 }
 
-int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group)
+int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
+                         int to_color, int to_ltype)
 {
     op_t *rec;
     int i, n = 0, g, wg = 0, wl;
 
-    if (!d || (!to_layer && !to_group))
+    if (!d || (!to_layer && !to_group && !to_color && !to_ltype))
         return 0;
     for (g = 0; g < 16; g++)
         if (d->group[g].state == 3)
@@ -3868,7 +3869,8 @@ int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group)
     rec = op_new();
     for (i = 0; i < d->ndrawn; i++) {
         jw_obj *o = &d->obj[i];
-        unsigned short lay = o->layer, grp = o->lgroup;
+        unsigned short lay = o->layer, grp = o->lgroup, col = o->color;
+        unsigned char lt = o->ltype;
 
         if (!o->sel)
             continue;
@@ -3876,11 +3878,21 @@ int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group)
             lay = (unsigned short)wl;
         if (to_group)
             grp = (unsigned short)wg;
-        if (lay == o->layer && grp == o->lgroup)
+        if (to_color)
+            col = (unsigned short)to_color;
+        /* 指定 線種 に変更 reaches lines and arcs only -- driving it over
+           tools/mkgeom.c's twelve left the two points and the two solids at
+           line type 1 (decomp/res/zhlt.jww). */
+        if (to_ltype && (o->cls == JW_SEN || o->cls == JW_ENKO))
+            lt = (unsigned char)to_ltype;
+        if (lay == o->layer && grp == o->lgroup && col == o->color
+            && lt == o->ltype)
             continue;
         op_keep(rec, d, i, 0);
         o->layer = lay;
         o->lgroup = grp;
+        o->color = col;
+        o->ltype = lt;
         n++;
     }
     return n;
@@ -3913,7 +3925,8 @@ static int zok_is(const jw_obj *o, int mask)
  * with it took away everything but the arcs (zokout).  Ticking it unticks
  * 【指定属性選択】, so the two are one choice and not two.
  */
-int jw_cmd_zokusel(jw_drawing *d, int mask, int exclude)
+int jw_cmd_zokusel(jw_drawing *d, int mask, int exclude, int color,
+                   int ltype)
 {
     int i, n = 0;
 
@@ -3921,10 +3934,18 @@ int jw_cmd_zokusel(jw_drawing *d, int mask, int exclude)
         return 0;
     for (i = 0; i < d->ndrawn; i++) {
         jw_obj *o = &d->obj[i];
+        int off = 0;
 
         if (!o->sel)
             continue;
-        if (mask && zok_is(o, mask) == !!exclude) {
+        /* 指定【線色】指定 and 指定 線種 指定: the colour and the line type
+           are the ones picked in the 線属性 dialog the OK puts up, and each
+           narrows what is left the same way a kind does. */
+        if (color && (o->color == (unsigned short)color) == !!exclude)
+            off = 1;
+        if (ltype && (o->ltype == (unsigned char)ltype) == !!exclude)
+            off = 1;
+        if (off || (mask && zok_is(o, mask) == !!exclude)) {
             o->flags = (unsigned short)(o->flags & ~2u);
             o->sel = 0;
         } else {

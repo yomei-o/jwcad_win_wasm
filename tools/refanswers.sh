@@ -991,6 +991,26 @@ idle
 sh tools/refenv.sh >/dev/null
 cp orig/Test5.jww tmp/rect.jww
 $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;250,250;r850,550;dlgin:b1069,1804=!;cmd:32794;saveas:decomp/res/zokmoji.jww'     2>&1 | sed 's/^/        /'
+
+# 指定【線色】指定 (1810) and 指定 線種 指定 (1811) do not filter anything
+# when their OK is pressed: they put the **線属性 dialog** up, and what is
+# picked there is what "指定" means.  dlgnow: is the step for a dialog that
+# is already up.  属性変更's 指定…に変更 (1822, 1823) are the same.
+echo "=== zokcol, zoklt, zhcol, zhlt (「指定」もの)"
+for k in 1810,1403,zokcol 1811,2451,zoklt; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp tmp/geom.jww tmp/rect.jww
+    t=${k%%,*}; r=${k#*,}; p=${r%,*}; out=${r#*,}
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:32787;100,100;r1150,650;dlgin:b1069,$t=!;wait:800;dlgnow:$p=!;wait:800;cmd:32794;wait:600;saveas:decomp/res/$out.jww"         2>&1 | sed 's/^/        /'
+done
+for k in 1822,1403,zhcol 1823,2451,zhlt; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp tmp/geom.jww tmp/rect.jww
+    t=${k%%,*}; r=${k#*,}; p=${r%,*}; out=${r#*,}
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:32787;100,100;r1150,650;dlgin:b1070,$t=!;wait:800;dlgnow:$p=!;wait:800;saveas:decomp/res/$out.jww"         2>&1 | sed 's/^/        /'
+done
 idle
 sh tools/refenv.sh >/dev/null
 
