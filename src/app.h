@@ -69,6 +69,8 @@ const unsigned char *app_zokusel_on(void);
 /* ブロック化: whether its dialog is up, and what has been typed into it. */
 int  app_blkname_open(void);
 int  app_blkedit_open(void);
+/* what its name box holds */
+const char *app_blkedit_name(void);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --

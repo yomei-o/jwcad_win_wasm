@@ -3474,6 +3474,102 @@ void jw_cmd_block_take(jw_drawing *d, int from)
     }
 }
 
+/* ブロック名変更 (the dialog's button 3).  The original keeps the
+ * @@SfigorgFlag@@4 on the end and puts the typed name in front of it:
+ * NEWNAME typed into decomp/res/blkmake.jww's dialog came back as
+ * NEWNAME@@SfigorgFlag@@4 with nothing else changed
+ * (decomp/res/blkrename.jww).
+ */
+int jw_cmd_block_rename(jw_drawing *d, const char *name)
+{
+    char full[128];
+    int at, off;
+    op_t *rec;
+
+    if (!d || !blkedit_on || !name || !*name)
+        return 0;
+    at = blkedit_at(d);
+    if (at < 0)
+        return 0;
+    strncpy(full, name, sizeof full - 20);
+    full[sizeof full - 20] = 0;
+    strcat(full, "@@SfigorgFlag@@4");
+    off = jw_add_str(d, full);
+    if (off < 0)
+        return 0;
+    rec = op_new();
+    op_keep(rec, d, at, 0);
+    d->obj[at].text = off;
+    return 1;
+}
+
+/* 選択したブロックのみに反映させる.  The original makes a copy of the
+ * definition rather than editing the one everything shares: a drawing with
+ * two references to BLK, one of them edited that way, came back with a
+ * second definition numbered 1 and named BLK(1)@@SfigorgFlag@@4 holding the
+ * thirteen, the first left with its twelve, and only the edited reference
+ * pointing at the new one (decomp/res/blk2one.jww).  The copy goes at the
+ * end, after the definition it was made from.
+ */
+int jw_cmd_block_split(jw_drawing *d)
+{
+    char full[128], num[16];
+    const char *p, *q;
+    int at, span, num_new = 0, i, off;
+    op_t *rec;
+
+    if (!d || !blkedit_on)
+        return 0;
+    at = blkedit_at(d);
+    if (at < 0)
+        return 0;
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] >= num_new)
+            num_new = d->obj[i].list[0] + 1;
+    /* <name>(<number>) in front of the flag */
+    p = jw_str(d, d->obj[at].text);
+    q = strstr(p, "@@");
+    if (!q)
+        q = p + strlen(p);
+    if (q - p > (int)sizeof full - 40)
+        q = p + sizeof full - 40;
+    memcpy(full, p, (size_t)(q - p));
+    full[q - p] = 0;
+    sprintf(num, "(%d)", num_new);
+    strcat(full, num);
+    strcat(full, "@@SfigorgFlag@@4");
+    off = jw_add_str(d, full);
+    if (off < 0)
+        return 0;
+
+    rec = op_new();
+    at = blkedit_at(d);         /* jw_add_str cannot move it, but be sure */
+    span = d->obj[at].n;
+    for (i = 0; i <= span; i++) {
+        jw_obj *o = jw_add_def(d, d->obj[at + i].cls);
+
+        if (!o)
+            return 0;
+        *o = d->obj[at + i];
+        if (i == 0) {
+            o->list[0] = num_new;
+            o->text = off;
+        }
+    }
+    if (rec)
+        rec->ndef += span + 1;
+    /* and the one reference being edited points at the copy */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_BLOCK && d->obj[i].sel
+            && d->obj[i].block == blkedit_num) {
+            op_keep(rec, d, i, 0);
+            d->obj[i].block = num_new;
+            break;
+        }
+    blkedit_num = num_new;
+    return 1;
+}
+
 /* ブロック属性 (32970).  The same dialog as ブロック化 with the name box
  * greyed out and its label cut down to just ブロック名; the one thing it can
  * change is 元データのレイヤを優先する, and ticking it turned the reference's

@@ -198,6 +198,13 @@ int  jw_cmd_block_editing(void);
 /* The name of the block being edited, for the dialog. */
 const char *jw_cmd_block_name(const jw_drawing *d);
 void jw_cmd_block_take(jw_drawing *d, int from);
+/* ブロック名変更: the name the dialog's box holds becomes the block's, with
+   the @@SfigorgFlag@@4 the original puts on the end. */
+int  jw_cmd_block_rename(jw_drawing *d, const char *name);
+/* 選択したブロックのみに反映させる: the definition is copied for the one
+   reference being edited, so that editing it leaves the others alone.  The
+   copy is numbered after the last one and named <name>(<number>). */
+int  jw_cmd_block_split(jw_drawing *d);
 
 /* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
    (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */

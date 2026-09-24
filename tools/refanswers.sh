@@ -825,6 +825,29 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32
 idle
 sh tools/refenv.sh >/dev/null
 
+# ブロック名変更 (the dialog's button 3), and 選択したブロックのみに
+# 反映させる (2411) against すべてのブロックに (2410).  The second pair needs
+# two references to one block, which tools/mk2blk.c makes.
+echo "=== blkrename, blk2all, blk2one (名前変更と、どちらに反映するか)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/blkmake.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32986,2359=NEWNAME,3=!;cmd:32985;saveas:decomp/res/blkrename.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+$CC -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c src/jwwrite.c     src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c            src/jwwrite.c src/cp932.c
+./tmp/mk2blk.exe decomp/res/blkmake.jww tmp/twoblk.jww
+for k in 2410,blk2all 2411,blk2one; do
+    sets="2410=!,2410=!"
+    [ "${k%,*}" = 2411 ] && sets="2411=!"
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp tmp/twoblk.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:32787;100,100;r850,650;dlgin:32986,$sets;cmd:32771;300,300;500,300;cmd:32985;saveas:decomp/res/${k#*,}.jww"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+
 # ブロック属性 (32970): the same dialog as ブロック化 with the name greyed
 # out; the one thing it can change is 元データのレイヤを優先する.
 echo "=== blkattr (ブロック属性)"

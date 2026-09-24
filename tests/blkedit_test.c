@@ -224,6 +224,187 @@ int main(int argc, char **argv)
        && d->obj[d->ndrawn].n == 12,
        "元に戻る takes the line back out of the definition");
     jw_free(&ref);
+
+    /* ブロック名変更: the typed name goes in front of the flag the original
+       keeps on the end (decomp/res/blkrename.jww). */
+    {
+        jw_drawing r2;
+        unsigned char *b2;
+        long n2;
+        int ma2 = -1;
+
+        memset(&r2, 0, sizeof r2);
+        b2 = slurp("decomp/res/blkrename.jww", &n2);
+        if (!b2 || !jw_parse(&r2, b2, n2)) {
+            printf("BAD  cannot read decomp/res/blkrename.jww -- drive the "
+                   "original first\n");
+            fails++;
+            free(b2);
+        } else {
+            free(b2);
+            for (i = 0; i < r2.nobj; i++)
+                if (r2.obj[i].cls == JW_LIST) {
+                    ma2 = i;
+                    break;
+                }
+            b2 = slurp("decomp/res/blkmake.jww", &n2);
+            if (b2 && app_open(b2, n2)) {
+                free(b2);
+                ui_view_rect(fb->w, fb->h, &r);
+                jw_cmd_set(JW_CMD_HANI);
+                app_press(r.x + 100, r.y + 100, 0);
+                app_press(r.x + r.w - 4, r.y + r.h - 4, 1);
+                app_command(JW_CMD_BLOCK_EDIT);
+                for (i = 0; i < 8; i++)
+                    app_key(8);         /* clear the BLK that is there */
+                app_key('N'); app_key('E'); app_key('W');
+                app_key('N'); app_key('A'); app_key('M'); app_key('E');
+                ck(!strcmp(app_blkedit_name(), "NEWNAME"),
+                   "the name box takes what is typed");
+                ctl(3, &x, &y);         /* ブロック名変更 */
+                app_press(x, y, 0);
+                ctl(1, &x, &y);
+                app_press(x, y, 0);
+                d = app_drawing();
+                ck(ma2 >= 0 && d->nobj > d->ndrawn
+                   && !strcmp(jw_str(d, d->obj[d->ndrawn].text),
+                              jw_str(&r2, r2.obj[ma2].text)),
+                   "and ブロック名変更 gives it the original's own name");
+                if (ma2 >= 0 && d->nobj > d->ndrawn
+                    && strcmp(jw_str(d, d->obj[d->ndrawn].text),
+                              jw_str(&r2, r2.obj[ma2].text)))
+                    printf("     ours '%s', theirs '%s'\n",
+                           jw_str(d, d->obj[d->ndrawn].text),
+                           jw_str(&r2, r2.obj[ma2].text));
+                jw_cmd_block_done();
+            }
+            jw_free(&r2);
+        }
+    }
+
+    /* 選択したブロックのみに反映させる: with two references to one block,
+       editing one that way copies the definition rather than changing the
+       one they share (decomp/res/blk2one.jww, against blk2all.jww for the
+       other choice). */
+    {
+        static const struct { const char *f; int only; } W[2] = {
+            { "decomp/res/blk2all.jww", 0 },
+            { "decomp/res/blk2one.jww", 1 },
+        };
+        int w;
+
+        for (w = 0; w < 2; w++) {
+            jw_drawing r2;
+            unsigned char *b2;
+            long n2;
+            int nl = 0, ml = 0;
+
+            memset(&r2, 0, sizeof r2);
+            b2 = slurp(W[w].f, &n2);
+            if (!b2 || !jw_parse(&r2, b2, n2)) {
+                printf("BAD  cannot read %s -- drive the original first\n",
+                       W[w].f);
+                fails++;
+                free(b2);
+                continue;
+            }
+            free(b2);
+            b2 = slurp("decomp/res/blkmake.jww", &n2);
+            if (b2 && app_open(b2, n2)) {
+                jw_obj *p;
+
+                free(b2);
+                /* the same second reference tmp/mk2blk.c adds */
+                d = app_drawing();
+                for (i = 0; i < d->ndrawn; i++)
+                    if (d->obj[i].cls == JW_BLOCK)
+                        break;
+                p = jw_add((jw_drawing *)d, JW_BLOCK);
+                if (p) {
+                    *p = d->obj[i];
+                    p->d[0] += 300.0;
+                    p->id = 0;
+                    p->sel = 0;
+                    p->flags = 0;
+                }
+                ui_view_rect(fb->w, fb->h, &r);
+                jw_cmd_set(JW_CMD_HANI);
+                app_press(r.x + 100, r.y + 100, 0);
+                app_press(r.x + 850, r.y + 650, 1);
+                ck(jw_cmd_sel_count(app_drawing()) == 1,
+                   "  the box takes one of the two references");
+                app_command(JW_CMD_BLOCK_EDIT);
+                if (W[w].only) {
+                    ctl(2411, &x, &y);
+                    app_press(x, y, 0);
+                }
+                ctl(1, &x, &y);
+                app_press(x, y, 0);
+                jw_cmd_set(JW_CMD_SEN);
+                app_press(r.x + 300, r.y + 300, 0);
+                app_press(r.x + 500, r.y + 300, 0);
+                app_command(JW_CMD_BLOCK_DONE);
+                d = app_drawing();
+                for (i = d->ndrawn; i < d->nobj; i++)
+                    if (d->obj[i].cls == JW_LIST)
+                        nl++;
+                for (i = 0; i < r2.nobj; i++)
+                    if (r2.obj[i].cls == JW_LIST)
+                        ml++;
+                ck(nl == ml, "  as many definitions as the original has");
+                if (nl != ml)
+                    printf("     ours %d, theirs %d\n", nl, ml);
+                if (nl == ml) {
+                    int k, bad2 = 0, a = d->ndrawn, e = 0;
+
+                    for (i = 0; i < r2.nobj; i++) {
+                        const jw_obj *q;
+
+                        if (r2.obj[i].cls != JW_LIST)
+                            continue;
+                        q = &r2.obj[i];
+                        while (a < d->nobj && d->obj[a].cls != JW_LIST)
+                            a++;
+                        if (a >= d->nobj)
+                            break;
+                        if (d->obj[a].n != q->n
+                            || d->obj[a].list[0] != q->list[0]
+                            || strcmp(jw_str(d, d->obj[a].text),
+                                      jw_str(&r2, q->text))) {
+                            printf("     definition %d: ours n=%d num=%d "
+                                   "'%s', theirs n=%d num=%d '%s'\n", e,
+                                   d->obj[a].n, d->obj[a].list[0],
+                                   jw_str(d, d->obj[a].text), q->n,
+                                   q->list[0], jw_str(&r2, q->text));
+                            bad2 = 1;
+                        }
+                        a++;
+                        e++;
+                    }
+                    /* and which definition each reference points at */
+                    for (i = 0, k = 0; i < r2.ndrawn; i++) {
+                        if (r2.obj[i].cls != JW_BLOCK)
+                            continue;
+                        while (k < d->ndrawn && d->obj[k].cls != JW_BLOCK)
+                            k++;
+                        if (k >= d->ndrawn)
+                            break;
+                        if (d->obj[k].block != r2.obj[i].block) {
+                            printf("     reference %d points at %d where "
+                                   "the original's points at %d\n", k,
+                                   d->obj[k].block, r2.obj[i].block);
+                            bad2 = 1;
+                        }
+                        k++;
+                    }
+                    ck(!bad2, "  and each one is the original's, with the "
+                       "references pointing the same way");
+                }
+            }
+            jw_free(&r2);
+        }
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

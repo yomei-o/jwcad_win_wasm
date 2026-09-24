@@ -289,10 +289,16 @@ static int zsel_mask(void)
 static int blk_open, blk_pref, blk_attr;
 /* ブロック編集's own dialog, which comes up before the mode starts */
 static int be_open, be_all = 1;
+static char be_name[64];
 
 int app_blkedit_open(void)
 {
     return be_open;
+}
+
+const char *app_blkedit_name(void)
+{
+    return be_name;
 }
 
 static int press_blkedit(int x, int y)
@@ -302,14 +308,46 @@ static int press_blkedit(int x, int y)
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1) {                      /* OK: the mode is already on */
+        if (have_drawing && !be_all)    /* 選択したブロックのみに */
+            jw_cmd_block_split(&drawing);
         be_open = 0;
     } else if (id == 2) {               /* キャンセル */
         jw_cmd_block_done();
         be_open = 0;
+    } else if (id == 3) {               /* ブロック名変更 */
+        if (have_drawing)
+            jw_cmd_block_rename(&drawing, be_name);
     } else if (id == 2410 || id == 2411) {
         be_all = id == 2410;            /* the two are one choice */
     }
     return 1;
+}
+
+/* One key while the ブロック編集 dialog is up: the name box takes it. */
+static int be_key(int c)
+{
+    size_t n = strlen(be_name);
+
+    if (c == 8) {
+        while (n && (unsigned char)be_name[n - 1] >= 0x80
+               && !jw_is_lead((unsigned char)be_name[n - 1]))
+            n--;
+        if (n)
+            be_name[n - 1] = 0;
+        return 1;
+    }
+    if (c == 13) {                      /* Enter is the OK button */
+        if (have_drawing && !be_all)
+            jw_cmd_block_split(&drawing);
+        be_open = 0;
+        return 1;
+    }
+    if (c >= 0x20 && n + 1 < sizeof be_name) {
+        be_name[n] = (char)c;
+        be_name[n + 1] = 0;
+        return 1;
+    }
+    return 0;
 }
 static char blk_name[64];
 
@@ -496,6 +534,9 @@ int app_command(int cmd)
             return 0;
         if (!jw_cmd_block_edit(&drawing))
             return 0;                   /* nothing but a reference will do */
+        strncpy(be_name, jw_cmd_block_name(&drawing), sizeof be_name - 1);
+        be_name[sizeof be_name - 1] = 0;
+        be_all = 1;
         be_open = 1;
         return 1;
     case JW_CMD_BLOCK_DONE:             /* ブロック編集終了 */
@@ -706,6 +747,10 @@ static int moji_key(int c)
 
 int app_key(int c)
 {
+    if (be_open && be_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (blk_open && blk_key(c)) {
         app_paint();
         return 1;
@@ -1033,8 +1078,7 @@ void app_paint(void)
     if (blk_open)
         ui_blkname(&fb, blk_name, blk_pref, !blk_attr, blk_attr);
     if (be_open)
-        ui_blkedit(&fb, have_drawing ? jw_cmd_block_name(&drawing) : "",
-                   be_all);
+        ui_blkedit(&fb, be_name, be_all);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {
