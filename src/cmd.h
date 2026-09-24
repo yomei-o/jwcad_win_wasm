@@ -246,6 +246,10 @@ int  jw_cmd_figure_base(double *x, double *y);
  * read points give the point half way between them.  It lasts for one point
  * and then goes off.  0 is none.
  */
+/* 33016 中心点取得, 33028 円周1/4点取得 (the nearest of the picked circle's
+ * four quarter points) and 33017 線上点 (pick a line, then the next point is
+ * dropped onto it at right angles -- its 交点 half is not done).
+ */
 void jw_cmd_read_mode(int mode);
 int  jw_cmd_read_mode_now(void);
 

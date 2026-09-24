@@ -113,6 +113,59 @@ int main(void)
     }
     ck(!bad, "and both end where the original's do, to six places");
     jw_free(&ref);
+
+    /* 円周1/4点取得 (33028) twice and 線上点 (33017) once, from the same
+       drawing again -- decomp/res/snapmore.jww is the original's. */
+    b = slurp("tmp/geom.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open tmp/geom.jww again\n");
+        free(b);
+        printf("SOME BAD\n");
+        return 1;
+    }
+    free(b);
+    app_press(r.x + 200, r.y + 150, 0);
+    ck(app_command(33028), "円周1/4点取得 arms");
+    app_press(r.x + 638, r.y + 374, 1);  /* near the circle's 0 o'clock */
+    app_press(r.x + 250, r.y + 150, 0);
+    app_command(33028);
+    app_press(r.x + 626, r.y + 361, 1);  /* and near its 90 */
+    app_press(r.x + 300, r.y + 150, 0);
+    ck(app_command(33017), "線上点・交点取得 arms");
+    app_press(r.x + 589, r.y + 274, 1);  /* picks the line */
+    ck(jw_cmd_read_mode_now() == 33017, "  and waits on it for the point");
+    app_press(r.x + 589, r.y + 240, 0);  /* dropped onto it */
+    d = app_drawing();
+    ck(d->ndrawn == was + 3, "three more lines came out of them");
+
+    memset(&ref, 0, sizeof ref);
+    b = slurp("decomp/res/snapmore.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  cannot read decomp/res/snapmore.jww -- drive the "
+               "original first\n");
+        fails++;
+        free(b);
+        printf("SOME BAD\n");
+        return 1;
+    }
+    free(b);
+    bad = 0;
+    for (i = was; i < ref.ndrawn && i < d->ndrawn; i++) {
+        const jw_obj *q = &ref.obj[i], *p = &d->obj[i];
+        int k;
+
+        if (!jw_text_drawn(q))
+            continue;
+        for (k = 0; k < 4; k++)
+            if (fabs(p->d[k] - q->d[k]) > 1e-6) {
+                printf("     the %dth's d[%d] is %.6f, the original's "
+                       "%.6f\n", i, k, p->d[k], q->d[k]);
+                bad = 1;
+            }
+    }
+    ck(!bad, "and those three end where the original's do too");
+    jw_free(&ref);
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

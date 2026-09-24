@@ -4770,16 +4770,47 @@ static int houraku(jw_drawing *d, double x, double y, int erase)
 static int read_mode;
 static int read_a;              /* the first of the two points, if any */
 static double read_ax, read_ay;
+static int read_pick = -1;      /* 線上点's element, once it has been picked */
 
 void jw_cmd_read_mode(int mode)
 {
     read_mode = mode;
     read_a = 0;
+    read_pick = -1;
 }
 
 int jw_cmd_read_mode_now(void)
 {
     return read_mode;
+}
+
+/* The four quarter points of a circle, in its own frame -- 円周1/4点取得
+   (33028) takes whichever is nearest.  A tilted or squashed circle carries
+   its tilt in d[5] and its ratio in d[6], so they turn with it. */
+static int arc_quarter(const jw_obj *o, double x, double y,
+                       double *qx, double *qy)
+{
+    double c = cos(o->d[5]), s = sin(o->d[5]);
+    double best = 0.0;
+    int k, got = 0;
+
+    if (o->cls != JW_ENKO)
+        return 0;
+    for (k = 0; k < 4; k++) {
+        double a = k * 1.5707963267948966;
+        double ux = o->d[2] * cos(a), uy = o->d[2] * o->d[6] * sin(a);
+        double px = o->d[0] + ux * c - uy * s;
+        double py = o->d[1] + ux * s + uy * c;
+        double dd = (px - x) * (px - x) + (py - y) * (py - y);
+
+        if (!got || dd < best) {
+            best = dd;
+            *qx = px;
+            *qy = py;
+            got = 1;
+        }
+    }
+    return got;
 }
 
 /* The middle of an element, for 中心点取得.  A line's is half way along it,
@@ -4802,6 +4833,50 @@ static int obj_middle(const jw_obj *o, double *mx, double *my)
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (read_mode == 33028 && d) {
+        /* 円周1/4点取得: the nearest of the picked circle's four quarter
+           points.  Driving the original bears it out -- a read near 0 gave
+           (75, -30) and one near 90 (60, -15) on the r=15 circle centred at
+           (60, -30), which is decomp/res/snapmore.jww. */
+        int i = jw_pick(d, v, x, y, 1);
+        double qx, qy;
+
+        if (i < 0 || !arc_quarter(&d->obj[i], x, y, &qx, &qy))
+            return;                     /* nothing to read: no point placed */
+        x = qx;
+        y = qy;
+        button = 0;
+        read_mode = 0;
+    }
+    if (read_mode == 33017 && d) {
+        /* 線上点・交点取得: the first click picks a line -- the prompt then
+           reads 「■■線上点指示■■ (L)free (R)Read <<交点>> (L)他の線・円」
+           -- and the next point is dropped onto it at right angles.  The
+           交点 half, and picking a circle rather than a line, are not done.
+        */
+        if (read_pick < 0) {
+            int i = jw_pick(d, v, x, y, 1);
+
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            read_pick = i;
+            return;
+        }
+        {
+            const jw_obj *o = &d->obj[read_pick];
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+            double len = dx * dx + dy * dy, t;
+
+            read_pick = -1;
+            read_mode = 0;
+            if (len <= 0.0)
+                return;
+            t = ((x - o->d[0]) * dx + (y - o->d[1]) * dy) / len;
+            x = o->d[0] + t * dx;
+            y = o->d[1] + t * dy;
+            button = 0;
+        }
+    }
     if (read_mode == 33016 && d) {
         int i = jw_pick(d, v, x, y, 1);
         double mx, my;

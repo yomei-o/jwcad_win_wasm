@@ -874,7 +874,9 @@ int app_command(int cmd)
         jw_cmd_set(JW_CMD_ZUKEIREG);
         return 1;
     case 33016:                         /* 中心点取得 */
-        jw_cmd_read_mode(33016);
+    case 33017:                         /* 線上点・交点取得 */
+    case 33028:                         /* 円周1/4点取得 */
+        jw_cmd_read_mode(cmd);
         return 1;
     case 32862:                         /* 図形読込 */
         /* The original puts up a file window of its own here.  The port has

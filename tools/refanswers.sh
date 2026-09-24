@@ -1007,6 +1007,17 @@ $PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;
 idle
 sh tools/refenv.sh >/dev/null
 
+# 円周1/4点取得 (33028) twice -- near the circle's 0 and its 90 -- and
+# 線上点 (33017) once: that one takes two clicks, the first picking the line
+# and the second dropping onto it at right angles.
+echo "=== snapmore (円周1/4点取得・線上点)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;wait:300;cmd:33028;wait:500;r638,374;wait:700;250,150;wait:300;cmd:33028;wait:500;r626,361;wait:700;300,150;wait:300;cmd:33017;wait:500;r589,274;wait:600;589,240;wait:800;saveas:decomp/res/snapmore.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 echo "=== zokcol, zoklt, zhcol, zhlt (「指定」もの)"
 for k in 1810,1403,zokcol 1811,2451,zoklt; do
     idle
