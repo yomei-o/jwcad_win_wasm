@@ -19,6 +19,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/text.h"
 #include "../src/gen/layout.h"
 #include "../src/gen/moji.h"
 #include "../src/gen/cmds.h"
@@ -327,6 +328,76 @@ int main(int argc, char **argv)
             }
             jw_free(&ref);
             jw_cmd_moji_style(0, 0);    /* back to plain for the next one */
+        }
+    }
+
+    /* 色No. (ComboBox 2358).  The original was given row 6 of it and then
+       an "A", and the text came out colour 6 -- the row **is** the colour
+       (decomp/res/mojicol.jww).  The port drops a list of its own down when
+       the box is pressed; the original's has not been photographed. */
+    {
+        jw_drawing ref;
+        unsigned char *b2;
+        long n2;
+        int at = -1, i;
+
+        memset(&ref, 0, sizeof ref);
+        b2 = slurp("decomp/res/mojicol.jww", &n2);
+        if (!b2 || !jw_parse(&ref, b2, n2)) {
+            printf("BAD  cannot read decomp/res/mojicol.jww -- drive the "
+                   "original first\n");
+            fails++;
+            free(b2);
+        } else {
+            free(b2);
+            for (i = ref.ndrawn - 1; i >= 0; i--)
+                if (ref.obj[i].cls == JW_MOJI && jw_text_drawn(&ref.obj[i])
+                    && !strcmp(jw_str(&ref, ref.obj[i].text), "A")) {
+                    at = i;
+                    break;
+                }
+            ck(at >= 0, "the original's coloured text is in the answer");
+            b2 = slurp("orig/Test5.jww", &n2);
+            if (at >= 0 && b2 && app_open(b2, n2)) {
+                const jw_drawing *d4;
+                const jw_obj *o;
+                rect_t vr;
+
+                free(b2);
+                jw_cmd_set(JW_CMD_MOJI);
+                if (bar_button(1843, &x, &y))
+                    app_press(x, y, 0);
+                ck(app_moji_open(), "the 文字種 dialog is up");
+                ctl(2358, &x, &y);              /* the 色No. box */
+                app_press(x, y, 0);
+                ck(app_moji_drop(), "  and pressing 色No. drops its list");
+                {   /* row 6 of it */
+                    rect_t dr;
+                    int th = jw_text_height(), k, cy = 0;
+
+                    ui_moji_rect(1264, 741, &dr);
+                    for (k = 0; k < JW_NMOJI; k++)
+                        if (jw_moji[k].id == 2358)
+                            cy = dr.y + JW_MOJI_CAPTION + jw_moji[k].y
+                                 + jw_moji[k].h;
+                    app_press(x, cy + 1 + 6 * th + th / 2, 0);
+                }
+                ck(app_moji_color() == 6, "  and row 6 is colour 6");
+                ctl(1, &x, &y);                 /* Ok */
+                app_press(x, y, 0);
+                app_key('A');
+                ui_view_rect(1264, 741, &vr);
+                app_press(vr.x + 500, vr.y + 400, 0);
+                d4 = app_drawing();
+                o = &d4->obj[d4->ndrawn - 1];
+                if (o->cls != JW_MOJI || o->color != ref.obj[at].color)
+                    printf("     ours %d, the original's %d\n",
+                           o->cls == JW_MOJI ? o->color : -1,
+                           ref.obj[at].color);
+                ck(o->cls == JW_MOJI && o->color == ref.obj[at].color,
+                   "and the text comes out the original's colour");
+            }
+            jw_free(&ref);
         }
     }
 

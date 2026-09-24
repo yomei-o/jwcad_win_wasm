@@ -61,6 +61,9 @@ int  app_moji_open(void);
 /* what one of its three boxes holds, and which one the typing goes into */
 const char *app_moji_box(int id);
 int  app_moji_focus(void);
+/* 色No. (ComboBox 2358) and whether its list is down. */
+int  app_moji_color(void);
+int  app_moji_drop(void);
 
 /* 属性選択: whether its dialog is up, and which of its boxes are ticked
    (one byte per control of src/gen/zokusel.h). */

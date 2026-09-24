@@ -1330,13 +1330,13 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
     rect_t r;
     int cx, cy, i, th = jw_text_height(), used[11];
     double sw = d->cur_style.w, sh = d->cur_style.h, ss = d->cur_style.sp;
-    int scol = d->cur_style.color;
+
 
     if (style >= 1 && style <= 10) {
         sw = d->style[style - 1].w;
         sh = d->style[style - 1].h;
         ss = d->style[style - 1].sp;
-        scol = d->style[style - 1].color;
+
     }
     mj_counts(d, used);
     ui_moji_rect(fb->w, fb->h, &r);
@@ -1427,7 +1427,7 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
             mj_sunken(fb, x, y, z->w, z->h);
             mj_combo_button(fb, x, y, z->w, z->h);
             if (z->id == 2358) {
-                sprintf(t, "%d", scol);
+                sprintf(t, "%d", app_moji_color());
                 jw_text_px(fb, x + 4, y + (z->h - th) / 2, t, C_BTNTEXT);
             }
             break;
@@ -1447,6 +1447,62 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
             break;
         }
     }
+}
+
+/* The 色No. list the port drops down when the box is pressed.  It holds ten
+ * rows, 0 to 9 -- driving the original shows the row **is** the colour --
+ * and it hangs under the box.  The original's own dropdown has not been
+ * photographed, so this is the port's own drawing of one. */
+static void moji_drop_rect(int cw, int ch, rect_t *r)
+{
+    rect_t d;
+    int i;
+
+    ui_moji_rect(cw, ch, &d);
+    r->x = r->y = r->w = r->h = 0;
+    for (i = 0; i < JW_NMOJI; i++)
+        if (jw_moji[i].id == 2358) {
+            r->x = d.x + JW_MOJI_BORDER + jw_moji[i].x;
+            r->y = d.y + JW_MOJI_CAPTION + jw_moji[i].y + jw_moji[i].h;
+            r->w = jw_moji[i].w;
+            r->h = 10 * jw_text_height() + 2;
+            return;
+        }
+}
+
+void ui_moji_drop(fb_t *fb)
+{
+    rect_t r;
+    int i, th = jw_text_height();
+    char t[8];
+
+    moji_drop_rect(fb->w, fb->h, &r);
+    if (r.w <= 0)
+        return;
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNHILIGHT);
+    fb_edge(fb, r.x, r.y, r.w, r.h, C_3DDKSHADOW, C_3DDKSHADOW);
+    for (i = 0; i < 10; i++) {
+        int yy = r.y + 1 + i * th;
+
+        if (i == app_moji_color())
+            fb_fill(fb, r.x + 1, yy, r.w - 2, th, C_BTNSHADOW);
+        sprintf(t, "%d", i);
+        jw_text_px(fb, r.x + 4, yy, t,
+                   i == app_moji_color() ? C_BTNHILIGHT : C_BTNTEXT);
+    }
+}
+
+int ui_moji_drop_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int th = jw_text_height(), row;
+
+    moji_drop_rect(cw, ch, &r);
+    if (r.w <= 0 || x < r.x || x >= r.x + r.w || y < r.y + 1
+        || y >= r.y + r.h - 1)
+        return -1;
+    row = (y - r.y - 1) / th;
+    return row >= 0 && row < 10 ? row : -1;
 }
 
 int ui_moji_hit(int cw, int ch, int x, int y)

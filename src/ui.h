@@ -126,6 +126,9 @@ int  ui_zoku_hit(int cw, int ch, int x, int y);
    `style` is which 文字種 is chosen, 0 being 任意サイズ. */
 void ui_moji_rect(int cw, int ch, rect_t *r);
 void ui_moji(fb_t *fb, const jw_drawing *d, int style);
+/* The 色No. list, when the box has been pressed.  Ten rows, 0 to 9. */
+void ui_moji_drop(fb_t *fb);
+int  ui_moji_drop_hit(int cw, int ch, int x, int y);
 int  ui_moji_hit(int cw, int ch, int x, int y);
 
 /* 属性選択 -- the dialog the 範囲選択 bar's 1069 puts up once a box is in.

@@ -222,6 +222,23 @@ static int moji_open, moji_style;
  */
 static char moji_box[3][16];
 static int moji_focus;          /* 1491, 1492, 1493, or 0 for none */
+/* 色No. (ComboBox 2358).  Driving the original says the row it is set to
+ * **is** the colour: row 4 gave a text of colour 4 and row 6 one of colour
+ * 6 (decomp/res/mojicol.jww).  The port drops a list of its own down when
+ * the box is pressed -- the original's dropdown has not been photographed,
+ * so the picture of it is the port's own. */
+static int moji_color = 1;
+static int moji_drop;           /* whether that list is down */
+
+int app_moji_color(void)
+{
+    return moji_color;
+}
+
+int app_moji_drop(void)
+{
+    return moji_drop;
+}
 
 static void moji_fill(const jw_drawing *d, int style)
 {
@@ -799,10 +816,23 @@ static int moji_current(void)
 
 static int press_moji(int x, int y)
 {
-    int id = ui_moji_hit(fb.w, fb.h, x, y);
+    int id;
 
+    if (moji_drop) {                    /* the 色No. list is down */
+        int row = ui_moji_drop_hit(fb.w, fb.h, x, y);
+
+        moji_drop = 0;
+        if (row >= 0)
+            moji_color = row;
+        return 1;
+    }
+    id = ui_moji_hit(fb.w, fb.h, x, y);
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
+    if (id == 2358) {
+        moji_drop = 1;
+        return 1;
+    }
     if (id == 1884) {
         moji_style = 0;                 /* 任意サイズ */
         moji_focus = 0;
@@ -831,12 +861,15 @@ static int press_moji(int x, int y)
                 drawing.cur_style.h = h;
             if (sp >= 0.0)
                 drawing.cur_style.sp = sp;
+            drawing.cur_style.color = moji_color;
         }
         moji_open = 0;
         moji_focus = 0;
+        moji_drop = 0;
     } else if (id == 2) {               /* キャンセル */
         moji_open = 0;
         moji_focus = 0;
+        moji_drop = 0;
     }
     return 1;
 }
@@ -1074,6 +1107,11 @@ int app_press(int x, int y, int button)
             moji_style = moji_current();
             moji_open = 1;
             moji_focus = 0;
+            moji_drop = 0;
+            if (have_drawing)
+                moji_color = moji_style >= 1 && moji_style <= 10
+                             ? drawing.style[moji_style - 1].color
+                             : drawing.cur_style.color;
             if (have_drawing)
                 moji_fill(&drawing, moji_style);
             return 1;
@@ -1472,6 +1510,8 @@ void app_paint(void)
         ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);
     if (moji_open && have_drawing)
         ui_moji(&fb, &drawing, moji_style);
+    if (moji_open && moji_drop)
+        ui_moji_drop(&fb);
     if (zsel_open)
         ui_zokusel(&fb, zsel_on);
     if (zhen_open)

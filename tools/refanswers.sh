@@ -922,6 +922,12 @@ idle
 sh tools/refenv.sh >/dev/null
 cp orig/Test5.jww tmp/rect.jww
 $PS -Open tmp/rect.jww -Cmd 32806     -Clicks 'dlgin:b1843,2413=!,2420=!;type:A;500,400;saveas:decomp/res/mojiboth.jww'     2>&1 | sed 's/^/        /'
+# 色No. (ComboBox 2358): the row it is set to **is** the colour -- row 4 gave
+# a text of colour 4 and row 6 one of colour 6.
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32806     -Clicks 'dlgin:b1843,2358=#6;type:A;500,400;saveas:decomp/res/mojicol.jww'     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
 
