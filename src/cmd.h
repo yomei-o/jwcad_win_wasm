@@ -239,6 +239,16 @@ int  jw_cmd_figure_save(const jw_drawing *d, double bx, double by,
    front end has to ask for a file name.  Says so once and forgets. */
 int  jw_cmd_figure_base(double *x, double *y);
 
+/* 中心点取得 (33016) and the other one-shot read modes of the 設定 menu.
+ * The next point is not where it was clicked: the status line spells the
+ * rule out -- 「線・円指示で線・円の中心点　　　読取点指示で２点間中心」.
+ * Pointing at a line gives its middle, at a circle or arc its centre; two
+ * read points give the point half way between them.  It lasts for one point
+ * and then goes off.  0 is none.
+ */
+void jw_cmd_read_mode(int mode);
+int  jw_cmd_read_mode_now(void);
+
 /* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
    range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The
    bar for a command changes at 3, so the drawing of it has to know. */

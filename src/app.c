@@ -873,6 +873,9 @@ int app_command(int cmd)
            is the 基準点. */
         jw_cmd_set(JW_CMD_ZUKEIREG);
         return 1;
+    case 33016:                         /* 中心点取得 */
+        jw_cmd_read_mode(33016);
+        return 1;
     case 32862:                         /* 図形読込 */
         /* The original puts up a file window of its own here.  The port has
            none: the front end reads the .jws and calls app_figure, which is

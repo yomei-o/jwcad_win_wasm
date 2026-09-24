@@ -4761,9 +4761,77 @@ static int houraku(jw_drawing *d, double x, double y, int erase)
     return changed;
 }
 
+/* 中心点取得 (33016): the next point is the middle of whatever is pointed
+ * at.  Driving the original bears out both halves -- a click on the full
+ * circle of tools/mkgeom.c ended the line at its centre (60, -30), and one
+ * on the first line ended it at that line's middle (0, 60), which is
+ * decomp/res/snapcen.jww.
+ */
+static int read_mode;
+static int read_a;              /* the first of the two points, if any */
+static double read_ax, read_ay;
+
+void jw_cmd_read_mode(int mode)
+{
+    read_mode = mode;
+    read_a = 0;
+}
+
+int jw_cmd_read_mode_now(void)
+{
+    return read_mode;
+}
+
+/* The middle of an element, for 中心点取得.  A line's is half way along it,
+   an arc's is where its centre is. */
+static int obj_middle(const jw_obj *o, double *mx, double *my)
+{
+    if (o->cls == JW_SEN) {
+        *mx = (o->d[0] + o->d[2]) / 2.0;
+        *my = (o->d[1] + o->d[3]) / 2.0;
+        return 1;
+    }
+    if (o->cls == JW_ENKO) {
+        *mx = o->d[0];
+        *my = o->d[1];
+        return 1;
+    }
+    return 0;
+}
+
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (read_mode == 33016 && d) {
+        int i = jw_pick(d, v, x, y, 1);
+        double mx, my;
+
+        if (i >= 0 && obj_middle(&d->obj[i], &mx, &my)) {
+            x = mx;
+            y = my;
+            button = 0;         /* the point is settled: no reading on top */
+            read_mode = 0;
+            read_a = 0;
+        } else {
+            /* 読取点指示で２点間中心: two read points, and the middle of
+               them is the point.  Nothing to read means nothing happens. */
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            if (!read_a) {
+                read_ax = rx;
+                read_ay = ry;
+                read_a = 1;
+                return;
+            }
+            x = (read_ax + rx) / 2.0;
+            y = (read_ay + ry) / 2.0;
+            button = 0;
+            read_mode = 0;
+            read_a = 0;
+        }
+    }
     if (current == JW_CMD_HOURAKU) {
         if (hou_step == 0) {
             if (button != 0)    /* the first corner is the left button's */

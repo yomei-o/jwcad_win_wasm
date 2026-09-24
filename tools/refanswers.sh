@@ -996,6 +996,17 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;250,250;r850,550;dlgin:b10
 # when their OK is pressed: they put the **線属性 dialog** up, and what is
 # picked there is what "指定" means.  dlgnow: is the step for a dialog that
 # is already up.  属性変更's 指定…に変更 (1822, 1823) are the same.
+# 中心点取得 (33016).  水平・垂直 is on when the original starts, so it is
+# turned off first (pb:1333) -- otherwise the line is pulled back onto the
+# level of its own start and the point the read gave is lost.
+echo "=== snapcen (中心点取得)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;wait:300;cmd:33016;wait:500;636,365;wait:600;250,150;wait:300;cmd:33016;wait:500;589,274;wait:800;saveas:decomp/res/snapcen.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 echo "=== zokcol, zoklt, zhcol, zhlt (「指定」もの)"
 for k in 1810,1403,zokcol 1811,2451,zoklt; do
     idle
