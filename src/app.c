@@ -11,7 +11,6 @@
 #include "cmd.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
-#include "gen/kihon.h"
 #include "gen/newjww.h"
 
 static fb_t fb;
@@ -291,8 +290,8 @@ static int blk_open, blk_pref, blk_attr;
 /* ブロック編集's own dialog, which comes up before the mode starts */
 static int be_open, be_all = 1;
 /* 基本設定: one byte per control, 1 for ticked */
-static int kh_open;
-static unsigned char kh_on[128];
+static int kh_open, kh_tab;
+static unsigned char kh_on[8][256];
 
 int app_kihon_open(void)
 {
@@ -301,29 +300,41 @@ int app_kihon_open(void)
 
 static void kh_start(void)
 {
-    int i, n = ui_kihon_n();
+    int t, i;
 
-    for (i = 0; i < n && i < (int)sizeof kh_on; i++)
-        kh_on[i] = jw_kihon[i].on;
+    for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
+        for (i = 0; i < ui_kihon_n(t) && i < 256; i++)
+            kh_on[t][i] = (unsigned char)ui_kihon_on(t, i);
+    kh_tab = 0;
     kh_open = 1;
 }
 
 static int press_kihon(int x, int y)
 {
-    int id = ui_kihon_hit(fb.w, fb.h, x, y), i, n = ui_kihon_n();
+    int id = ui_kihon_hit(fb.w, fb.h, kh_tab, x, y), i, n;
 
-    if (id < 0)
+    if (id == -1000)
         return 0;                       /* outside it: the dialog is modal */
-    if (id == 1 || id == 2) {           /* OK, キャンセル -- neither does
-                                           anything yet: what the boxes mean
-                                           has not been worked out */
+    if (id < 0) {                       /* one of the tabs */
+        kh_tab = -id - 1;
+        return 1;
+    }
+    if (id == 1 || id == 2 || id == 9) {
+        /* OK, キャンセル, ヘルプ -- none of them does anything yet: what
+           the boxes mean has not been worked out */
         kh_open = 0;
         return 1;
     }
-    for (i = 0; i < n && i < (int)sizeof kh_on; i++)
-        if (ui_kihon_id(i) == id && jw_kihon[i].kind != JW_KH_PUSH)
-            kh_on[i] = (unsigned char)!kh_on[i];
+    n = ui_kihon_n(kh_tab);
+    for (i = 0; i < n && i < 256; i++)
+        if (ui_kihon_id(kh_tab, i) == id)
+            kh_on[kh_tab][i] = (unsigned char)!kh_on[kh_tab][i];
     return 1;
+}
+
+int app_kihon_tab(void)
+{
+    return kh_tab;
 }
 static char be_name[64];
 
@@ -1121,7 +1132,7 @@ void app_paint(void)
     if (be_open)
         ui_blkedit(&fb, be_name, be_all);
     if (kh_open)
-        ui_kihon(&fb, kh_on);
+        ui_kihon(&fb, kh_tab, kh_on[kh_tab]);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

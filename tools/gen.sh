@@ -131,12 +131,12 @@ cp decomp/res/blkmake.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
 python tools/mkblkedit.py
 
-say '基本設定 dialog, likewise'
-# Eight tabs, of which only 一般(1) can be read: the original does not build
-# the others until they are shown.
+say '基本設定 dialog, all eight tabs'
+# The original does not build a tab's controls until it is shown, so each
+# one is read with a dlgat: -- open the dialog, click that tab, read it.
 sh tools/refenv.sh >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/kihon.txt     -Clicks 'dlg:32891,docs/ref_kihon.png' >/dev/null
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/kihon.txt     -Clicks 'dlgat:32891,docs/ref_kihon1.png,12320,26,10;dlgat:32891,docs/ref_kihon2.png,12320,77,10;dlgat:32891,docs/ref_kihon3.png,12320,128,10;dlgat:32891,docs/ref_kihon4.png,12320,180,10;dlgat:32891,docs/ref_kihon5.png,12320,227,10;dlgat:32891,docs/ref_kihon6.png,12320,275,10;dlgat:32891,docs/ref_kihon7.png,12320,323,10;dlgat:32891,docs/ref_kihon8.png,12320,380,10' >/dev/null
 python tools/mkkihon.py
 
 say 'what the original puts at the top of a DXF'

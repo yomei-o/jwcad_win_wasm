@@ -2,15 +2,16 @@
  *
  *   tests/kihon_test.exe tests/out/kihon.png
  *
- * docs/ref_kihon.png is that dialog painted into a bitmap by Jw_cad itself
- * (tools/jwdraw.ps1's dlg: step).  This puts the port's up in the same state
- * and writes it out to be scored against that picture; tools/check.sh does
- * the scoring, with the text and the tab strip left out of it.
+ * docs/ref_kihon1.png .. 8.png are that dialog painted into bitmaps by
+ * Jw_cad itself, one per tab (tools/jwdraw.ps1's dlgat: step, which clicks
+ * the strip before it reads the dialog -- the original does not build a
+ * tab's controls until it is shown).  This walks the port's through the
+ * same eight and writes each one out to be scored against its picture;
+ * tools/check.sh does the scoring, with the text and the tab strip left out
+ * of it.
  *
- * Only 一般(1) is there to be scored: the original does not build the other
- * seven tabs until they are shown, so there is nothing to copy them from.
- * What the boxes on it mean has not been worked out either, so pressing one
- * only makes it go down or up.
+ * What the boxes mean has not been worked out, so pressing one only makes
+ * it go down or up, and OK and キャンセル both just close the dialog.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,20 +51,32 @@ static unsigned char *slurp(const char *path, long *n)
     return b;
 }
 
-/* the middle of one of the dialog's controls, in client pixels */
-static void ctl(int id, int *x, int *y)
+/* the middle of one of the showing tab's controls, in client pixels */
+static void ctl(int tab, int id, int *x, int *y)
 {
     rect_t r;
+    const jw_kh_t *c = jw_kihon_tabs[tab].c;
     int i;
 
     ui_kihon_rect(1264, 741, &r);
-    for (i = 0; i < JW_NKIHON; i++)
-        if (jw_kihon[i].id == id) {
-            *x = r.x + JW_KH_BORDER + jw_kihon[i].x + jw_kihon[i].w / 2;
-            *y = r.y + JW_KH_CAPTION + jw_kihon[i].y + jw_kihon[i].h / 2;
+    for (i = 0; i < jw_kihon_tabs[tab].n; i++)
+        if (c[i].id == id) {
+            *x = r.x + JW_KH_BORDER + c[i].x + c[i].w / 2;
+            *y = r.y + JW_KH_CAPTION + c[i].y + c[i].h / 2;
             return;
         }
     *x = *y = -1;
+}
+
+/* the middle of one of the tabs */
+static void tab_at(int t, int *x, int *y)
+{
+    rect_t r;
+
+    ui_kihon_rect(1264, 741, &r);
+    *x = r.x + JW_KH_BORDER + JW_KH_TAB_X
+         + (jw_kihon_tab_at[t] + jw_kihon_tab_at[t + 1]) / 2;
+    *y = r.y + JW_KH_CAPTION + JW_KH_TAB_Y + JW_KH_TAB_ROW / 2;
 }
 
 int main(int argc, char **argv)
@@ -72,7 +85,7 @@ int main(int argc, char **argv)
     unsigned char *b;
     long n;
     rect_t r;
-    int x, y, i, j;
+    int x, y, i, j, t;
 
     app_resize(1264, 741);
     fb = app_fb();
@@ -86,37 +99,51 @@ int main(int argc, char **argv)
     ck(!app_kihon_open(), "the dialog is not up to start with");
     ck(app_command(32891), "基本設定 puts it up");
     ck(app_kihon_open(), "which says so");
+    ck(ui_kihon_ntabs() == 8, "it has eight tabs");
 
-    /* the picture, in the state the original's was in */
-    app_paint();
-    if (argc > 1) {
-        unsigned int *px;
+    /* one picture per tab */
+    for (t = 0; t < ui_kihon_ntabs(); t++) {
+        if (t) {
+            tab_at(t, &x, &y);
+            app_press(x, y, 0);
+        }
+        ck(app_kihon_tab() == t, "  the tab that was pressed is showing");
+        app_paint();
+        if (argc > 1) {
+            unsigned int *px;
+            char path[256];
+            const char *dot = strrchr(argv[1], '.');
+            int len = dot ? (int)(dot - argv[1]) : (int)strlen(argv[1]);
 
-        ui_kihon_rect(fb->w, fb->h, &r);
-        px = (unsigned int *)malloc((size_t)r.w * r.h * sizeof *px);
-        if (px) {
-            for (j = 0; j < r.h; j++)
-                for (i = 0; i < r.w; i++)
-                    px[j * r.w + i] = fb->px[(size_t)(r.y + j) * fb->w
-                                             + r.x + i];
-            png_rgb(argv[1], r.w, r.h, px);
-            free(px);
-            printf("     wrote %s, %dx%d\n", argv[1], r.w, r.h);
+            sprintf(path, "%.*s%d%s", len, argv[1], t + 1, dot ? dot : "");
+            ui_kihon_rect(fb->w, fb->h, &r);
+            px = (unsigned int *)malloc((size_t)r.w * r.h * sizeof *px);
+            if (px) {
+                for (j = 0; j < r.h; j++)
+                    for (i = 0; i < r.w; i++)
+                        px[j * r.w + i] =
+                            fb->px[(size_t)(r.y + j) * fb->w + r.x + i];
+                png_rgb(path, r.w, r.h, px);
+                free(px);
+                printf("     wrote %s\n", path);
+            }
         }
     }
 
     /* a box goes down and comes up again */
-    for (i = 0; i < JW_NKIHON; i++)
-        if (jw_kihon[i].id == 2860)     /* 透過属性, which starts ticked */
+    tab_at(0, &x, &y);
+    app_press(x, y, 0);
+    for (i = 0; i < jw_kihon_tabs[0].n; i++)
+        if (jw_kihon_tabs[0].c[i].id == 2860)   /* 透過属性, starts ticked */
             break;
-    ck(i < JW_NKIHON, "透過属性 is one of the boxes");
-    ctl(2860, &x, &y);
+    ck(i < jw_kihon_tabs[0].n, "透過属性 is one of the boxes");
+    ctl(0, 2860, &x, &y);
     app_press(x, y, 0);
     app_paint();
     ck(1, "and pressing it does not fall over");
     app_press(x, y, 0);
 
-    ctl(2, &x, &y);                     /* キャンセル */
+    ctl(0, 2, &x, &y);                  /* キャンセル */
     app_press(x, y, 0);
     ck(!app_kihon_open(), "キャンセル takes it down");
     printf("%s\n", fails ? "SOME BAD" : "all ok");

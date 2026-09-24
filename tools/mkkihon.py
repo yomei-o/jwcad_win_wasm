@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Generate src/gen/kihon.h -- the 基本設定 dialog (32891's).
+"""Generate src/gen/kihon.h -- the 基本設定 dialog (32891's), all eight tabs.
 
-The same way as the other dialogs: tools/jwdraw.ps1's `dlg:` step sends the
-command, walks the children with EnumChildWindows and writes down each
-control's class, id, style, text and rectangle in the dialog's own client
-coordinates (decomp/res/kihon.txt), and paints the dialog into
-docs/ref_kihon.png.
+The same way as the other dialogs, with one turn of the handle: **the
+original does not build a tab's controls until that tab is shown**, so one
+pass with the dialog freshly opened only reaches 一般(1).  tools/jwdraw.ps1's
+`dlgat:` step opens the dialog, clicks a spot inside one of its controls and
+then reads it, so eight of those -- one per tab, clicking the tab strip --
+get all of them (decomp/res/kihon.txt, eight `=== dialog` sections, and
+docs/ref_kihon1.png .. 8.png beside them).
 
-**Only the tab that is on the screen is in the list.**  The dialog has eight
-of them and the other seven are not built until they are shown, so this is
-一般(1) and nothing else.  Their names are not children either -- they are
-items of the SysTabControl32 -- so they are read off the picture and kept
-here.
+Within a section the children come out in z-order: the page that is showing,
+then its own controls, then the page that was showing before with its
+controls behind it.  So the controls of the tab are the rows between the
+first `#32770` and the next one.  The tab's name is that first row's text.
 
-The tab control itself is a themed Windows one and the port draws a plain
-one in its place, so the strip across the top goes into the mask with the
-caption and the frame.
+The strip of tabs across the top is a themed SysTabControl32 and the port
+draws a plain one, so it goes into the mask with the caption and the frame.
+Where each tab starts was measured off docs/ref_kihon1.png.
 """
 import io
 import os
@@ -33,11 +34,13 @@ BORDER = 8
 CAPTION = 31
 W, H, CW, CH = 624, 635, 608, 596
 TITLE = 'jw_win'
-TABS = ['一般(1)', '一般(2)', '色・画面', '線種', '文字', 'AUTO', 'KEY',
-        'DXF・SFC・JWC']
 # where the strip sits, from the SysTabControl32 row
 TAB_X, TAB_Y, TAB_W, TAB_H = 7, 8, 594, 547
 TAB_ROW = 21                    # how tall the tabs themselves are
+# where each tab starts and the last one ends, in the strip's own
+# coordinates: the separators in docs/ref_kihon1.png are at 67, 115, 169,
+# 217, 265, 313, 361 and 447 across, and the strip starts at 15
+TAB_AT = [0, 53, 103, 157, 205, 253, 301, 349, 433]
 
 
 def kind_of(cid, cls, style):
@@ -47,27 +50,53 @@ def kind_of(cid, cls, style):
             return 'CHECK'
         if low == 9:                    # BS_AUTORADIOBUTTON
             return 'RADIO'
+        if low == 7:                    # BS_GROUPBOX
+            return 'GROUP'
         return 'PUSH'
     if cls == 'Edit':
         return 'EDIT'
     if cls == 'Static':
         return 'STATIC'
-    return None                         # the page and the tab control
+    if cls == 'ComboBox':
+        return 'COMBO'
+    return None                         # the pages and the tab control
+
+
+def read():
+    """One list of controls per tab, with the tab's name."""
+    tabs, sec = [], None
+    for line in io.open(SRC, encoding='utf-8'):
+        line = line.rstrip('\n')
+        if line.startswith('=== dialog'):
+            sec = []
+            tabs.append(sec)
+            continue
+        if sec is None or '|' not in line:
+            continue
+        sec.append(line.split('|', 9))
+    out = []
+    for sec in tabs:
+        at = [i for i, r in enumerate(sec) if r[0] == '#32770']
+        if not at:
+            continue
+        name = sec[at[0]][9]
+        end = at[1] if len(at) > 1 else len(sec)
+        rows = []
+        for cls, cid, x, y, w, h, style, chk, en, text in sec[at[0] + 1:end]:
+            k = kind_of(int(cid), cls, int(style, 16))
+            if k is None:
+                continue
+            rows.append((int(x), int(y), int(w), int(h), int(cid), k,
+                         int(chk), int(en),
+                         (int(style, 16) & WS_VISIBLE) != 0,
+                         (int(style, 16) & 0xf) == 1,
+                         (int(style, 16) & 0x20) != 0, text))
+        out.append((name, rows))
+    return out
 
 
 def main():
-    rows = []
-    for line in io.open(SRC, encoding='utf-8'):
-        line = line.rstrip('\n')
-        if '|' not in line or line.startswith('==='):
-            continue
-        cls, cid, x, y, w, h, style, chk, en, text = line.split('|', 9)
-        k = kind_of(int(cid), cls, int(style, 16))
-        if k is None:
-            continue
-        rows.append((int(x), int(y), int(w), int(h), int(cid), k, int(chk),
-                     int(en), (int(style, 16) & WS_VISIBLE) != 0, text))
-
+    tabs = read()
     if not os.path.isdir('src/gen'):
         os.makedirs('src/gen')
     f = io.open(OUT, 'w', encoding='ascii', newline='\n')
@@ -85,12 +114,13 @@ def main():
             '#define JW_KH_TAB_W %d\n#define JW_KH_TAB_H %d\n'
             '#define JW_KH_TAB_ROW %d\n\n'
             % (TAB_X, TAB_Y, TAB_W, TAB_H, TAB_ROW))
-    f.write('static const char *const jw_kihon_tabs[] = {\n')
-    for t in TABS:
-        f.write('    "%s",\n' % esc(t))
-    f.write('};\n#define JW_NKIHON_TABS %d\n\n' % len(TABS))
+    f.write('/* where each tab starts across the strip, and where the last\n'
+            '   one ends -- measured off the original\'s own picture */\n')
+    f.write('static const short jw_kihon_tab_at[] = {\n    ')
+    f.write(', '.join(str(v) for v in TAB_AT))
+    f.write('\n};\n\n')
     f.write('enum { JW_KH_CHECK, JW_KH_RADIO, JW_KH_PUSH, JW_KH_STATIC,\n'
-            '       JW_KH_EDIT };\n\n')
+            '       JW_KH_EDIT, JW_KH_COMBO, JW_KH_GROUP };\n\n')
     f.write('typedef struct {\n'
             '    short x, y, w, h;      /* the dialog\'s client area */\n'
             '    short id;\n'
@@ -98,41 +128,69 @@ def main():
             '    unsigned char on;      /* how the original had it */\n'
             '    unsigned char enabled;\n'
             '    unsigned char shown;\n'
+            '    unsigned char deflt;   /* BS_DEFPUSHBUTTON: it gets an\n'
+            '                              extra dark border round it */\n'
+            '    unsigned char lefttext;/* BS_LEFTTEXT: the box is at the\n'
+            '                              right and the words to its left */\n'
             '    const char *text;      /* CP932 */\n'
             '} jw_kh_t;\n\n')
-    f.write('static const jw_kh_t jw_kihon[] = {\n')
-    for x, y, ww, hh, cid, k, chk, en, vis, text in rows:
-        f.write('    { %4d, %4d, %4d, %3d, %5d, JW_KH_%-6s, %d, %d, %d,'
-                ' "%s" },\n'
-                % (x, y, ww, hh, cid, k, chk, en, vis, esc(text)))
-    f.write('};\n#define JW_NKIHON %d\n\n' % len(rows))
+    for i, (name, rows) in enumerate(tabs):
+        f.write('static const jw_kh_t jw_kihon%d[] = {\n' % i)
+        for x, y, ww, hh, cid, k, chk, en, vis, dft, lft, text in rows:
+            f.write('    { %4d, %4d, %4d, %3d, %5d, JW_KH_%-6s, %d, %d, %d,'
+                    ' %d, %d, "%s" },\n'
+                    % (x, y, ww, hh, cid, k, chk, en, vis, dft, lft,
+                       esc(text)))
+        f.write('};\n\n')
+    f.write('typedef struct {\n'
+            '    const char *name;      /* CP932, what the tab says */\n'
+            '    unsigned short n;\n'
+            '    const jw_kh_t *c;\n'
+            '} jw_kh_tab_t;\n\n')
+    f.write('static const jw_kh_tab_t jw_kihon_tabs[] = {\n')
+    for i, (name, rows) in enumerate(tabs):
+        f.write('    { "%s", %3d, jw_kihon%d },\n' % (esc(name), len(rows), i))
+    f.write('};\n#define JW_NKIHON_TABS %d\n\n' % len(tabs))
     f.write('#endif\n')
     f.close()
 
-    g = io.open(MASK, 'w', encoding='utf-8', newline='\n')
-    g.write('# Where the 基本設定 dialog draws text with a Windows font, in\n'
-            '# the coordinates of docs/ref_kihon.png (the whole %dx%d\n'
-            '# window).  The frame, the caption and the tab strip go with\n'
-            '# them: Windows draws those itself, the strip with a theme the\n'
-            '# port has no copy of.  Written by tools/mkkihon.py.\n\n'
-            % (W, H))
-    g.write('0 0 %d %d\n' % (W, CAPTION))
-    g.write('0 %d %d %d\n' % (CAPTION, BORDER, CH))
-    g.write('%d %d %d %d\n' % (W - BORDER, CAPTION, BORDER, CH))
-    g.write('0 %d %d %d\n' % (H - BORDER, W, BORDER))
-    g.write('%d %d %d %d\n' % (BORDER + TAB_X - 1, CAPTION + TAB_Y - 1,
-                               TAB_W + 2, TAB_ROW + 8))
-    for x, y, ww, hh, cid, k, chk, en, vis, text in rows:
-        x += BORDER
-        y += CAPTION
-        if k in ('CHECK', 'RADIO'):
-            g.write('%d %d %d %d\n' % (x + 14, y - 1, ww - 13, hh + 2))
-        elif k in ('STATIC', 'EDIT'):
-            g.write('%d %d %d %d\n' % (x - 1, y - 1, ww + 2, hh + 2))
-        else:
-            g.write('%d %d %d %d\n' % (x + 3, y + 3, ww - 6, hh - 6))
-    g.close()
-    print('%s: %d controls, %s' % (OUT, len(rows), MASK))
+    # one mask per tab: the frame, the caption, the strip and the text
+    for i, (name, rows) in enumerate(tabs):
+        p = MASK if i == 0 else MASK.replace('.txt', '%d.txt' % (i + 1))
+        g = io.open(p, 'w', encoding='utf-8', newline='\n')
+        g.write('# Where the 基本設定 dialog draws text with a Windows font\n'
+                '# on its %s tab, in the coordinates of its own picture (the\n'
+                '# whole %dx%d window).  The frame, the caption and the tab\n'
+                '# strip go with them: Windows draws those itself, the strip\n'
+                '# with a theme the port has no copy of.  Written by\n'
+                '# tools/mkkihon.py.\n\n' % (name, W, H))
+        g.write('0 0 %d %d\n' % (W, CAPTION))
+        g.write('0 %d %d %d\n' % (CAPTION, BORDER, CH))
+        g.write('%d %d %d %d\n' % (W - BORDER, CAPTION, BORDER, CH))
+        g.write('0 %d %d %d\n' % (H - BORDER, W, BORDER))
+        g.write('%d %d %d %d\n' % (BORDER + TAB_X - 1, CAPTION + TAB_Y - 1,
+                                   TAB_W + 2, TAB_ROW + 8))
+        for x, y, ww, hh, cid, k, chk, en, vis, dft, lft, text in rows:
+            x += BORDER
+            y += CAPTION
+            if k in ('CHECK', 'RADIO'):
+                if lft:         # the words are to the left of the box
+                    g.write('%d %d %d %d\n'
+                            % (x - 1, y - 1, ww - 15, hh + 2))
+                else:
+                    g.write('%d %d %d %d\n'
+                            % (x + 14, y - 1, ww - 13, hh + 2))
+            elif k in ('STATIC', 'EDIT', 'COMBO'):
+                g.write('%d %d %d %d\n' % (x - 1, y - 1, ww + 2, hh + 2))
+            elif k == 'GROUP':
+                # only the strip its label sits in, which is also where the
+                # top of its frame runs
+                g.write('%d %d %d %d\n' % (x - 1, y - 1, ww + 2, 17))
+            else:
+                g.write('%d %d %d %d\n' % (x + 3, y + 3, ww - 6, hh - 6))
+        g.close()
+    print('%s: %d tabs, %d controls'
+          % (OUT, len(tabs), sum(len(r) for _, r in tabs)))
     return 0
 
 

@@ -657,6 +657,45 @@ try {
                 break
             }
 
+            # Open a dialog, click a spot inside one of its controls, and
+            # then read it -- which is how the 基本設定 tabs past the first
+            # are reached: the original does not build a tab's controls
+            # until it is shown.
+            #   dlgat:32891,docs/ref_kihon2.png,12320,77,10
+            '^dlgat:(\d+),([^,]+),(\d+),(\d+),(\d+)$' {
+                $id  = [int]$Matches[1]
+                $png = $Matches[2]
+                $cid = [int]$Matches[3]
+                $cx  = [int]$Matches[4]
+                $cy  = [int]$Matches[5]
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
+                NewDialog $before
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
+                Start-Sleep -Milliseconds 700
+                $box = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::GetDlgCtrlID($k) -eq $cid) { $box = $k; break }
+                }
+                if ($box -eq [IntPtr]::Zero) { throw "no control $cid in the dialog" }
+                Click $box $cx $cy $false $false
+                Start-Sleep -Milliseconds 700
+                $b = [Jw]::Paint($dlg)
+                $b.Save((Join-Path (Get-Location) $png),
+                        [System.Drawing.Imaging.ImageFormat]::Png)
+                $b.Dispose()
+                $r = New-Object Jw+RECT; [void][Jw]::GetWindowRect($dlg, [ref]$r)
+                $c = New-Object Jw+RECT; [void][Jw]::GetClientRect($dlg, [ref]$c)
+                Emit ('=== dialog {0} window {1}x{2} client {3}x{4}' -f `
+                    $id, ($r.Right - $r.Left), ($r.Bottom - $r.Top),
+                    $c.Right, $c.Bottom)
+                Dump $dlg
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             # Open a dialog, type into some of its boxes and press OK.
             #   dlgin:b1843,1491=30,1492=40,1493=2
             # A value of ! presses the control instead, for a checkbox:

@@ -81,9 +81,14 @@ echo "=== ブロック化 —— ダイアログと、原典が作った定義�
 python tools/cmp.py docs/ref_blkname.png tests/out/blkname.png     -i docs/blkname_textareas.txt -d tests/out/blkname.diff.png     | head -2 | sed 's/^/    /'
 
 echo
-echo "=== 基本設定 —— 原典が描いたダイアログとの突き合わせ"
+echo "=== 基本設定 —— 原典が描いた 8 枚のタブとの突き合わせ"
 ./tests/kihon_test.exe tests/out/kihon.png | sed 's/^/    /'
-python tools/cmp.py docs/ref_kihon.png tests/out/kihon.png     -i docs/kihon_textareas.txt -d tests/out/kihon.diff.png     | head -2 | sed 's/^/    /'
+for t in 1 2 3 4 5 6 7 8; do
+    m=docs/kihon_textareas.txt
+    [ $t = 1 ] || m=docs/kihon_textareas$t.txt
+    printf '    %s: ' "$t"
+    python tools/cmp.py docs/ref_kihon$t.png tests/out/kihon$t.png         -i $m -d tests/out/kihon$t.diff.png | sed -n '2p'
+done
 
 echo
 echo "=== ブロック編集 —— ダイアログと、原典が変えた定義との突き合わせ"

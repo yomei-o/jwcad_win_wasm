@@ -1254,6 +1254,43 @@ static void mj_radio(fb_t *fb, int x, int y, int on)
         }
 }
 
+/* The same, greyed: a radio that cannot be pressed has the dialog's face
+   where the white inside the ring would be.  Only the white that is walled
+   in on both sides is changed, so the shadow down its right stays white. */
+static void mj_radio_off(fb_t *fb, int x, int y, int on)
+{
+    const unsigned int *sp = jw_moji_radio_off;
+    int i, j;
+
+    mj_radio(fb, x, y, 0);
+    for (j = 0; j < JW_MJ_RADIO_H; j++) {
+        int a = -1, b = -1;
+
+        for (i = 0; i < JW_MJ_RADIO_W; i++) {
+            unsigned int c = sp[j * JW_MJ_RADIO_W + i];
+
+            if (c != 0xffffffffu && c != C_WINDOW) {
+                if (a < 0)
+                    a = i;
+                b = i;
+            }
+        }
+        for (i = a + 1; i >= 0 && i < b; i++)
+            if (sp[j * JW_MJ_RADIO_W + i] == C_WINDOW)
+                fb_fill(fb, x + i, y + j, 1, 1, C_BTNFACE);
+    }
+    /* the dot, which is whatever the two sprites differ by, in the shadow
+       colour rather than black */
+    if (on)
+        for (j = 0; j < JW_MJ_RADIO_H; j++)
+            for (i = 0; i < JW_MJ_RADIO_W; i++) {
+                int k = j * JW_MJ_RADIO_W + i;
+
+                if (jw_moji_radio_on[k] != jw_moji_radio_off[k])
+                    fb_fill(fb, x + i, y + j, 1, 1, C_BTNSHADOW);
+            }
+}
+
 /* One row of the table: width, height, spacing, colour and how many texts
    are written in that 文字種.  The columns are the original's own. */
 static void mj_row(char *t, double w, double h, double sp, int col, int used)
@@ -1792,21 +1829,42 @@ void ui_kihon_rect(int cw, int ch, rect_t *r)
         r->y = 0;
 }
 
-int ui_kihon_n(void)
+int ui_kihon_ntabs(void)
 {
-    return JW_NKIHON;
+    return JW_NKIHON_TABS;
 }
 
-int ui_kihon_id(int i)
+int ui_kihon_n(int tab)
 {
-    return i >= 0 && i < JW_NKIHON ? jw_kihon[i].id : 0;
+    return tab >= 0 && tab < JW_NKIHON_TABS ? jw_kihon_tabs[tab].n : 0;
 }
 
-void ui_kihon(fb_t *fb, const unsigned char *on)
+int ui_kihon_id(int tab, int i)
+{
+    if (tab < 0 || tab >= JW_NKIHON_TABS || i < 0
+        || i >= jw_kihon_tabs[tab].n)
+        return 0;
+    return jw_kihon_tabs[tab].c[i].id;
+}
+
+int ui_kihon_on(int tab, int i)
+{
+    if (tab < 0 || tab >= JW_NKIHON_TABS || i < 0
+        || i >= jw_kihon_tabs[tab].n)
+        return 0;
+    return jw_kihon_tabs[tab].c[i].on;
+}
+
+void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
 {
     rect_t r;
-    int cx, cy, i, th = jw_text_height(), tx;
+    int cx, cy, i, th = jw_text_height(), n;
+    const jw_kh_t *c;
 
+    if (tab < 0 || tab >= JW_NKIHON_TABS)
+        tab = 0;
+    c = jw_kihon_tabs[tab].c;
+    n = jw_kihon_tabs[tab].n;
     ui_kihon_rect(fb->w, fb->h, &r);
     fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
     fb_fill(fb, r.x, r.y, r.w, JW_KH_CAPTION, MJ_CAPTION_BG);
@@ -1827,21 +1885,20 @@ void ui_kihon(fb_t *fb, const unsigned char *on)
             JW_KH_TAB_H, C_BTNHILIGHT, C_3DDKSHADOW);
     fb_edge(fb, cx + JW_KH_TAB_X + 1, cy + JW_KH_TAB_Y + 1,
             JW_KH_TAB_W - 2, JW_KH_TAB_H - 2, C_3DLIGHT, C_BTNSHADOW);
-    tx = cx + JW_KH_TAB_X + 2;
     for (i = 0; i < JW_NKIHON_TABS; i++) {
-        int w = jw_text_px_w(jw_kihon_tabs[i]) + 12;
-        int y = cy + JW_KH_TAB_Y + (i ? 2 : 0);
-        int h = JW_KH_TAB_ROW - (i ? 2 : 0) + 1;
+        int x = cx + JW_KH_TAB_X + jw_kihon_tab_at[i];
+        int w = jw_kihon_tab_at[i + 1] - jw_kihon_tab_at[i];
+        int y = cy + JW_KH_TAB_Y + (i == tab ? 0 : 2);
+        int h = JW_KH_TAB_ROW - (i == tab ? 0 : 2) + 1;
 
-        fb_fill(fb, tx, y, w, h, C_BTNFACE);
-        fb_edge(fb, tx, y, w, h, C_BTNHILIGHT, C_BTNSHADOW);
-        zs_text(fb, tx + 6, y + (h - th) / 2, w - 12, jw_kihon_tabs[i],
-                C_BTNTEXT);
-        tx += w;
+        fb_fill(fb, x, y, w, h, C_BTNFACE);
+        fb_edge(fb, x, y, w, h, C_BTNHILIGHT, C_BTNSHADOW);
+        zs_text(fb, x + (w - jw_text_px_w(jw_kihon_tabs[i].name)) / 2,
+                y + (h - th) / 2, w - 6, jw_kihon_tabs[i].name, C_BTNTEXT);
     }
 
-    for (i = 0; i < JW_NKIHON; i++) {
-        const jw_kh_t *z = &jw_kihon[i];
+    for (i = 0; i < n; i++) {
+        const jw_kh_t *z = &c[i];
         int x = cx + z->x, y = cy + z->y;
         unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
 
@@ -1849,7 +1906,7 @@ void ui_kihon(fb_t *fb, const unsigned char *on)
             continue;
         switch (z->kind) {
         case JW_KH_PUSH: {
-            int k2 = z->id == 1;        /* OK is the default one */
+            int k2 = z->deflt;          /* BS_DEFPUSHBUTTON */
 
             fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
             if (k2)
@@ -1862,30 +1919,67 @@ void ui_kihon(fb_t *fb, const unsigned char *on)
                     y + (z->h - th) / 2, z->w - 6, z->text, col);
             break;
         }
-        case JW_KH_CHECK:
         case JW_KH_RADIO: {
-            int by = y + (z->h - CHECK_W) / 2;
+            /* a round one, the same sprite the 文字種 dialog uses */
+            int by = y + (z->h - JW_MJ_RADIO_H) / 2;
+            int bx = z->lefttext ? x + z->w - JW_MJ_RADIO_W : x;
 
-            paint_checkbox(fb, x, by, on ? on[i] : z->on);
+            if (z->enabled)
+                mj_radio(fb, bx, by, on ? on[i] : z->on);
+            else
+                mj_radio_off(fb, bx, by, on ? on[i] : z->on);
+            if (z->lefttext)
+                zs_text(fb, x, y + (z->h - th) / 2, z->w - 17, z->text, col);
+            else
+                zs_text(fb, x + 17, y + (z->h - th) / 2, z->w - 17, z->text,
+                        col);
+            break;
+        }
+        case JW_KH_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+            int lit = on ? on[i] : z->on;
+            /* BS_LEFTTEXT puts the box at the right and the words left */
+            int bx = z->lefttext ? x + z->w - CHECK_W : x;
+
+            paint_checkbox(fb, bx, by, lit);
             /* A box that cannot be pressed has the dialog's face inside it
                rather than white, and its tick comes out in the shadow
                colour rather than black. */
             if (!z->enabled) {
-                fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
+                fb_fill(fb, bx + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
                         C_BTNFACE);
-                if (on ? on[i] : z->on)
-                    paint_tick_col(fb, x, by, C_BTNSHADOW);
+                if (lit)
+                    paint_tick_col(fb, bx, by, C_BTNSHADOW);
             }
             if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
-                fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
-                         C_BTNHILIGHT);
-            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
-                    z->w - CHECK_W - 3, z->text, col);
+                fb_hline(fb, bx, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            if (z->lefttext)
+                zs_text(fb, x, y + (z->h - th) / 2, z->w - CHECK_W - 3,
+                        z->text, col);
+            else
+                zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                        z->w - CHECK_W - 3, z->text, col);
             break;
         }
         case JW_KH_EDIT:
             mj_sunken(fb, x, y, z->w, z->h);
             break;
+        case JW_KH_COMBO:
+            mj_sunken(fb, x, y, z->w, z->h);
+            mj_combo_button(fb, x, y, z->w, z->h);
+            break;
+        case JW_KH_GROUP: {
+            /* an etched frame -- shadow and then white going in -- that
+               starts half a line down, with the label over its top */
+            int gy = y + th / 2, gh = z->h - th / 2;
+
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, col);
+            break;
+        }
         case JW_KH_STATIC:
             zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, col);
             break;
@@ -1895,20 +1989,31 @@ void ui_kihon(fb_t *fb, const unsigned char *on)
     }
 }
 
-int ui_kihon_hit(int cw, int ch, int x, int y)
+int ui_kihon_hit(int cw, int ch, int tab, int x, int y)
 {
     rect_t r;
-    int i;
+    int i, n;
+    const jw_kh_t *c;
 
+    if (tab < 0 || tab >= JW_NKIHON_TABS)
+        tab = 0;
+    c = jw_kihon_tabs[tab].c;
+    n = jw_kihon_tabs[tab].n;
     ui_kihon_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
-        return -1;                      /* outside it: the dialog is modal */
+        return -1000;                   /* outside it: the dialog is modal */
     x -= r.x + JW_KH_BORDER;
     y -= r.y + JW_KH_CAPTION;
-    for (i = 0; i < JW_NKIHON; i++) {
-        const jw_kh_t *z = &jw_kihon[i];
+    if (y >= JW_KH_TAB_Y && y < JW_KH_TAB_Y + JW_KH_TAB_ROW + 1)
+        for (i = 0; i < JW_NKIHON_TABS; i++)
+            if (x >= JW_KH_TAB_X + jw_kihon_tab_at[i]
+                && x < JW_KH_TAB_X + jw_kihon_tab_at[i + 1])
+                return -(i + 1);
+    for (i = 0; i < n; i++) {
+        const jw_kh_t *z = &c[i];
 
-        if (z->kind == JW_KH_STATIC || !z->shown || !z->enabled)
+        if (z->kind == JW_KH_STATIC || z->kind == JW_KH_GROUP
+            || !z->shown || !z->enabled)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

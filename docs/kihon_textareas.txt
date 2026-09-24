@@ -1,8 +1,9 @@
-# Where the 基本設定 dialog draws text with a Windows font, in
-# the coordinates of docs/ref_kihon.png (the whole 624x635
-# window).  The frame, the caption and the tab strip go with
-# them: Windows draws those itself, the strip with a theme the
-# port has no copy of.  Written by tools/mkkihon.py.
+# Where the 基本設定 dialog draws text with a Windows font
+# on its 一般(1) tab, in the coordinates of its own picture (the
+# whole 624x635 window).  The frame, the caption and the tab
+# strip go with them: Windows draws those itself, the strip
+# with a theme the port has no copy of.  Written by
+# tools/mkkihon.py.
 
 0 0 624 31
 0 31 8 596

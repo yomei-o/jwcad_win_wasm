@@ -156,10 +156,13 @@ int  ui_blkedit_hit(int cw, int ch, int x, int y);
    nothing to copy them from.  `on` is one byte per control of
    src/gen/kihon.h, 1 for ticked. */
 void ui_kihon_rect(int cw, int ch, rect_t *r);
-void ui_kihon(fb_t *fb, const unsigned char *on);
-int  ui_kihon_hit(int cw, int ch, int x, int y);
-int  ui_kihon_n(void);
-int  ui_kihon_id(int i);
+void ui_kihon(fb_t *fb, int tab, const unsigned char *on);
+/* Returns the control's id, or -(tab + 1) for a press on a tab. */
+int  ui_kihon_hit(int cw, int ch, int tab, int x, int y);
+int  ui_kihon_n(int tab);
+int  ui_kihon_id(int tab, int i);
+int  ui_kihon_on(int tab, int i);
+int  ui_kihon_ntabs(void);
 
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
