@@ -54,6 +54,7 @@ enum {
     JW_CMD_HATCH = 0x806a,          /* ハッチ -- 1線 only so far */
     JW_CMD_SEIRI = 0x808e,          /* データ整理 -- CZukeiSeiri */
     JW_CMD_BLOCK = 0x8055,          /* ブロック化 -- CZukeiBlock */
+    JW_CMD_BLOCK_FREE = 0x808d,     /* ブロック解除 */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -163,6 +164,10 @@ int  jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer);
 /* Where a block made of what is picked would go: the average of one point
    per element.  Returns 0 if nothing is picked. */
 int  jw_cmd_block_point(const jw_drawing *d, double *x, double *y);
+/* ブロック解除 -- put back the elements of every reference that is picked,
+   and drop a definition nothing refers to any more.  Returns how many
+   references were undone. */
+int  jw_cmd_block_free(jw_drawing *d);
 
 /* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
    (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */

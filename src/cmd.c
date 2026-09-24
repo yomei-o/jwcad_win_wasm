@@ -314,12 +314,17 @@ static void sel_free(void);
    all of it. */
 typedef struct {
     int at;                     /* where it was */
-    int removed;                /* taken out, rather than changed */
+    int removed;                /* 0 changed, 1 taken out of the drawing,
+                                   2 taken out of the block definitions past
+                                   it (which go back a different way) */
     jw_obj was;
 } op_item;
 
 typedef struct {
     int n;                      /* how many were added, at the end */
+    int add_at;                 /* unless they went in somewhere else: this
+                                   is that index plus one (ブロック解除 puts
+                                   them where the reference was) */
     int ndef;                   /* and how many past the drawn ones, which
                                    is what a new block definition is */
     int nitem, citem;
@@ -594,14 +599,22 @@ void jw_cmd_undo(jw_drawing *d)
             jw_remove(d, d->nobj - 1);
     }
     {   /* Everything is added at the end of the drawn elements, so the last
-           command's elements are the last ones there. */
+           command's elements are the last ones there -- unless it said
+           where it put them. */
         int n;
         for (n = o->n; n > 0 && d->ndrawn > 0; n--)
-            jw_remove(d, d->ndrawn - 1);
+            jw_remove(d, o->add_at ? o->add_at - 1 : d->ndrawn - 1);
     }
     for (i = o->nitem - 1; i >= 0; i--) {
         op_item *it = &o->item[i];
-        if (!it->removed) {
+        if (it->removed == 2) {
+            /* a definition, or an element inside one: they were recorded
+               backwards so that putting them back in this order gets them
+               in their own order again */
+            jw_obj *p = jw_add_def(d, it->was.cls);
+            if (p)
+                *p = it->was;
+        } else if (!it->removed) {
             if (it->at < d->nobj)
                 d->obj[it->at] = it->was;
         } else {
@@ -3009,7 +3022,6 @@ int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
     char full[128];
     int i, n = 0, num = 0, k;
 
-    (void)prefer_layer;         /* 元データのレイヤを優先する: not done */
     if (!d || !jw_cmd_block_point(d, &px, &py))
         return 0;
     for (i = 0; i < d->ndrawn; i++)
@@ -3061,6 +3073,11 @@ int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
 
     o = jw_add(d, JW_BLOCK);    /* which puts it on the write layer */
     if (o) {
+        /* 元データのレイヤを優先する is one bit of the reference's own
+           +0x28: the same drawing blocked with it ticked came back with 65
+           there where the plain one has 1. */
+        if (prefer_layer)
+            o->ltype = (unsigned char)(o->ltype | 64u);
         o->d[0] = px;
         o->d[1] = py;
         o->d[2] = 1.0;
@@ -3069,6 +3086,97 @@ int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
         o->block = num;
         if (rec)
             rec->n = 1;
+    }
+    return n;
+}
+
+/* ブロック解除 (32909).  Every reference picked gives its definition's
+ * elements back, put where the reference is and turned and scaled the way it
+ * is.  They take the reference's layer and layer group but keep their own
+ * colour and line type: twelve elements that had been on layer 0 came back
+ * on layer 8, which is where the reference was (decomp/res/blkfree.jww).
+ * None of them comes back picked, and a definition nothing refers to any
+ * more goes with them.
+ */
+int jw_cmd_block_free(jw_drawing *d)
+{
+    op_t *rec;
+    int i, k, n = 0;
+
+    if (!d)
+        return 0;
+    rec = op_new();
+    for (i = d->ndrawn - 1; i >= 0; i--) {
+        jw_obj ref;
+        int at = -1, span, made = 0;
+
+        if (d->obj[i].cls != JW_BLOCK || !d->obj[i].sel)
+            continue;
+        ref = d->obj[i];
+        for (k = d->ndrawn; k < d->nobj; k++)
+            if (d->obj[k].cls == JW_LIST && d->obj[k].list[0] == ref.block) {
+                at = k;
+                break;
+            }
+        if (at < 0)
+            continue;
+        span = d->obj[at].n;
+        for (k = 0; k < span; k++) {
+            jw_obj copy = d->obj[at + 1 + k], *p;
+
+            jw_obj_xform(&copy, 0.0, 0.0, ref.d[2] != 0.0 ? ref.d[2] : 1.0,
+                         ref.d[4], ref.d[0], ref.d[1]);
+            p = jw_add(d, copy.cls);
+            if (!p)
+                break;
+            *p = copy;
+            p->layer = ref.layer;
+            p->lgroup = ref.lgroup;
+            p->sel = 0;
+            p->flags = (unsigned short)(p->flags & ~2u);
+            p->id = 0;
+            made++;
+            at++;               /* jw_add pushed the definitions up one */
+        }
+        /* `at` has been kept up to date all along: it is where the
+           definition sits now. */
+        /* the reference itself, and then the definition if this was the
+           last one pointing at it -- recorded backwards so that 元に戻る
+           puts them back in their own order */
+        erase(d, i, rec);
+        /* what came out of the definition goes where the reference was, not
+           on the end: the original's own file has the twelve at the front,
+           which is where its block had been (decomp/res/blkfree.jww) */
+        if (made > 0 && i < d->ndrawn - made) {
+            jw_obj *tmp = (jw_obj *)malloc((size_t)made * sizeof *tmp);
+
+            if (tmp) {
+                memcpy(tmp, &d->obj[d->ndrawn - made],
+                       (size_t)made * sizeof *tmp);
+                memmove(&d->obj[i + made], &d->obj[i],
+                        (size_t)(d->ndrawn - made - i) * sizeof *tmp);
+                memcpy(&d->obj[i], tmp, (size_t)made * sizeof *tmp);
+                free(tmp);
+            }
+        }
+        if (rec)
+            rec->add_at = i + 1;
+        for (k = 0; k < d->ndrawn; k++)
+            if (d->obj[k].cls == JW_BLOCK && d->obj[k].block == ref.block)
+                break;
+        if (k >= d->ndrawn) {
+            int m;
+
+            at -= 1;            /* erase() moved the definitions down one */
+            for (m = d->obj[at].n; m >= 0; m--)
+                op_keep(rec, d, at + m, 2);
+            for (m = d->obj[at].n; m >= 0; m--)
+                jw_remove(d, at + m);
+        }
+        if (rec)
+            rec->n += made;
+        n++;
+        i = d->ndrawn;          /* start again: everything has moved */
     }
     return n;
 }

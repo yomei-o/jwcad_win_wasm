@@ -814,6 +814,16 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32
 idle
 sh tools/refenv.sh >/dev/null
 
+# ブロック解除 (32909): the file above, a range over it, and the command.
+# The twelve come back where the reference was, on its layer.
+echo "=== blkfree (ブロック解除)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/blkmake.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;cmd:32909;saveas:decomp/res/blkfree.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # データ整理 (32910): a range, 選択確定, and then one of its buttons.  The
 # drawing is tools/mkseiri.c's ten pairs, each pair a different kind of "the
 # same"; tests/seiri_test.c holds what the port makes of it against these.

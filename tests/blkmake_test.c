@@ -293,6 +293,96 @@ int main(int argc, char **argv)
     ck(d->ndrawn == 12 && d->nobj == 12,
        "元に戻る brings the twelve back and drops the definition");
     jw_free(&ref);
+
+    /* 元データのレイヤを優先する: the only thing it changes is one bit of
+       the reference's own +0x28 -- the same drawing blocked with it ticked
+       came back from the original with 65 there where the plain one has 1 */
+    jw_cmd_set(JW_CMD_HANI);
+    ui_view_rect(fb->w, fb->h, &r);
+    app_press(r.x + 100, r.y + 100, 0);
+    app_press(r.x + r.w - 4, r.y + r.h - 4, 1);
+    app_command(JW_CMD_BLOCK);
+    ctl(1323, &x, &y);
+    app_press(x, y, 0);
+    app_key('B');
+    ctl(1, &x, &y);
+    app_press(x, y, 0);
+    d = app_drawing();
+    ck(d->ndrawn == 1 && d->obj[0].cls == JW_BLOCK && d->obj[0].ltype == 65,
+       "元データのレイヤを優先する puts 65 in the reference's line type");
+    jw_cmd_undo((jw_drawing *)app_drawing());
+
+    /* ブロック解除: the original's own file, a range over it, and the
+       command -- and what is left has to be its own decomp/res/blkfree.jww */
+    memset(&ref, 0, sizeof ref);
+    b = slurp("decomp/res/blkfree.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  cannot read decomp/res/blkfree.jww -- drive the "
+               "original first\n");
+        fails++;
+        free(b);
+    } else {
+        free(b);
+        b = slurp("decomp/res/blkmake.jww", &n);
+        if (b && app_open(b, n)) {
+            int nr = 0, nm = 0;
+
+            free(b);
+            ui_view_rect(fb->w, fb->h, &r);
+            jw_cmd_set(JW_CMD_HANI);
+            app_press(r.x + 4, r.y + 4, 0);
+            app_press(r.x + r.w - 4, r.y + r.h - 4, 1);
+            ck(app_command(JW_CMD_BLOCK_FREE),
+               "ブロック解除 takes the one reference apart");
+            d = app_drawing();
+            for (i = 0; i < ref.ndrawn; i++)
+                if (jw_text_drawn(&ref.obj[i]))
+                    nr++;
+            for (i = 0; i < d->ndrawn; i++)
+                if (jw_text_drawn(&d->obj[i]))
+                    nm++;
+            ck(nm == nr, "leaving as many elements as the original was left");
+            ck(d->nobj == d->ndrawn, "and no definition behind");
+            bad = 0;
+            for (i = 0, j = 0; i < ref.ndrawn; i++) {
+                const jw_obj *q = &ref.obj[i], *p;
+                int k;
+
+                if (!jw_text_drawn(q))
+                    continue;
+                while (j < d->ndrawn && !jw_text_drawn(&d->obj[j]))
+                    j++;
+                if (j >= d->ndrawn)
+                    break;
+                p = &d->obj[j++];
+                if (p->cls != q->cls || p->color != q->color
+                    || (p->layer & 15) != (q->layer & 15))
+                    bad = 1;
+                for (k = 0; k < 8; k++) {
+                    double pv = p->d[k], qv = q->d[k];
+
+                    if (p->cls == JW_ENKO && k == 3) {
+                        while (pv > PI) pv -= 2.0 * PI;
+                        while (pv <= -PI) pv += 2.0 * PI;
+                        while (qv > PI) qv -= 2.0 * PI;
+                        while (qv <= -PI) qv += 2.0 * PI;
+                    }
+                    if (!near_(pv, qv)) {
+                        printf("     the %dth back is %.12f where the "
+                               "original's is %.12f (field %d)\n", i, p->d[k],
+                               q->d[k], k);
+                        bad = 1;
+                    }
+                }
+            }
+            ck(!bad, "and every one of them is the original's, on its layer");
+            jw_cmd_undo((jw_drawing *)app_drawing());
+            d = app_drawing();
+            ck(d->nobj > d->ndrawn,
+               "元に戻る puts the block and its definition back");
+        }
+        jw_free(&ref);
+    }
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

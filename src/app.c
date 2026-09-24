@@ -457,6 +457,10 @@ int app_command(int cmd)
     }
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
+    case JW_CMD_BLOCK_FREE:             /* ブロック解除 */
+        if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
+            return 0;
+        return jw_cmd_block_free(&drawing) > 0;
     case JW_CMD_BLOCK:                  /* ブロック化 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;                   /* nothing picked: nothing to do */
