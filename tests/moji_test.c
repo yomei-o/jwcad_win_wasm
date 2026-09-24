@@ -257,6 +257,79 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 斜体 and 太字.  They are not part of a 文字種: a text written with
+       them on carries 10000 and 20000 in its trailing long on top of
+       whichever 文字種 it is.  The original wrote one with each and one
+       with both (decomp/res/moji{ital,bold,both}.jww), all at 任意サイズ,
+       and a 文字種[ 3] on its own for the other half of the sum. */
+    {
+        static const struct { const char *f; int ital, bold; } W[3] = {
+            { "decomp/res/mojiital.jww", 1, 0 },
+            { "decomp/res/mojibold.jww", 0, 1 },
+            { "decomp/res/mojiboth.jww", 1, 1 },
+        };
+        int w;
+
+        for (w = 0; w < 3; w++) {
+            jw_drawing ref;
+            unsigned char *b2;
+            long n2;
+            const jw_drawing *d3;
+            const jw_obj *o;
+            int k, at = -1;
+
+            memset(&ref, 0, sizeof ref);
+            b2 = slurp(W[w].f, &n2);
+            if (!b2 || !jw_parse(&ref, b2, n2)) {
+                printf("BAD  cannot read %s -- drive the original first\n",
+                       W[w].f);
+                fails++;
+                free(b2);
+                continue;
+            }
+            free(b2);
+            /* the one the original wrote is the only text saying A */
+            for (k = 0; k < ref.ndrawn; k++)
+                if (ref.obj[k].cls == JW_MOJI
+                    && !strcmp(jw_str(&ref, ref.obj[k].text), "A"))
+                    at = k;
+            ck(at >= 0, "the original's text is in the answer");
+            if (at >= 0) {
+                b2 = slurp("orig/Test5.jww", &n2);
+                if (b2 && app_open(b2, n2)) {
+                    free(b2);
+                    jw_cmd_set(JW_CMD_MOJI);
+                    if (bar_button(1843, &x, &y))
+                        app_press(x, y, 0);
+                    if (W[w].ital) {
+                        ctl(2420, &x, &y);
+                        app_press(x, y, 0);
+                    }
+                    if (W[w].bold) {
+                        ctl(2413, &x, &y);
+                        app_press(x, y, 0);
+                    }
+                    ck(jw_cmd_moji_italic() == W[w].ital
+                       && jw_cmd_moji_bold() == W[w].bold,
+                       "  the boxes go down");
+                    ctl(1, &x, &y);
+                    app_press(x, y, 0);
+                    app_key('A');
+                    app_press(400, 300, 0);
+                    d3 = app_drawing();
+                    o = &d3->obj[d3->ndrawn - 1];
+                    if (o->cls != JW_MOJI || o->n != ref.obj[at].n)
+                        printf("     ours %d, the original's %d\n",
+                               o->cls == JW_MOJI ? o->n : -1, ref.obj[at].n);
+                    ck(o->cls == JW_MOJI && o->n == ref.obj[at].n,
+                       "  and the text carries what the original's did");
+                }
+            }
+            jw_free(&ref);
+            jw_cmd_moji_style(0, 0);    /* back to plain for the next one */
+        }
+    }
+
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails ? 1 : 0;
 }

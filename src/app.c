@@ -414,6 +414,10 @@ static int press_moji(int x, int y)
             moji_fill(&drawing, moji_style);
     } else if (id == 1491 || id == 1492 || id == 1493) {
         moji_focus = id;                /* the typing goes in here */
+    } else if (id == 2420) {            /* 斜体 */
+        jw_cmd_moji_style(!jw_cmd_moji_italic(), jw_cmd_moji_bold());
+    } else if (id == 2413) {            /* 太字 */
+        jw_cmd_moji_style(jw_cmd_moji_italic(), !jw_cmd_moji_bold());
     } else if (id == 1) {               /* Ok */
         if (have_drawing && moji_style >= 1 && moji_style <= 10) {
             drawing.cur_style = drawing.style[moji_style - 1];

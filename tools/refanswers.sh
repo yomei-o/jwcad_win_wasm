@@ -849,6 +849,23 @@ done
 idle
 sh tools/refenv.sh >/dev/null
 
+# 斜体 and 太字 in the 書込み文字種変更 dialog: a text written with them
+# carries 10000 and 20000 in its trailing long.  Three texts, one of each
+# and one with both; tests/moji_test.c scores the port against them.
+echo "=== mojiital, mojibold, mojiboth (斜体・太字)"
+for k in 2420,mojiital 2413,mojibold; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32806         -Clicks "dlgin:b1843,${k%,*}=!;type:A;500,400;saveas:decomp/res/${k#*,}.jww"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32806     -Clicks 'dlgin:b1843,2413=!,2420=!;type:A;500,400;saveas:decomp/res/mojiboth.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # データ整理's other four buttons: 線ソート (1066), 線ｿｰﾄ(色別) (1067),
 # 色順整理 (1068) and 文字角度整理 (1069).  tools/mksort.c's drawing -- six
 # lines whose colours are in no order and six texts turned six ways -- and

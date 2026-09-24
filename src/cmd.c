@@ -69,6 +69,26 @@ static int stretch_obj;
    pressing Enter does not place anything. */
 static char line_buf[256];
 static int line_n;
+/* 斜体 and 太字 from the dialog, which are not part of a 文字種: they go
+   into the text's trailing long as 10000 and 20000. */
+static int moji_italic, moji_bold;
+
+void jw_cmd_moji_style(int italic, int bold)
+{
+    moji_italic = italic != 0;
+    moji_bold = bold != 0;
+}
+
+int jw_cmd_moji_italic(void)
+{
+    return moji_italic;
+}
+
+int jw_cmd_moji_bold(void)
+{
+    return moji_bold;
+}
+
 /* the typed line put in the drawing's pool, so the preview can be drawn
    without putting it there again on every mouse move */
 static int line_off = -1, line_gen, line_shown = -1;
@@ -484,6 +504,7 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
         if (d->style[i].w == cw && d->style[i].h == ch
             && d->style[i].sp == sp)
             o->n = i + 1;
+    o->n += (moji_italic ? 10000 : 0) + (moji_bold ? 20000 : 0);
     if (line_shown != line_gen) {
         line_off = jw_add_str(d, line_buf);
         line_shown = line_gen;

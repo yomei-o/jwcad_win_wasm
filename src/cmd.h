@@ -68,6 +68,16 @@ void jw_cmd_reset(void);            /* back to how it starts, for a new drawing 
 const char *jw_cmd_line(void);
 void jw_cmd_key(int c);             /* a character, or 8 for backspace */
 
+/* 斜体 and 太字, the two checkboxes of the 書込み文字種変更 dialog.  A text
+ * written with them on carries 10000 and 20000 in its trailing long, on top
+ * of whichever 文字種 it is: the original wrote 10000 for 斜体, 20000 for
+ * 太字 and 30000 for both, all at 任意サイズ (decomp/res/moji{ital,bold,
+ * both}.jww), and 3 for 文字種[ 3] on its own.
+ */
+void jw_cmd_moji_style(int italic, int bold);
+int  jw_cmd_moji_italic(void);
+int  jw_cmd_moji_bold(void);
+
 /* What an IME is still converting, shown after the line but not part of it.
    The original's box is a real edit control and shows it as a matter of
    course; this port draws its own box, so it has to be told. */

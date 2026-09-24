@@ -661,6 +661,8 @@ try {
             #   dlgin:b1843,1491=30,1492=40,1493=2
             # A value of ! presses the control instead, for a checkbox:
             #   dlgin:b1069,1804=!
+            # and #n picks the nth row of a combo box:
+            #   dlgin:b1843,2358=#3
             # The leading b means the id is a button to press rather than a
             # command to send.  The text goes in as real WM_CHARs after the
             # box is selected whole, because Jw_cad keeps its own copy of
@@ -695,6 +697,14 @@ try {
                     # is how a checkbox or a radio in a dialog is worked
                     if ($txt -eq '!') {
                         [void][Jw]::PostMessage($box, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                        Start-Sleep -Milliseconds 200
+                    } elseif ($txt -match '^#(\d+)$') {
+                        # a combo: pick that row and tell the dialog, which
+                        # is what Windows does when the user picks one
+                        $row = [int]$Matches[1]
+                        [void][Jw]::SendMessageW($box, 0x014E, [IntPtr]$row, [IntPtr]::Zero)   # CB_SETCURSEL
+                        $wp = ($cid -band 0xffff) -bor (1 -shl 16)                              # CBN_SELCHANGE
+                        [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]$wp, $box)
                         Start-Sleep -Milliseconds 200
                     } else {
                         [void][Jw]::SetFocus($box)

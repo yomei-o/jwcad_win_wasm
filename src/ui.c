@@ -1335,8 +1335,12 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
             break;
         case JW_MJ_CHECK:
             /* the same box the 線属性 dialog has, one row taller than the
-               command bars' because of the white edge under it */
-            paint_checkbox(fb, x, y + (z->h - CHECK_W) / 2, z->n);
+               command bars' because of the white edge under it.  斜体 and
+               太字 show what the command has, not what the original had
+               when its dialog was read. */
+            paint_checkbox(fb, x, y + (z->h - CHECK_W) / 2,
+                           z->id == 2420 ? jw_cmd_moji_italic()
+                           : z->id == 2413 ? jw_cmd_moji_bold() : z->n);
             if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
                 fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
                          C_BTNHILIGHT);
