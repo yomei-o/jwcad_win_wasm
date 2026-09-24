@@ -27,6 +27,7 @@ fi
 [ -f src/gen/moji.h ]   || { echo "run tools/mkmoji.py first";  exit 1; }
 [ -f src/gen/zokusel.h ] || { echo "run tools/mkzokusel.py first"; exit 1; }
 [ -f src/gen/blkname.h ] || { echo "run tools/mkblkname.py first"; exit 1; }
+[ -f src/gen/blkedit.h ] || { echo "run tools/mkblkedit.py first"; exit 1; }
 
 sh tools/build_tests.sh
 sh tools/build_native.sh
@@ -77,6 +78,11 @@ echo
 echo "=== ブロック化 —— ダイアログと、原典が作った定義との突き合わせ"
 ./tests/blkmake_test.exe tests/out/blkname.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_blkname.png tests/out/blkname.png     -i docs/blkname_textareas.txt -d tests/out/blkname.diff.png     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== ブロック編集 —— ダイアログと、原典が変えた定義との突き合わせ"
+./tests/blkedit_test.exe tests/out/blkedit.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_blkedit.png tests/out/blkedit.png     -i docs/blkedit_textareas.txt -d tests/out/blkedit.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"

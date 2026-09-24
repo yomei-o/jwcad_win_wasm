@@ -124,6 +124,13 @@ cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkname.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:32853,docs/ref_blkname.png' >/dev/null
 python tools/mkblkname.py
 
+say 'ブロック編集 dialog, likewise'
+# It needs a drawing with a block in it and a range over it.
+sh tools/refenv.sh >/dev/null
+cp decomp/res/blkmake.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
+python tools/mkblkedit.py
+
 say 'what the original puts at the top of a DXF'
 # A drawing of one line per pen and per line type, written by the port's own
 # writer, exported by the original: the tables in it are the same in every

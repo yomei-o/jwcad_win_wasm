@@ -1,0 +1,17 @@
+# Where the ブロック編集 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_blkedit.png (the whole 368x147
+# window).  The frame and the caption go with them.  Written by
+# tools/mkblkedit.py.
+
+0 0 368 31
+0 31 8 108
+360 31 8 108
+0 139 368 8
+253 42 82 15
+253 81 82 15
+253 106 82 15
+47 83 178 23
+47 104 201 23
+21 71 175 14
+77 39 156 22
+14 41 62 14

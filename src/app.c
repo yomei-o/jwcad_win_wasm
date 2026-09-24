@@ -287,6 +287,30 @@ static int zsel_mask(void)
  * for the name, and 元データのレイヤを優先する beside it.
  */
 static int blk_open, blk_pref, blk_attr;
+/* ブロック編集's own dialog, which comes up before the mode starts */
+static int be_open, be_all = 1;
+
+int app_blkedit_open(void)
+{
+    return be_open;
+}
+
+static int press_blkedit(int x, int y)
+{
+    int id = ui_blkedit_hit(fb.w, fb.h, x, y);
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1) {                      /* OK: the mode is already on */
+        be_open = 0;
+    } else if (id == 2) {               /* キャンセル */
+        jw_cmd_block_done();
+        be_open = 0;
+    } else if (id == 2410 || id == 2411) {
+        be_all = id == 2410;            /* the two are one choice */
+    }
+    return 1;
+}
 static char blk_name[64];
 
 int app_blkname_open(void)
@@ -467,6 +491,18 @@ int app_command(int cmd)
     }
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
+    case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
+        if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
+            return 0;
+        if (!jw_cmd_block_edit(&drawing))
+            return 0;                   /* nothing but a reference will do */
+        be_open = 1;
+        return 1;
+    case JW_CMD_BLOCK_DONE:             /* ブロック編集終了 */
+        if (!jw_cmd_block_editing())
+            return 0;
+        jw_cmd_block_done();
+        return 1;
     case JW_CMD_BLOCK_FREE:             /* ブロック解除 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;
@@ -585,6 +621,8 @@ int app_press(int x, int y, int button)
         return press_zokusel(x, y);
     if (blk_open)
         return press_blkname(x, y);
+    if (be_open)
+        return press_blkedit(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -624,7 +662,16 @@ int app_press(int x, int y, int button)
         double mx, my;
         jw_cmd_box_click(0);            /* the caret leaves the bar */
         to_paper(x, y, &mx, &my);
-        jw_cmd_point(have_drawing ? &drawing : 0, &view, mx, my, button);
+        {   /* While ブロック編集 is on, whatever a click makes goes into
+               the block's definition rather than into the drawing -- see
+               jw_cmd_block_take. */
+            int was = have_drawing ? drawing.ndrawn : 0;
+
+            jw_cmd_point(have_drawing ? &drawing : 0, &view, mx, my, button);
+            if (have_drawing && jw_cmd_block_editing()
+                && drawing.ndrawn > was)
+                jw_cmd_block_take(&drawing, was);
+        }
         return 1;
     }
     return 0;
@@ -985,6 +1032,9 @@ void app_paint(void)
         ui_zokusel(&fb, zsel_on);
     if (blk_open)
         ui_blkname(&fb, blk_name, blk_pref, !blk_attr, blk_attr);
+    if (be_open)
+        ui_blkedit(&fb, have_drawing ? jw_cmd_block_name(&drawing) : "",
+                   be_all);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

@@ -145,6 +145,12 @@ void ui_blkname_rect(int cw, int ch, rect_t *r);
 void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr);
 int  ui_blkname_hit(int cw, int ch, int x, int y);
 
+/* ブロック編集 -- the dialog 32986 puts up.  `name` is the block's, `all`
+   whether 編集結果をすべてのブロックに反映させる is ticked. */
+void ui_blkedit_rect(int cw, int ch, rect_t *r);
+void ui_blkedit(fb_t *fb, const char *name, int all);
+int  ui_blkedit_hit(int cw, int ch, int x, int y);
+
 /* The drawing area, in client coordinates, for a client of this size. */
 void ui_view_rect(int cw, int ch, rect_t *r);
 

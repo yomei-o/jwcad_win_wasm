@@ -3335,6 +3335,145 @@ int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
     return n;
 }
 
+/* ------------------------------------------------------ ブロック編集 ---
+ * 32986 puts a dialog up (the block's name, a button to change it, and
+ * whether the edit goes to every reference or only the picked one) and then
+ * the drawing goes on as usual -- except that what is drawn lands in the
+ * definition rather than in the drawing.  Driving it bears that out: a
+ * range over decomp/res/blkmake.jww, the command, one line drawn and then
+ * ブロック編集終了 (32985) came back with the definition holding thirteen
+ * elements instead of twelve and the new line inside it, written relative
+ * to where the reference sits (decomp/res/blkedit.jww).  The reference
+ * itself did not move.
+ *
+ * The port does exactly that: nothing is expanded and nothing is hidden, so
+ * what is drawn appears straight away through the reference, which is what
+ * the original shows too.  ファイル→保存 is off while the original is in
+ * the mode (its save dialog never comes up), which is how we know it is a
+ * mode and not just a setting.
+ */
+static int blkedit_on;
+static int blkedit_num;         /* which definition */
+static double blkedit_x, blkedit_y;     /* where its reference sits */
+
+int jw_cmd_block_editing(void)
+{
+    return blkedit_on;
+}
+
+void jw_cmd_block_done(void)
+{
+    blkedit_on = 0;
+}
+
+/* Where the definition of the block being edited sits in the array. */
+static int blkedit_at(const jw_drawing *d)
+{
+    int i;
+
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == blkedit_num)
+            return i;
+    return -1;
+}
+
+const char *jw_cmd_block_name(const jw_drawing *d)
+{
+    static char t[80];
+    int at;
+    const char *p, *q;
+
+    t[0] = 0;
+    if (!d || !blkedit_on)
+        return t;
+    at = blkedit_at(d);
+    if (at < 0)
+        return t;
+    /* the name without the @@SfigorgFlag@@n the original puts on the end */
+    p = jw_str(d, d->obj[at].text);
+    q = strstr(p, "@@");
+    if (!q)
+        q = p + strlen(p);
+    if (q - p > (int)sizeof t - 1)
+        q = p + sizeof t - 1;
+    memcpy(t, p, (size_t)(q - p));
+    t[q - p] = 0;
+    return t;
+}
+
+int jw_cmd_block_edit(jw_drawing *d)
+{
+    int i;
+
+    if (!d)
+        return 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_BLOCK && d->obj[i].sel) {
+            blkedit_num = d->obj[i].block;
+            blkedit_x = d->obj[i].d[0];
+            blkedit_y = d->obj[i].d[1];
+            blkedit_on = blkedit_at(d) >= 0;
+            return blkedit_on;
+        }
+    return 0;
+}
+
+void jw_cmd_block_take(jw_drawing *d, int from)
+{
+    int at, n, i;
+    jw_obj was;
+    op_t *rec = nop > 0 ? &op[nop - 1] : 0;
+
+    if (!d || !blkedit_on || from < 0 || from >= d->ndrawn)
+        return;
+    at = blkedit_at(d);
+    if (at < 0)
+        return;
+    n = d->ndrawn - from;
+    was = d->obj[at];           /* the definition before its count changes */
+    for (i = 0; i < n; i++) {
+        jw_obj copy = d->obj[from], *p;
+
+        jw_remove(d, from);
+        at = blkedit_at(d);
+        jw_obj_move(&copy, -blkedit_x, -blkedit_y);
+        copy.sel = 0;
+        copy.flags = (unsigned short)(copy.flags & ~2u);
+        p = jw_add_def(d, copy.cls);
+        if (!p)
+            break;
+        *p = copy;
+        {   /* a definition's elements sit straight after it, so the new one
+               has to come down from the end of the array to its place */
+            int want = at + 1 + d->obj[at].n, last = d->nobj - 1;
+
+            while (last > want) {
+                jw_obj t = d->obj[last - 1];
+
+                d->obj[last - 1] = d->obj[last];
+                d->obj[last] = t;
+                last--;
+            }
+        }
+        d->obj[at].n++;
+    }
+    /* The definition's own count changed, so 元に戻る has to know it -- and
+       it has to be told where the definition sits *now*, because taking the
+       elements out of the drawing moved it.  ndef takes the new ones off
+       the end of the array, which is where they are when the block being
+       edited is the last definition: the only case there is an answer for. */
+    if (rec) {
+        op_item *it = op_keep(rec, d, at, 0);
+
+        if (it)
+            it->was = was;
+        rec->n -= n;
+        if (rec->n < 0)
+            rec->n = 0;
+        rec->ndef += n;
+    }
+}
+
 /* ブロック属性 (32970).  The same dialog as ブロック化 with the name box
  * greyed out and its label cut down to just ブロック名; the one thing it can
  * change is 元データのレイヤを優先する, and ticking it turned the reference's

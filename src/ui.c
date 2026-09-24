@@ -10,6 +10,7 @@
 #include "gen/moji.h"
 #include "gen/zokusel.h"
 #include "gen/blkname.h"
+#include "gen/blkedit.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -1659,6 +1660,106 @@ int ui_blkname_hit(int cw, int ch, int x, int y)
         const jw_bn_t *z = &jw_blkname[i];
 
         if (z->kind == JW_BN_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ---------------------------------------------------- ブロック編集 -----
+ * The block's name, a button to change it, the two 編集結果を choices and
+ * the usual pair.  The name box holds the block's own name and is not typed
+ * into here -- ブロック名変更 is what changes it, and that is not done.
+ */
+void ui_blkedit_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_BE_W;
+    r->h = JW_BE_H;
+    r->x = (cw - JW_BE_W) / 2;
+    r->y = (ch - 42 - JW_BE_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+void ui_blkedit(fb_t *fb, const char *name, int all)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_blkedit_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_BE_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_BE_CAPTION - th) / 2, JW_BE_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_BE_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_BE_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_BE_BORDER;
+    cy = r.y + JW_BE_CAPTION;
+    fb_fill(fb, cx, cy, JW_BE_CW, JW_BE_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NBLKEDIT; i++) {
+        const jw_be_t *z = &jw_blkedit[i];
+        int x = cx + z->x, y = cy + z->y;
+
+        switch (z->kind) {
+        case JW_BE_OK:
+        case JW_BE_PUSH: {
+            int k2 = z->id == 1;        /* OK is the default one */
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_BE_CHECK:
+            paint_checkbox(fb, x, y + (z->h - CHECK_W) / 2,
+                           z->id == 2410 ? all
+                           : z->id == 2411 ? !all : z->on);
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
+                         C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+            break;
+        case JW_BE_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6,
+                    name ? name : "", C_BTNTEXT);
+            break;
+        case JW_BE_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, C_BTNTEXT);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_blkedit_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_blkedit_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_BE_BORDER;
+    y -= r.y + JW_BE_CAPTION;
+    for (i = 0; i < JW_NBLKEDIT; i++) {
+        const jw_be_t *z = &jw_blkedit[i];
+
+        if (z->kind == JW_BE_STATIC)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

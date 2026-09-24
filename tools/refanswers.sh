@@ -814,6 +814,17 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32
 idle
 sh tools/refenv.sh >/dev/null
 
+# ブロック編集 (32986): a range over the file above, the command, one line
+# drawn inside the mode and then ブロック編集終了 (32985).  The line lands in
+# the definition rather than in the drawing.
+echo "=== blkedit (ブロック編集)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/blkmake.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32986,2410=!,2410=!;cmd:32771;300,300;500,300;cmd:32985;saveas:decomp/res/blkedit.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # ブロック属性 (32970): the same dialog as ブロック化 with the name greyed
 # out; the one thing it can change is 元データのレイヤを優先する.
 echo "=== blkattr (ブロック属性)"
