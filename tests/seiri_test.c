@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "../src/app.h"
 #include "../src/cmd.h"
@@ -23,6 +24,13 @@
 #include "../src/gen/cmds.h"
 
 static int fails;
+
+static int alike_d(double a, double b)
+{
+    double e = a - b;
+
+    return e < 1e-9 && e > -1e-9;
+}
 
 static void ck(int ok, const char *what)
 {
@@ -254,11 +262,148 @@ static void one(int join, const char *answer)
     jw_free(&ref);
 }
 
+/* the drawing tools/mksort.c makes: six lines whose colours are in no
+   order (or all one colour and out of order down the sheet), and six texts
+   turned six ways */
+static void sorted(jw_drawing *d, int face, int scramble, int twocol)
+{
+    static const int COL[6] = { 3, 1, 5, 2, 4, 6 };
+    static const double ANG[6] = { 0.0, 45.0, 90.0, 135.0, 180.0, 270.0 };
+    static const double Y[6] = { 60.0, 10.0, 40.0, 30.0, 50.0, 20.0 };
+    jw_obj *o;
+    int i;
+
+    while (d->ndrawn > 0)
+        jw_remove(d, d->ndrawn - 1);
+    for (i = 0; i < 6; i++) {
+        o = jw_add(d, JW_SEN);
+        if (!o)
+            return;
+        o->color = (unsigned short)(twocol ? (i % 2) + 1
+                                    : scramble ? 1 : COL[i]);
+        o->ltype = 1;
+        o->layer = 0;
+        o->lgroup = 0;
+        o->width = 0;
+        o->d[0] = -50.0;
+        o->d[1] = scramble ? Y[i] : 60.0 - i * 10.0;
+        o->d[2] = 50.0;
+        o->d[3] = o->d[1];
+    }
+    for (i = 0; i < 6; i++) {
+        double a = ANG[i] * 3.14159265358979323846 / 180.0;
+
+        o = jw_add(d, JW_MOJI);
+        if (!o)
+            return;
+        o->color = 1;
+        o->ltype = 1;
+        o->layer = 0;
+        o->lgroup = 0;
+        o->width = 0;
+        o->n = 1;
+        o->d[0] = -50.0 + i * 20.0;
+        o->d[1] = -40.0;
+        o->d[2] = o->d[0] + 6.0 * cos(a);
+        o->d[3] = o->d[1] + 6.0 * sin(a);
+        o->d[4] = 3.0;
+        o->d[5] = 3.0;
+        o->d[6] = 0.0;
+        o->d[7] = ANG[i];
+        o->text = jw_add_str(d, "ABCD");
+        o->face = face;
+    }
+}
+
+/* One of the four buttons that only put things in order. */
+static void order(int id, int scramble, int twocol, const char *answer)
+{
+    const fb_t *fb = app_fb();
+    jw_drawing ref;
+    const jw_drawing *d;
+    unsigned char *b;
+    long n;
+    rect_t r;
+    int face = -1, i, j, bad = 0;
+
+    printf("%d%s -> %s\n", id, twocol ? " (two colours)"
+           : scramble ? " (out of order)" : "", answer);
+    memset(&ref, 0, sizeof ref);
+    b = slurp(answer, &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  cannot read %s -- drive the original first\n", answer);
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    b = slurp("orig/Test5.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot read orig/Test5.jww\n");
+        fails++;
+        free(b);
+        jw_free(&ref);
+        return;
+    }
+    free(b);
+    d = app_drawing();
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI && d->obj[i].face >= 0) {
+            face = d->obj[i].face;
+            break;
+        }
+    sorted((jw_drawing *)d, face, scramble, twocol);
+
+    ui_view_rect(fb->w, fb->h, &r);
+    jw_cmd_set(JW_CMD_SEIRI);
+    app_press(r.x + 60, r.y + 60, 0);
+    app_press(r.x + r.w - 6, r.y + r.h - 6, 1);
+    app_move(r.x + 300, r.y + 300);
+    jw_cmd_bar((jw_drawing *)app_drawing(), 1120);
+    ck(jw_cmd_bar((jw_drawing *)app_drawing(), id) == 1,
+       "  the button does something");
+
+    d = app_drawing();
+    for (i = 0, j = 0; i < ref.ndrawn; i++) {
+        const jw_obj *q = &ref.obj[i], *p;
+        int k;
+
+        if (!jw_text_drawn(q))
+            continue;
+        while (j < d->ndrawn && !jw_text_drawn(&d->obj[j]))
+            j++;
+        if (j >= d->ndrawn) {
+            bad = 1;
+            break;
+        }
+        p = &d->obj[j++];
+        if (p->cls != q->cls || p->color != q->color) {
+            printf("     the %dth is cls=%d col=%d where the original's is "
+                   "cls=%d col=%d\n", i, p->cls, p->color, q->cls, q->color);
+            bad = 1;
+        }
+        for (k = 0; k < 8; k++)
+            if (!alike_d(p->d[k], q->d[k])) {
+                printf("     the %dth is %.9f where the original's is "
+                       "%.9f (field %d)\n", i, p->d[k], q->d[k], k);
+                bad = 1;
+            }
+    }
+    ck(!bad, "  and everything is where the original put it");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     one(0, "decomp/res/seiridup.jww");
     one(1, "decomp/res/seirijoin.jww");
+    order(1068, 0, 0, "decomp/res/seiri_col.jww");
+    order(1069, 0, 0, "decomp/res/seiri_ang.jww");
+    order(1066, 0, 0, "decomp/res/seiri_line.jww");
+    order(1066, 1, 0, "decomp/res/seiri_line2.jww");
+    order(1067, 0, 0, "decomp/res/seiri_colline.jww");
+    order(1067, 1, 1, "decomp/res/seiri_colline2.jww");
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

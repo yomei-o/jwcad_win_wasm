@@ -839,6 +839,27 @@ done
 idle
 sh tools/refenv.sh >/dev/null
 
+# データ整理's other four buttons: 線ソート (1066), 線ｿｰﾄ(色別) (1067),
+# 色順整理 (1068) and 文字角度整理 (1069).  tools/mksort.c's drawing -- six
+# lines whose colours are in no order and six texts turned six ways -- and
+# two more of it, one with the lines out of order down the sheet and one
+# with two colours, to see whether the sort moves them as well as turning
+# them.  tests/seiri_test.c scores the port against these.
+echo "=== seiri_col, seiri_ang, seiri_line, seiri_colline (the other four)"
+$CC -O2 -Isrc -o tmp/mksort.exe tools/mksort.c src/jww.c src/jwwrite.c     src/cp932.c -lm 2>/dev/null     || gcc -O2 -Isrc -o tmp/mksort.exe tools/mksort.c src/jww.c            src/jwwrite.c src/cp932.c -lm
+./tmp/mksort.exe orig/Test5.jww tmp/sort.jww
+./tmp/mksort.exe orig/Test5.jww tmp/sort2.jww scramble
+./tmp/mksort.exe orig/Test5.jww tmp/sort3.jww scramble twocol
+for k in sort,1068,seiri_col sort,1069,seiri_ang sort,1066,seiri_line          sort2,1066,seiri_line2 sort,1067,seiri_colline          sort3,1067,seiri_colline2; do
+    src=${k%%,*}; rest=${k#*,}; id=${rest%%,*}; out=${rest##*,}
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp tmp/$src.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:32910;60,60;r1150,650;raw:v,5136,0,0;pb:$id;wait:1500;saveas:decomp/res/$out.jww"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+
 # 属性選択 (1069): with a box already in, the dialog narrows what is picked
 # to one kind of element -- or, with 《指定属性除外》, to everything else.
 # One tick each, then 消去, and what is left is the answer.  The drawing is

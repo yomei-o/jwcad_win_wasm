@@ -2882,6 +2882,230 @@ static int seiri_along(const jw_obj *a, const jw_obj *b, double *len,
     return 1;
 }
 
+/* ------------------------------------- データ整理's other four buttons --
+ * 色順整理 (1068), 線ソート (1066), 線ｿｰﾄ(色別) (1067) and 文字角度整理
+ * (1069).  All four were read off the original with a drawing made for
+ * them (tools/mksort.c): six lines whose colours are in no order and six
+ * texts turned six ways.
+ *
+ *  - 色順整理 puts everything picked in colour order and leaves the rest
+ *    of the order alone -- a plain stable sort.  Six lines in colours
+ *    3,1,5,2,4,6 with six colour-1 texts after them came back as the
+ *    colour-1 line, the six texts, and then 2,3,4,5,6
+ *    (decomp/res/seiri_col.jww).
+ *  - 線ソート turns every line so the pen carries on from where it left
+ *    off, and puts them in that order: lines at y 60,10,40,30,50,20 came
+ *    back 60,50,40,30,20,10 with every other one running the other way
+ *    (seiri_line2.jww).  Only lines move; the texts stayed where they
+ *    were (seiri_line.jww).
+ *  - 線ｿｰﾄ(色別) is the colour sort and then that, colour by colour, with
+ *    the pen carrying from one colour to the next (seiri_colline*.jww).
+ *  - 文字角度整理 lays every turned text flat again, keeping the middle of
+ *    the box it fills where it was (seiri_ang.jww).
+ */
+static int seiri_pick(const jw_drawing *d, int *at)
+{
+    int i, n = 0;
+
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel)
+            at[n++] = i;
+    return n;
+}
+
+typedef struct { unsigned short col; int ord; jw_obj o; } seiri_rec;
+
+static int seiri_bycol(const void *a, const void *b)
+{
+    const seiri_rec *x = (const seiri_rec *)a, *y = (const seiri_rec *)b;
+
+    if (x->col != y->col)
+        return x->col < y->col ? -1 : 1;
+    return x->ord < y->ord ? -1 : 1;    /* which makes it a stable sort */
+}
+
+static void seiri_colour(jw_drawing *d, const int *at, int n, op_t *rec)
+{
+    seiri_rec *r = (seiri_rec *)malloc((size_t)n * sizeof *r);
+    int i;
+
+    if (!r)
+        return;
+    for (i = 0; i < n; i++) {
+        r[i].col = d->obj[at[i]].color;
+        r[i].ord = i;
+        r[i].o = d->obj[at[i]];
+        op_keep(rec, d, at[i], 0);
+    }
+    qsort(r, (size_t)n, sizeof *r, seiri_bycol);
+    for (i = 0; i < n; i++)
+        d->obj[at[i]] = r[i].o;
+    free(r);
+}
+
+/* Which end of a line the pen should reach first, and how far away it is. */
+static double seiri_near(const jw_obj *o, double px, double py, int *flip)
+{
+    double d0 = (o->d[0] - px) * (o->d[0] - px)
+              + (o->d[1] - py) * (o->d[1] - py);
+    double d1 = (o->d[2] - px) * (o->d[2] - px)
+              + (o->d[3] - py) * (o->d[3] - py);
+
+    *flip = d1 < d0;
+    return d1 < d0 ? d1 : d0;
+}
+
+/* The lines at at[0..n), chained.  The first one is left as it is when the
+   pen has not started yet; after that each is the nearest one left. */
+static void seiri_sort_lines(jw_drawing *d, const int *at, int n,
+                             double *px, double *py, int *started, op_t *rec)
+{
+    jw_obj *were = (jw_obj *)malloc((size_t)n * sizeof *were);
+    char *used;
+    int i, k;
+
+    if (!were)
+        return;
+    used = (char *)calloc((size_t)n, 1);
+    if (!used) {
+        free(were);
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        were[i] = d->obj[at[i]];
+        op_keep(rec, d, at[i], 0);
+    }
+    for (i = 0; i < n; i++) {
+        int best = -1, flip = 0, f;
+        double bd = 0.0;
+
+        if (!*started) {
+            best = 0;
+            flip = 0;
+        } else {
+            for (k = 0; k < n; k++) {
+                double dd;
+
+                if (used[k])
+                    continue;
+                dd = seiri_near(&were[k], *px, *py, &f);
+                if (best < 0 || dd < bd) {
+                    best = k;
+                    bd = dd;
+                    flip = f;
+                }
+            }
+        }
+        if (best < 0)
+            break;
+        used[best] = 1;
+        d->obj[at[i]] = were[best];
+        if (flip) {
+            jw_obj *o = &d->obj[at[i]];
+            double t;
+
+            t = o->d[0]; o->d[0] = o->d[2]; o->d[2] = t;
+            t = o->d[1]; o->d[1] = o->d[3]; o->d[3] = t;
+        }
+        *px = d->obj[at[i]].d[2];
+        *py = d->obj[at[i]].d[3];
+        *started = 1;
+    }
+    free(used);
+    free(were);
+}
+
+/* 文字角度整理: the text goes flat and the middle of its box stays put. */
+static int seiri_flat(jw_drawing *d, const int *at, int n, op_t *rec)
+{
+    int i, done = 0;
+
+    for (i = 0; i < n; i++) {
+        jw_obj *o = &d->obj[at[i]];
+        double dx, dy, len, cx, cy, h;
+
+        if (o->cls != JW_MOJI)
+            continue;
+        dx = o->d[2] - o->d[0];
+        dy = o->d[3] - o->d[1];
+        len = sqrt(dx * dx + dy * dy);
+        if (len < 1e-12 || (dy > -1e-12 && dy < 1e-12 && dx > 0.0))
+            continue;                   /* already flat */
+        h = o->d[5];
+        /* the middle: half way along the baseline and half the height up
+           its own perpendicular */
+        cx = o->d[0] + dx / 2.0 - dy / len * h / 2.0;
+        cy = o->d[1] + dy / 2.0 + dx / len * h / 2.0;
+        op_keep(rec, d, at[i], 0);
+        o->d[0] = cx - len / 2.0;
+        o->d[1] = cy - h / 2.0;
+        o->d[2] = o->d[0] + len;
+        o->d[3] = o->d[1];
+        o->d[7] = 0.0;
+        o->sel = 0;                     /* the original's came back unpicked */
+        o->flags = (unsigned short)(o->flags & ~2u);
+        done++;
+    }
+    return done;
+}
+
+/* One of the four, by the id its button has. */
+static int seiri_sort(jw_drawing *d, int id)
+{
+    int *at, n, i, k, done = 0;
+    double px = 0.0, py = 0.0;
+    int started = 0;
+    op_t *rec;
+
+    if (!d)
+        return 0;
+    at = (int *)malloc((size_t)(d->ndrawn + 1) * sizeof *at);
+    if (!at)
+        return 0;
+    n = seiri_pick(d, at);
+    if (n <= 0) {
+        free(at);
+        return 0;
+    }
+    rec = op_new();
+    if (id == 1069) {
+        done = seiri_flat(d, at, n, rec);
+        free(at);
+        return done;
+    }
+    if (id == 1067 || id == 1068)
+        seiri_colour(d, at, n, rec);
+    if (id == 1066 || id == 1067) {
+        int *ln = (int *)malloc((size_t)n * sizeof *ln);
+
+        if (ln) {
+            if (id == 1066) {           /* every line, in one run */
+                int m = 0;
+
+                for (i = 0; i < n; i++)
+                    if (d->obj[at[i]].cls == JW_SEN)
+                        ln[m++] = at[i];
+                seiri_sort_lines(d, ln, m, &px, &py, &started, rec);
+            } else {                    /* colour by colour */
+                for (i = 0; i < n; ) {
+                    unsigned short c = d->obj[at[i]].color;
+                    int m = 0;
+
+                    for (k = i; k < n && d->obj[at[k]].color == c; k++)
+                        if (d->obj[at[k]].cls == JW_SEN)
+                            ln[m++] = at[k];
+                    seiri_sort_lines(d, ln, m, &px, &py, &started, rec);
+                    i = k;
+                }
+            }
+            free(ln);
+        }
+    }
+    done = n;
+    free(at);
+    return done;
+}
+
 static int seiri(jw_drawing *d, int join)
 {
     op_t *rec;
@@ -3496,6 +3720,8 @@ int jw_cmd_bar(jw_drawing *d, int id)
     if (current == JW_CMD_SEIRI && sel_step == 3) {
         if (id == 1064 || id == 1065)   /* 重複整理, 連結整理 */
             return seiri(d, id == 1065) > 0;
+        if (id >= 1066 && id <= 1069)   /* the four that only reorder */
+            return seiri_sort(d, id) > 0;
         if (id == 1072) {               /* 範囲選択: take another one */
             sel_clear(d);
             sel_step = 0;
