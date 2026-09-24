@@ -15,6 +15,7 @@
 #include "gen/kihon.h"
 #include "gen/jikkaku.h"
 #include "gen/sunpodlg.h"
+#include "gen/bairitsu.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
 #include "gen/jwicon.h"
@@ -2414,6 +2415,176 @@ int ui_sunpodlg_hit(int cw, int ch, int x, int y)
         const jw_sd_t *z = &jw_sunpodlg[i];
 
         if (z->kind == JW_SD_STATIC || z->kind == JW_SD_GROUP)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* -------------------------------------------- 画面倍率・文字表示 -------
+ * 32811's dialog: the zoom, four mark-jump registers and two toggles for
+ * what a text draws with it.  Only 用紙全体表示 is wired up (it fits the
+ * sheet, which is what the port does when it opens a drawing) -- everything
+ * else here moves the view, and this machine cannot capture the original's
+ * screen, so there would be nothing to score it against.
+ */
+void ui_bairitsu_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_BR_W;
+    r->h = JW_BR_H;
+    r->x = (cw - JW_BR_W) / 2;
+    r->y = (ch - 42 - JW_BR_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_bairitsu_n(void)
+{
+    return JW_NBAIRITSU;
+}
+
+int ui_bairitsu_id(int i)
+{
+    return i >= 0 && i < JW_NBAIRITSU ? jw_bairitsu[i].id : 0;
+}
+
+int ui_bairitsu_on(int i)
+{
+    return i >= 0 && i < JW_NBAIRITSU ? jw_bairitsu[i].on : 0;
+}
+
+/* 設定 OK is a BS_MULTILINE button two lines tall: its words break at the
+   space.  Nothing else in the dialog wraps. */
+static void br_label(fb_t *fb, int x, int y, int w, int h, const char *t,
+                     unsigned int col)
+{
+    int th = jw_text_height();
+    const char *sp = 0;
+
+    /* never past the button's edge rows: the port's letters are wider than
+       the original's, and a centred one would else poke out of them */
+#define BR_TX(s) (x + (w - jw_text_px_w(s)) / 2 < x + 3                   ? x + 3 : x + (w - jw_text_px_w(s)) / 2)
+
+    if (h >= 2 * th + 8)
+        for (sp = t; *sp && *sp != ' '; sp++)
+            ;
+    if (sp && *sp == ' ') {
+        char head[64];
+        int n = (int)(sp - t);
+
+        if (n > (int)sizeof head - 1)
+            n = (int)sizeof head - 1;
+        memcpy(head, t, (size_t)n);
+        head[n] = 0;
+        zs_text(fb, BR_TX(head), y + h / 2 - th, w - 6, head, col);
+        zs_text(fb, BR_TX(sp + 1), y + h / 2 + 1, w - 6, sp + 1, col);
+        return;
+    }
+    zs_text(fb, BR_TX(t), y + (h - th) / 2, w - 6, t, col);
+#undef BR_TX
+}
+
+void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_bairitsu_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_BR_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_BR_CAPTION - th) / 2, JW_BR_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_BR_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_BR_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_BR_BORDER;
+    cy = r.y + JW_BR_CAPTION;
+    fb_fill(fb, cx, cy, JW_BR_CW, JW_BR_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NBAIRITSU; i++) {
+        const jw_br_t *z = &jw_bairitsu[i];
+        int x = cx + z->x, y = cy + z->y;
+        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+
+        switch (z->kind) {
+        case JW_BR_OK:
+        case JW_BR_PUSH: {
+            int k2 = z->deflt;          /* BS_DEFPUSHBUTTON */
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            br_label(fb, x, y, z->w, z->h, z->text, col);
+            break;
+        }
+        case JW_BR_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+            int lit = on ? on[i] : z->on;
+
+            paint_checkbox(fb, x, by, lit);
+            if (!z->enabled) {
+                fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
+                        C_BTNFACE);
+                if (lit)
+                    paint_tick_col(fb, x, by, C_BTNSHADOW);
+            }
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, col);
+            break;
+        }
+        case JW_BR_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            if (zoom && *zoom)
+                zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6, zoom,
+                        C_BTNTEXT);
+            break;
+        case JW_BR_COMBO:
+            mj_sunken(fb, x, y, z->w, z->h);
+            mj_combo_button(fb, x, y, z->w, z->h);
+            break;
+        case JW_BR_GROUP: {
+            int gy = y + th / 2, gh = z->h - th / 2;
+
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_BR_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, col);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_bairitsu_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_bairitsu_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_BR_BORDER;
+    y -= r.y + JW_BR_CAPTION;
+    for (i = 0; i < JW_NBAIRITSU; i++) {
+        const jw_br_t *z = &jw_bairitsu[i];
+
+        if (z->kind == JW_BR_STATIC || z->kind == JW_BR_GROUP || !z->enabled)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

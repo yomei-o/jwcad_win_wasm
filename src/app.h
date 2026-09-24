@@ -81,6 +81,7 @@ int  app_jikkaku_open(void);
 const char *app_jikkaku_angle(void);
 /* 寸法設定: whether its dialog is up */
 int  app_sunpodlg_open(void);
+int  app_bairitsu_open(void);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --

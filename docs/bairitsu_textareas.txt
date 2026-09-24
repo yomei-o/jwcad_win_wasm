@@ -1,0 +1,31 @@
+# Where the 画面倍率 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_bairitsu.png (the whole 245x305
+# window).  The frame and the caption go with them.  Written by
+# tools/mkbairitsu.py.
+
+0 0 245 31
+0 31 8 266
+237 31 8 266
+0 297 245 8
+77 47 48 22
+132 49 90 17
+21 75 92 19
+18 50 56 14
+21 101 203 19
+33 257 148 17
+33 275 148 17
+33 185 29 17
+87 185 29 17
+145 185 29 17
+201 185 36 17
+18 153 209 14
+18 209 209 14
+22 228 34 15
+78 228 34 15
+132 228 34 15
+188 228 34 15
+131 75 92 19
+22 127 92 18
+132 127 90 18
+188 259 34 29
+62 167 164 17
