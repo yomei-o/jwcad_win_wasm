@@ -123,7 +123,7 @@ static int sel_step;
 static int range_cmd(int c)
 {
     return c == JW_CMD_HANI || c == JW_CMD_FUKUSHA || c == JW_CMD_IDOU
-        || c == JW_CMD_SEIRI;
+        || c == JW_CMD_SEIRI || c == JW_CMD_ZUKEIREG;
 }
 static double sel_x0, sel_y0, sel_x1, sel_y1;
 /* 範囲外選択 (1334): the box takes what lies wholly *outside* it instead.
@@ -3749,6 +3749,64 @@ int jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n)
     return 1;
 }
 
+/* Where 図形登録 was told to put its base point, and whether that has just
+   happened.  The original asks for it after 選択確定 and then puts its file
+   window up; the port hands the moment to the front end instead. */
+static double fig_base_x, fig_base_y;
+static int fig_base_new;
+
+int jw_cmd_figure_base(double *x, double *y)
+{
+    if (!fig_base_new)
+        return 0;
+    fig_base_new = 0;
+    if (x)
+        *x = fig_base_x;
+    if (y)
+        *y = fig_base_y;
+    return 1;
+}
+
+/* 図形登録: what is picked goes out as a figure of its own.  The elements
+ * keep the coordinates they have -- it is the base point in the header that
+ * 図形読込 works from -- and the file carries the program's own version, not
+ * the drawing's.
+ */
+int jw_cmd_figure_save(const jw_drawing *d, double bx, double by,
+                       unsigned char **out, long *n)
+{
+    jw_drawing t;
+    int i, ok;
+
+    if (!d)
+        return 0;
+    memset(&t, 0, sizeof t);
+    t.version = JW_JWS_VERSION;
+    for (i = 0; i < JW_NCLASS; i++)
+        t.schema[i] = JW_JWS_VERSION;
+    for (i = 0; i < 16; i++)
+        t.group[i].scale = d->group[i].scale;
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *p = &d->obj[i];
+        jw_obj *o;
+
+        if (!p->sel)
+            continue;
+        o = jw_add(&t, p->cls);
+        if (!o) {
+            jw_free(&t);
+            return 0;
+        }
+        *o = *p;
+        o->text = p->text >= 0 ? jw_add_str(&t, jw_str(d, p->text)) : -1;
+        o->face = p->face >= 0 ? jw_add_str(&t, jw_str(d, p->face)) : -1;
+        o->sel = 0;
+    }
+    ok = jw_write_jws(&t, bx, by, out, n);
+    jw_free(&t);
+    return ok;
+}
+
 /* Put the figure down with its base point at (x, y). */
 static int figure_place(jw_drawing *d, double x, double y)
 {
@@ -4754,6 +4812,14 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         default:
             if (button != 0)
                 return;
+            if (current == JW_CMD_ZUKEIREG) {
+                /* 図形登録: the point after 選択確定 is the 基準点, and
+                   that is where the original puts its file window up */
+                fig_base_x = x;
+                fig_base_y = y;
+                fig_base_new = 1;
+                return;
+            }
             if (sel_base_wait) {
                 /* 基点変更: this click is the 基準点, not a place to put it */
                 base_x = x;

@@ -90,6 +90,23 @@ static int same(const jw_drawing *a, const jw_obj *x,
     for (i = 0; i < ndbl(x->cls); i++) {
         double p = x->d[i], q = y->d[i];
 
+        if (x->cls == JW_ENKO && i == 3) {
+            /* The start angle is the one field the two sides cannot hold
+               the same way.  The original keeps an SFC arc's own angle --
+               one that starts at 270 stays at 270 in the .jww it saves --
+               but brings the angle into (-pi, pi] when it **reads** a .jww,
+               which is how this answer comes back in (see RESUME.md).  So
+               the port's own arc, straight off the SFC, is compared with
+               the answer as an angle rather than as a number. */
+            while (p > 3.141592653589793)
+                p -= 6.283185307179586;
+            while (p <= -3.141592653589793)
+                p += 6.283185307179586;
+            while (q > 3.141592653589793)
+                q -= 6.283185307179586;
+            while (q <= -3.141592653589793)
+                q += 6.283185307179586;
+        }
         if (fabs(p - q) > 1e-9 * (fabs(p) + fabs(q)) + 1e-9)
             return 0;
     }

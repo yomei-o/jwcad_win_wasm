@@ -369,6 +369,80 @@ static void w_head(wbuf *w, const jw_drawing *d)
             memcpy(w->b + d->off_scale[g], &d->group[g].scale, 8);
 }
 
+/* A 図形 file (.jws), the other way round from jw_parse_jws.  The header is
+ * a fixed 452 bytes, and what follows it is one list of elements, written
+ * the same way a .jww's is.
+ *
+ * Read out of a file the original made (decomp/res/figreg.jws, 図形登録 over
+ * the twelve elements of tools/mkgeom.c with the base point clicked):
+ *
+ *   * the version is the **program's** -- Jw_cad 10 writes 700 -- not the
+ *     drawing's (tmp/geom.jww is a 600 and the figure came out a 700);
+ *   * the elements keep the coordinates they had in the drawing.  The base
+ *     point is what the header carries, and 図形読込 subtracts it;
+ *   * the memo is 192 bytes and comes out all '.' when nothing was typed
+ *     into the 説明 box of the 新規作成 dialog;
+ *   * the sixteen layer-group scales are the drawing's;
+ *   * the two tables after them -- six ints 1..6 and six doubles 1..6 --
+ *     were the same in every figure to hand, so they go out as constants;
+ *   * the box at the end takes the base point in as well: 図形登録 put
+ *     x=-133.3469 there, which is the base point, not the leftmost element.
+ */
+int jw_write_jws(const jw_drawing *d, double bx, double by,
+                 unsigned char **out, long *n)
+{
+    wbuf w;
+    double x0 = bx, y0 = by, x1 = bx, y1 = by;
+    int i;
+
+    *out = 0;
+    *n = 0;
+    memset(&w, 0, sizeof w);
+    w_raw(&w, "JwsData.", 8);
+    for (i = 0; i < 192; i++)
+        w_b(&w, '.');
+    w_l(&w, JW_JWS_VERSION);
+    w_d(&w, bx);
+    w_d(&w, by);
+    for (i = 0; i < 16; i++)
+        w_d(&w, d->group[i].scale);
+    for (i = 1; i <= 6; i++)
+        w_l(&w, i);
+    for (i = 1; i <= 6; i++)
+        w_d(&w, (double)i);
+    for (i = 0; i < d->ndrawn; i++) {
+        double a, b, c, e;
+
+        jw_obj_box(&d->obj[i], &a, &b, &c, &e);
+        if (a < x0) x0 = a;
+        if (b < y0) y0 = b;
+        if (c > x1) x1 = c;
+        if (e > y1) y1 = e;
+    }
+    w_d(&w, x0);
+    w_d(&w, y0);
+    w_d(&w, x1);
+    w_d(&w, y1);
+    {
+        int seen[JW_NCLASS], nload = 1;
+
+        for (i = 0; i < JW_NCLASS; i++)
+            seen[i] = 0;
+        w_list(&w, d, 0, d->ndrawn, seen, &nload);
+        /* and the second list, the one a .jww keeps its block definitions
+           in.  A figure has none, so it is a count of nothing -- but the
+           two bytes are there in the original's file all the same. */
+        w_list(&w, d, d->ndrawn, d->nobj, seen, &nload);
+    }
+    if (w.bad) {
+        free(w.b);
+        return 0;
+    }
+    *out = w.b;
+    *n = w.n;
+    return 1;
+}
+
 int jw_write(const jw_drawing *d, unsigned char **out, long *n)
 {
     wbuf w;

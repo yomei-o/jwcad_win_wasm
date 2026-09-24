@@ -38,6 +38,13 @@ sh tools/build_tests.sh
 sh tools/build_native.sh
 sh tools/build_wasm.sh
 
+# tests/figreg_test.c is scored against a figure the original made out of
+# this drawing, so it has to be the same one tools/refanswers.sh drove with.
+if [ ! -f tmp/geom.jww ]; then
+    mkdir -p tmp
+    ${CC:-gcc} -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c         src/jwwrite.c src/cp932.c && ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
+fi
+
 echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 printf '    %s of %s\n' "$(./tests/jww_test.exe orig/*.jww | grep -c '^ok')" \
@@ -88,6 +95,10 @@ echo
 echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合わせ"
 ./tests/sunpodlg_test.exe tests/out/sunpodlg.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
+
+echo
+echo "=== 図形登録 —— 原典が書いた .jws とのバイト突き合わせ"
+./tests/figreg_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 図形読込 —— 原典が置いた図形との突き合わせ"

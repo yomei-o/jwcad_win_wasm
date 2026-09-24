@@ -59,6 +59,9 @@ enum {
     JW_CMD_BLOCK_EDIT = 0x80da,     /* ブロック編集 */
     JW_CMD_BLOCK_DONE = 0x80d9,     /* ブロック編集終了 */
     JW_CMD_ZUKEI = 0x805e,          /* 図形読込 -- CZukeiZukei */
+    JW_CMD_ZUKEIREG = 0x80b2,       /* 図形登録 -- it takes a range of its
+                                       own, and the point after 選択確定 is
+                                       the 基準点 */
     JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
 };
 
@@ -206,6 +209,17 @@ int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group);
  */
 int  jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n);
 int  jw_cmd_figure_ready(void);
+
+/* 図形登録 (32946): the elements picked by a range go out as a .jws, with
+ * (bx, by) -- the 基準点 the command asks for after 選択確定 -- in its
+ * header.  The caller frees *out.  Returns 0 if it could not.
+ */
+int  jw_cmd_figure_save(const jw_drawing *d, double bx, double by,
+                        unsigned char **out, long *n);
+
+/* Whether the last point was 図形登録's 基準点, which is the moment the
+   front end has to ask for a file name.  Says so once and forgets. */
+int  jw_cmd_figure_base(double *x, double *y);
 
 /* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
    range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The

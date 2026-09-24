@@ -40,7 +40,8 @@ const fb_t *app_fb(void);
    dialog: app_press leaves one behind and app_take_action hands it over. */
 enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_SAVE_DXF, JW_ACT_OPEN_DXF, JW_ACT_OPEN_SFC,
-       JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC };
+       JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC,
+       JW_ACT_SAVE_FIG };
 
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the
@@ -87,6 +88,12 @@ int  app_bairitsu_open(void);
    for.  Returns 0 if it is not a figure.  The command is entered, and the
    next press puts the figure down. */
 int  app_figure(const unsigned char *b, long n);
+
+/* 図形登録 (32946) -- the other way.  The command takes a range and then a
+   基準点; the press that gives the point leaves JW_ACT_SAVE_FIG behind, and
+   this writes the .jws for the front end to put somewhere.  The caller
+   frees *out. */
+int  app_figure_save(unsigned char **out, long *n);
 const char *app_blkname(void);
 
 /* The caption and the menu bar.  A front end with a window of its own --

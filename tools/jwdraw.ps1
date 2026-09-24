@@ -76,6 +76,13 @@
 #                       click with a posted message.  It does take a path
 #                       typed into its wide Edit 1487 and then OK, which is
 #                       what this does.
+#   figout:<path>       the other way: 図形登録 (32946) writes a .jws.  Send
+#                       32946, take a range, press 選択確定 (btn:1120),
+#                       click the 基準点, and then this presses 《図形登録》
+#                       (1070), 新規 (2408) in the file window, types the
+#                       name into the 新規作成 dialog and presses OK.  The
+#                       file lands in the folder the window is on (tmp\figsel
+#                       -- see figin:) and is copied to <path>.
 #   export:<cmd>,<name> the same, but sending <cmd> instead of 名前を付けて
 #                       保存 -- 32961 is DXF形式で保存, 32976 SFC形式で保存,
 #                       32810 JWC形式で保存
@@ -306,6 +313,18 @@ if ($needCommon) {
     New-Item -Path 'HKCU:\Software\Jw_cad\jw_win\Dialog' -Force | Out-Null
     Set-ItemProperty -Path 'HKCU:\Software\Jw_cad\jw_win\Dialog' `
                      -Name 'FileCommonDialog' -Value 1 -Type DWord
+}
+
+if ($Clicks -match 'figout:') {
+    # 図形登録 writes into the folder the file window is on, which is the
+    # same HKCU key -- and it too is read at start-up.  An empty folder,
+    # so what comes out is the only thing in it.
+    $figPen = Join-Path (Get-Location) 'tmp\figsel'
+    if (Test-Path $figPen) { Remove-Item "$figPen\*" -Force -ErrorAction SilentlyContinue }
+    else { [void](New-Item -ItemType Directory -Force -Path $figPen) }
+    New-Item -Path 'HKCU:\Software\Jw_cad\jw_win\Folder' -Force | Out-Null
+    Set-ItemProperty -Path 'HKCU:\Software\Jw_cad\jw_win\Folder' `
+                     -Name 'ZUKEI' -Value $figPen
 }
 
 if ($Clicks -match 'figin:\d+,([^;]+)') {
@@ -893,6 +912,53 @@ try {
                 if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) {
                     throw 'the file window would not take the figure'
                 }
+                break
+            }
+
+            '^figout:(.+)$' {
+                # The 《図形登録》 button is the bar's 1070 at this stage.
+                # It puts the file window up; 新規 (2408) there opens a
+                # 新規作成 dialog with the name in Edit 1491, and OK writes
+                # the .jws.  A posted BM_CLICK on that OK does nothing --
+                # the dialog wants the WM_COMMAND itself, the way the file
+                # window does.
+                # not $out: PowerShell's variables do not mind case, and
+                # that is the -Out parameter
+                $figTo = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[1]))
+                $name = [System.IO.Path]::GetFileNameWithoutExtension($figTo)
+                $pen = Join-Path (Get-Location) 'tmp\figsel'
+                $before = [Jw]::Tops([uint32]$p.Id)
+                $b = Ctl 1070
+                if ($b -eq [IntPtr]::Zero) { throw 'the bar has no 《図形登録》' }
+                [void][Jw]::PostMessage($b, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+                NewDialog $before 10000
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'the file window did not come up' }
+                Start-Sleep -Milliseconds 1200
+                $nw = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::GetDlgCtrlID($k) -eq 2408) { $nw = $k }
+                }
+                if ($nw -eq [IntPtr]::Zero) { throw 'no 新規 in the file window' }
+                $before2 = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($nw, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+                NewDialog $before2 10000
+                $mk = $script:dlg
+                if ($mk -eq [IntPtr]::Zero) { Tops2; throw '新規作成 did not come up' }
+                Start-Sleep -Milliseconds 800
+                $edit = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($mk)) {
+                    if ([Jw]::GetDlgCtrlID($k) -eq 1491) { $edit = $k }
+                }
+                if ($edit -eq [IntPtr]::Zero) { throw 'no name field in 新規作成' }
+                [void][Jw]::SendMessageStr($edit, $WM_SETTEXT, [IntPtr]::Zero, $name)
+                Start-Sleep -Milliseconds 300
+                [void][Jw]::SendMessageW($mk, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds 2500
+                $made = Join-Path $pen "$name.jws"
+                if (-not (Test-Path $made)) { throw "figout: $name.jws was not written" }
+                Copy-Item $made $figTo -Force
+                Write-Host ("wrote {0} ({1:n0} bytes)" -f $Matches[1], (Get-Item $figTo).Length)
                 break
             }
 

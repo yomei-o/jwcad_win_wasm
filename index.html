@@ -73,6 +73,7 @@
   const openSfc = mod.cwrap('jw_open_sfc', 'number', ['number', 'number']);
   const openJwc = mod.cwrap('jw_open_jwc', 'number', ['number', 'number']);
   const figure = mod.cwrap('jw_figure', 'number', ['number', 'number']);
+  const saveFig = mod.cwrap('jw_save_fig', 'number', []);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
   const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
@@ -267,6 +268,13 @@
 
   function download() { offer(save(), openedName); }
 
+  // 図形登録: the press that gave the 基準点 hands back 4, and the figure
+  // is written out as a .jws for the browser to put somewhere.
+  function downloadFig() {
+    const name = window.prompt('図形の名前', '図形') || '図形';
+    offer(saveFig(), name.replace(/\.[^.]*$/, '') + '.jws');
+  }
+
   // DXF形式で保存: the same drawing written the way the original's DXF
   // export writes it (src/dxf.c).
   function downloadDxf() {
@@ -355,6 +363,7 @@
       const r = press(x, y, 0);
       if (r === 2) document.getElementById('pick').click();
       else if (r === 3) download();
+      else if (r === 4) downloadFig();
       else if (r) present();
       setTimeout(aim, 0);     /* after the browser has moved the focus */
       return;

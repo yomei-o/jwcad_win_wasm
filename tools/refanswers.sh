@@ -1036,6 +1036,19 @@ sh tools/refenv.sh >/dev/null
 # and double-clicks the one row.  The figure is one Jw_cad ships: six lines
 # making a 6mm box with a cross in it, drawn at 1/100.  Test5's write group
 # is at 1/200, so it comes in half that size.
+# 図形登録 (32946).  It takes a range of its own even when something is
+# already picked, then 選択確定, then the 基準点 -- and only then does the
+# file window come up.  figout: does the rest: 新規 there, the name in the
+# 新規作成 dialog, and OK.
+echo "=== figreg (図形登録)"
+idle
+sh tools/refenv.sh >/dev/null
+$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c
+./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
+$PS -Open tmp/geom.jww -NoSave     -Clicks 'cmd:32946;100,80;1000,640;wait:800;btn:1120;wait:1200;400,300;wait:800;figout:decomp/res/figreg.jws'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 echo "=== figin (図形読込)"
 idle
 sh tools/refenv.sh >/dev/null

@@ -172,6 +172,8 @@ EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
     case JW_ACT_SAVE:
     case JW_ACT_SAVE_AS:
         return 3;
+    case JW_ACT_SAVE_FIG:
+        return 4;               /* 図形登録: the figure wants a name */
     }
     if (redraw)
         app_paint();
@@ -213,6 +215,18 @@ EMSCRIPTEN_KEEPALIVE int jw_figure(unsigned char *b, int n)
         return 0;
     app_paint();
     return 1;
+}
+
+/* 図形登録 (32946) the other way: once the 基準点 has been clicked the
+   press hands back 4, and the page calls this for the bytes to download. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_fig(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_figure_save(&saved, &saved_n))
+        return 0;
+    return saved;
 }
 
 /* 「SFCファイルを開く」, the same way. */

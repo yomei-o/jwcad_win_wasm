@@ -401,6 +401,16 @@ static int br_open;
 static unsigned char br_on[64];
 static char br_zoom[32];
 
+/* 図形登録's 基準点, kept from the press that gave it. */
+static double fig_bx, fig_by;
+
+int app_figure_save(unsigned char **out, long *n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_cmd_figure_save(&drawing, fig_bx, fig_by, out, n);
+}
+
 /* 図形読込 (32862): the bytes of a .jws, in place of the original's own
    file window.  The figure then hangs on the cursor until a point is
    clicked. */
@@ -800,6 +810,12 @@ int app_command(int cmd)
     case 32811:                         /* 画面倍率・文字表示 */
         br_start();
         return 1;
+    case 32946:                         /* 図形登録 */
+        /* It takes a range of its own -- the original asks for one even
+           when something is already picked -- and the point after 選択確定
+           is the 基準点. */
+        jw_cmd_set(JW_CMD_ZUKEIREG);
+        return 1;
     case 32862:                         /* 図形読込 */
         /* The original puts up a file window of its own here.  The port has
            none: the front end reads the .jws and calls app_figure, which is
@@ -1004,6 +1020,8 @@ int app_press(int x, int y, int button)
             if (have_drawing && jw_cmd_block_editing()
                 && drawing.ndrawn > was)
                 jw_cmd_block_take(&drawing, was);
+            if (jw_cmd_figure_base(&fig_bx, &fig_by))
+                action = JW_ACT_SAVE_FIG;   /* 図形登録 wants a file name */
         }
         return 1;
     }

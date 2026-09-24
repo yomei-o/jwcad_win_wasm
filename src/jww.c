@@ -410,6 +410,23 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
         for (i = 0; i < 7; i++)
             o->d[i] = ar_d(a);
         o->n = ar_l(a);
+        /* The original brings the start angle into (-pi, pi] as it reads.
+           tools/mkgeom.c writes an arc starting at 3pi/2; every file the
+           original has written from it since -- decomp/res/zhlayer.jww and
+           decomp/res/figreg.jws both -- carries -pi/2 there instead, to the
+           bit, so it is one subtraction rather than an atan2 (pi itself is
+           left alone, and the sweep is never touched). */
+        while (o->d[3] > 3.141592653589793)
+            o->d[3] -= 6.283185307179586;
+        while (o->d[3] <= -3.141592653589793)
+            o->d[3] += 6.283185307179586;
+        /* and it marks a whole circle as one.  The field is the flag at
+           +0x90 of CDataEnko, which makes the drawing code take the sweep
+           as 2pi whatever it says; tools/mkgeom.c leaves it at 0 on an arc
+           that goes all the way round, and the original's own copy of that
+           drawing has it at 1. */
+        if (o->d[4] >= 6.283185307179586 || o->d[4] <= -6.283185307179586)
+            o->n = 1;
         break;
     case JW_TEN:
         o->d[0] = ar_d(a);
