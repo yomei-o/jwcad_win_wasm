@@ -4866,16 +4866,38 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
             const jw_obj *o = &d->obj[read_pick];
             double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
             double len = dx * dx + dy * dy, t;
+            int j = jw_pick(d, v, x, y, 1), had = read_pick;
 
             read_pick = -1;
             read_mode = 0;
             if (len <= 0.0)
                 return;
+            /* 《交点》: a second line under the click wins over the foot of
+               the perpendicular.  Driving the original bears it out -- two
+               lines crossing at (-3.463557, 37.233236) and a click on the
+               second gave exactly that (decomp/res/snapcross.jww). */
+            if (j >= 0 && j != had && d->obj[j].cls == JW_SEN) {
+                const jw_obj *q = &d->obj[j];
+                double ex = q->d[2] - q->d[0], ey = q->d[3] - q->d[1];
+                double den = dx * ey - dy * ex;
+
+                if (den != 0.0) {
+                    double u = ((q->d[0] - o->d[0]) * ey
+                                - (q->d[1] - o->d[1]) * ex) / den;
+
+                    x = o->d[0] + u * dx;
+                    y = o->d[1] + u * dy;
+                    button = 0;
+                    goto placed;
+                }
+            }
             t = ((x - o->d[0]) * dx + (y - o->d[1]) * dy) / len;
             x = o->d[0] + t * dx;
             y = o->d[1] + t * dy;
             button = 0;
         }
+placed:
+        ;
     }
     if (read_mode == 33016 && d) {
         int i = jw_pick(d, v, x, y, 1);

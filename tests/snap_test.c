@@ -166,6 +166,55 @@ int main(void)
     ck(!bad, "and those three end where the original's do too");
     jw_free(&ref);
 
+    /* 《交点》: two lines are drawn crossing, and the second click of
+       線上点・交点取得 lands on the other one -- decomp/res/snapcross.jww. */
+    b = slurp("tmp/geom.jww", &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open tmp/geom.jww again\n");
+        free(b);
+        printf("SOME BAD\n");
+        return 1;
+    }
+    free(b);
+    app_press(r.x + 400, r.y + 200, 0);
+    app_press(r.x + 700, r.y + 400, 0);
+    app_press(r.x + 400, r.y + 400, 0);
+    app_press(r.x + 700, r.y + 200, 0);
+    app_press(r.x + 200, r.y + 150, 0);
+    app_command(33017);
+    app_press(r.x + 450, r.y + 233, 1);  /* picks the first of them */
+    app_press(r.x + 650, r.y + 233, 0);  /* and this is on the second */
+    d = app_drawing();
+    ck(d->ndrawn == was + 3, "the two crossing lines and one more");
+
+    memset(&ref, 0, sizeof ref);
+    b = slurp("decomp/res/snapcross.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  cannot read decomp/res/snapcross.jww -- drive the "
+               "original first\n");
+        fails++;
+        free(b);
+        printf("SOME BAD\n");
+        return 1;
+    }
+    free(b);
+    bad = 0;
+    for (i = was; i < ref.ndrawn && i < d->ndrawn; i++) {
+        const jw_obj *q = &ref.obj[i], *p = &d->obj[i];
+        int k;
+
+        if (!jw_text_drawn(q))
+            continue;
+        for (k = 0; k < 4; k++)
+            if (fabs(p->d[k] - q->d[k]) > 1e-6) {
+                printf("     the %dth's d[%d] is %.6f, the original's "
+                       "%.6f\n", i, k, p->d[k], q->d[k]);
+                bad = 1;
+            }
+    }
+    ck(!bad, "and the last one ends on their crossing, as the original's");
+    jw_free(&ref);
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

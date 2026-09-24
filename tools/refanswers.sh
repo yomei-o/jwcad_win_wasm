@@ -1018,6 +1018,16 @@ $PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;200,150;
 idle
 sh tools/refenv.sh >/dev/null
 
+# 《交点》: two lines are drawn crossing first, and the second click of
+# 線上点・交点取得 lands on the other one.
+echo "=== snapcross (交点)"
+idle
+sh tools/refenv.sh >/dev/null
+cp tmp/geom.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -Cmd 32771 -NoSave     -Clicks 'pb:1333;wait:400;400,200;700,400;wait:400;400,400;700,200;wait:400;200,150;wait:300;cmd:33017;wait:500;r450,233;wait:600;650,233;wait:800;saveas:decomp/res/snapcross.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 echo "=== zokcol, zoklt, zhcol, zhlt (「指定」もの)"
 for k in 1810,1403,zokcol 1811,2451,zoklt; do
     idle
