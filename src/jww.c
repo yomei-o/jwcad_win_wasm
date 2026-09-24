@@ -134,6 +134,27 @@ static int ar_s(ar_t *a, jw_drawing *d)
 
 /* ---------------------------------------------------------------- header */
 
+/* The sheet sizes, straight out of the original's own tables at 0x009ffbb8
+ * (width) and 0x009ffc58 (height), indexed by the number the header keeps:
+ * A0..A4, then B4..B6, then 2A..5A, then the three metric rolls.
+ */
+void jw_paper_set(jw_drawing *d, int n)
+{
+    static const struct { double w, h; } SHEET[] = {
+        { 1189, 841 }, { 841, 594 }, { 594, 420 }, { 420, 297 },
+        { 297, 210 }, { 514, 364 }, { 364, 257 }, { 257, 182 },
+        { 1682, 1189 }, { 2378, 1682 }, { 3364, 2378 }, { 4756, 3364 },
+        { 10000, 7073 }, { 50000, 35366 }, { 100000, 70732 },
+    };
+    int k = n;
+
+    d->paper_size = n;
+    if (k < 0 || k >= (int)(sizeof SHEET / sizeof SHEET[0]))
+        k = 2;
+    d->paper_hw = SHEET[k].w / 2.0;
+    d->paper_hh = SHEET[k].h / 2.0;
+}
+
 static void read_header(ar_t *a, jw_drawing *d)
 {
     int v, g, l, i;
@@ -150,19 +171,7 @@ static void read_header(ar_t *a, jw_drawing *d)
         /* Straight out of the original's own tables, at 0x009ffbb8 (width)
          * and 0x009ffc58 (height), indexed by this very field: A0..A4, then
          * B4..B6, then 2A..5A, then the three metric rolls. */
-        static const struct { double w, h; } SHEET[] = {
-            { 1189, 841 }, { 841, 594 }, { 594, 420 }, { 420, 297 },
-            { 297, 210 }, { 514, 364 }, { 364, 257 }, { 257, 182 },
-            { 1682, 1189 }, { 2378, 1682 }, { 3364, 2378 }, { 4756, 3364 },
-            { 10000, 7073 }, { 50000, 35366 }, { 100000, 70732 },
-        };
-        int n;
-        d->paper_size = ar_l(a);
-        n = d->paper_size;
-        if (n < 0 || n >= (int)(sizeof SHEET / sizeof SHEET[0]))
-            n = 2;
-        d->paper_hw = SHEET[n].w / 2.0;
-        d->paper_hh = SHEET[n].h / 2.0;
+        jw_paper_set(d, ar_l(a));
         ar_l(a);
         for (g = 0; g < 16; g++) {
             jw_group *gr = &d->group[g];

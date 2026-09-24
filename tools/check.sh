@@ -109,6 +109,10 @@ echo "=== ブロック編集 —— ダイアログと、原典が変えた定�
 python tools/cmp.py docs/ref_blkedit.png tests/out/blkedit.png     -i docs/blkedit_textareas.txt -d tests/out/blkedit.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 用紙サイズ —— 原典が変えた用紙との突き合わせ"
+./tests/paper_test.exe | sed 's/^/    /'
+
+echo
 echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"
 ./tests/seiri_test.exe | sed 's/^/    /'
 

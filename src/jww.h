@@ -289,4 +289,11 @@ int jw_round_solid(const jw_obj *o, jw_obj *arc);
  */
 int jw_text_drawn(const jw_obj *o);
 
+/* Set the sheet: the number the header keeps (0 is A-0, 4 is A-4), and the
+   half width and half height that go with it.  The menu's Ａ-０..Ａ-４ are
+   commands 32820..32824 and do exactly this -- Test5 went from 1 to 3 with
+   420.5x297 becoming 210x148.5 and nothing else changed
+   (decomp/res/paperA3.jww). */
+void jw_paper_set(jw_drawing *d, int n);
+
 #endif

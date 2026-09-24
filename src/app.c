@@ -728,6 +728,12 @@ int app_command(int cmd)
     }
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
+    case 32820: case 32821: case 32822: case 32823: case 32824:
+        /* Ａ-０..Ａ-４: the sheet changes and nothing else does */
+        if (!have_drawing)
+            return 0;
+        jw_paper_set(&drawing, cmd - 32820);
+        return 1;
     case 32891:                         /* 基本設定 */
         kh_start();
         return 1;

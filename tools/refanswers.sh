@@ -946,6 +946,19 @@ done
 idle
 sh tools/refenv.sh >/dev/null
 
+# 用紙サイズ: the menu's Ａ-０..Ａ-４ are 32820..32824, and all they do is
+# change the sheet.  Two of the five are kept, which is enough to pin the
+# table down at both ends of Test5's own A-1.
+echo "=== paperA0, paperA3 (用紙サイズ)"
+for k in 32820,paperA0 32823,paperA3; do
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp orig/Test5.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave         -Clicks "cmd:${k%,*};saveas:decomp/res/${k#*,}.jww"         2>&1 | sed 's/^/        /'
+done
+idle
+sh tools/refenv.sh >/dev/null
+
 # 属性変更 (範囲選択's 1070): the other half of the same dialog.  Only
 # 書込【レイヤ】に変更 does anything that can be seen -- 指定【線色】に変更
 # and 指定 線種 に変更 changed nothing at all -- so that is the answer kept.
