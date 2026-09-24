@@ -1567,7 +1567,7 @@ void ui_blkname_rect(int cw, int ch, rect_t *r)
         r->y = 0;
 }
 
-void ui_blkname(fb_t *fb, const char *name, int on, int caret)
+void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr)
 {
     rect_t r;
     int cx, cy, i, th = jw_text_height();
@@ -1617,6 +1617,10 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret)
             int tw;
 
             mj_sunken(fb, x, y, z->w, z->h);
+            if (attr) {         /* greyed out: ブロック属性 cannot rename */
+                fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+                break;
+            }
             tw = jw_text_px_w(name ? name : "");
             zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6,
                     name ? name : "", C_BTNTEXT);
@@ -1626,7 +1630,10 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret)
             break;
         }
         case JW_BN_STATIC:
-            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, C_BTNTEXT);
+            /* ブロック属性 says just ブロック名 */
+            zs_text(fb, x, y + (z->h - th) / 2, z->w,
+                    attr ? "\x83u\x83\x8d\x83" "b\x83N\x96\xbc" : z->text,
+                    C_BTNTEXT);
             break;
         default:
             break;

@@ -286,7 +286,7 @@ static int zsel_mask(void)
  * The command puts a dialog up rather than doing anything at once: a box
  * for the name, and 元データのレイヤを優先する beside it.
  */
-static int blk_open, blk_pref;
+static int blk_open, blk_pref, blk_attr;
 static char blk_name[64];
 
 int app_blkname_open(void)
@@ -306,7 +306,9 @@ static int press_blkname(int x, int y)
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1) {                      /* OK */
-        if (have_drawing && blk_name[0])
+        if (have_drawing && blk_attr)
+            jw_cmd_block_attr(&drawing, blk_pref);
+        else if (have_drawing && blk_name[0])
             jw_cmd_block_make(&drawing, blk_name, blk_pref);
         blk_open = 0;
     } else if (id == 2) {               /* キャンセル */
@@ -331,11 +333,15 @@ static int blk_key(int c)
         return 1;
     }
     if (c == 13) {                      /* Enter is the OK button */
-        if (have_drawing && blk_name[0])
+        if (have_drawing && blk_attr)
+            jw_cmd_block_attr(&drawing, blk_pref);
+        else if (have_drawing && blk_name[0])
             jw_cmd_block_make(&drawing, blk_name, blk_pref);
         blk_open = 0;
         return 1;
     }
+    if (blk_attr)                       /* the box is greyed out there */
+        return 0;
     if (c >= 0x20 && n + 1 < sizeof blk_name) {
         blk_name[n] = (char)c;
         blk_name[n + 1] = 0;
@@ -462,10 +468,12 @@ int app_command(int cmd)
             return 0;
         return jw_cmd_block_free(&drawing) > 0;
     case JW_CMD_BLOCK:                  /* ブロック化 */
+    case JW_CMD_BLOCK_ATTR:             /* ブロック属性 -- the same dialog */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;                   /* nothing picked: nothing to do */
         blk_name[0] = 0;
         blk_pref = 0;
+        blk_attr = cmd == JW_CMD_BLOCK_ATTR;
         blk_open = 1;
         return 1;
     case JW_CMD_UNDO:
@@ -972,7 +980,7 @@ void app_paint(void)
     if (zsel_open)
         ui_zokusel(&fb, zsel_on);
     if (blk_open)
-        ui_blkname(&fb, blk_name, blk_pref, 1);
+        ui_blkname(&fb, blk_name, blk_pref, !blk_attr, blk_attr);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

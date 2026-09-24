@@ -3314,6 +3314,37 @@ int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
     return n;
 }
 
+/* ブロック属性 (32970).  The same dialog as ブロック化 with the name box
+ * greyed out and its label cut down to just ブロック名; the one thing it can
+ * change is 元データのレイヤを優先する, and ticking it turned the reference's
+ * line type from 1 into 65 and left everything else alone
+ * (decomp/res/blkattr.jww).
+ */
+int jw_cmd_block_attr(jw_drawing *d, int prefer_layer)
+{
+    op_t *rec;
+    int i, n = 0;
+
+    if (!d)
+        return 0;
+    rec = op_new();
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+        unsigned char want;
+
+        if (o->cls != JW_BLOCK || !o->sel)
+            continue;
+        want = (unsigned char)(prefer_layer ? (o->ltype | 64u)
+                                            : (o->ltype & ~64u));
+        if (want == o->ltype)
+            continue;
+        op_keep(rec, d, i, 0);
+        o->ltype = want;
+        n++;
+    }
+    return n;
+}
+
 /* ブロック解除 (32909).  Every reference picked gives its definition's
  * elements back, put where the reference is and turned and scaled the way it
  * is.  They take the reference's layer and layer group but keep their own

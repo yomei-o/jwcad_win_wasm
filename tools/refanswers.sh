@@ -814,6 +814,16 @@ $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32
 idle
 sh tools/refenv.sh >/dev/null
 
+# ブロック属性 (32970): the same dialog as ブロック化 with the name greyed
+# out; the one thing it can change is 元データのレイヤを優先する.
+echo "=== blkattr (ブロック属性)"
+idle
+sh tools/refenv.sh >/dev/null
+cp decomp/res/blkmake.jww tmp/rect.jww
+$PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32970,1323=!;saveas:decomp/res/blkattr.jww'     2>&1 | sed 's/^/        /'
+idle
+sh tools/refenv.sh >/dev/null
+
 # ブロック解除 (32909): the file above, a range over it, and the command.
 # The twelve come back where the reference was, on its layer.
 echo "=== blkfree (ブロック解除)"

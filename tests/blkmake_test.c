@@ -312,6 +312,54 @@ int main(int argc, char **argv)
        "元データのレイヤを優先する puts 65 in the reference's line type");
     jw_cmd_undo((jw_drawing *)app_drawing());
 
+    /* ブロック属性: the same dialog with the name greyed out, and the one
+       thing it can change is that same bit -- the original's own file with
+       the box ticked came back with 65 in the reference's line type
+       (decomp/res/blkattr.jww) */
+    {
+        unsigned char *b2;
+        long n2;
+        jw_drawing at2;
+
+        memset(&at2, 0, sizeof at2);
+        b2 = slurp("decomp/res/blkattr.jww", &n2);
+        if (!b2 || !jw_parse(&at2, b2, n2)) {
+            printf("BAD  cannot read decomp/res/blkattr.jww -- drive the "
+                   "original first\n");
+            fails++;
+            free(b2);
+        } else {
+            int ra2 = -1;
+
+            free(b2);
+            for (i = 0; i < at2.nobj; i++)
+                if (at2.obj[i].cls == JW_BLOCK) {
+                    ra2 = i;
+                    break;
+                }
+            b2 = slurp("decomp/res/blkmake.jww", &n2);
+            if (b2 && app_open(b2, n2)) {
+                free(b2);
+                ui_view_rect(fb->w, fb->h, &r);
+                jw_cmd_set(JW_CMD_HANI);
+                app_press(r.x + 4, r.y + 4, 0);
+                app_press(r.x + r.w - 4, r.y + r.h - 4, 1);
+                ck(app_command(JW_CMD_BLOCK_ATTR),
+                   "ブロック属性 puts the dialog up too");
+                ctl(1323, &x, &y);
+                app_press(x, y, 0);
+                ctl(1, &x, &y);
+                app_press(x, y, 0);
+                d = app_drawing();
+                ck(ra2 >= 0 && d->obj[0].cls == JW_BLOCK
+                   && d->obj[0].ltype == at2.obj[ra2].ltype,
+                   "and the tick puts the original's own line type on it");
+                jw_cmd_undo((jw_drawing *)app_drawing());
+            }
+            jw_free(&at2);
+        }
+    }
+
     /* ブロック解除: the original's own file, a range over it, and the
        command -- and what is left has to be its own decomp/res/blkfree.jww */
     memset(&ref, 0, sizeof ref);
