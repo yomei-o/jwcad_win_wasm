@@ -40,28 +40,22 @@ function chunk(tag, data) {
   return Buffer.concat([len, body, crc]);
 }
 
-(async function () {
-  const out = process.argv[2] || 'tests/out/wasm.png';
-  const w = parseInt(process.argv[3] || '1264', 10);
-  const h = parseInt(process.argv[4] || '741', 10);
-  const withChrome = process.argv.indexOf('--chrome') >= 0;
-  const mod = await createJwcad();
-
-  const openAt = process.argv.indexOf('--open');
+// One drawing: open it if given, render, write the PNG.
+function shot(mod, drawing, out, w, h, withChrome) {
   const ch = mod.ccall('jw_chrome_h', 'number', [], []);
   const skip = withChrome ? 0 : ch;
   const rows = withChrome ? h + ch : h;     /* what goes in the picture */
   mod.ccall('jw_resize', 'number', ['number', 'number'], [w, h + ch]);
-  if (openAt >= 0) {
-    const bytes = fs.readFileSync(process.argv[openAt + 1]);
+  if (drawing) {
+    const bytes = fs.readFileSync(drawing);
     const buf = mod._malloc(bytes.length);
     mod.HEAPU8.set(bytes, buf);
     const ok = mod.ccall('jw_open', 'number', ['number', 'number'],
                          [buf, bytes.length]);
     mod._free(buf);
     if (!ok) {
-      console.error('cannot read ' + process.argv[openAt + 1]);
-      process.exit(1);
+      console.error('cannot read ' + drawing);
+      return false;
     }
   }
   const p = mod.ccall('jw_rgba', 'number', [], []);
@@ -89,4 +83,40 @@ function chunk(tag, data) {
     chunk('IEND', Buffer.alloc(0)),
   ]));
   console.log('wrote ' + out + ' (' + w + 'x' + rows + ')');
+  return true;
+}
+
+(async function () {
+  const mod = await createJwcad();
+
+  /* --each <list> <dir> [w h]: every drawing named in the list file, one
+     PNG each in that directory, all from one start of the module.  Starting
+     node and loading the WebAssembly costs more than the drawing does, so
+     doing the lot in one go is what makes the whole-set check bearable. */
+  if (process.argv[2] === '--each') {
+    const list = fs.readFileSync(process.argv[3], 'utf8')
+                   .split(String.fromCharCode(10))
+                   .map(function (t) { return t.trim(); });
+    const dir = process.argv[4];
+    const w = parseInt(process.argv[5] || '1264', 10);
+    const h = parseInt(process.argv[6] || '741', 10);
+    let bad = 0;
+    fs.mkdirSync(dir, { recursive: true });
+    for (const name of list) {
+      if (!name) continue;
+      const out = path.join(dir, path.basename(name) + '.png');
+      if (!shot(mod, name, out, w, h, false))
+        bad++;
+    }
+    process.exit(bad ? 1 : 0);
+  }
+
+  const out = process.argv[2] || 'tests/out/wasm.png';
+  const w = parseInt(process.argv[3] || '1264', 10);
+  const h = parseInt(process.argv[4] || '741', 10);
+  const withChrome = process.argv.indexOf('--chrome') >= 0;
+  const openAt = process.argv.indexOf('--open');
+  if (!shot(mod, openAt >= 0 ? process.argv[openAt + 1] : null, out, w, h,
+            withChrome))
+    process.exit(1);
 })();

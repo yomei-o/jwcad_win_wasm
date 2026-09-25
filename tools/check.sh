@@ -336,34 +336,47 @@ echo "=== 同梱の図面をぜんぶ描いてみる —— 落ちないか、�
 # signed char, an int that is 64 bits on one side).  Test1 and Test7 alone
 # used to be the whole of this.
 n=0
-same=0
-tried=0
+rm -rf tests/out/nat tests/out/wasmall
+mkdir -p tests/out/nat
+: > tests/out/all.lst
 for f in orig/*.jww; do
-    if ./tests/shot.exe tests/out/all.png "$f" >/dev/null 2>&1; then
+    if ./tests/shot.exe "tests/out/nat/$(basename "$f").png" "$f" \
+            >/dev/null 2>&1; then
         n=$((n + 1))
+        printf '%s\n' "$f" >> tests/out/all.lst
     else
         echo "    BAD  $f"
-        continue
-    fi
-    command -v node >/dev/null 2>&1 || continue
-    tried=$((tried + 1))
-    if ! node tests/wasm_check.js tests/out/wall.png 1264 741 \
-            --open "$f" >/dev/null 2>&1; then
-        echo "    BAD  $f: the WebAssembly build will not draw it"
-        continue
-    fi
-    if python tools/cmp.py tests/out/all.png tests/out/wall.png 2>/dev/null |
-            head -1 | grep -q ' 0 of '; then
-        same=$((same + 1))
-    else
-        echo "    BAD  $f: native and WebAssembly draw it differently"
-        python tools/cmp.py tests/out/all.png tests/out/wall.png |
-            head -1 | sed 's/^/         /'
     fi
 done
 printf '    %s of %s drawn\n' "$n" "$(ls orig/*.jww | wc -l)"
-[ "$tried" -gt 0 ] &&
+
+# The WebAssembly side draws the lot from one start of node: loading the
+# module costs far more than a drawing does.
+if command -v node >/dev/null 2>&1; then
+    same=0
+    tried=0
+    node tests/wasm_check.js --each tests/out/all.lst tests/out/wasmall \
+        1264 741 >/dev/null 2>&1
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        b=$(basename "$f")
+        tried=$((tried + 1))
+        if [ ! -f "tests/out/wasmall/$b.png" ]; then
+            echo "    BAD  $f: the WebAssembly build will not draw it"
+            continue
+        fi
+        if python tools/cmp.py "tests/out/nat/$b.png" \
+                "tests/out/wasmall/$b.png" 2>/dev/null |
+                head -1 | grep -q ' 0 of '; then
+            same=$((same + 1))
+        else
+            echo "    BAD  $f: native and WebAssembly draw it differently"
+            python tools/cmp.py "tests/out/nat/$b.png" \
+                "tests/out/wasmall/$b.png" | head -1 | sed 's/^/         /'
+        fi
+    done < tests/out/all.lst
     printf '    %s of %s the same in both builds\n' "$same" "$tried"
+fi
 
 echo
 echo "=== drawings against the original"
