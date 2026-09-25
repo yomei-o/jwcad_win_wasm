@@ -1,8 +1,9 @@
 #!/bin/sh
-# Run the fuzzers under AddressSanitizer, and then under the undefined
-# behaviour one.
+# Run the fuzzers and the drawing under AddressSanitizer, and then under the
+# undefined behaviour one.
 #
-#   sh tools/asan.sh
+#   sh tools/asan.sh        the fuzzers and the drawing
+#   sh tools/asan.sh all    those, and then the fifty answer tests as well
 #
 # tests/fuzz_test.c hands the readers copies of a file cut short, each one
 # allocated at exactly its length, so a read that runs off the end lands in
@@ -168,3 +169,62 @@ for san in address undefined; do
     fi
 done
 echo "ok   the drawing too, at every window size"
+
+# `all` adds the fifty answer-comparison tests.  They drive real command
+# sequences -- dialogs, block editing, dimensions, hatching -- that neither
+# fuzzer reproduces, and nothing in them was found wanting; it is here so
+# that stays true.  The shared sources are compiled once into objects, the
+# way tools/build_tests.sh does, or this would take an hour a sanitizer.
+[ "$1" = all ] || exit 0
+
+for san in address undefined; do
+    OBJ=""
+    rm -rf tmp/sanobj
+    mkdir -p tmp/sanobj tmp/santests
+    for f in $COMMON tests/png.c; do
+        o="tmp/sanobj/$(basename "$f" .c).o"
+        "$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=$san \
+            -c -o "$o" "$f" || exit 1
+        OBJ="$OBJ $o"
+    done
+    echo "built the shared objects (-fsanitize=$san)"
+    bad=0
+    for t in tests/*_test.c; do
+        b=$(basename "$t" .c)
+        case "$b" in
+            fuzz_test|cmdfuzz_test) continue ;;     # done above
+        esac
+        # the arguments check.sh gives each one: several need a drawing, and
+        # without one they walk into a NULL app_drawing() of their own accord
+        case "$b" in
+            click_test|write_test|pick_test) arg="orig/Test1.jww" ;;
+            read_test|layer_test|sel_test)   arg="orig/Test5.jww" ;;
+            jww_test)     arg="orig/Test1.jww orig/Test5.jww" ;;
+            jws_test)     arg="$(ls decomp/res/*.jws 2>/dev/null)" ;;
+            new_test)     arg="tmp/santests/new.jww" ;;
+            session_test) arg="tmp/santests/session.jww" ;;
+            *)            arg="tmp/santests/$b.png" ;;
+        esac
+        "$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=$san \
+            -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=1GB \
+            -sMAXIMUM_MEMORY=4GB -sNODERAWFS=1 -sENVIRONMENT=node \
+            -sEXIT_RUNTIME=1 -o "tmp/santests/$b.js" "$t" $OBJ \
+            > tmp/santests/build.log 2>&1 || {
+                echo "BAD  $b will not build"
+                tail -3 tmp/santests/build.log | sed 's/^/    /'
+                bad=$((bad + 1))
+                continue; }
+        out=$(ASAN_OPTIONS=quarantine_size_mb=16 \
+              UBSAN_OPTIONS=print_stacktrace=1 \
+              "$NODE" "tmp/santests/$b.js" $arg 2>&1)
+        if echo "$out" | grep -q "ERROR: AddressSanitizer\|runtime error"; then
+            echo "BAD  $b (-fsanitize=$san):"
+            echo "$out" | grep -m1 -A6 "ERROR: AddressSanitizer" |
+                sed 's/^/    /'
+            echo "$out" | grep "runtime error" | head -4 | sed 's/^/    /'
+            bad=$((bad + 1))
+        fi
+    done
+    [ "$bad" = 0 ] || exit 1
+    echo "ok   the fifty answer tests too (-fsanitize=$san)"
+done
