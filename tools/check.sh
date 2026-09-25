@@ -71,6 +71,10 @@ echo "=== 壊れたファイル —— 読み手が落ちず、いつまでも�
 ./tests/fuzz_test.exe orig/*.jww decomp/res/*.jww $JWS     decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc 2>/dev/null     | sed 's/^/    /'
 
 echo
+echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が壊れないか"
+./tests/cmdfuzz_test.exe orig/Test1.jww orig/Test5.jww orig/Test7.jww     2>/dev/null | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests
