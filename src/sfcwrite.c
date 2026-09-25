@@ -222,7 +222,9 @@ static int want_colour(sfcw *s, int pen)
         rgb = ((unsigned)AUX_B << 16) | ((unsigned)AUX_G << 8) | AUX_R;
         num = 0;
     } else {
-        rgb = s->d->print_rgb[pen];
+        /* the session's tables hold pen 10, the drawing's print tables only
+           0..9 -- the same range coord.c's pen_w() guards */
+        rgb = pen < 10 ? s->d->print_rgb[pen] : 0;
         num = colour_num(rgb, s->d);
     }
     if (!num) {
@@ -248,7 +250,7 @@ static int want_width(sfcw *s, int pen)
         return s->width[pen];
     /* the printing pen's width is in screen dots, and one dot is a three
        hundredth of an inch */
-    mm = (double)s->d->print_width[pen] * 25.4 / 300.0;
+    mm = (pen < 10 ? (double)s->d->print_width[pen] : 0.0) * 25.4 / 300.0;
     num = width_num(mm);
     if (!num) {
         for (i = 0; i < s->nuwid; i++)

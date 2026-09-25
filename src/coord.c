@@ -138,8 +138,16 @@ static double deg(double rad)
 static int pen_w(const jw_drawing *d, int col)
 {
     int dots = col >= 0 && col < 10 ? d->print_width[col] : 0;
+    double w = dots * 25.4 / 3.0 + 0.5;
 
-    return (int)(dots * 25.4 / 3.0 + 0.5);
+    /* a damaged file can hold any int in there, and turning a double that
+       does not fit an int into one is undefined -- found by reading the
+       cut-down copies with -fsanitize=undefined (tools/asan.sh) */
+    if (w < 0.0)
+        return 0;
+    if (w > 2147483000.0)
+        return 2147483000;
+    return (int)w;
 }
 
 int jw_write_coord(const jw_drawing *d, double ox, double oy,
