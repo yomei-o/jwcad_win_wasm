@@ -319,6 +319,14 @@ python -c "from PIL import Image; Image.open('docs/ref_window.png').convert('RGB
 python tools/cmp.py tests/out/chrome_ref.png tests/out/chrome_top.png     -i docs/chrome_textareas.txt -d tests/out/chrome.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== ブラウザから呼ばれる入口 —— 長い名前・IME の 1 単位・屑ファイル"
+# The native tests all go straight at app_*, so src/main_wasm.c's own code
+# is only reached from here.  jw_from_utf16 returns what the text WOULD
+# take rather than what fitted, and jw_name once wrote its NUL off the end
+# of a 128-byte frame on the strength of that.
+node tests/wasm_check.js --api | sed 's/^/    /'
+
+echo
 echo "=== native against WASM, pixel for pixel"
 python tools/cmp.py tests/out/frame.png tests/out/wasm.png \
     -d tests/out/nw.diff.png | head -1 | sed 's/^/    /'

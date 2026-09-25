@@ -14,7 +14,10 @@
 // pixel; --chrome keeps them, which is how the chrome itself is scored.
 const fs = require('fs');
 const path = require('path');
-const createJwcad = require(path.resolve(__dirname, '..', 'jwcad.js'));
+/* JW_WASM points at another build of the module -- a sanitized one, say.
+   Without it the module beside the repository root is used. */
+const createJwcad = require(process.env.JW_WASM ||
+                            path.resolve(__dirname, '..', 'jwcad.js'));
 
 function crcTable() {
   const t = new Uint32Array(256);
@@ -86,8 +89,87 @@ function shot(mod, drawing, out, w, h, withChrome) {
   return true;
 }
 
+/* The entry points the page calls that nothing else drives.  The native
+   tests all go straight at app_*, so src/main_wasm.c's own code -- the
+   UTF-16 that comes off an IME, and the file name that goes in the caption
+   -- is only ever reached from here.  jw_from_utf16 returns what the text
+   WOULD take rather than what fitted, and jw_name once wrote its NUL off
+   the end of a 128-byte frame on the strength of that. */
+function api(mod) {
+  let bad = 0;
+  const say = function (ok, what) {
+    if (!ok) { console.log('BAD  ' + what); bad++; }
+    else console.log('ok   ' + what);
+  };
+  const utf16 = function (str) {
+    const n = str.length;
+    const p = mod.ccall('malloc', 'number', ['number'], [2 * n]);
+    for (let i = 0; i < n; i++)
+      mod.HEAPU16[(p >> 1) + i] = str.charCodeAt(i);
+    return { p: p, n: n };
+  };
+  mod.ccall('jw_resize', 'number', ['number', 'number'], [1264, 741]);
+
+  /* a name far longer than the caption buffer, in characters that are two
+     CP932 bytes each, so what it "would take" is four times the length */
+  let s = '';
+  for (let i = 0; i < 400; i++) s += String.fromCharCode(0x3042 + (i % 80));
+  let a = utf16(s);
+  mod.ccall('jw_name', null, ['number', 'number'], [a.p, a.n]);
+  mod.ccall('free', null, ['number'], [a.p]);
+  say(true, 'jw_name survives a 400-character name');
+
+  /* and one just over: the caption buffer is 128 bytes, so 70 two-byte
+     characters put the NUL a dozen past the end -- which is where a
+     sanitizer's red zone is.  A much longer name overshoots the red zone
+     into other live stack and is not noticed, so this is the length that
+     has teeth. */
+  let just = '';
+  for (let i = 0; i < 70; i++) just += String.fromCharCode(0x3042 + (i % 80));
+  a = utf16(just);
+  mod.ccall('jw_name', null, ['number', 'number'], [a.p, a.n]);
+  mod.ccall('free', null, ['number'], [a.p]);
+  say(true, 'jw_name survives one just over the caption buffer');
+
+  a = utf16('');
+  mod.ccall('jw_name', null, ['number', 'number'], [a.p, 0]);
+  mod.ccall('free', null, ['number'], [a.p]);
+  say(true, 'jw_name survives an empty one');
+
+  /* text straight in, longer than its 512-byte buffer */
+  a = utf16(s);
+  mod.ccall('jw_text_in', 'number', ['number', 'number'], [a.p, a.n]);
+  mod.ccall('free', null, ['number'], [a.p]);
+  say(true, 'jw_text_in survives more than it can hold');
+
+  /* one unit at a time, the way an IME sends it, including the edges */
+  for (const c of [0x41, 0x3042, 0xff9f, 0xd800, 0xdfff, 0xffff, 0]) {
+    mod.ccall('jw_key_u', 'number', ['number'], [c]);
+    mod.ccall('jw_compose_u', 'number', ['number'], [c]);
+  }
+  mod.ccall('jw_compose_u', 'number', ['number'], [-1]);
+  say(true, 'jw_key_u and jw_compose_u take every kind of unit');
+
+  /* junk at the file readers, which the page hands straight over */
+  const junk = mod.ccall('malloc', 'number', ['number'], [64]);
+  for (let i = 0; i < 64; i++) mod.HEAPU8[junk + i] = (i * 37) & 255;
+  for (const f of ['jw_open', 'jw_open_dxf', 'jw_open_sfc', 'jw_open_jwc',
+                   'jw_figure', 'jw_coord']) {
+    mod.ccall(f, 'number', ['number', 'number'], [junk, 64]);
+    mod.ccall(f, 'number', ['number', 'number'], [junk, 0]);
+  }
+  mod.ccall('free', null, ['number'], [junk]);
+  say(true, 'the readers take junk and nothing of it');
+
+  return bad;
+}
+
 (async function () {
   const mod = await createJwcad();
+
+  if (process.argv[2] === '--api') {
+    process.exit(api(mod) ? 1 : 0);
+  }
 
   /* --each <list> <dir> [w h]: every drawing named in the list file, one
      PNG each in that directory, all from one start of the module.  Starting

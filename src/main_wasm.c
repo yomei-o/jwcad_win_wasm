@@ -144,8 +144,15 @@ EMSCRIPTEN_KEEPALIVE void jw_name(const unsigned short *s, int n)
     char buf[128];
     long m = jw_from_utf16(s, n, buf, sizeof buf - 1);
 
+    /* jw_from_utf16 returns what the name WOULD take, not what fitted, so a
+       long one gives an m past the end of buf -- jw_key_u and jw_text_in
+       above guard against that with their `i < sizeof buf`, and this had
+       nothing.  A file name of a couple of hundred characters wrote the NUL
+       off the end of the stack frame. */
     if (m < 0)
         m = 0;
+    if (m > (long)sizeof buf - 1)
+        m = (long)sizeof buf - 1;   /* cut it, lead byte and all */
     buf[m] = 0;
     app_title(buf);
     app_paint();
