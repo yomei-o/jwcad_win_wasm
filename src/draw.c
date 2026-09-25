@@ -609,6 +609,46 @@ mirror:
     return n;
 }
 
+/* Which way the arc's end really points.  FUN_00421490 does not hand GDI an
+ * angle: it hands it the *pixel* the ray lands on, and it gets there by
+ * truncating -- `(int)(rp * cos a)` across and `-(int)(rp * sin a)` down.
+ * GDI then takes the ray through that whole pixel, so an end at 30 degrees
+ * on a radius of 24 is really an end at atan2(12, 20) = 30.96 degrees.  The
+ * difference is under a degree but it moves the last pixel of the walk, and
+ * over half of what is left of the residue sits within three pixels of an
+ * arc's end. */
+static double ray_angle(int rp, double a)
+{
+    int x = (int)(rp * cos(a)), y = (int)(rp * sin(a));
+
+    if (!x && !y)
+        return a;
+    return atan2((double)y, (double)x);
+}
+
+/* FUN_00421490 asks GDI for the boundary only while the *centre* of the
+ * circle is inside the drawing area -- the four tests against the window in
+ * millimetres (doc+0x79f8, +0x7a00, +0x7a08, +0x7a10) that sit next to the
+ * line-type test and jump to the polyline with it.  The printing side
+ * (around line 31175 of all_00401000.c) spells the same four out the other
+ * way round, as the condition for taking the GDI arm.  So a circle whose
+ * middle has been scrolled off the edge is drawn as a chord walk, on the
+ * other ring. */
+static int centre_inside(const jw_view *v, double cx, double cy)
+{
+    static int anywhere = -1;
+    int x, y;
+
+    if (anywhere < 0)
+        anywhere = getenv("JW_ARC_ANYWHERE") != 0;
+    if (anywhere)
+        return 1;
+    x = jw_sx(v, cx);
+    y = jw_sy(v, cy);
+    return x > v->clip.x && x < v->clip.x + v->clip.w &&
+           y > v->clip.y && y < v->clip.y + v->clip.h;
+}
+
 /* An arc: centre, radius, flattening, start and end angle, tilt.  A solid
  * circle goes through GDI's own boundary; anything else is a polyline, and
  * the two do not land on the same ring. */
@@ -643,7 +683,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
      * below.  FUN_00421490 asks for the GDI arc only when the line type's
      * entry in the table at +0x2fc4 is -1, which is what 実線 has: with any
      * other type it jumps straight to the polyline. */
-    if (flat == 1.0 && LTYPE[lt].bits == 0xffffffffu) {
+    if (flat == 1.0 && LTYPE[lt].bits == 0xffffffffu
+        && centre_inside(v, cx, cy)) {
         static short pts[2 * ARC_MAX];
         int rp = (int)(r / v->mmpp + 0.5);     /* FUN_004b8250 */
         int cxp = jw_sx(v, cx), cyp = jw_sy(v, cy);
@@ -657,7 +698,11 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
          * the one the chord walk lands on -- which is why the original's
          * dashed 40 mm circle measures 65.11 about 436.54,279.30 where its
          * solid one measures 64.32 about 435.50,278.49. */
-        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI);
+        /* Whole or not: the original's test is `6.283185207179586 < |sweep|`
+           -- a tenth of a microradian short of a turn, not a turn.  A file
+           that stores its circles a hair under 2 pi (and some do) would
+           otherwise land on the arc's ring, half a pixel off the circle's. */
+        int odd = !(sweep > 2 * PI - 1e-7 || sweep < -(2 * PI - 1e-7));
         /* A whole circle under two pixels across is not drawn as a circle
          * at all: FUN_00421490 moves to the centre and draws the one pixel
          * (the `if (local_e8 < 2)` arm, MoveTo then LineTo one to the
@@ -678,6 +723,17 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             double span = sweep < 0 ? -sweep : sweep;
             int start = 0;
             double bestd = 1e9;
+            static int rays = -1;
+
+            if (rays < 0)
+                rays = getenv("JW_ARC_NORAY") == 0;
+            if (rays && !full) {
+                double e = ray_angle(rp, a + sweep);
+                a = ray_angle(rp, a);
+                span = step > 0 ? e - a : a - e;
+                while (span < 0) span += 2 * PI;
+                while (span >= 2 * PI) span -= 2 * PI;
+            }
 
             /* Which boundary pixel the arc starts on.  The pixels are not
              * spaced evenly in angle, so ask each one rather than working
