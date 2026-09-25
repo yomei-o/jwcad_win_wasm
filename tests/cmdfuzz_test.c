@@ -85,13 +85,20 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    for (i = 1; i < argc; i++) {
-        FILE *f = fopen(argv[i], "rb");
+    /* with no file named, the drawing begun from nothing: the commands that
+       make the first element of all have nothing under them then */
+    for (i = 1; i < (argc > 1 ? argc : 2); i++) {
+        FILE *f = argc > 1 ? fopen(argv[i], "rb") : 0;
         unsigned char *b;
         long n;
         int k;
         clock_t t0;
 
+        if (argc < 2) {
+            app_new();
+            files++;
+            goto drive;
+        }
         if (!f) {
             printf("BAD  %s: cannot open\n", argv[i]);
             bad++;
@@ -117,6 +124,7 @@ int main(int argc, char **argv)
         }
         free(b);
         files++;
+    drive:
         t0 = clock();
 
         for (k = 0; k < steps; k++) {

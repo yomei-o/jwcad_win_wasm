@@ -73,6 +73,7 @@ echo "=== 壊れたファイル —— 読み手が落ちず、いつまでも�
 echo
 echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が壊れないか"
 ./tests/cmdfuzz_test.exe orig/Test1.jww orig/Test5.jww orig/Test7.jww     2>/dev/null | sed 's/^/    /'
+./tests/cmdfuzz_test.exe 2>/dev/null | sed 's/^/    from nothing: /'
 
 echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
