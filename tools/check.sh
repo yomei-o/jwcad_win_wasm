@@ -329,6 +329,18 @@ for n in 1 7; do
 done
 
 echo
+echo "=== 同梱の図面をぜんぶ描いてみる —— 落ちないか"
+n=0
+for f in orig/*.jww; do
+    if ./tests/shot.exe tests/out/all.png "$f" >/dev/null 2>&1; then
+        n=$((n + 1))
+    else
+        echo "    BAD  $f"
+    fi
+done
+printf '    %s of %s drawn\n' "$n" "$(ls orig/*.jww | wc -l)"
+
+echo
 echo "=== drawings against the original"
 echo "    the glyphs cannot match -- the original draws them with a Windows"
 echo "    font -- so the text rectangles are scored separately"
