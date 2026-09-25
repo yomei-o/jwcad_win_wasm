@@ -97,6 +97,10 @@ static int feature(sfcr *r)
         while (r->p < r->n && (r->b[r->p] == '\r' || r->b[r->p] == '\n'
                                || r->b[r->p] == ' '))
             r->p++;
+        /* a file that stops right after `/*SXF` leaves p at the end here,
+           and the test below would read the byte after it */
+        if (r->p >= r->n)
+            return 0;
         if (r->b[r->p] != '#')
             continue;
         while (r->p < r->n && r->b[r->p] != '=')
@@ -120,8 +124,8 @@ static int feature(sfcr *r)
                 break;
             esc = r->b[r->p] == '\\';
             if (esc)
-                r->p++;
-            if (r->b[r->p] != '\'')
+                r->p++;         /* which can put p on the end */
+            if (r->p >= r->n || r->b[r->p] != '\'')
                 break;
             r->p++;
             for (i = 0; r->p < r->n && i < NAME - 1; i++) {

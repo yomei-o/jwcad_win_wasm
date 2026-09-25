@@ -167,6 +167,7 @@ int main(int argc, char **argv)
 {
     int i, files = 0, tries = 0, read_ok = 0;
     const char *seed = getenv("JW_FUZZ_SEED");
+    const int trace = getenv("JW_FUZZ_TRACE") != 0;
 
     if (seed && *seed) {
         rng = strtoul(seed, 0, 0);
@@ -209,6 +210,14 @@ int main(int argc, char **argv)
             if (!c)
                 break;
             memcpy(c, b, (size_t)k);
+            /* JW_FUZZ_TRACE prints the case before it is read, so that a
+               run that dies inside a reader says which file and how much of
+               it was handed over.  A sanitizer build stops at the fault
+               with no stack worth reading, and this is what is left. */
+            if (trace) {
+                printf("try %s cut to %ld\n", argv[i], k);
+                fflush(stdout);
+            }
             read_ok += one(c, k, kind) ? 1 : 0;
             tries++;
             free(c);

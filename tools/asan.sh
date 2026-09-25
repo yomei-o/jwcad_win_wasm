@@ -1,0 +1,72 @@
+#!/bin/sh
+# Run the damaged-file fuzzer under AddressSanitizer.
+#
+#   sh tools/asan.sh
+#
+# tests/fuzz_test.c hands the readers copies of a file cut short, each one
+# allocated at exactly its length, so a read that runs off the end lands in
+# the malloc'd block next door.  Nothing on Windows notices that: w64devkit
+# ships no libasan, and the plain build only catches a read far enough past
+# the end to leave the heap block outright.
+#
+# Emscripten's clang does have AddressSanitizer, and the fuzzer is plain C
+# with no Windows in it, so the whole thing builds for node and runs there
+# with every byte watched.  That is how the two unguarded reads in
+# src/sfcread.c's lexer were found (a file that stops right after `/*SXF`),
+# and the 452-byte header a .jws copies whole even when the file is shorter.
+#
+# It is not in check.sh: the build takes a few minutes and the run is some
+# thirty times slower than the native one.  Run it after touching a reader.
+cd "$(dirname "$0")/.."
+EMSDK="${EMSDK:-/c/prog/emsdk/emsdk}"
+EMCC="$EMSDK/upstream/emscripten/emcc.exe"
+[ -f "$EMCC" ] || { echo "emcc not found at $EMCC" >&2; exit 1; }
+# node comes with emsdk and is not on PATH; where it sits inside the node
+# package moved between the 22 and 24 series, so look in both places
+NODE=""
+for d in "$EMSDK"/node/*/bin "$EMSDK"/node/*; do
+    [ -x "$d/node.exe" ] && { NODE="$d/node.exe"; break; }
+done
+[ -n "$NODE" ] || { echo "no node under $EMSDK/node" >&2; exit 1; }
+
+COMMON="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c
+        src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c
+        src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c
+        src/houraku.c src/view.c src/draw.c src/text.c src/fontx.c
+        src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
+mkdir -p tmp
+# NODERAWFS so it can open the drawings where they are; the heap has to be
+# big enough for the shadow map as well as the drawings, and the run makes
+# some three hundred thousand allocations, so it needs room to spare
+"$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=address \
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=1GB -sMAXIMUM_MEMORY=4GB \
+    -sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1 \
+    -o tmp/fuzz_asan.js tests/fuzz_test.c $COMMON || exit 1
+echo "built tmp/fuzz_asan.js"
+
+JWS=$(ls decomp/res/*.jws 2>/dev/null)
+# JW_FUZZ_TRACE names each case before it is read: a sanitizer build stops
+# at the fault with no stack worth reading, and the last line is what says
+# which file, and how much of it, got there.
+# freed blocks are held back to catch use-after-free, which this does not
+# need: without a small quarantine the run fills memory and stops with
+# "allocator is trying to allocate", which is not a fault in the port
+ASAN_OPTIONS=quarantine_size_mb=16:malloc_context_size=6 \
+JW_FUZZ_TRACE=1 "$NODE" tmp/fuzz_asan.js orig/*.jww decomp/res/*.jww $JWS \
+    decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc > tmp/asan.out 2>&1
+st=$?
+if grep -q "out of memory" tmp/asan.out; then
+    echo "BAD  the sanitizer ran out of room, not a fault in the port --"
+    echo "     give it more INITIAL_MEMORY or a smaller quarantine"
+    grep "^try " tmp/asan.out | tail -1 | sed 's/^/    /'
+    exit 1
+fi
+if grep -q "AddressSanitizer" tmp/asan.out; then
+    echo "BAD  AddressSanitizer stopped it -- the last case tried was:"
+    grep "^try " tmp/asan.out | tail -1 | sed 's/^/    /'
+    grep -m1 -A2 "ERROR: AddressSanitizer" tmp/asan.out | sed 's/^/    /'
+    exit 1
+fi
+[ "$st" = 0 ] || { echo "BAD  it stopped with $st"; tail -5 tmp/asan.out; exit 1; }
+grep -v "^try " tmp/asan.out | tail -2
+echo "ok   no AddressSanitizer report"

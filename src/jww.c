@@ -990,6 +990,13 @@ int jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
         return 0;
     }
     a.o = 0x1c4;                        /* the tables in between are not read */
+    /* The fields above end at 0x15c, so a file that stops between there and
+       0x1c4 gets this far with nothing to complain about -- and the header
+       is copied whole, off the end of the file. */
+    if (n < a.o) {
+        d->error = "the file ends in the middle of the header";
+        return 0;
+    }
     d->nhead = a.o;
     d->head = (unsigned char *)malloc((size_t)d->nhead);
     if (d->head)
