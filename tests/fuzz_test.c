@@ -7,7 +7,9 @@
  * this takes a few hundred cut-down copies (every prefix length on a coarse
  * grid, plus the boundaries of the header) and a few hundred with single
  * bytes changed, and asks the reader the name calls for -- .jww, .jws, DXF,
- * SFC or JWC -- to read them.  The parse
+ * SFC or JWC -- to read them.  Whatever is read is then written back out
+ * every way the port can write, which puts the same rubbish through the
+ * writers.  The parse
  * may fail -- that is the point -- but it has to come back, and it has to
  * leave a drawing that jw_free can let go of.
  *
@@ -56,8 +58,30 @@ static int kind_of(const char *p)
     return 0;
 }
 
-/* how long the last parse took */
-static double worst;
+/* How long one file's whole run may take before it counts as a fault.  Wall
+   clock on a machine with other work on it, so it wants room; the fault this
+   caught the first time ran for twenty minutes on one file. */
+#define SLOW 30.0
+
+static long written;
+
+/* Write it back out every way there is.  A drawing read from a damaged
+ * file holds numbers no drawing ever holds -- angles of 1e300, texts of
+ * nothing, elements on layer 15 of group 15 -- and the writers have to come
+ * back from all of them.  What comes out is not compared with anything:
+ * there is nothing to compare it with. */
+static void write_every_way(const jw_drawing *d)
+{
+    unsigned char *o;
+    long m;
+
+    if (jw_write(d, &o, &m))       free(o);
+    if (jw_write_jws(d, 0, 0, &o, &m)) free(o);
+    if (jw_dxf_write(d, &o, &m))   free(o);
+    if (jw_sfc_write(d, "x", "2026-01-01", &o, &m)) free(o);
+    if (jw_jwc_write(d, &o, &m))   free(o);
+    if (jw_write_coord(d, 0, 0, &o, &m)) free(o);
+}
 
 static int one(const unsigned char *b, long n, int kind)
 {
@@ -73,12 +97,13 @@ static int one(const unsigned char *b, long n, int kind)
     case 4:  ok = jw_jwc_read(&d, b, n);        break;
     default: ok = jw_parse(&d, b, n);           break;
     }
+    /* one parse in sixteen goes back out again: six writers over a quarter
+       of a million drawings would take minutes, and the writers see the
+       same shapes over and over */
+    if (ok && ++written % 16 == 0)
+        write_every_way(&d);
     jw_free(&d);
-    {
-        double t = (double)(clock() - t0) / CLOCKS_PER_SEC;
-        if (t > worst)
-            worst = t;
-    }
+    (void)t0;
     return ok;
 }
 
@@ -91,6 +116,7 @@ int main(int argc, char **argv)
         unsigned char *b, *c;
         long n, k, step, flips;
         int kind = kind_of(argv[i]);
+        clock_t t0;
 
         if (!f) {
             printf("BAD  %s: cannot open\n", argv[i]);
@@ -108,6 +134,7 @@ int main(int argc, char **argv)
         }
         fclose(f);
         files++;
+        t0 = clock();
 
         /* Every prefix up to the end of the header, then a coarser grid --
            coarse enough that a big file does not take a minute on its own
@@ -119,11 +146,7 @@ int main(int argc, char **argv)
             if (!c)
                 break;
             memcpy(c, b, (size_t)k);
-            worst = 0;
             read_ok += one(c, k, kind) ? 1 : 0;
-            if (worst > 1.0)
-                printf("BAD  %s: the first %ld bytes took %.1f s to read\n",
-                       argv[i], k, worst);
             tries++;
             free(c);
         }
@@ -136,15 +159,18 @@ int main(int argc, char **argv)
                 break;
             memcpy(c, b, (size_t)n);
             c[at] = (unsigned char)nextr();
-            worst = 0;
             read_ok += one(c, n, kind) ? 1 : 0;
-            if (worst > 1.0)
-                printf("BAD  %s: byte %ld as %02x took %.1f s to read\n",
-                       argv[i], at, c[at], worst);
             tries++;
             free(c);
         }
         free(b);
+        {   /* a reader that spins on a damaged file is as much a fault as
+               one that falls over: it would take the whole program with it */
+            long ms = (long)(clock() - t0);
+            if (ms > (long)(SLOW * CLOCKS_PER_SEC))
+                printf("BAD  %s: %ld ms to read its damaged copies\n",
+                       argv[i], ms);
+        }
     }
     printf("%d files, %d damaged copies read without falling over"
            " (%d of them parsed)\n", files, tries, read_ok);

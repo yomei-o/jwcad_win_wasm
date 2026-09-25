@@ -608,6 +608,22 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
         o->cls = (unsigned char)cls;
         read_base(a, d->version, o);
         read_body(a, d, d->version, o, L);
+        /* A damaged file can leave 1e300 in a coordinate, and the writers
+           put coordinates through printf's %f into buffers of a couple of
+           hundred bytes -- 1e300 is three hundred and nine digits, and the
+           first thing it overruns is the stack.  Nothing a drawing holds is
+           anywhere near this; a number this big means the record was read
+           with the wrong shape.  (tests/fuzz_test.c found it by writing
+           every damaged drawing back out again.) */
+        {
+            int k;
+            for (k = 0; k < 8; k++)
+                if (!(o->d[k] > -1e12 && o->d[k] < 1e12)) {
+                    d->error = "a coordinate that cannot be";
+                    a->bad = 1;
+                    break;
+                }
+        }
     }
 }
 
@@ -1040,9 +1056,35 @@ int jw_text_drawn(const jw_obj *o)
     return o->cls != JW_MOJI || o->d[0] != o->d[2] || o->d[1] != o->d[3];
 }
 
+/* Are all the numbers ones a drawing could hold?  The writers put every
+   coordinate through printf's %f into buffers of a couple of hundred bytes,
+   and 1e300 is three hundred and nine digits -- the first thing it overruns
+   is the stack.  Millimetres on a sheet never reach 1e12, so anything past
+   that came out of a damaged file.  The .jww reader checks each record as it
+   goes; the readers for the text formats call this at the end.
+   (tests/fuzz_test.c found the overrun, in src/sfcwrite.c.) */
+int jw_numbers_sane(const jw_drawing *d)
+{
+    int i, k;
+
+    for (i = 0; i < d->nobj; i++)
+        for (k = 0; k < 8; k++)
+            if (!(d->obj[i].d[k] > -1e12 && d->obj[i].d[k] < 1e12))
+                return 0;
+    return 1;
+}
+
 const char *jw_str(const jw_drawing *d, int off)
 {
-    return off < 0 ? "" : d->pool + off;
+    /* A figure has no pool at all -- jw_parse_jws never reads a name -- and
+       a drawing that came in damaged can carry an offset past the end of
+       one.  Both used to walk off into nothing the moment something asked
+       for the text: writing a figure out as SFC reads the layer group's
+       name, which is offset 0 of a pool that is not there.
+       (tests/fuzz_test.c found it.) */
+    if (off < 0 || !d->pool || off >= d->npool)
+        return "";
+    return d->pool + off;
 }
 
 int jw_str_wide(const jw_drawing *d, int off)

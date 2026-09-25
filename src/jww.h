@@ -185,6 +185,9 @@ typedef struct {
 
 /* Parse `n` bytes.  Returns 0 and sets d->error on a malformed file. */
 int  jw_parse(jw_drawing *d, const unsigned char *b, long n);
+/* Nought when some number in the drawing is one no drawing could hold -- a
+   coordinate of 1e300 and the like, which the writers cannot format. */
+int  jw_numbers_sane(const jw_drawing *d);
 
 /* The same for a 図形 file (.jws), which 図形読込 (32862) puts up a file
  * dialog for.  It is the same CArchive stream behind a header of its own:

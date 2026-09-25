@@ -528,5 +528,9 @@ int jw_sfc_read(jw_drawing *d, const unsigned char *b, long n)
         o->block = 0;
     }
     free(r);
+    if (!jw_numbers_sane(d)) {
+        d->error = "a coordinate that cannot be";
+        return 0;
+    }
     return 1;
 }

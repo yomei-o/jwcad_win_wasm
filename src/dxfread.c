@@ -1293,5 +1293,9 @@ int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
             d->group[i >> 4].layer_name[i & 0xf] =
                 jw_add_str(d, r->lay[i].name);
     free(r);
+    if (!jw_numbers_sane(d)) {
+        d->error = "a coordinate that cannot be";
+        return 0;
+    }
     return 1;
 }
