@@ -340,3 +340,14 @@ for n in 1 7; do
         -i tests/out/mask$n.txt -d tests/out/test$n.diff.png \
         | sed -n '2p;s/^of those/           --/p'
 done
+
+# The fifteen sample drawings, when their reference screens are to hand.
+# tools/refshots.sh takes those by driving the original, so they are not in
+# the repository and this is skipped on a machine that has not taken them.
+if [ -d tmp/refs ] && [ -f tmp/d01.jww ]; then
+    echo
+    echo '=== 15 枚の採点（tools/scoreall.sh）'
+    sh tools/scoreall.sh 2>/dev/null \
+        | awk 'NR > 1 { s += $2; line = line $1 "=" $2 " " }
+               END { print "    " line; print "    合計 " s " 画素" }'
+fi
