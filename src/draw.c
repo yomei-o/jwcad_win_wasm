@@ -522,7 +522,8 @@ static int obj_wide(const jw_drawing *d, const jw_obj *o)
  * off still: up to radius 128 the two rings disagree about 1,456 pixels,
  * 728 each way out of 46,684 (15 drawings: 844 pixels the ellipse way, 827
  * the arc way).  Two arcs do not fold about the axes either, so this box
- * also keeps four quadrants.
+ * also keeps four quadrants.  Cutting that ring at the right pixel is worth
+ * another 13 -- see where the walk stops, below.
  *
  * The points come out in order round the circle so a line type can advance
  * along it, and so an arc can start where it is told to.
@@ -772,19 +773,17 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             int full = !odd;
             double a = a0 + tilt;
             int step = sweep < 0 ? -1 : 1;
-            double span = sweep < 0 ? -sweep : sweep;
             int start = 0;
             double bestd = 1e9;
             static int rays = -1;
+            double aend = a + sweep;
+            int nsteps = n - 1;
 
             if (rays < 0)
                 rays = getenv("JW_ARC_NORAY") == 0;
             if (rays && !full) {
-                double e = ray_angle(rp, a + sweep);
+                aend = ray_angle(rp, a + sweep);
                 a = ray_angle(rp, a);
-                span = step > 0 ? e - a : a - e;
-                while (span < 0) span += 2 * PI;
-                while (span >= 2 * PI) span -= 2 * PI;
             }
 
             /* Which boundary pixel the arc starts on.  The pixels are not
@@ -801,22 +800,40 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 if (dd < 0) dd = -dd;
                 if (dd < bestd) { bestd = dd; start = idx; }
             }
-            if (full)
-                span = 2 * PI;
-            for (idx = 0; idx < n; idx++) {
+            /* Where the walk stops.  Both ends snap to the ring pixel
+             * nearest their ray -- the far one the same way the near one
+             * does, just above -- and then the far pixel is *not* painted,
+             * the way GDI's LineTo does not paint its end point.  That is
+             * also why FUN_00421490 draws a whole circle as two arcs rather
+             * than one: (+r,0) to (-r,0) and back covers the ring exactly
+             * once, with no gap at either seam and nothing drawn twice.
+             *
+             * Stopping instead on the last pixel still inside the sweep
+             * costs 13 pixels over the 15 drawings (827 against 814), and
+             * moving either end one further either way is worse again: the
+             * start one back 848, the start one on 826, the far end one
+             * more back 832. */
+            if (!full) {
+                double bestd2 = 1e9;
+                int endi = start, k;
+                for (k = 0; k < n; k++) {
+                    double t = atan2(-(double)pts[2 * k + 1] - (odd ? 0.0 : 1.0),
+                                     (double)pts[2 * k] + (odd ? 0.0 : 1.0));
+                    double dd = t - aend;
+                    while (dd <= -PI) dd += 2 * PI;
+                    while (dd > PI) dd -= 2 * PI;
+                    if (dd < 0) dd = -dd;
+                    if (dd < bestd2) { bestd2 = dd; endi = k; }
+                }
+                endi = (endi - step) % n;        /* the far pixel is not painted */
+                if (endi < 0) endi += n;
+                nsteps = ((endi - start) * step) % n;
+                if (nsteps < 0) nsteps += n;
+            }
+            for (idx = 0; idx < n && idx <= nsteps; idx++) {
                 int m = (start + step * idx) % n;
                 int sx, sy;
                 if (m < 0) m += n;
-                if (!full && idx) {
-                    /* stop once the walk has covered the sweep */
-                    double t = atan2(-(double)pts[2 * m + 1] - (odd ? 0.0 : 1.0),
-                                     (double)pts[2 * m] + (odd ? 0.0 : 1.0));
-                    double dd = step > 0 ? t - a : a - t;
-                    while (dd < 0) dd += 2 * PI;
-                    while (dd >= 2 * PI) dd -= 2 * PI;
-                    if (dd > span)
-                        break;
-                }
                 sx = cxp + pts[2 * m];
                 sy = cyp + pts[2 * m + 1];
                 if (bits_set(lt, phase, ppb))
