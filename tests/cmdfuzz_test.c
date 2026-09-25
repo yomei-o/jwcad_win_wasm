@@ -65,6 +65,45 @@ static void write_every_way(const jw_drawing *d)
     if (jw_write_coord(d, 0, 0, &o, &m))  free(o);
 }
 
+/* Write it, read that back, write it again: the two writings have to be the
+ * same bytes.  A drawing that has been edited at random holds shapes no file
+ * on disk holds, and this is the one thing that can be checked without
+ * having anything to compare against -- if the second writing differs, then
+ * either the writer put down something the reader does not take back, or the
+ * reader drops something on the way in. */
+static int round_trip(const jw_drawing *d, const char *who)
+{
+    unsigned char *a = 0, *b = 0;
+    long na = 0, nb = 0;
+    jw_drawing e;
+    int ok = 1;
+
+    if (!d || !jw_write(d, &a, &na))
+        return 1;                       /* nothing to hold it against */
+    memset(&e, 0, sizeof e);
+    if (!jw_parse(&e, a, na)) {
+        printf("BAD  %s: what was written will not read back (%s)\n",
+               who, e.error ? e.error : "no reason given");
+        ok = 0;
+    } else if (!jw_write(&e, &b, &nb)) {
+        printf("BAD  %s: what was read back will not write\n", who);
+        ok = 0;
+    } else {
+        if (na != nb || memcmp(a, b, (size_t)na) != 0) {
+            long i = 0;
+            while (i < na && i < nb && a[i] == b[i])
+                i++;
+            printf("BAD  %s: writing it twice gives different bytes"
+                   " (%ld and %ld, they part at %ld)\n", who, na, nb, i);
+            ok = 0;
+        }
+        free(b);
+    }
+    jw_free(&e);
+    free(a);
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     const char *seed = getenv("JW_CMDFUZZ_SEED");
@@ -157,6 +196,8 @@ int main(int argc, char **argv)
             bad++;
         } else {
             write_every_way(app_drawing());
+            if (!round_trip(app_drawing(), argc > 1 ? argv[i] : "(nothing)"))
+                bad++;
         }
         {   /* a command that never comes back is as much a fault as one
                that falls over */
