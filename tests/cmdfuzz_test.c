@@ -27,6 +27,7 @@
 #include "../src/jww.h"
 #include "../src/gen/cmds.h"
 #include "../src/gen/layout.h"
+#include "../src/gen/newjww.h"
 
 static unsigned long rng = 20260925u;
 
@@ -101,6 +102,148 @@ static int round_trip(const jw_drawing *d, const char *who)
     }
     jw_free(&e);
     free(a);
+    return ok;
+}
+
+/* The same for the text formats, which are lossy: DXF, SFC and JWC cannot
+ * carry everything a .jww carries, so the first writing and the second need
+ * not agree.  What must agree is the second and the third -- once the
+ * drawing has been through the format it is a drawing that format can hold,
+ * and putting it through again must not change it any further.
+ *
+ * The text readers read *into* a drawing -- that is what 読込 does in the
+ * original, and what the port's window does: the sheet, the pens and the
+ * rest stay and only the elements are replaced.  So each generation starts
+ * from the same blank drawing the 新規 command starts from, not from a
+ * zeroed struct (a zeroed one has a sheet of nothing, and the extents come
+ * out as nought). */
+static int blank(jw_drawing *d)
+{
+    memset(d, 0, sizeof *d);
+    return jw_parse(d, jw_new_jww, jw_new_jww_len);
+}
+
+static int fmt_write(const jw_drawing *d, int which,
+                     unsigned char **o, long *n)
+{
+    if (which == 0) return jw_dxf_write(d, o, n);
+    if (which == 1) return jw_sfc_write(d, "x", "2026-01-01", o, n);
+    return jw_jwc_write(d, o, n);
+}
+
+static int fmt_read(jw_drawing *d, int which, const unsigned char *b, long n)
+{
+    if (which == 0) return jw_dxf_read(d, b, n);
+    if (which == 1) return jw_sfc_read(d, b, n);
+    return jw_jwc_read(d, b, n);
+}
+
+/* The text formats are lines.  Two writings count as the same when they
+ * have the same lines, except that a line which is a number on both sides
+ * only has to be the same number to within the last place or so: a
+ * coordinate goes out multiplied by the scale and comes back divided by it,
+ * and that is not always the bit pattern it started as.  What this looks
+ * for is a line that has gone, changed or arrived -- not the last digit of
+ * a double. */
+static int same_lines(const unsigned char *a, long na,
+                      const unsigned char *b, long nb,
+                      const char *who, const char *what)
+{
+    long i = 0, j = 0, line = 0;
+
+    while (i < na || j < nb) {
+        char pa[64], pb[64];
+        long ea = i, eb = j, la, lb;
+        char *enda, *endb;
+        double va, vb;
+
+        while (ea < na && a[ea] != 10) ea++;
+        while (eb < nb && b[eb] != 10) eb++;
+        la = ea - i;
+        lb = eb - j;
+        line++;
+        if (la != lb || memcmp(a + i, b + j, (size_t)la) != 0) {
+            /* not the same text: the ways out are both being one number,
+               or the line not being text at all.  JWC has records that
+               carry packed binary -- a curve's points, for one -- and a
+               coordinate in there goes out multiplied by the scale and
+               comes back divided by it, so its last bit can move.  For
+               those only the length is held to. */
+            int ok = 0;
+            long q;
+            int bin = 0;
+
+            for (q = 0; q < la && !bin; q++)
+                if (a[i + q] < 9 || (a[i + q] > 13 && a[i + q] < 32))
+                    bin = 1;
+            for (q = 0; q < lb && !bin; q++)
+                if (b[j + q] < 9 || (b[j + q] > 13 && b[j + q] < 32))
+                    bin = 1;
+            if (bin && la == lb)
+                goto next;
+            if (la > 0 && lb > 0 && la < (long)sizeof pa
+                && lb < (long)sizeof pb) {
+                memcpy(pa, a + i, (size_t)la); pa[la] = 0;
+                memcpy(pb, b + j, (size_t)lb); pb[lb] = 0;
+                va = strtod(pa, &enda);
+                vb = strtod(pb, &endb);
+                while (*enda == 13 || *enda == ' ') enda++;
+                while (*endb == 13 || *endb == ' ') endb++;
+                if (!*enda && !*endb) {
+                    double m = va > 0 ? va : -va;
+                    double e = vb > va ? vb - va : va - vb;
+                    if (m < 1.0) m = 1.0;
+                    ok = e <= m * 1e-12;
+                }
+            }
+            if (!ok) {
+                long k;
+                printf("BAD  %s: %s does not settle -- line %ld"
+                       " (%ld bytes became %ld)\n", who, what, line,
+                       la, lb);
+                printf("       was:");
+                for (k = 0; k < la && k < 48; k++)
+                    printf(" %02x", a[i + k]);
+                printf("\n       now:");
+                for (k = 0; k < lb && k < 48; k++)
+                    printf(" %02x", b[j + k]);
+                printf("\n");
+                return 0;
+            }
+        }
+    next:
+        i = ea + 1;
+        j = eb + 1;
+    }
+    return 1;
+}
+
+static int settles(const jw_drawing *d, int which, const char *who)
+{
+    unsigned char *a = 0, *b = 0, *c = 0;
+    long na = 0, nb = 0, nc = 0;
+    jw_drawing e, f;
+    int ok = 1;
+    static const char *NAME[] = { "DXF", "SFC", "JWC" };
+
+    memset(&e, 0, sizeof e);
+    memset(&f, 0, sizeof f);
+    if (!d || !blank(&e) || !blank(&f))
+        goto done;
+    if (!fmt_write(d, which, &a, &na))
+        goto done;
+    if (!fmt_read(&e, which, a, na) || !fmt_write(&e, which, &b, &nb))
+        goto done;              /* it would not go round once: not this test */
+    if (fmt_read(&f, which, b, nb) && fmt_write(&f, which, &c, &nc)) {
+        if (!same_lines(b, nb, c, nc, who, NAME[which]))
+            ok = 0;
+        free(c);
+    }
+done:
+    free(a);
+    free(b);
+    jw_free(&e);
+    jw_free(&f);
     return ok;
 }
 
@@ -196,8 +339,15 @@ int main(int argc, char **argv)
             bad++;
         } else {
             write_every_way(app_drawing());
-            if (!round_trip(app_drawing(), argc > 1 ? argv[i] : "(nothing)"))
-                bad++;
+            {
+                const char *who = argc > 1 ? argv[i] : "(nothing)";
+                int w;
+                if (!round_trip(app_drawing(), who))
+                    bad++;
+                for (w = 0; w < 3; w++)
+                    if (!settles(app_drawing(), w, who))
+                        bad++;
+            }
         }
         {   /* a command that never comes back is as much a fault as one
                that falls over */
