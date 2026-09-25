@@ -69,4 +69,35 @@ if grep -q "AddressSanitizer" tmp/asan.out; then
 fi
 [ "$st" = 0 ] || { echo "BAD  it stopped with $st"; tail -5 tmp/asan.out; exit 1; }
 grep -v "^try " tmp/asan.out | tail -2
-echo "ok   no AddressSanitizer report"
+echo "ok   the readers, no AddressSanitizer report"
+
+# And the same for the command fuzzer, which walks the whole port rather
+# than the readers: commands, the drawing code and the writers all run with
+# every byte watched.
+"$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=address \
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=1GB -sMAXIMUM_MEMORY=4GB \
+    -sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1 \
+    -o tmp/cmdfuzz_asan.js tests/cmdfuzz_test.c $COMMON || exit 1
+echo "built tmp/cmdfuzz_asan.js"
+
+bad=0
+for s in 1 2 3; do
+    for args in "orig/Test1.jww orig/Test5.jww orig/Test7.jww" ""; do
+        ASAN_OPTIONS=quarantine_size_mb=16:malloc_context_size=6 \
+        JW_CMDFUZZ_SEED=$s JW_CMDFUZZ_STEPS=600 \
+            "$NODE" tmp/cmdfuzz_asan.js $args > tmp/asan_cmd.out 2>&1
+        st=$?
+        if grep -q "ERROR: AddressSanitizer" tmp/asan_cmd.out; then
+            echo "BAD  seed $s ${args:-(from nothing)}:"
+            grep -m1 -A4 "ERROR: AddressSanitizer" tmp/asan_cmd.out |
+                sed 's/^/    /'
+            bad=$((bad + 1))
+        elif [ "$st" != 0 ]; then
+            echo "BAD  seed $s ${args:-(from nothing)} stopped with $st"
+            tail -4 tmp/asan_cmd.out | sed 's/^/    /'
+            bad=$((bad + 1))
+        fi
+    done
+done
+[ "$bad" = 0 ] || exit 1
+echo "ok   the commands, no AddressSanitizer report"
