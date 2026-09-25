@@ -1058,7 +1058,18 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
              *     0     #   .   .   .   #
              *     1     #   .   .   .   #
              *     2     .   #   #   #   .
-             */
+             *
+             * **There is more to a 仮点 than this.**  FUN_00424200 draws
+             * one of five shapes by a setting at doc+0x8238 -- one pixel,
+             * a cross, a filled square, or a wider one again -- and before
+             * that it will draw a circle instead, of a radius the drawing
+             * keeps per line colour at doc+0x68c0 + colour*8 (millimetres,
+             * rounded to pixels), when the switch at doc+0x797c (screen) or
+             * doc+0x7980 (printer) is on.  Which is why サンプル.jww and
+             * Ａマンション平面例.jww show their 仮点 as a 3 by 3 block
+             * where Test3.jww shows one pixel.  Neither the table nor the
+             * switches have been found in the file yet, so this draws the
+             * one pixel; it costs about 150 pixels over the fifteen. */
             static const signed char RING[11][2] = {
                 { -1, -2 }, { 0, -2 },
                 { -2, -1 }, { 1, -1 },

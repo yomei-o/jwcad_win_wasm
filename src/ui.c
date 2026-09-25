@@ -613,10 +613,13 @@ static void paint_bars(fb_t *fb)
 }
 
 /* The layer-group and layer grids: two 2x8 grids of 19x21 cells, each cell a
- * bitmap from the resources.  The top-left cell of a grid uses the variant
+ * bitmap from the resources.  **The one being written to** uses the variant
  * with the black top and left edge (2652); the others carry black on the
- * bottom and right (2662), so the cells tile into one grid with a single
- * outline.  Only the face colour is remapped -- the grey stays 0x808080,
+ * bottom and right (2662).  It looked like "the top-left cell" for a long
+ * while, because a new drawing writes to group 0 and layer 0 and those are
+ * the top-left cells -- but Test6.jww writes to group 4, and there the
+ * original puts the 2652 cell on row 4 of the group grid and leaves row 0
+ * alone.  Only the face colour is remapped -- the grey stays 0x808080,
  * unlike a toolbar bitmap. */
 #define LAYER_CELL_W 19
 #define LAYER_CELL_H 21
@@ -701,7 +704,7 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
                         + col * LAYER_CELL_W;
                 int y = layer_grids[g].y + row * LAYER_CELL_H;
 
-                blit_layer_cell(fb, (col == 0 && row == 0) ? 2652 : 2662,
+                blit_layer_cell(fb, n == write[g] ? 2652 : 2662,
                                 x, y,
                                 ui_right(layer_grids[g].clip, fb->w));
                 if (n == write[g]) {
@@ -719,8 +722,11 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
                         fb_edge(fb, x + 2, y + 4, 16, 16, 0xff0000u, 0xff0000u);
                     }
                 } else {
-                    /* every group cell carries a black box round its digit */
-                    if (g == 1)
+                    /* a group cell carries a black box round its digit only
+                     * while the group can be drawn on: 表示のみ and 非表示
+                     * ones show the bar that says they hold something and
+                     * nothing else (Test6.jww has three of them) */
+                    if (g == 1 && d && d->group[n].state >= 2)
                         fb_edge(fb, x + 1, y + 3, 16, 16,
                                 C_BTNTEXT, C_BTNTEXT);
                     if (used[g][n])

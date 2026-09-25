@@ -485,10 +485,10 @@ outside the text areas: 0 differ (0.000%)
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 
 === drawings against the original
-    Test1  outside the text areas: 28 differ (0.003%)
-           --, 0 are one pixel out (0%) and 28 are somewhere else entirely
-    Test7  outside the text areas: 23 differ (0.002%)
-           --, 0 are one pixel out (0%) and 23 are somewhere else entirely
+    Test1  outside the text areas: 8 differ (0.001%)
+           --, 0 are one pixel out (0%) and 8 are somewhere else entirely
+    Test7  outside the text areas: 3 differ (0.000%)
+           --, 0 are one pixel out (0%) and 3 are somewhere else entirely
 ```
 
 検査は全部で **1,190 項目**あり、その多くは**原典に同じ操作をさせて保存させた
@@ -501,14 +501,16 @@ tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 渡していました（刻み幅は「図面のミリ」の階段で決まり、パターンの位置は
 弦をまたいで持ち回されます）。同梱 15 枚の残差が **4,445 → 1,933 画素**、
 `天空率表.jww` は 1,487 → 132、`Test1` は 193 → 28 になりました
-（RESUME.md の「破線の円弧」）。残るのは線の位置が 1 画素ずれるもので、
-円弧とは別の話に見えます。
+（RESUME.md の「破線の円弧」）。**レイヤの格子の印**も直して
+（2652 の升は左上ではなく「書き込んでいる升」）、合計 **1,416 画素**。
+残るのは線の位置が 1 画素ずれるものと、**仮点の形**です
+（RESUME.md の「仮点の形」）。
 
 同梱 15 枚ぶんは `sh tools/refshots.sh && sh tools/scoreall.sh`
 （基準画像は**前面で**撮る必要があります。背景の `PrintWindow` では
-作図領域が当てになりません）。いまは画布に対して 0.000%〜0.064%、
-`円地図.jww` が 0 画素、悪いのが `Ａマンション平面例` の 490 画素
-（0.064%）です。
+作図領域が当てになりません）。いまは画布に対して 0.000%〜0.062%、
+`Test5.jww` と `円地図.jww` が 0 画素、悪いのが
+`Ａマンション平面例` の 470 画素（0.062%）です。
 
 図面のほうは、**字形の入る矩形を別勘定**にしてこの数字です
 （`tests/shot.exe` が図面から矩形を書き出し、`tools/cmp.py` がそれを外します）。
