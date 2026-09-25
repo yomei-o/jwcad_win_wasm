@@ -12,6 +12,7 @@ rectangles it looks for the nearest element in tests/shot.exe's dump
   * on an arc, near one of its two ends
   * on an arc, away from the ends
   * on a straight line
+  * on a point or inside a solid
   * on nothing anyone drew
 
 The three classes want different work: the ends are the rule for where the
@@ -45,9 +46,9 @@ def rects(path):
 
 
 def elements(path):
-    arcs, segs = [], []
+    arcs, segs, dots, blobs = [], [], [], []
     if not os.path.exists(path):
-        return arcs, segs
+        return arcs, segs, dots, blobs
     for line in open(path):
         f = line.split()
         if not f or f[0].startswith("#"):
@@ -59,7 +60,12 @@ def elements(path):
         elif f[0] == "seg":
             segs.append((int(f[1]), float(f[2]), float(f[3]), float(f[4]),
                          float(f[5]), int(f[6])))
-    return arcs, segs
+        elif f[0] == "dot":
+            dots.append((int(f[1]), float(f[2]), float(f[3])))
+        elif f[0] == "blob":
+            blobs.append((int(f[1]), float(f[2]), float(f[3]), float(f[4]),
+                          float(f[5])))
+    return arcs, segs, dots, blobs
 
 
 def on_arc(px, py, a):
@@ -128,7 +134,7 @@ def main():
                 for xx in range(max(0, x), min(w, x + rw)):
                     row[xx] = True
 
-    arcs, segs = elements(out + ".elems")
+    arcs, segs, dots, blobs = elements(out + ".elems")
     if not arcs and not segs:
         sys.exit("no %s.elems -- run shot.exe with JW_SHOT_ELEMS=1" % out)
 
@@ -141,7 +147,7 @@ def main():
     bg = max(seen, key=seen.get)
 
     order = ("arc end", "arc middle", "arc outside the sweep", "line",
-             "nothing")
+             "point", "solid", "nothing")
     tally = dict((k, [0, 0]) for k in order)    # [ours only, theirs only]
     worst = []
     for y in range(h):
@@ -165,6 +171,21 @@ def main():
             if near[0] <= NEAR:
                 tally["line"][side] += 1
                 worst.append((x, y, "seg %d" % near[1], near[0], 0.0))
+                continue
+            # a point wears a ring of up to 3 pixels; a solid fills a box
+            hit = None
+            for i2, px2, py2 in dots:
+                if abs(x - px2) <= 4 and abs(y - py2) <= 4:
+                    hit = ("point", "dot %d" % i2)
+                    break
+            if hit is None:
+                for i2, x0, y0, x1, y1 in blobs:
+                    if x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1:
+                        hit = ("solid", "blob %d" % i2)
+                        break
+            if hit is not None:
+                tally[hit[0]][side] += 1
+                worst.append((x, y, hit[1], 0.0, 0.0))
             else:
                 tally["nothing"][side] += 1
                 worst.append((x, y, "-", 0.0, 0.0))

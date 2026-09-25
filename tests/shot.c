@@ -108,8 +108,27 @@ int main(int argc, char **argv)
             fprintf(m, "# arc  <i> <cx> <cy> <r> <a0> <sweep> <ltype>"
                        " <flat> <tilt> <colour> <group> <layer>\n");
             fprintf(m, "# seg  <i> <x0> <y0> <x1> <y1> <ltype>\n");
+            fprintf(m, "# dot  <i> <x> <y> <shape>\n");
+            fprintf(m, "# blob <i> <x0> <y0> <x1> <y1>"
+                       "   (a solid, its corners)\n");
             for (i = 0; i < d->nobj; i++) {
                 const jw_obj *o = &d->obj[i];
+                if (o->cls == JW_TEN)
+                    fprintf(m, "dot %d %d %d %d\n", i,
+                            jw_sx(&v, o->d[0]), jw_sy(&v, o->d[1]), o->ltype);
+                else if (o->cls == JW_SOLID) {
+                    double x0 = o->d[0], y0 = o->d[1], x1 = x0, y1 = y0;
+                    int k;
+                    for (k = 1; k < 4; k++) {
+                        if (o->d[2 * k] < x0) x0 = o->d[2 * k];
+                        if (o->d[2 * k] > x1) x1 = o->d[2 * k];
+                        if (o->d[2 * k + 1] < y0) y0 = o->d[2 * k + 1];
+                        if (o->d[2 * k + 1] > y1) y1 = o->d[2 * k + 1];
+                    }
+                    fprintf(m, "blob %d %d %d %d %d\n", i,
+                            jw_sx(&v, x0), jw_sy(&v, y1),
+                            jw_sx(&v, x1), jw_sy(&v, y0));
+                }
                 if (o->cls == JW_ENKO)
                     fprintf(m, "arc %d %d %d %.4f %.12g %.12g %d"
                                " %.6f %.6f %d %d %d %.10g %d %ld\n", i,
