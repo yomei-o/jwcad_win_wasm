@@ -137,10 +137,15 @@ int main(int argc, char **argv)
                             o->d[6], o->d[5], o->color, o->lgroup, o->layer,
                             o->d[2], o->flags, (long)o->n);
                 else if (o->cls == JW_SEN)
-                    fprintf(m, "seg %d %d %d %d %d %d\n", i,
+                    fprintf(m, "seg %d %d %d %d %d %d"
+                               " %.17g %.17g %.17g %.17g\n", i,
                             jw_sx(&v, o->d[0]), jw_sy(&v, o->d[1]),
                             jw_sx(&v, o->d[2]), jw_sy(&v, o->d[3]),
-                            o->ltype);
+                            o->ltype,
+                            v.bx + jw_ux(&v, o->d[0]),
+                            v.by - jw_uy(&v, o->d[1]),
+                            v.bx + jw_ux(&v, o->d[2]),
+                            v.by - jw_uy(&v, o->d[3]));
             }
         }
         if (m)
