@@ -118,8 +118,30 @@ static int one(const unsigned char *b, long n, int kind)
         unsigned char *raw = 0;
         long rawn = 0;
         if (jw_write(&d, &raw, &rawn)) {
-            if (app_open(raw, rawn))
+            if (app_open(raw, rawn)) {
                 app_paint();
+                /* And again zoomed a long way in.  Fitting the sheet puts
+                   about half a millimetre in a pixel whatever the drawing
+                   says, so painting only at the fit never asks for a circle
+                   wider than the window -- and a radius of a few thousand
+                   pixels is its own country in src/draw.c: past 256 the ring
+                   comes from a midpoint walk rather than the table, and that
+                   walk was writing past its quadrant from 5,792 up.
+
+                   The step is drawn rather than fixed, for the same reason
+                   the truncation grid is: a fixed one lands every drawing on
+                   the same handful of radii, and the band that mattered here
+                   is only a factor of 1.4 wide. */
+                {
+                    double f = 1.5 + (double)(nextr() % 40) / 10.0;
+                    int z;
+
+                    for (z = 0; z < 8; z++) {
+                        app_zoom(f, 160, 120);
+                        app_paint();
+                    }
+                }
+            }
             free(raw);
         }
     }
