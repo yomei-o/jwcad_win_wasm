@@ -82,6 +82,51 @@ int main(int argc, char **argv)
             fclose(m);
         }
     }
+
+    /* And, when asked, where every element landed in pixels, so that
+     * tools/why.py can say which element each remaining wrong pixel belongs
+     * to.  One line an element: the class, then the numbers in the device
+     * frame -- a circle as centre and radius, everything else as the two
+     * corners of what it covers. */
+    if (getenv("JW_SHOT_ELEMS")) {
+        const jw_drawing *d = app_drawing();
+        char path[512];
+        FILE *m;
+
+        snprintf(path, sizeof path, "%s.elems", out);
+        m = fopen(path, "w");
+        if (m && d) {
+            const jw_view *vp = app_view();
+            jw_view v = *vp;
+            int i;
+
+            fprintf(m, "# element, pixels, from tests/shot.c\n");
+            fprintf(m, "# pen widths 1..9:");
+            for (i = 1; i <= 9; i++)
+                fprintf(m, " %d", d->pen_width[i]);
+            fprintf(m, "\n");
+            fprintf(m, "# arc  <i> <cx> <cy> <r> <a0> <sweep> <ltype>"
+                       " <flat> <tilt> <colour> <group> <layer>\n");
+            fprintf(m, "# seg  <i> <x0> <y0> <x1> <y1> <ltype>\n");
+            for (i = 0; i < d->nobj; i++) {
+                const jw_obj *o = &d->obj[i];
+                if (o->cls == JW_ENKO)
+                    fprintf(m, "arc %d %d %d %.4f %.12g %.12g %d"
+                               " %.6f %.6f %d %d %d %.10g %d %ld\n", i,
+                            jw_sx(&v, o->d[0]), jw_sy(&v, o->d[1]),
+                            o->d[2] / v.mmpp, o->d[3], o->d[4], o->ltype,
+                            o->d[6], o->d[5], o->color, o->lgroup, o->layer,
+                            o->d[2], o->flags, (long)o->n);
+                else if (o->cls == JW_SEN)
+                    fprintf(m, "seg %d %d %d %d %d %d\n", i,
+                            jw_sx(&v, o->d[0]), jw_sy(&v, o->d[1]),
+                            jw_sx(&v, o->d[2]), jw_sy(&v, o->d[3]),
+                            o->ltype);
+            }
+        }
+        if (m)
+            fclose(m);
+    }
     if (!png_rgb(out, fb->w, fb->h, fb->px)) {
         fprintf(stderr, "cannot write %s\n", out);
         return 1;
