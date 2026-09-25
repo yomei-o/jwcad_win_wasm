@@ -1036,9 +1036,23 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
     for (i = 0; i < d->ndrawn; i++)
         if (d->obj[i].cls == JW_SOLID && shown(d, &d->obj[i]))
             solid(fb, v, d, &d->obj[i]);
-    for (i = 0; i < d->ndrawn; i++) {
-        const jw_obj *o = &d->obj[i];
-        if (!shown(d, o) || o->cls == JW_SOLID)
+    /* And the flat grey of the 表示のみ layers goes down before the rest of
+     * the lines, not in element order.  日影図.jww is the one that says so:
+     * its 表示のみ layers cross the editable ones all over, and taken in
+     * order the grey buries 125 pixels the original has in black.  Drawing
+     * the grey first takes that drawing from 400 mismatched pixels to 275.
+     * (The solids above come first of all, for the same kind of reason.)
+     *
+     * The loop runs twice over the elements: once for the grey ones, once
+     * for the rest. */
+    for (i = 0; i < 2 * d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i % d->ndrawn];
+        int grey_pass = i < d->ndrawn;
+        int state = shown(d, o);
+
+        if (!state || o->cls == JW_SOLID)
+            continue;
+        if ((state == 1) != grey_pass)
             continue;
         unsigned int col = obj_colour(d, o);
         int wide = obj_wide(d, o);
