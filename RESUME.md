@@ -251,7 +251,7 @@ GDI の `CDC::Arc` に渡しています。環の表は真円も部分円弧も 
 **残った画素を調べる道具**が `tools/why.py` と `tools/arcrp.py` です
 （`JW_SHOT_ELEMS=1 ./tests/shot.exe …` が要素の落ちた場所を書き出します）。
 **壊し方の試験**は `tests/fuzz_test.c`（壊れたファイル 95 万通り）と
-`tests/cmdfuzz_test.c`（コマンドを手当たり次第に 144 万手）。
+`tests/cmdfuzz_test.c`（コマンドを手当たり次第に 204 万手）。
 
 残っているものを、やりやすい順に:
 
@@ -1718,6 +1718,16 @@ check.sh は `Test1`・`Test5`・`Test7` を既定の種で叩き、そのあと
 2,500〜4,000 手ずつ、白紙にも 8,000 手ずつ —— 合わせて **144 万手**を
 VM で流して、**落ちたものも、数の壊れたものも、書き出せなかったものも、
 2 回目の書き出しが 1 バイトでも違ったものもありません**。
+
+**もう一度、幅を広げて**（2026-09-25）: 種 1〜120 で、同梱 16 枚から
+毎回 3 枚ずつ選び分けて 2,500 手、加えて白紙から 2,500 手 ——
+240 回 60 万手で、こちらも **0 件**でした。回し方は
+`scratchpad/soak.sh` と同じで、
+
+    for s in $(seq 1 120); do
+        JW_CMDFUZZ_SEED=$s JW_CMDFUZZ_STEPS=2500 ./tests/cmdfuzz_test.exe <3 枚>
+        JW_CMDFUZZ_SEED=$s JW_CMDFUZZ_STEPS=2500 ./tests/cmdfuzz_test.exe
+    done
 
     for s in 2 3 5 7 11 13; do
         JW_CMDFUZZ_SEED=$s JW_CMDFUZZ_STEPS=2500             ./tests/cmdfuzz_test.exe orig/*.jww
