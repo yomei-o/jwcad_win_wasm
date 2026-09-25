@@ -62,6 +62,15 @@ Yoshifumi Tanaka、2026-09-05 版）を、実行ファイルを Ghidra で逆コ
 基準画像が手元にあれば、**同梱 15 枚の採点**（`tools/scoreall.sh`）も
 最後に出ます。
 
+**読み手や作図をいじったら `sh tools/asan.sh`** も回してください。
+w64devkit には `libasan` がありませんが emscripten の clang にはあるので、
+試験をまるごと node 向けに組んで **AddressSanitizer と未定義動作の
+サニタイザ**に通します。**普通の Windows 版では捕まらない**
+「malloc した塊の中には収まっているがファイルの末尾は越えている読み」や
+「狭い窓で画布の外に書く」を、これが 7 つ見つけました
+（RESUME.md の該当節）。`sh tools/asan.sh all` は答え合わせの試験
+50 本も通します。
+
 ## 目標
 
 **ネイティブの画面と WASM の画面が、ビットマップとして完全に一致すること。**
@@ -126,6 +135,7 @@ Direct2D のアンチエイリアスに追随する必要がなくなります�
 ```sh
 sh tools/gen.sh          # 生成物を全部（-q で原典を動かす手前まで）
 sh tools/check.sh        # 全部の検査
+sh tools/asan.sh         # サニタイザ（読み手や作図をいじったとき）
 ```
 
 `tools/gen.sh` の前半は `Jw_win.exe` を読むだけの計算で 1 分ほど、後半は
