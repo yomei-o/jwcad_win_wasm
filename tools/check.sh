@@ -329,16 +329,41 @@ for n in 1 7; do
 done
 
 echo
-echo "=== 同梱の図面をぜんぶ描いてみる —— 落ちないか"
+echo "=== 同梱の図面をぜんぶ描いてみる —— 落ちないか、両方で同じか"
+# Every drawing, both ways round: the native build and the WebAssembly one
+# go through the same src/*.c, so a drawing that comes out differently is
+# the port leaning on the machine under it (a long double somewhere, a
+# signed char, an int that is 64 bits on one side).  Test1 and Test7 alone
+# used to be the whole of this.
 n=0
+same=0
+tried=0
 for f in orig/*.jww; do
     if ./tests/shot.exe tests/out/all.png "$f" >/dev/null 2>&1; then
         n=$((n + 1))
     else
         echo "    BAD  $f"
+        continue
+    fi
+    command -v node >/dev/null 2>&1 || continue
+    tried=$((tried + 1))
+    if ! node tests/wasm_check.js tests/out/wall.png 1264 741 \
+            --open "$f" >/dev/null 2>&1; then
+        echo "    BAD  $f: the WebAssembly build will not draw it"
+        continue
+    fi
+    if python tools/cmp.py tests/out/all.png tests/out/wall.png 2>/dev/null |
+            head -1 | grep -q ' 0 of '; then
+        same=$((same + 1))
+    else
+        echo "    BAD  $f: native and WebAssembly draw it differently"
+        python tools/cmp.py tests/out/all.png tests/out/wall.png |
+            head -1 | sed 's/^/         /'
     fi
 done
 printf '    %s of %s drawn\n' "$n" "$(ls orig/*.jww | wc -l)"
+[ "$tried" -gt 0 ] &&
+    printf '    %s of %s the same in both builds\n' "$same" "$tried"
 
 echo
 echo "=== drawings against the original"
