@@ -7,6 +7,9 @@
  * so what one reader leaves behind is what the next one starts from.  That
  * is a seam nothing was watching, and it had a hole in it.
  *
+ * What it watches are the counts a reader leaves behind, because those are
+ * what the next one indexes its tables by.
+ *
  * A drawing holds 257 任意色 (xcolor[257]); an SFC may name up to 259.
  * src/sfcread.c stopped the write-back at 256 but let the *count* through,
  * and src/dxfread.c turns that count into the top index of a 357-long
@@ -128,8 +131,14 @@ int main(int argc, char **argv)
             read_as(&d, j, f[j], fn[j]);
             sprintf(what, "%s then %s: the counts stay in their tables",
                     kind_name(i), kind_name(j));
+            /* xcolor_n indexes xcolor[257] and, through src/dxfread.c,
+               col[357]; sxf_n indexes sxf[33]; and ndrawn is the bound of
+               dozens of `for (i = 0; i < d->ndrawn; i++) d->obj[i]` walks,
+               so it must not outrun the objects there are. */
             ck(d.xcolor_n >= 0 && d.xcolor_n <= 256
-               && d.nobj >= 0 && d.nobj <= d.cobj, what);
+               && d.sxf_n >= 0 && d.sxf_n <= 32
+               && d.nobj >= 0 && d.nobj <= d.cobj
+               && d.ndrawn >= 0 && d.ndrawn <= d.nobj, what);
             jw_free(&d);
         }
 
