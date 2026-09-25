@@ -301,14 +301,20 @@ def main():
     #   WHY_BOX=x0,y0,x1,y1 python tools/why.py ref out
     if os.environ.get("WHY_BOX"):
         x0, y0, x1, y1 = (int(v) for v in os.environ["WHY_BOX"].split(","))
-        print("  # both drew it, T theirs only, O ours only  (%d,%d)-(%d,%d)"
-              % (x0, y0, x1, y1))
+        print("  # both drew it, T theirs only, O ours only,"
+              " ~ masked out (text)  (%d,%d)-(%d,%d)" % (x0, y0, x1, y1))
         for yy in range(max(0, y0), min(h, y1 + 1)):
             row = ""
             for xx in range(max(0, x0), min(w, x1 + 1)):
                 ta = pa[xx, yy] != bg
                 tb = pb[xx, yy] != bg
-                row += "#" if ta and tb else "T" if ta else "O" if tb else "."
+                # a masked pixel is not scored at all, so do not let it look
+                # like a difference: the text rectangles cover glyphs, and
+                # the glyphs never match
+                if masked[yy][xx]:
+                    row += "~" if ta or tb else "."
+                else:
+                    row += "#" if ta and tb else "T" if ta else "O" if tb else "."
             print("  %5d %s" % (yy, row))
 
     if os.environ.get("WHY_LIST"):
