@@ -76,6 +76,15 @@ echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が�
 ./tests/cmdfuzz_test.exe 2>/dev/null | sed 's/^/    from nothing: /'
 
 echo
+echo "=== 形式をまたいで続けて読む —— 前の読み手が残したものから始まる"
+# A DXF, an SFC and a JWC all go *into* whatever is open, so what one reader
+# leaves behind is what the next one starts from.  Every other test hands a
+# reader one file and starts again, so this seam had nothing watching it --
+# and it had a hole: an SFC may name 259 colours where a drawing holds 257,
+# and src/dxfread.c indexes a 357-long table by that count.
+./tests/seq_test.exe orig/Test1.jww decomp/res/aci1.dxf decomp/res/geo.sfc     decomp/res/t5.jwc | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests

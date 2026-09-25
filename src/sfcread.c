@@ -97,8 +97,8 @@ static int feature(sfcr *r)
         while (r->p < r->n && (r->b[r->p] == '\r' || r->b[r->p] == '\n'
                                || r->b[r->p] == ' '))
             r->p++;
-        /* a file that stops right after `/*SXF` leaves p at the end here,
-           and the test below would read the byte after it */
+        /* a file that stops right after the comment opener leaves p at the
+           end here, and the test below would read the byte after it */
         if (r->p >= r->n)
             return 0;
         if (r->b[r->p] != '#')
@@ -496,8 +496,14 @@ int jw_sfc_read(jw_drawing *d, const unsigned char *b, long n)
         d->xcolor[i] = r->colour[i];
         d->xcolor_rest[i].rgb2 = r->colour[i];
     }
+    /* The loop above stops at 256 because that is how many the drawing
+       holds; the count has to stop there too.  A file may define up to
+       NCOL-1 = 259 of them, and a count of 257 or more outlives this
+       reader: src/dxfread.c sets `ncol = 100 + xcolor_n` and then walks
+       `col[1 .. ncol]`, which is only 357 long.  So an SFC with more than
+       256 colours, followed by a DXF, read past the end of that table. */
     if (r->ncolour > d->xcolor_n)
-        d->xcolor_n = r->ncolour;
+        d->xcolor_n = r->ncolour > 256 ? 256 : r->ncolour;
 
     d->obj[at].n = d->nobj - first;
     d->obj[at].list[0] = 0;
