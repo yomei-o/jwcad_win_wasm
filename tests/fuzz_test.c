@@ -27,6 +27,8 @@
 
 #include "../src/jww.h"
 
+/* The damage is the same every run, so a fault found here can be looked at
+   again.  JW_FUZZ_SEED picks another set, for a longer soak. */
 static unsigned long rng = 123456789u;
 
 static unsigned long nextr(void)
@@ -164,6 +166,13 @@ static void monsters(void)
 int main(int argc, char **argv)
 {
     int i, files = 0, tries = 0, read_ok = 0;
+    const char *seed = getenv("JW_FUZZ_SEED");
+
+    if (seed && *seed) {
+        rng = strtoul(seed, 0, 0);
+        if (!rng)
+            rng = 1;            /* the shift register has to start somewhere */
+    }
 
     for (i = 1; i < argc; i++) {
         FILE *f = fopen(argv[i], "rb");
