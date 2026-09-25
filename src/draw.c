@@ -690,8 +690,16 @@ static double ray_angle(int rp, double a)
 static int centre_inside(const jw_view *v, double cx, double cy)
 {
     static int anywhere = -1;
+    static int nogdi = -1;
     int x, y;
 
+    /* JW_ARC_NOGDI=1 sends every circle down the polyline instead, to tell
+       the chord ring from GDI's (it is not the answer for `日影図`: 275
+       wrong pixels only come down to 262). */
+    if (nogdi < 0)
+        nogdi = getenv("JW_ARC_NOGDI") != 0;
+    if (nogdi)
+        return 0;
     if (anywhere < 0)
         anywhere = getenv("JW_ARC_ANYWHERE") != 0;
     if (anywhere)
@@ -756,6 +764,19 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
            that stores its circles a hair under 2 pi (and some do) would
            otherwise land on the arc's ring, half a pixel off the circle's. */
         int odd = !(sweep > 2 * PI - 1e-7 || sweep < -(2 * PI - 1e-7));
+        /* JW_ARC_ODDBOX=1 puts a whole circle in the arc's 2r+1 box while
+           still drawing the ring right round.  `日影図`'s one circle wants
+           that box (275 wrong pixels down to 60) and `天空率表`'s do not
+           (14 up to 2,751), and nothing in the elements tells the two apart
+           -- see RESUME.md.  Left here to sort the circles out with. */
+        int oddbox = odd;
+        {
+            static int oddfull = -1;
+            if (oddfull < 0)
+                oddfull = getenv("JW_ARC_ODDBOX") != 0;
+            if (oddfull)
+                oddbox = 1;
+        }
         /* A whole circle under two pixels across is not drawn as a circle
          * at all: FUN_00421490 moves to the centre and draws the one pixel
          * (the `if (local_e8 < 2)` arm, MoveTo then LineTo one to the
@@ -768,7 +789,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         /* debugging hook: write the boundary walk out, so a render can be
            sampled along it and held against the original's */
         int dumpwalk = getenv("JW_ARC_WALK") != 0;
-        int n = circle_points(rp, odd, pts);
+        int n = circle_points(rp, oddbox, pts);
         if (n > 0) {
             int full = !odd;
             double a = a0 + tilt;
@@ -792,8 +813,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
              * (a, b) has its centre at (a + 1, b + 1) from the middle of the
              * circle, which sits half a pixel up and left. */
             for (idx = 0; idx < n; idx++) {
-                double t = atan2(-(double)pts[2 * idx + 1] - (odd ? 0.0 : 1.0),
-                                 (double)pts[2 * idx] + (odd ? 0.0 : 1.0));
+                double t = atan2(-(double)pts[2 * idx + 1] - (oddbox ? 0.0 : 1.0),
+                                 (double)pts[2 * idx] + (oddbox ? 0.0 : 1.0));
                 double dd = t - a;
                 while (dd <= -PI) dd += 2 * PI;
                 while (dd > PI) dd -= 2 * PI;
@@ -817,8 +838,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 double bestd2 = 1e9;
                 int endi = start, k;
                 for (k = 0; k < n; k++) {
-                    double t = atan2(-(double)pts[2 * k + 1] - (odd ? 0.0 : 1.0),
-                                     (double)pts[2 * k] + (odd ? 0.0 : 1.0));
+                    double t = atan2(-(double)pts[2 * k + 1] - (oddbox ? 0.0 : 1.0),
+                                     (double)pts[2 * k] + (oddbox ? 0.0 : 1.0));
                     double dd = t - aend;
                     while (dd <= -PI) dd += 2 * PI;
                     while (dd > PI) dd -= 2 * PI;
