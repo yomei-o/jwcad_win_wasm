@@ -7,11 +7,12 @@
  * window is created and the screen is never touched.
  *
  * Jw_cad draws a whole circle into a box 2r across and a part of one into a
- * box 2r+1 across, so both are written down.  What is stored is one quadrant
- * as a walk from (0,r) to (r,0), two bits a step: 0 along x, 1 along y, 2
- * both at once (GDI's boundary does take diagonal steps).  src/draw.c
- * mirrors that quadrant the other three ways.  GDI's own circle is not quite symmetric (about half a percent of
- * its pixels are not), and that is the price of storing a quarter of it.
+ * box 2r+1 across, so both are written down.  What is stored is each of the
+ * four quadrants as a walk from (0,r) to (r,0), two bits a step: 0 along x,
+ * 1 along y, 2 both at once (GDI's boundary does take diagonal steps).
+ * src/draw.c lays the four back down around the middle.  Both boxes are
+ * drawn the way FUN_00421490 does it -- two CDC::Arc calls -- because GDI's
+ * arc ring is not GDI's ellipse ring in either box.
  */
 #include <windows.h>
 #include <stdio.h>
@@ -63,19 +64,17 @@ int main(void)
             int nbit = 0;
 
             memset(bits, 0xff, (size_t)W * H * 4);
-            if (odd) {
-                /* a part of a circle: the box is 2r+1 and FUN_00421490 asks
-                   GDI for an arc inside it.  The whole ring is what a table
-                   can hold, so ask for all of it in one go. */
-                Ellipse(dc, cx - r, cy - r, cx + r + 1, cy + r + 1);
-            } else {
-                /* a whole circle: FUN_00421490 does NOT call Ellipse.  It
-                   sets the box to 2r across and calls CDC::Arc twice, from
-                   (+r,0) round to (-r,0) and back again -- and GDI's arc is
-                   not GDI's ellipse, so the ring is a different one. */
-                Arc(dc, cx - r, cy - r, cx + r, cy + r,
+            /* FUN_00421490 never calls Ellipse: it always asks GDI for an
+               arc, in a box 2r across for a whole circle and 2r+1 across for
+               a part of one.  GDI's arc is not GDI's ellipse -- in the 2r+1
+               box the two rings differ in 1,456 pixels up to radius 128 --
+               so both boxes are captured the way the original draws them:
+               two CDC::Arc calls, (+r,0) round to (-r,0) and back. */
+            {
+                int hi = odd ? r + 1 : r;
+                Arc(dc, cx - r, cy - r, cx + hi, cy + hi,
                     cx + r, cy, cx - r, cy);
-                Arc(dc, cx - r, cy - r, cx + r, cy + r,
+                Arc(dc, cx - r, cy - r, cx + hi, cy + hi,
                     cx - r, cy, cx + r, cy);
             }
             GdiFlush();
@@ -88,10 +87,9 @@ int main(void)
                (qx + lo, -qy) in the top right, (-qx, -qy) in the top left,
                (-qx, qy + lo) in the bottom left and (qx + lo, qy + lo) in
                the bottom right, so that is how each is read back.  The
-               2r+1 box is an ellipse and folds the four ways, so only the
-               first quadrant is written down for it; the 2r one is two
-               arcs and does not fold, so all four are. */
-            for (quad = 0; quad < (odd ? 1 : 4); quad++) {
+               ring is two arcs either way and does not fold, so all four
+               quadrants are written down. */
+            for (quad = 0; quad < 4; quad++) {
                 bad = 0;
                 nbit = 0;
                 memset(bitbuf, 0, sizeof bitbuf);

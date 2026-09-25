@@ -3,10 +3,9 @@
 
 That file is what GDI itself draws, written down by tools/gdicirc.c: for each
 radius, the circle as quadrant walks from (0,r) to (r,0), two bits a step.
-The 2r+1 box -- what a part of a circle goes in -- is an ellipse, so one
-quadrant is kept and src/draw.c folds it the other three ways.  The 2r box
-is a whole circle, which Jw_cad draws as two CDC::Arc calls, and those do
-not fold, so all four quadrants are kept.
+Both boxes -- 2r across for a whole circle, 2r+1 for a part of one -- are
+drawn the way Jw_cad draws them, as two CDC::Arc calls, and an arc ring does
+not fold about the axes, so all four quadrants are kept for both.
 
 Why a table at all: GDI's circle is not the textbook midpoint one.  For
 radius 5 the textbook walk goes (0,5) (1,5) (2,5) (3,4) and GDI's goes
@@ -53,9 +52,8 @@ def read():
 def main():
     walk = read()
     os.makedirs('src/gen', exist_ok=True)
-    # the 2r+1 box keeps one quadrant a radius; the 2r box, which is two
-    # arcs and does not fold, keeps four
-    nq = (4, 1)
+    # both boxes are two arcs and neither folds, so four quadrants a radius
+    nq = (4, 4)
     bits = [[], []]
     off = [[0] * ((RMAX + 1) * nq[odd]) for odd in range(2)]
     ln = [[0] * ((RMAX + 1) * nq[odd]) for odd in range(2)]
@@ -91,7 +89,7 @@ def main():
                 '   GDI\'s own circles, see that script and tools/gdicirc.c */\n')
         f.write('#ifndef JW_GEN_CIRCLE_H\n#define JW_GEN_CIRCLE_H\n\n')
         f.write('#define JW_CIRC_RMAX %d\n' % RMAX)
-        f.write('#define JW_CIRC_QUADS %d   /* quadrants kept for the 2r box */\n\n'
+        f.write('#define JW_CIRC_QUADS %d   /* quadrants kept, either box    */\n\n'
                 % nq[0])
         for odd in (0, 1):
             f.write('/* box %s, %d quadrant%s a radius */\n'

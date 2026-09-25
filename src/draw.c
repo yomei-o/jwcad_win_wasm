@@ -515,10 +515,14 @@ static int obj_wide(const jw_drawing *d, const jw_obj *o)
  * are written down.
  *
  * A *part* of a circle goes in a box one bigger, (cx+r+1, cy+r+1), and is
- * one CDC::Arc.  Its ring depends on where the arc starts and stops -- a
- * table cannot hold that -- so the ellipse in that box is used instead,
- * which is close but not the same (15 drawings: 916 pixels this way, 820 if
- * GDI is asked directly).  One quadrant is enough for an ellipse.
+ * one CDC::Arc.  Its ring depends on where the arc starts and stops, which
+ * no table can hold, so the ring of two arcs round that box is used instead
+ * and the ends are cut where the angles say.  That is close but not the
+ * same.  The ellipse in the same box, which this used to walk, is further
+ * off still: up to radius 128 the two rings disagree about 1,456 pixels,
+ * 728 each way out of 46,684 (15 drawings: 844 pixels the ellipse way, 827
+ * the arc way).  Two arcs do not fold about the axes either, so this box
+ * also keeps four quadrants.
  *
  * The points come out in order round the circle so a line type can advance
  * along it, and so an arc can start where it is told to.
@@ -540,7 +544,7 @@ static int circle_table(int rp, int odd, int quad, short *qx, short *qy)
     const unsigned short *len = odd ? jw_circ_len1 : jw_circ_len0;
     const unsigned char *bits = odd ? jw_circ_bits1 : jw_circ_bits0;
     int n = 0, x = 0, y = rp, i, base, steps;
-    int at = odd ? rp : rp * JW_CIRC_QUADS + quad;
+    int at = rp * JW_CIRC_QUADS + quad;
 
     if (rp < 1 || rp > JW_CIRC_RMAX || len[at] == 0)
         return 0;
@@ -565,9 +569,9 @@ static int circle_table(int rp, int odd, int quad, short *qx, short *qy)
 
 static int circle_points(int rp, int odd, short *out)
 {
-    /* One quadrant an entry, from (0, r) to (r, 0).  The 2r+1 box folds, so
-       only [0] is filled for it; the 2r box is two arcs and does not, so all
-       four are read from the table. */
+    /* One quadrant an entry, from (0, r) to (r, 0).  Either box is drawn as
+       two CDC::Arc calls and an arc ring does not fold about the axes, so
+       all four are read from the table. */
     static short qxs[4][ARC_MAX / 8], qys[4][ARC_MAX / 8];
     short *qx = qxs[0], *qy = qys[0];
     long rx2 = (long)rp * rp, ry2 = (long)rp * rp;
@@ -580,14 +584,12 @@ static int circle_points(int rp, int odd, short *out)
     nq = circle_table(rp, odd, 0, qx, qy);
     nq2[0] = nq2[1] = nq2[2] = nq2[3] = nq;
     if (nq > 0) {
-        if (!odd) {
-            int q;
-            for (q = 1; q < 4; q++) {
-                nq2[q] = circle_table(rp, odd, q, qxs[q], qys[q]);
-                if (nq2[q] <= 0) {      /* a quadrant that would not walk */
-                    nq = 0;
-                    break;
-                }
+        int q;
+        for (q = 1; q < 4; q++) {
+            nq2[q] = circle_table(rp, odd, q, qxs[q], qys[q]);
+            if (nq2[q] <= 0) {          /* a quadrant that would not walk */
+                nq = 0;
+                break;
             }
         }
         if (nq > 0)
@@ -639,12 +641,9 @@ mirror:
     {
         int lo = odd ? 0 : -1;               /* the right and bottom sides  */
         short *ax = qxs[0], *ay = qys[0];    /* top right                   */
-        short *bx = odd ? qxs[0] : qxs[1];   /* top left                    */
-        short *by = odd ? qys[0] : qys[1];
-        short *cx = odd ? qxs[0] : qxs[2];   /* bottom left                 */
-        short *cy = odd ? qys[0] : qys[2];
-        short *dx = odd ? qxs[0] : qxs[3];   /* bottom right                */
-        short *dy = odd ? qys[0] : qys[3];
+        short *bx = qxs[1], *by = qys[1];    /* top left                    */
+        short *cx = qxs[2], *cy = qys[2];    /* bottom left                 */
+        short *dx = qxs[3], *dy = qys[3];
 
         for (i = nq2[0] - 1; i >= 0; i--) {  /* 0 to 90 degrees   */
             out[2 * n] = (short)(ax[i] + lo); out[2 * n + 1] = (short)(-ay[i]); n++;
