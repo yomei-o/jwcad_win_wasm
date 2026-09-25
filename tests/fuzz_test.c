@@ -107,6 +107,60 @@ static int one(const unsigned char *b, long n, int kind)
     return ok;
 }
 
+/* And a few drawings no file would hold, put together by hand: the writers
+ * have to come back from these too.  The text of five thousand characters is
+ * the one that matters -- src/sfcwrite.c used to format the string into a
+ * buffer of 1,024 bytes on the stack, and a .jww can carry a text as long as
+ * it likes. */
+static void monsters(void)
+{
+    jw_drawing d;
+    char *big = (char *)malloc(5001);
+    jw_obj *o;
+    int i;
+
+    if (!big)
+        return;
+    for (i = 0; i < 5000; i++)
+        big[i] = (char)('a' + i % 26);
+    big[5000] = 0;
+
+    memset(&d, 0, sizeof d);
+    d.version = 700;
+    d.paper_hw = 297;
+    d.paper_hh = 210;
+    d.name = -1;
+    for (i = 0; i < 16; i++) {
+        int k;
+        d.group[i].scale = 1.0;
+        d.group[i].name = -1;
+        for (k = 0; k < 16; k++)
+            d.group[i].layer_name[k] = -1;
+    }
+    d.group[0].state = 3;
+    for (i = 0; i < 10; i++) {
+        d.pen_rgb[i] = 0;
+        d.pen_width[i] = 1;
+    }
+    o = jw_add(&d, JW_MOJI);
+    if (o) {
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 1000; o->d[3] = 0;
+        o->d[4] = 10; o->d[5] = 10;
+        o->text = jw_add_str(&d, big);
+        o->face = jw_add_str(&d, big);
+    }
+    o = jw_add(&d, JW_SEN);
+    if (o) {                    /* and one at the edge of what is allowed */
+        o->d[0] = -9e11; o->d[1] = -9e11;
+        o->d[2] = 9e11;  o->d[3] = 9e11;
+    }
+    d.group[0].layer_name[0] = jw_add_str(&d, big);
+    d.name = jw_add_str(&d, big);
+    write_every_way(&d);
+    jw_free(&d);
+    free(big);
+}
+
 int main(int argc, char **argv)
 {
     int i, files = 0, tries = 0, read_ok = 0;
@@ -172,7 +226,9 @@ int main(int argc, char **argv)
                        argv[i], ms);
         }
     }
+    monsters();
     printf("%d files, %d damaged copies read without falling over"
-           " (%d of them parsed)\n", files, tries, read_ok);
+           " (%d of them parsed), and the made-up ones written\n",
+           files, tries, read_ok);
     return 0;
 }

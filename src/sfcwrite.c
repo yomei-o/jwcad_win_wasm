@@ -150,6 +150,7 @@ static void ang(char *t, double v)
     p = 15 - digits;
     if (p < 0)
         p = 0;
+    /* sixteen characters whatever the number is: digits + '.' + places */
     sprintf(t, "%.*f", p, v);
 }
 
@@ -284,7 +285,7 @@ static void solid_end(sfcw *s, int *nfill, int *fill, int lay, int col,
 {
     char t[128];
 
-    sprintf(t, "composite_curve_org_feature('%d','%d','%d','1')",
+    snprintf(t, sizeof t, "composite_curve_org_feature('%d','%d','%d','1')",
             col, fon, wid);
     feature(&s->w, t);
     fill[*nfill * 2] = lay;
@@ -354,7 +355,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
     }
 
     /* ------------------------------------------------------- the header */
-    sprintf(t, "ISO-10303-21;\r\nHEADER;\r\n"
+    snprintf(t, sizeof t, "ISO-10303-21;\r\nHEADER;\r\n"
                "FILE_DESCRIPTION(('SCADEC level2 feature_mode'),\r\n"
                "        '2;1');\r\nFILE_NAME('%s',\r\n        '%s',\r\n"
                "        (''),\r\n        (''),\r\n"
@@ -365,32 +366,32 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
 
     /* ------------------------------------------------------- the tables */
     for (i = 0; i < 16; i++) {
-        sprintf(t, "pre_defined_colour_feature(\\'%s\\')", COLOUR[i].name);
+        snprintf(t, sizeof t, "pre_defined_colour_feature(\\'%s\\')", COLOUR[i].name);
         feature(&s->w, t);
     }
     for (i = 0; i < s->nucol; i++) {
         unsigned int v = s->ucol[i];
 
-        sprintf(t, "user_defined_colour_feature('%u','%u','%u')",
+        snprintf(t, sizeof t, "user_defined_colour_feature('%u','%u','%u')",
                 v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff);
         feature(&s->w, t);
     }
     for (i = 0; i < 15; i++) {
-        sprintf(t, "pre_defined_font_feature(\\'%s\\')", FONT[i].name);
+        snprintf(t, sizeof t, "pre_defined_font_feature(\\'%s\\')", FONT[i].name);
         feature(&s->w, t);
     }
     if (s->font9) {
         /* 線種 9, the one the original calls dot9 */
-        sprintf(t, "user_defined_font_feature(\\'dot9\\','4',"
+        snprintf(t, sizeof t, "user_defined_font_feature(\\'dot9\\','4',"
                    "'(0.124000,0.876000,0.124000,0.876000)')");
         feature(&s->w, t);
     }
     for (i = 0; i < 9; i++) {
-        sprintf(t, "width_feature('%.6f')", WIDTH[i]);
+        snprintf(t, sizeof t, "width_feature('%.6f')", WIDTH[i]);
         feature(&s->w, t);
     }
     for (i = 0; i < s->nuwid; i++) {
-        sprintf(t, "width_feature('%.6f')", s->uwid[i]);
+        snprintf(t, sizeof t, "width_feature('%.6f')", s->uwid[i]);
         feature(&s->w, t);
     }
     {   /* a text names a font, so there has to be one if there are texts */
@@ -403,7 +404,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                 break;
             }
         if (face >= 0) {
-            sprintf(t, "text_font_feature(\\'%s\\')", jw_str(d, face));
+            snprintf(t, sizeof t, "text_font_feature(\\'%s\\')", jw_str(d, face));
             feature(&s->w, t);
         }
     }
@@ -435,7 +436,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
             wid = want_width(s, o->color);
             switch (o->cls) {
             case JW_SEN:
-                sprintf(t, "line_feature('%d','%d','%d','%d','%.6f','%.6f',"
+                snprintf(t, sizeof t, "line_feature('%d','%d','%d','%d','%.6f','%.6f',"
                            "'%.6f','%.6f')", lay, col, fon, wid,
                         (o->d[0] + hw) * sc, (o->d[1] + hh) * sc,
                         (o->d[2] + hw) * sc, (o->d[3] + hh) * sc);
@@ -481,20 +482,20 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     ang(b, t1);
                     ang(c, tu);
                     if (whole)
-                        sprintf(t, "ellipse_feature('%d','%d','%d','%d',"
+                        snprintf(t, sizeof t, "ellipse_feature('%d','%d','%d','%d',"
                                    "'%.6f','%.6f','%.6f','%.6f','%s')",
                                 lay, col, fon, wid, cx, cy, maj, min_, c);
                     else
-                        sprintf(t, "ellipse_arc_feature('%d','%d','%d','%d',"
+                        snprintf(t, sizeof t, "ellipse_arc_feature('%d','%d','%d','%d',"
                                    "'%.6f','%.6f','%.6f','%.6f','%d','%s',"
                                    "'%s','%s')", lay, col, fon, wid, cx, cy,
                                 maj, min_, sw < 0.0, c, a, b);
                 } else if (whole) {
-                    sprintf(t, "circle_feature('%d','%d','%d','%d','%.6f',"
+                    snprintf(t, sizeof t, "circle_feature('%d','%d','%d','%d','%.6f',"
                                "'%.6f','%.6f')", lay, col, fon, wid,
                             cx, cy, o->d[2] * sc);
                 } else {
-                    sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                    snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                "'%.6f','%.6f','%d','%s','%s')", lay, col,
                             fon, wid, cx, cy, o->d[2] * sc, sw < 0.0, a, b);
                 }
@@ -504,7 +505,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
             case JW_TEN:
                 ang(a, 0.0);
                 ang(b, 1.0);
-                sprintf(t, "point_marker_feature('%d','%d','%.6f','%.6f',"
+                snprintf(t, sizeof t, "point_marker_feature('%d','%d','%.6f','%.6f',"
                            "'3','%s','%s')", lay, col,
                         (o->d[0] + hw) * sc, (o->d[1] + hh) * sc, a, b);
                 feature(&s->w, t);
@@ -520,7 +521,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     deg -= 360.0;
                 ang(a, deg);
                 ang(b, 0.0);
-                sprintf(t, "text_string_feature('%d','%d','1',\\'%s\\',"
+                snprintf(t, sizeof t, "text_string_feature('%d','%d','1',\\'%s\\',"
                            "'%.6f','%.6f','%.6f','%.6f','%.6f','%s','%s',"
                            "'1','1')", lay, col, jw_str(d, o->text),
                         (o->d[0] + hw) * sc, (o->d[1] + hh) * sc,
@@ -558,13 +559,13 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                         while (half >= 360.0) half -= 360.0;
                         ang(a, s0);
                         ang(b, half);
-                        sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                        snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                    "'%.6f','%.6f','0','%s','%s')", lay, col,
                                 fon, wid, cx, cy, r, a, b);
                         feature(&s->w, t);
                         ang(a, half);
                         ang(b, s0);
-                        sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                        snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                    "'%.6f','%.6f','0','%s','%s')", lay, col,
                                 fon, wid, cx, cy, r, a, b);
                         feature(&s->w, t);
@@ -573,7 +574,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
 
                         ang(a, s0);
                         ang(b, s1);
-                        sprintf(t, "arc_feature('%d','%d','%d','%d','%.6f',"
+                        snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                    "'%.6f','%.6f','%d','%s','%s')", lay, col,
                                 fon, wid, cx, cy, r, sw < 0.0, a, b);
                         feature(&s->w, t);
@@ -583,7 +584,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                                 cx + r * cos(e0));
                         sprintf(ys, "(%.6f,%.6f)", cy + r * sin(e1),
                                 cy + r * sin(e0));
-                        sprintf(t, "polyline_feature('%d','%d','%d','%d',"
+                        snprintf(t, sizeof t, "polyline_feature('%d','%d','%d','%d',"
                                    "'2','%s','%s')", lay, col, fon, wid,
                                 xs, ys);
                         feature(&s->w, t);
@@ -604,7 +605,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     strcpy(xs + nx, ")");
                     strcpy(ys + ny, ")");
                 }
-                sprintf(t, "polyline_feature('%d','%d','%d','%d','5','%s',"
+                snprintf(t, sizeof t, "polyline_feature('%d','%d','%d','%d','5','%s',"
                            "'%s')", lay, col, fon, wid, xs, ys);
                 feature(&s->w, t);
                 solid_end(s, &nfill, fill, lay, col, fon, wid);
@@ -618,7 +619,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
            elements of the group: which layer, which colour, and which of
            the composite curves above it is the fill of, counted from one. */
         for (i = 0; i < nfill; i++) {
-            sprintf(t, "fill_area_style_colour_feature('%d','%d','%d','0',"
+            snprintf(t, sizeof t, "fill_area_style_colour_feature('%d','%d','%d','0',"
                        "'()')", fill[i * 2], fill[i * 2 + 1], i + 1);
             feature(&s->w, t);
         }
@@ -630,7 +631,7 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
 
             while (nm[k] && (unsigned char)nm[k] < 0x80 && k < 8)
                 k++;
-            sprintf(t, "sfig_org_feature(\\'-GLay-%x-%.*s\\','1')", g, k, nm);
+            snprintf(t, sizeof t, "sfig_org_feature(\\'-GLay-%x-%.*s\\','1')", g, k, nm);
             feature(&s->w, t);
         }
     }
@@ -654,11 +655,11 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
         ang(a, 0.0);
         ang(b, 1.0 / sc);
         ang(c, 1.0 / sc);
-        sprintf(t, "sfig_locate_feature('0',\\'-GLay-%x-%.*s\\','%.6f',"
+        snprintf(t, sizeof t, "sfig_locate_feature('0',\\'-GLay-%x-%.*s\\','%.6f',"
                    "'%.6f','%s','%s','%s')", g, k, nm, 0.0, 0.0, a, b, c);
         feature(&s->w, t);
     }
-    sprintf(t, "drawing_sheet_feature(\\'sheet\\','%d','1','%d','%d')",
+    snprintf(t, sizeof t, "drawing_sheet_feature(\\'sheet\\','%d','1','%d','%d')",
             d->paper_size, (int)(d->paper_hw * 2.0 + 0.5),
             (int)(d->paper_hh * 2.0 + 0.5));
     feature(&s->w, t);
@@ -674,12 +675,12 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
             sprintf(fall, "_%x-%x_", g2, l2);
             ln = fall;
         }
-        sprintf(t, "layer_feature(\\'%s\\','%d')", ln,
+        snprintf(t, sizeof t, "layer_feature(\\'%s\\','%d')", ln,
                 d->group[g2].state != 0 && d->group[g2].layer[l2].state != 0);
         feature(&s->w, t);
     }
     /* the layer the original adds for whatever is 補助線 */
-    sprintf(t, "layer_feature(\\'\x95\xe2\x8f\x95\x90\xfc\\','0')");
+    snprintf(t, sizeof t, "layer_feature(\\'\x95\xe2\x8f\x95\x90\xfc\\','0')");
     feature(&s->w, t);
 
     puts_(&s->w, "ENDSEC;\r\nEND-ISO-10303-21;\r\n");
