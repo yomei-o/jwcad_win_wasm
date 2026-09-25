@@ -1332,7 +1332,8 @@ static void mj_radio_off(fb_t *fb, int x, int y, int on)
 
 /* One row of the table: width, height, spacing, colour and how many texts
    are written in that 文字種.  The columns are the original's own. */
-static void mj_row(char *t, double w, double h, double sp, int col, int used)
+static void mj_row(char *t, size_t cap, double w, double h, double sp,
+                   int col, int used)
 {
     char n[16], c[16];
 
@@ -1341,7 +1342,9 @@ static void mj_row(char *t, double w, double h, double sp, int col, int used)
     else
         sprintf(n, "--");
     sprintf(c, "(%d)", col);
-    sprintf(t, "%7.2f%8.2f%8.3f%7s%11s", w, h, sp, c, n);
+    /* the three numbers come from the drawing: a damaged one can hold
+       1e300, which "%.2f" spells in three hundred characters */
+    snprintf(t, cap, "%7.2f%8.2f%8.3f%7s%11s", w, h, sp, c, n);
 }
 
 /* How many texts of the drawing are written in each 文字種, 0 being 任意. */
@@ -1449,9 +1452,9 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
                 if (box && *box)
                     strcpy(t, box);
                 else if (z->id == 1493)
-                    sprintf(t, "%.3f", ss);
+                    snprintf(t, sizeof t, "%.3f", ss);
                 else
-                    sprintf(t, "%.2f", z->id == 1491 ? sw : sh);
+                    snprintf(t, sizeof t, "%.2f", z->id == 1491 ? sw : sh);
                 tx = x + z->w - 4 - jw_text_count(t) * 6;
                 jw_text_px(fb, tx, y + (z->h - th) / 2, t, C_BTNTEXT);
                 if (app_moji_focus() == z->id)   /* the caret */
@@ -1468,7 +1471,8 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
             break;
         case JW_MJ_STATIC:
             if (z->n >= 1 && z->n <= 10) {
-                mj_row(t, d->style[z->n - 1].w, d->style[z->n - 1].h,
+                mj_row(t, sizeof t, d->style[z->n - 1].w,
+                       d->style[z->n - 1].h,
                        d->style[z->n - 1].sp, d->style[z->n - 1].color,
                        used[z->n]);
                 jw_text_px(fb, x, y + (z->h - th) / 2, t, C_BTNTEXT);

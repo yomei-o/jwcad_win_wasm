@@ -26,6 +26,7 @@
 #include <time.h>
 
 #include "../src/jww.h"
+#include "../src/app.h"
 
 /* The damage is the same every run, so a fault found here can be looked at
    again.  JW_FUZZ_SEED picks another set, for a longer soak. */
@@ -104,6 +105,21 @@ static int one(const unsigned char *b, long n, int kind)
        same shapes over and over */
     if (ok && ++written % 16 == 0)
         write_every_way(&d);
+    /* And once in a while, draw it.  Reading and writing a damaged drawing
+       was all this ever did, and the numbers in it only reach the screen
+       through src/ui.c and src/draw.c -- which is where a text style of
+       1e300 went into a sixteen-byte "%.2f" and a sun figure into a
+       sixty-four byte one.  Painting is far slower than parsing, so this is
+       a sample, at a small window. */
+    if (ok && written % 512 == 0 && app_resize(320, 240)) {
+        unsigned char *raw = 0;
+        long rawn = 0;
+        if (jw_write(&d, &raw, &rawn)) {
+            if (app_open(raw, rawn))
+                app_paint();
+            free(raw);
+        }
+    }
     jw_free(&d);
     (void)t0;
     return ok;

@@ -4575,7 +4575,9 @@ static void sunpo_text(char *out, int n, double mm, double scale)
 
     if (neg)
         v = -v;
-    sprintf(buf, "%.*f", JW_SUN_DECIMALS, v);
+    /* mm and scale both come from the drawing, so v can be enormous and
+       "%f" spells it out in full */
+    snprintf(buf, sizeof buf, "%.*f", JW_SUN_DECIMALS, v);
     if (JW_SUN_DECIMALS > 0 && !JW_SUN_ZERO) {
         char *dot = strchr(buf, '.');
         if (dot) {

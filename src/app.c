@@ -253,9 +253,13 @@ static void moji_fill(const jw_drawing *d, int style)
         h = d->cur_style.h;
         sp = d->cur_style.sp;
     }
-    sprintf(moji_box[0], "%.2f", w);
-    sprintf(moji_box[1], "%.2f", h);
-    sprintf(moji_box[2], "%.3f", sp);
+    /* the sizes come from the drawing, and a damaged one can hold 1e300
+       -- which "%.2f" spells in three hundred characters, where these hold
+       sixteen (the same shape as src/sfcwrite.c's ang(), found with
+       -fsanitize=address) */
+    snprintf(moji_box[0], sizeof moji_box[0], "%.2f", w);
+    snprintf(moji_box[1], sizeof moji_box[1], "%.2f", h);
+    snprintf(moji_box[2], sizeof moji_box[2], "%.3f", sp);
 }
 
 const char *app_moji_box(int id)
