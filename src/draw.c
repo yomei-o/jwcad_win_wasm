@@ -1068,17 +1068,26 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
              *     1     #   .   .   .   #
              *     2     .   #   #   #   .
              *
-             * **There is more to a 仮点 than this.**  FUN_00424200 draws
-             * one of five shapes by a setting at doc+0x8238 -- one pixel,
-             * a cross, a filled square, or a wider one again -- and before
-             * that it will draw a circle instead, of a radius the drawing
-             * keeps per line colour at doc+0x68c0 + colour*8 (millimetres,
-             * rounded to pixels), when the switch at doc+0x797c (screen) or
-             * doc+0x7980 (printer) is on.  Which is why サンプル.jww and
-             * Ａマンション平面例.jww show their 仮点 as a 3 by 3 block
-             * where Test3.jww shows one pixel.  Neither the table nor the
-             * switches have been found in the file yet, so this draws the
-             * one pixel; it costs about 150 pixels over the fifteen. */
+             * **A 仮点 is not always one pixel.**  FUN_00424200 draws one
+             * of four shapes -- a pixel, a cross, three rows (a filled 3 by
+             * 3), five rows -- and picks between them on a setting at
+             * doc+0x8238.  The shapes are plain enough in the fifteen
+             * samples: Test1 to Test4 draw a cross, サンプル and
+             * Ａマンション平面例 and 日影図 a filled 3 by 3, Test6 a single
+             * pixel.
+             *
+             * **Which one, though, is not in the file.**  Every value
+             * src/jww.c reads out of a header -- all 3,535 of them, bytes,
+             * words, longs and doubles, the skipped ones as well -- was
+             * held up drawing against drawing, and nothing separates the
+             * three groups (RESUME.md, "仮点の形"); doc+0x8238 looks like a
+             * registry setting, written with WriteProfileInt under "Point".
+             * So this goes by what the element carries instead: bit 0x400
+             * of +0x44 for the cross, nothing at all (or only the "came
+             * from a 図形" bit) for the block.  It agrees with all fifteen
+             * -- Test1 comes out to the pixel and the fifteen together drop
+             * from 1,384 to 1,169 -- but it is a rule read off the samples,
+             * not one read out of the original. */
             static const signed char RING[11][2] = {
                 { -1, -2 }, { 0, -2 },
                 { -2, -1 }, { 1, -1 },
@@ -1087,9 +1096,22 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 { -1, 2 }, { 0, 2 }, { 1, 2 },
             };
             put(fb, &v->clip, x, y, col);
-            if (o->n == 1)
+            if (o->n == 1) {
                 for (k = 0; k < 11; k++)
                     put(fb, &v->clip, x + RING[k][0], y + RING[k][1], col);
+            } else if (o->flags & 0x400) {
+                /* the cross: FUN_00424200's doc+0x8238 == 1 */
+                put(fb, &v->clip, x - 1, y, col);
+                put(fb, &v->clip, x + 1, y, col);
+                put(fb, &v->clip, x, y - 1, col);
+                put(fb, &v->clip, x, y + 1, col);
+            } else if ((o->flags & ~0x40u) == 0) {
+                /* three rows of three: doc+0x8238 == 2 */
+                int i2, j2;
+                for (j2 = -1; j2 <= 1; j2++)
+                    for (i2 = -1; i2 <= 1; i2++)
+                        put(fb, &v->clip, x + i2, y + j2, col);
+            }
             break;
         }
         case JW_MOJI:
