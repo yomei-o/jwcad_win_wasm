@@ -317,6 +317,16 @@ echo
 echo "=== native against WASM, pixel for pixel"
 python tools/cmp.py tests/out/frame.png tests/out/wasm.png \
     -d tests/out/nw.diff.png | head -1 | sed 's/^/    /'
+# and with a drawing in it, not just the empty frame: the two builds go
+# through the same src/*.c, so anything that differs is the port leaning on
+# the machine under it
+for n in 1 7; do
+    ./tests/shot.exe tests/out/test$n.png orig/Test$n.jww >/dev/null
+    node tests/wasm_check.js tests/out/wasm_test$n.png 1264 741 \
+        --open orig/Test$n.jww >/dev/null
+    python tools/cmp.py tests/out/test$n.png tests/out/wasm_test$n.png \
+        -d tests/out/nw$n.diff.png | head -1 | sed 's/^/    /'
+done
 
 echo
 echo "=== drawings against the original"

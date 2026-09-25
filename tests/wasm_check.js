@@ -3,6 +3,10 @@
 // so any difference is the port depending on its environment.
 //
 //   node tests/wasm_check.js tests/out/wasm.png [w h] [--chrome]
+//                             [--open drawing.jww]
+//
+// With --open the drawing goes in first, so a whole picture can be held
+// against the native build's, not just the empty frame.
 //
 // The browser build draws its own caption and menu bar above the client
 // (the native window gets those from Windows).  By default they are left
@@ -43,10 +47,23 @@ function chunk(tag, data) {
   const withChrome = process.argv.indexOf('--chrome') >= 0;
   const mod = await createJwcad();
 
+  const openAt = process.argv.indexOf('--open');
   const ch = mod.ccall('jw_chrome_h', 'number', [], []);
   const skip = withChrome ? 0 : ch;
   const rows = withChrome ? h + ch : h;     /* what goes in the picture */
   mod.ccall('jw_resize', 'number', ['number', 'number'], [w, h + ch]);
+  if (openAt >= 0) {
+    const bytes = fs.readFileSync(process.argv[openAt + 1]);
+    const buf = mod._malloc(bytes.length);
+    mod.HEAPU8.set(bytes, buf);
+    const ok = mod.ccall('jw_open', 'number', ['number', 'number'],
+                         [buf, bytes.length]);
+    mod._free(buf);
+    if (!ok) {
+      console.error('cannot read ' + process.argv[openAt + 1]);
+      process.exit(1);
+    }
+  }
   const p = mod.ccall('jw_rgba', 'number', [], []);
   const px = mod.HEAPU8.subarray(p, p + w * (h + ch) * 4);
 
