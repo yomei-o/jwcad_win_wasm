@@ -198,6 +198,56 @@ def main():
         if n:
             print("  %-22s %5d %7d %7d  (%4.1f%%)"
                   % (k, n, tally[k][0], tally[k][1], 100.0 * n / max(1, total)))
+    # The circle the original actually drew, fitted to its own ink: take
+    # every inked pixel of the reference within a couple of pixels of the
+    # ring the port drew and solve the least squares circle through them
+    # (the algebraic fit: x^2+y^2 + Dx + Ey + F = 0).  If the middle or the
+    # radius comes out somewhere else, that is where to look.
+    def fit(a):
+        _, cx, cy, r = a[0], a[1], a[2], a[3]
+        pts = []
+        lo, hi = r - 2.5, r + 2.5
+        for yy in range(max(0, int(cy - hi - 2)), min(h, int(cy + hi + 3))):
+            for xx in range(max(0, int(cx - hi - 2)), min(w, int(cx + hi + 3))):
+                if masked[yy][xx] or pa[xx, yy] == bg:
+                    continue
+                d = math.hypot(xx - cx, yy - cy)
+                if lo <= d <= hi:
+                    pts.append((xx - cx, yy - cy))
+        if len(pts) < 20:
+            return None
+        sxx = sxy = syy = sx = sy = n = 0.0
+        sxz = syz = sz = 0.0
+        for X, Y in pts:
+            Z = X * X + Y * Y
+            sxx += X * X; sxy += X * Y; syy += Y * Y
+            sx += X; sy += Y; n += 1
+            sxz += X * Z; syz += Y * Z; sz += Z
+        m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]]
+        v = [-sxz, -syz, -sz]
+        # Gauss with partial pivoting, three unknowns
+        for i2 in range(3):
+            p2 = max(range(i2, 3), key=lambda k: abs(m[k][i2]))
+            if abs(m[p2][i2]) < 1e-12:
+                return None
+            m[i2], m[p2] = m[p2], m[i2]
+            v[i2], v[p2] = v[p2], v[i2]
+            for k in range(i2 + 1, 3):
+                f = m[k][i2] / m[i2][i2]
+                for j2 in range(i2, 3):
+                    m[k][j2] -= f * m[i2][j2]
+                v[k] -= f * v[i2]
+        z = [0.0, 0.0, 0.0]
+        for i2 in (2, 1, 0):
+            t = v[i2] - sum(m[i2][j2] * z[j2] for j2 in range(i2 + 1, 3))
+            z[i2] = t / m[i2][i2]
+        D, E, F = z
+        ox, oy = -D / 2.0, -E / 2.0
+        rr = ox * ox + oy * oy - F
+        if rr <= 0:
+            return None
+        return ox, oy, math.sqrt(rr), len(pts)
+
     # and which arcs the ring pixels belong to, worst first: a ring that is
     # a pixel out shows up as a long run on one element
     per = {}
@@ -224,6 +274,11 @@ def main():
                           " (the port drew %.2f, rounded to %d)"
                           % (name, len(rs), min(rs), max(rs), a[3],
                              int(a[3] + 0.5)))
+            g = fit(a)
+            if g:
+                print("        the original's own ink fits a circle at"
+                      " %+.2f,%+.2f of the port's middle, radius %.2f"
+                      " (%d pixels)" % (g[0], g[1], g[2], g[3]))
 
     # every wrong pixel of one arc, as offsets from its centre, so that the
     # two rings can be laid out side by side (WHY_ARC=<i>)
