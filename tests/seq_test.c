@@ -8,7 +8,9 @@
  * is a seam nothing was watching, and it had a hole in it.
  *
  * What it watches are the counts a reader leaves behind, because those are
- * what the next one indexes its tables by.
+ * what the next one indexes its tables by -- and then it writes the result
+ * out every way, since a drawing two readers built is a shape no single one
+ * makes.
  *
  * A drawing holds 257 任意色 (xcolor[257]); an SFC may name up to 259.
  * src/sfcread.c stopped the write-back at 256 but let the *count* through,
@@ -51,6 +53,19 @@ static unsigned char *slurp(const char *p, long *n)
     }
     fclose(f);
     return b;
+}
+
+static void write_every_way(const jw_drawing *d)
+{
+    unsigned char *o;
+    long m;
+
+    if (jw_write(d, &o, &m))                        free(o);
+    if (jw_write_jws(d, 0, 0, &o, &m))              free(o);
+    if (jw_dxf_write(d, &o, &m))                    free(o);
+    if (jw_sfc_write(d, "x", "2026-01-01", &o, &m)) free(o);
+    if (jw_jwc_write(d, &o, &m))                    free(o);
+    if (jw_write_coord(d, 0, 0, &o, &m))            free(o);
 }
 
 static int read_as(jw_drawing *d, int kind, const unsigned char *b, long n)
@@ -139,6 +154,10 @@ int main(int argc, char **argv)
                && d.sxf_n >= 0 && d.sxf_n <= 32
                && d.nobj >= 0 && d.nobj <= d.cobj
                && d.ndrawn >= 0 && d.ndrawn <= d.nobj, what);
+            /* and out again: a drawing put together by two readers is a
+               shape no single one makes, and the writers have to come back
+               from it */
+            write_every_way(&d);
             jw_free(&d);
         }
 
