@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "cp932.h"
 #include "gen/cp932.h"
 
@@ -17,12 +19,23 @@ static int find(const unsigned short *tab, int n, unsigned v)
     return -1;
 }
 
-long jw_from_utf16(const unsigned short *s, long n, char *out, long cap)
+long jw_from_utf16(const void *src, long n, char *out, long cap)
 {
+    /* The units are taken a byte pair at a time rather than through an
+       `unsigned short *`: a .jww's strings sit wherever they fall in the
+       file, so jww.c's pool_put hands this an odd address as often as not,
+       and reading a short from there is undefined.  x86 and wasm both let
+       it through, which is why it went unnoticed until the port was built
+       with -fsanitize=undefined (tools/asan.sh). */
+    const unsigned char *b = (const unsigned char *)src;
     long i, m = 0;
 
     for (i = 0; i < n; i++) {
-        unsigned u = s[i];
+        unsigned short w;
+        unsigned u;
+
+        memcpy(&w, b + 2 * i, sizeof w);
+        u = w;
         unsigned c;
         int k;
         if (u < 0x80) {

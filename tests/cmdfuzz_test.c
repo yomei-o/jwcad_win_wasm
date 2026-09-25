@@ -373,7 +373,9 @@ int main(int argc, char **argv)
         }
         {   /* a command that never comes back is as much a fault as one
                that falls over */
-            long ms = (long)((clock() - t0) * 1000 / CLOCKS_PER_SEC);
+            /* the multiply first would overflow: a long run gets past two
+               million ticks, and that times 1000 does not fit an int */
+            long ms = (long)((clock() - t0) / (double)CLOCKS_PER_SEC * 1000.0);
             if (ms > 60000)
                 printf("BAD  %s: %ld ms for %d steps\n", argv[i], ms, steps);
         }

@@ -98,7 +98,7 @@ static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
     long need, m;
     int off;
 
-    m = unicode ? jw_from_utf16((const unsigned short *)s, n, 0, 0) : n;
+    m = unicode ? jw_from_utf16(s, n, 0, 0) : n;
     need = m + 2;
     if (d->npool + need > d->cpool) {
         int c = d->cpool ? d->cpool * 2 : 4096;
@@ -114,7 +114,7 @@ static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
     d->pool[d->npool++] = (char)unicode;
     off = d->npool;
     if (unicode)
-        jw_from_utf16((const unsigned short *)s, n, d->pool + off, m);
+        jw_from_utf16(s, n, d->pool + off, m);
     else
         memcpy(d->pool + off, s, (size_t)n);
     d->npool = off + (int)m;

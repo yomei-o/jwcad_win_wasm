@@ -1,5 +1,6 @@
 #!/bin/sh
-# Run the damaged-file fuzzer under AddressSanitizer.
+# Run the fuzzers under AddressSanitizer, and then under the undefined
+# behaviour one.
 #
 #   sh tools/asan.sh
 #
@@ -101,3 +102,34 @@ for s in 1 2 3; do
 done
 [ "$bad" = 0 ] || exit 1
 echo "ok   the commands, no AddressSanitizer report"
+
+# UndefinedBehaviorSanitizer next.  It reports and carries on rather than
+# stopping, so the count is what matters.  This is what found the misaligned
+# short in jw_from_utf16 -- a .jww's strings start wherever they fall in the
+# file, so pool_put was handing it odd addresses.
+for t in fuzz cmdfuzz; do
+    "$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=undefined \
+        -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=512MB -sNODERAWFS=1 \
+        -sENVIRONMENT=node -sEXIT_RUNTIME=1 \
+        -o "tmp/${t}_ub.js" "tests/${t}_test.c" $COMMON || exit 1
+done
+echo "built tmp/fuzz_ub.js and tmp/cmdfuzz_ub.js"
+
+UBSAN_OPTIONS=print_stacktrace=1 \
+    "$NODE" tmp/fuzz_ub.js orig/*.jww decomp/res/*.jww $JWS \
+        decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc > tmp/ub.out 2>&1
+for s in 1 2 3; do
+    for args in "orig/Test1.jww orig/Test5.jww orig/Test7.jww" ""; do
+        UBSAN_OPTIONS=print_stacktrace=1 JW_CMDFUZZ_SEED=$s \
+            JW_CMDFUZZ_STEPS=1500 "$NODE" tmp/cmdfuzz_ub.js $args \
+            >> tmp/ub.out 2>&1
+    done
+done
+n=$(grep -c "runtime error" tmp/ub.out)
+if [ "$n" != 0 ]; then
+    echo "BAD  $n undefined-behaviour reports, the commonest first:"
+    grep "runtime error" tmp/ub.out | sed 's/: runtime error/ ->/' |
+        sort | uniq -c | sort -rn | head -8 | sed 's/^/    /'
+    exit 1
+fi
+echo "ok   nothing undefined either"

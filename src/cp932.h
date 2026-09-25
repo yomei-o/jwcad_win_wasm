@@ -12,8 +12,12 @@
 /* `n` UTF-16 units -> CP932 bytes.  Returns how many bytes it would take,
    whether or not they fitted; `out` gets at most `cap` of them and is not
    terminated.  A character CP932 has no room for becomes '?', which is what
-   WideCharToMultiByte does with no best-fit table. */
-long jw_from_utf16(const unsigned short *s, long n, char *out, long cap);
+   WideCharToMultiByte does with no best-fit table.
+
+   The source is `const void *` because it is as often a pointer into a file
+   as a real array: the units are read a byte pair at a time, so it does not
+   have to be aligned. */
+long jw_from_utf16(const void *src, long n, char *out, long cap);
 
 /* CP932 bytes -> UTF-16 units, the same way round.  A trailing lead byte or
    an unmapped pair becomes U+FFFD, so the length is never a surprise. */
