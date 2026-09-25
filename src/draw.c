@@ -658,6 +658,15 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
          * dashed 40 mm circle measures 65.11 about 436.54,279.30 where its
          * solid one measures 64.32 about 435.50,278.49. */
         int odd = !(sweep >= 2 * PI || sweep <= -2 * PI);
+        /* A whole circle under two pixels across is not drawn as a circle
+         * at all: FUN_00421490 moves to the centre and draws the one pixel
+         * (the `if (local_e8 < 2)` arm, MoveTo then LineTo one to the
+         * right).  Only the whole-circle arm has it; a part of one goes
+         * through the boundary walk however small it is. */
+        if (!odd && rp < 2) {
+            put(fb, &v->clip, cxp, cyp, col);
+            return;
+        }
         /* debugging hook: write the boundary walk out, so a render can be
            sampled along it and held against the original's */
         int dumpwalk = getenv("JW_ARC_WALK") != 0;
