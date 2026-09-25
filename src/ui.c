@@ -667,19 +667,29 @@ static const struct { short x, y, clip; } layer_grids[2] = {
     { 1227, 397, 1263 },        /* layer groups, plain ones */
 };
 
-/* The mark for "there is something on this one", two rows across the top. */
+/* The mark for "there is something on this one", two rows across the top.
+ * It comes in two halves: nine pixels on the left when the layer holds
+ * anything that is not text, eight on the right when it holds text.  The
+ * original sets them from two calls of its own (FUN_00555800 asks the
+ * document twice per layer and lights bit 1 or bit 2 of the cell), and the
+ * shipped drawings show every combination -- layer 4 of サンプル.jww holds
+ * eight texts and nothing else, and its mark is the right-hand half alone;
+ * layer 7 of Ａマンション平面例.jww holds lines, points and texts, and its
+ * mark runs the whole way across. */
 #define C_HASDATA  0xd700d7u
+#define BAR_L      9            /* the left half, from x+1  */
+#define BAR_R      8            /* the right half, from x+9 */
 
 static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
 {
-    int used[2][16];
+    int used[2][16], text[2][16];
     int write[2];
     int g, col, row, i, j, k;
 
     for (g = 0; g < 2; g++) {
         write[g] = 0;
         for (i = 0; i < 16; i++)
-            used[g][i] = 0;
+            used[g][i] = text[g][i] = 0;
     }
     if (d) {
         int wg = 0;
@@ -690,9 +700,12 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
         write[0] = d->group[wg].write_layer & 15;
         for (k = 0; k < d->nobj; k++) {
             const jw_obj *o = &d->obj[k];
-            used[1][o->lgroup & 15] = 1;
-            if ((o->lgroup & 15) == wg)
-                used[0][o->layer & 15] = 1;
+            int *u = o->cls == JW_MOJI ? text[1] : used[1];
+            u[o->lgroup & 15] = 1;
+            if ((o->lgroup & 15) == wg) {
+                u = o->cls == JW_MOJI ? text[0] : used[0];
+                u[o->layer & 15] = 1;
+            }
         }
     }
 
@@ -711,7 +724,9 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
                     /* a red bar if it holds anything, then the mark: a ring
                      * for the layer, a box for the group */
                     if (used[g][n])
-                        fb_fill(fb, x + 2, y + 2, 16, 2, 0xff0000u);
+                        fb_fill(fb, x + 2, y + 2, BAR_L, 2, 0xff0000u);
+                    if (text[g][n])
+                        fb_fill(fb, x + 10, y + 2, BAR_R, 2, 0xff0000u);
                     if (g == 0) {
                         for (j = 0; j < 16; j++)
                             for (i = 0; i < 16; i++)
@@ -730,7 +745,9 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
                         fb_edge(fb, x + 1, y + 3, 16, 16,
                                 C_BTNTEXT, C_BTNTEXT);
                     if (used[g][n])
-                        fb_fill(fb, x + 1, y + 1, 16, 2, C_HASDATA);
+                        fb_fill(fb, x + 1, y + 1, BAR_L, 2, C_HASDATA);
+                    if (text[g][n])
+                        fb_fill(fb, x + 9, y + 1, BAR_R, 2, C_HASDATA);
                 }
             }
         }
