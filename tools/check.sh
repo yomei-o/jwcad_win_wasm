@@ -73,6 +73,10 @@ echo "=== 壊れたファイル —— 読み手が落ちず、いつまでも�
 echo
 echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が壊れないか"
 ./tests/cmdfuzz_test.exe orig/Test1.jww orig/Test5.jww orig/Test7.jww     2>/dev/null | sed 's/^/    /'
+# and on drawings the other readers built, which are shapes the .jww
+# reader never makes (an SFC's contents sit inside a 図形, a DXF brings
+# its own layers and colours)
+./tests/cmdfuzz_test.exe decomp/res/aci1.dxf decomp/res/geo.sfc     decomp/res/t5.jwc 2>/dev/null | sed 's/^/    /'
 ./tests/cmdfuzz_test.exe 2>/dev/null | sed 's/^/    from nothing: /'
 
 echo

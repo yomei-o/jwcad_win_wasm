@@ -91,12 +91,32 @@ static int round_trip(const jw_drawing *d, const char *who)
         ok = 0;
     } else {
         if (na != nb || memcmp(a, b, (size_t)na) != 0) {
-            long i = 0;
-            while (i < na && i < nb && a[i] == b[i])
-                i++;
-            printf("BAD  %s: writing it twice gives different bytes"
-                   " (%ld and %ld, they part at %ld)\n", who, na, nb, i);
-            ok = 0;
+            /* One normalisation is allowed, so long as it happens once.
+               An SFC keeps an arc that starts at 270 degrees at 270 --
+               src/sfcread.c does that on purpose, and the original's own
+               answer file agrees -- while the .jww reader brings a start
+               angle into (-pi, pi].  So the first writing of a drawing
+               built from an SFC carries 3pi/2 and the second carries
+               -pi/2, and both are right.  What would be wrong is for it to
+               keep moving, so the third writing has to match the second.
+               This is the same rule settles() holds the text formats to. */
+            jw_drawing g;
+            unsigned char *c = 0;
+            long nc = 0;
+
+            memset(&g, 0, sizeof g);
+            if (!jw_parse(&g, b, nb) || !jw_write(&g, &c, &nc)
+                || nc != nb || memcmp(b, c, (size_t)nb) != 0) {
+                long i = 0;
+                while (i < na && i < nb && a[i] == b[i])
+                    i++;
+                printf("BAD  %s: writing it twice gives different bytes and"
+                       " it does not settle (%ld and %ld, they part at"
+                       " %ld)\n", who, na, nb, i);
+                ok = 0;
+            }
+            free(c);
+            jw_free(&g);
         }
         free(b);
     }
@@ -257,6 +277,22 @@ done:
     return ok;
 }
 
+/* which reader the name calls for */
+static int open_by_name(const char *path, const unsigned char *b, long n)
+{
+    const char *dot = strrchr(path, '.');
+
+    if (dot) {
+        if (!strcmp(dot, ".dxf") || !strcmp(dot, ".DXF"))
+            return app_open_dxf(b, n);
+        if (!strcmp(dot, ".sfc") || !strcmp(dot, ".SFC"))
+            return app_open_sfc(b, n);
+        if (!strcmp(dot, ".jwc") || !strcmp(dot, ".JWC"))
+            return app_open_jwc(b, n);
+    }
+    return app_open(b, n);
+}
+
 int main(int argc, char **argv)
 {
     const char *seed = getenv("JW_CMDFUZZ_SEED");
@@ -308,7 +344,12 @@ int main(int argc, char **argv)
             continue;
         }
         fclose(f);
-        if (!app_open(b, n)) {
+        /* Open it the way its name says.  A DXF, an SFC and a JWC all make
+           a drawing the .jww reader never would -- an SFC's contents land
+           inside a 図形, a DXF brings its own layers and colours -- and the
+           commands then run on that.  Before this the fuzzer only ever had
+           .jww to work on. */
+        if (!open_by_name(argv[i], b, n)) {
             printf("BAD  %s: %s\n", argv[i], app_error());
             free(b);
             bad++;

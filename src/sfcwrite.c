@@ -139,19 +139,29 @@ static double f32(double v)
 
 /* A number in the sixteen characters the format uses for an angle: as many
    places after the point as leave room for what is in front of it. */
-static void ang(char *t, double v)
+static void ang(char *t, size_t cap, double v)
 {
-    int whole = (int)fabs(v), digits = 1, p;
+    double whole = fabs(v);
+    int digits = 1, p;
 
-    while (whole >= 10) {
-        whole /= 10;
+    /* `whole` is counted as a double: a damaged file can hold 1e300 here,
+       and turning that into an int to count its digits is undefined.  The
+       same number then wants three hundred characters of "%.0f", which is
+       what used to be written into a thirty-two byte frame -- found with
+       -fsanitize=address over twenty fuzz seeds (tools/asan.sh). */
+    if (!(whole < 1e300))
+        whole = 1e300;
+    while (whole >= 10.0) {
+        whole /= 10.0;
         digits++;
     }
     p = 15 - digits;
     if (p < 0)
         p = 0;
-    /* sixteen characters whatever the number is: digits + '.' + places */
-    sprintf(t, "%.*f", p, v);
+    /* sixteen characters whatever the number is: digits + '.' + places --
+       unless the number is far too big for the format, and then as much of
+       it as fits */
+    snprintf(t, cap, "%.*f", p, v);
 }
 
 /* ------------------------------------------------------- what is in use */
@@ -460,8 +470,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                 while (s0 >= 360.0) s0 -= 360.0;
                 while (s1 < 0.0) s1 += 360.0;
                 while (s1 >= 360.0) s1 -= 360.0;
-                ang(a, s0);
-                ang(b, s1);
+                ang(a, sizeof a, s0);
+                ang(b, sizeof b, s1);
                 if (o->d[6] != 1.0) {
                     /* Squashed: a whole one is an ellipse and a part of one
                        is an ellipse_arc.  Here the turn is a field of its
@@ -480,9 +490,9 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     while (t1 >= 360.0) t1 -= 360.0;
                     while (tu < 0.0) tu += 360.0;
                     while (tu >= 360.0) tu -= 360.0;
-                    ang(a, t0);
-                    ang(b, t1);
-                    ang(c, tu);
+                    ang(a, sizeof a, t0);
+                    ang(b, sizeof b, t1);
+                    ang(c, sizeof c, tu);
                     if (whole)
                         snprintf(t, sizeof t, "ellipse_feature('%d','%d','%d','%d',"
                                    "'%.6f','%.6f','%.6f','%.6f','%s')",
@@ -505,8 +515,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                 break;
             }
             case JW_TEN:
-                ang(a, 0.0);
-                ang(b, 1.0);
+                ang(a, sizeof a, 0.0);
+                ang(b, sizeof b, 1.0);
                 snprintf(t, sizeof t, "point_marker_feature('%d','%d','%.6f','%.6f',"
                            "'3','%s','%s')", lay, col,
                         (o->d[0] + hw) * sc, (o->d[1] + hh) * sc, a, b);
@@ -521,8 +531,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     deg += 360.0;
                 while (deg >= 360.0)
                     deg -= 360.0;
-                ang(a, deg);
-                ang(b, 0.0);
+                ang(a, sizeof a, deg);
+                ang(b, sizeof b, 0.0);
                 snprintf(t, sizeof t, "text_string_feature('%d','%d','1',\\'%s\\',"
                            "'%.6f','%.6f','%.6f','%.6f','%.6f','%s','%s',"
                            "'1','1')", lay, col, jw_str(d, o->text),
@@ -559,14 +569,14 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                         double half = s0 + 180.0;
 
                         while (half >= 360.0) half -= 360.0;
-                        ang(a, s0);
-                        ang(b, half);
+                        ang(a, sizeof a, s0);
+                        ang(b, sizeof b, half);
                         snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                    "'%.6f','%.6f','0','%s','%s')", lay, col,
                                 fon, wid, cx, cy, r, a, b);
                         feature(&s->w, t);
-                        ang(a, half);
-                        ang(b, s0);
+                        ang(a, sizeof a, half);
+                        ang(b, sizeof b, s0);
                         snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                    "'%.6f','%.6f','0','%s','%s')", lay, col,
                                 fon, wid, cx, cy, r, a, b);
@@ -574,18 +584,18 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     } else {
                         double e0 = s0 * PI / 180.0, e1 = s1 * PI / 180.0;
 
-                        ang(a, s0);
-                        ang(b, s1);
+                        ang(a, sizeof a, s0);
+                        ang(b, sizeof b, s1);
                         snprintf(t, sizeof t, "arc_feature('%d','%d','%d','%d','%.6f',"
                                    "'%.6f','%.6f','%d','%s','%s')", lay, col,
                                 fon, wid, cx, cy, r, sw < 0.0, a, b);
                         feature(&s->w, t);
                         /* and the chord back, from where it ends to where
                            it starts */
-                        sprintf(xs, "(%.6f,%.6f)", cx + r * cos(e1),
-                                cx + r * cos(e0));
-                        sprintf(ys, "(%.6f,%.6f)", cy + r * sin(e1),
-                                cy + r * sin(e0));
+                        snprintf(xs, sizeof xs, "(%.6f,%.6f)",
+                                 cx + r * cos(e1), cx + r * cos(e0));
+                        snprintf(ys, sizeof ys, "(%.6f,%.6f)",
+                                 cy + r * sin(e1), cy + r * sin(e0));
                         snprintf(t, sizeof t, "polyline_feature('%d','%d','%d','%d',"
                                    "'2','%s','%s')", lay, col, fon, wid,
                                 xs, ys);
@@ -598,11 +608,26 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     static const int K[5] = { 0, 3, 2, 1, 0 };
                     int q, nx = 0, ny = 0;
 
+                    /* one corner of a damaged solid can be 1e300, which
+                       "%.6f" spells in three hundred characters, so every
+                       piece is measured against what is left */
                     for (q = 0; q < 5; q++) {
-                        nx += sprintf(xs + nx, q ? ",%.6f" : "(%.6f",
-                                      (o->d[K[q] * 2] + hw) * sc);
-                        ny += sprintf(ys + ny, q ? ",%.6f" : "(%.6f",
-                                      (o->d[K[q] * 2 + 1] + hh) * sc);
+                        int room = (int)sizeof xs - nx - 2;
+                        if (room <= 0)
+                            break;
+                        nx += snprintf(xs + nx, (size_t)room,
+                                       q ? ",%.6f" : "(%.6f",
+                                       (o->d[K[q] * 2] + hw) * sc);
+                        if (nx > (int)sizeof xs - 2)
+                            nx = (int)sizeof xs - 2;
+                        room = (int)sizeof ys - ny - 2;
+                        if (room <= 0)
+                            break;
+                        ny += snprintf(ys + ny, (size_t)room,
+                                       q ? ",%.6f" : "(%.6f",
+                                       (o->d[K[q] * 2 + 1] + hh) * sc);
+                        if (ny > (int)sizeof ys - 2)
+                            ny = (int)sizeof ys - 2;
                     }
                     strcpy(xs + nx, ")");
                     strcpy(ys + ny, ")");
@@ -654,9 +679,9 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
             continue;
         while (nm[k] && (unsigned char)nm[k] < 0x80 && k < 8)
             k++;
-        ang(a, 0.0);
-        ang(b, 1.0 / sc);
-        ang(c, 1.0 / sc);
+        ang(a, sizeof a, 0.0);
+        ang(b, sizeof b, 1.0 / sc);
+        ang(c, sizeof c, 1.0 / sc);
         snprintf(t, sizeof t, "sfig_locate_feature('0',\\'-GLay-%x-%.*s\\','%.6f',"
                    "'%.6f','%s','%s','%s')", g, k, nm, 0.0, 0.0, a, b, c);
         feature(&s->w, t);
