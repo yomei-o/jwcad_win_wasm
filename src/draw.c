@@ -302,10 +302,9 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
     dx = x1 > x0 ? x1 - x0 : x0 - x1;
     dy = y1 > y0 ? y1 - y0 : y0 - y1;
 
-    if (bits == 0xffffffffu || phase) {
-        /* a solid line, or a chord of an ellipse, which is walked whole so
-         * the pattern can run on from one chord to the next */
-        double step = phase ? *phase : 0.0;
+    if (bits == 0xffffffffu) {
+        /* a solid line: every pixel of it */
+        double step = 0.0;
         int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
         int xmaj = dx > dy, mj = xmaj ? dx : dy, mn = xmaj ? dy : dx;
         int tie = xmaj ? (sy < 0) : (sx < 0);
@@ -323,8 +322,6 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
             e += 2 * mn;
             if (xmaj) x0 += sx; else y0 += sy;
         }
-        if (phase)
-            *phase = step;
         return;
     }
 
@@ -336,20 +333,32 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
      *
      * The pattern is also stretched so a whole number of repeats fits: count
      * how many do, then divide the long axis by that many.  It therefore
-     * always ends flush with the far end. */
+     * always ends flush with the far end.
+     *
+     * A chord of an arc (phase given) is the other case FUN_004bbef0 has.
+     * The original passes it a 1 where a line gets a 0, and that turns the
+     * stretching off: the pattern runs at its own size and its place in the
+     * ring -- the 32-bit register the original rotates one bit at a time --
+     * is carried from one chord to the next.  So a dashed arc is a run of
+     * short straight lines whose dashes do not restart at every corner. */
     {
         int xmaj = dx > dy;
         int m0 = xmaj ? x0 : y0, m1 = xmaj ? x1 : y1;
         int n0 = xmaj ? y0 : x0, n1 = xmaj ? y1 : x1;
         int major = m1 > m0 ? m1 - m0 : m0 - m1;
         double stepm, stepn;
-        int nbits, i;
+        int nbits, i, base = phase ? (int)*phase : 0;
 
         if (!major) {
             stroke(fb, c, x0, y0, x1, y1, col, wide, 0);
             return;
         }
-        if (unit > 0) {
+        if (phase) {
+            /* how far the ring has turned by the end of this chord: the
+             * original steps while the truncated position is still short of
+             * the far end, so it is one bit per step of ppb, rounded up */
+            *phase = base + ceil((double)major / ppb);
+        } else if (unit > 0) {
             double len = sqrt((double)dx * dx + (double)dy * dy);
             int reps = (int)(len / (unit * ppb));
             if (reps < 1)
@@ -363,24 +372,29 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         nbits = (int)(major / ppb) + 2;
         for (i = 0; i <= nbits; ) {
             int b, am, an, bm, bn, open;
-            if (!(bits & (1u << (i % unit)))) {
+            if (phase && (m1 > m0 ? m0 + (int)(i * stepm) >= m1
+                                  : m0 + (int)(i * stepm) <= m1))
+                break;
+            if (!(bits & (1u << ((base + i) % unit)))) {
                 i++;
                 continue;
             }
             b = i;
-            while (b < nbits && (bits & (1u << ((b + 1) % unit))))
+            while (b < nbits && (bits & (1u << ((base + b + 1) % unit))))
                 b++;
             am = m0 + (int)(i * stepm);
             an = n0 + (int)(i * stepn);
             bm = m0 + (int)((b + 1) * stepm);
             bn = n0 + (int)((b + 1) * stepn);
             /* The last run stops at the end of the line, and that end is
-             * drawn -- a solid line gets its far pixel too. */
+             * drawn -- a solid line gets its far pixel too.  A chord does
+             * not: its far end belongs to the chord after it, and the arc
+             * puts the very last point down itself. */
             open = am != bm || an != bn;
             if (m1 > m0 ? bm >= m1 : bm <= m1) {
                 bm = m1;
                 bn = n1;
-                open = 0;
+                open = phase != 0;
             }
             if (xmaj)
                 stroke(fb, c, am, an, bm, bn, col, wide, open);
@@ -595,8 +609,9 @@ mirror:
     return n;
 }
 
-/* An arc: centre, radius, flattening, start and end angle, tilt.  Stepped
- * finely enough that the chords are under a pixel. */
+/* An arc: centre, radius, flattening, start and end angle, tilt.  A solid
+ * circle goes through GDI's own boundary; anything else is a polyline, and
+ * the two do not land on the same ring. */
 static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 const jw_obj *o)
 {
@@ -611,7 +626,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     double sweep, ct, st;
     int lt = line_type(o);
     double phase = 0.0, ppb = pix_per_bit(v);
-    int n, i, idx;
+    int idx;
     double px = 0, py = 0;
 
     if (flat <= 0.0)
@@ -623,25 +638,26 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     if (sweep == 0.0)
         sweep = 2 * PI;
 
-    /* A true circle goes through GDI's Arc; anything squashed does not, so
-     * that keeps the chord walk below. */
-    if (flat == 1.0) {
+    /* A true solid circle goes through GDI's Arc; anything squashed does
+     * not, and neither does anything dashed, so both keep the chord walk
+     * below.  FUN_00421490 asks for the GDI arc only when the line type's
+     * entry in the table at +0x2fc4 is -1, which is what 実線 has: with any
+     * other type it jumps straight to the polyline. */
+    if (flat == 1.0 && LTYPE[lt].bits == 0xffffffffu) {
         static short pts[2 * ARC_MAX];
         int rp = (int)(r / v->mmpp + 0.5);     /* FUN_004b8250 */
         int cxp = jw_sx(v, cx), cyp = jw_sy(v, cy);
         /* A whole circle goes into a box 2r across, a part of one into a box
          * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
          * cx+r in the first.  So a whole circle is half a pixel off centre
-         * and an arc is not. */
-        /* A whole circle goes into a box 2r across, a part of one into a box
-         * 2r+1 -- but only while it is solid.  Drawn dashed, the original's
-         * whole circle comes out on the bigger ring: a 40 mm circle at this
-         * scale has its solid outline centred on 435.50,278.49 with a mean
-         * radius of 64.32 and its dashed one on 436.54,279.30 at 65.11,
-         * while the port drew both the same.  Reading it as "a dashed circle
-         * is drawn as arcs, and an arc gets the 2r+1 box" takes
-         * 天空率表.jww from 2,451 mismatched pixels to 2,016. */
-        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI) || lt != 1;
+         * and an arc is not.
+         *
+         * Only a solid one comes through here at all, so the line type does
+         * not enter into it: a dashed circle is a polyline, and its ring is
+         * the one the chord walk lands on -- which is why the original's
+         * dashed 40 mm circle measures 65.11 about 436.54,279.30 where its
+         * solid one measures 64.32 about 435.50,278.49. */
+        int odd = !(sweep >= 2 * PI || sweep <= -2 * PI);
         /* debugging hook: write the boundary walk out, so a render can be
            sampled along it and held against the original's */
         int dumpwalk = getenv("JW_ARC_WALK") != 0;
@@ -696,20 +712,63 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         }
     }
 
-    n = (int)(r * v->scale * (sweep < 0 ? -sweep : sweep)) + 8;
-    if (n > 8192)
-        n = 8192;
-    ct = cos(tilt);
-    st = sin(tilt);
-    for (i = 0; i <= n; i++) {
-        double t = a0 + sweep * i / n;
-        double ux = r * cos(t), uy = r * flat * sin(t);
-        double sx = jw_ux(v, cx + ux * ct - uy * st);
-        double sy = jw_uy(v, cy + ux * st + uy * ct);
-        if (i)
+    /* The polyline (FUN_0042e140).  The step in angle is not a fraction of
+     * the sweep, and it is not a fraction of the arc on screen either: the
+     * original takes the bigger half axis **in the drawing's own
+     * millimetres** and looks it up in a fixed ladder.  So the same circle
+     * is chopped the same way however far it is zoomed in, and a 100 mm one
+     * gets 0.1 rad (63 chords round) where the screen measure would have
+     * said 0.07.
+     *
+     * The value it looks up is `bigger half axis * doc[0x1728]`, and
+     * doc[0x1728] is the numerator of the millimetres per pixel
+     * (FUN_004b6d60 divides by doc[6000]/doc[0x1728]), so on screen it is 1.
+     * That is also why printing needs the correction the original applies
+     * just before this -- a ladder in millimetres knows nothing about how
+     * fine the paper is. */
+    {
+        double big = flat > 1.0 ? r * flat : r;
+        double da = big < 50.0    ? 0.2
+                  : big < 125.0   ? 0.1
+                  : big < 312.0   ? 0.07
+                  : big < 781.0   ? 0.04
+                  : big < 1953.0  ? 0.02
+                  : big < 4882.0  ? 0.01
+                  : big < 12200.0 ? 0.005
+                  : big < 24400.0 ? 0.002
+                                  : 0.001;
+        double acc, span = sweep < 0 ? -sweep : sweep;
+
+        if (sweep < 0)
+            da = -da;
+        ct = cos(tilt);
+        st = sin(tilt);
+        px = jw_ux(v, cx + r * cos(a0) * ct - r * flat * sin(a0) * st);
+        py = jw_uy(v, cy + r * cos(a0) * st + r * flat * sin(a0) * ct);
+        for (acc = da; span > (acc < 0 ? -acc : acc); acc += da) {
+            double t = a0 + acc;
+            double ux = r * cos(t), uy = r * flat * sin(t);
+            double sx = jw_ux(v, cx + ux * ct - uy * st);
+            double sy = jw_uy(v, cy + ux * st + uy * ct);
+
             line(fb, v, px, py, sx, sy, col, wide, lt, ppb, &phase);
-        px = sx;
-        py = sy;
+            px = sx;
+            py = sy;
+        }
+        {   /* and the last chord, which ends on the far end exactly */
+            double t = a0 + sweep;
+            double ux = r * cos(t), uy = r * flat * sin(t);
+            double sx = jw_ux(v, cx + ux * ct - uy * st);
+            double sy = jw_uy(v, cy + ux * st + uy * ct);
+
+            line(fb, v, px, py, sx, sy, col, wide, lt, ppb, &phase);
+            /* The far end itself is always put down, whatever the pattern
+             * says: FUN_00436a20 moves to it and draws one pixel when the
+             * chord is the last one and the pen is a thin one. */
+            if (wide < 2)
+                wide_dot(fb, &v->clip, v->bx + (int)sx, v->by - (int)sy,
+                         col, wide, 1);
+        }
     }
 }
 

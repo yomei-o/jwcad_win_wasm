@@ -11,11 +11,24 @@ if [ -z "$CC" ]; then
     CC=gcc
 fi
 CFLAGS="-O2 -Wall -Wextra -Wno-unused-parameter -std=c99 -Isrc -Itests"
-COMMON="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c src/houraku.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
-mkdir -p tests/out
+COMMON_SRC="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c src/houraku.c src/view.c src/draw.c src/text.c src/fontx.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
+mkdir -p tests/out tests/out/obj
+
+# The twenty-odd shared sources go into object files first.  Every test below
+# links the whole of the port, so compiling them once instead of once per test
+# takes the build from a quarter of an hour to a couple of minutes -- which
+# matters because the build box is a good deal slower than this machine.  The
+# objects are rebuilt every run, so there is nothing to go stale.
+COMMON=""
+for f in $COMMON_SRC; do
+    o="tests/out/obj/$(basename "$f" .c).o"
+    $CC $CFLAGS -c -o "$o" "$f"
+    COMMON="$COMMON $o"
+done
 $CC $CFLAGS -o tests/frame.exe    tests/frame.c    tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/shot.exe     tests/shot.c     tests/png.c $COMMON -lm
 $CC $CFLAGS -o tests/jww_test.exe tests/jww_test.c src/jww.c src/cp932.c
+$CC $CFLAGS -o tests/jws_test.exe tests/jws_test.c src/jww.c src/jwwrite.c src/cp932.c -lm
 $CC $CFLAGS -o tests/write_test.exe tests/write_test.c src/jww.c src/jwwrite.c src/cp932.c
 $CC $CFLAGS -o tests/pick_test.exe tests/pick_test.c $COMMON -lm
 $CC $CFLAGS -o tests/read_test.exe tests/read_test.c $COMMON -lm
@@ -62,4 +75,4 @@ $CC $CFLAGS -o tests/houraku_test.exe tests/houraku_test.c $COMMON -lm
 $CC $CFLAGS -o tests/seiri_test.exe tests/seiri_test.c $COMMON -lm
 $CC $CFLAGS -o tests/paper_test.exe tests/paper_test.c $COMMON -lm
 $CC $CFLAGS -o tests/hatch_test.exe tests/hatch_test.c tests/png.c $COMMON -lm
-echo "built tests/frame.exe tests/shot.exe tests/jww_test.exe tests/pick_test.exe tests/read_test.exe tests/click_test.exe tests/write_test.exe tests/new_test.exe tests/sel_test.exe tests/layer_test.exe tests/sunpo_test.exe tests/zoku_test.exe tests/moji_test.exe tests/zokusel_test.exe tests/zokuhen2_test.exe tests/blkmake_test.exe tests/blkedit_test.exe tests/kihon_test.exe tests/jikkaku_test.exe tests/sunpodlg_test.exe tests/bairitsu_test.exe tests/figure_test.exe tests/figreg_test.exe tests/zokattr_test.exe tests/snap_test.exe tests/coord_test.exe tests/session_test.exe tests/poly_test.exe tests/mentori_test.exe tests/bunkatsu_test.exe tests/nisen_test.exe tests/chushin_test.exe tests/zokuhen_test.exe tests/xform_test.exe tests/dxf_test.exe tests/dxfread_test.exe tests/sfcread_test.exe tests/sfcwrite_test.exe tests/jwcread_test.exe tests/jwcwrite_test.exe tests/block_test.exe tests/menu_test.exe tests/sessen_test.exe tests/sekien_test.exe tests/curve_test.exe tests/hatch_test.exe tests/houraku_test.exe tests/seiri_test.exe tests/paper_test.exe"
+echo "built tests/frame.exe tests/shot.exe tests/jww_test.exe tests/jws_test.exe tests/pick_test.exe tests/read_test.exe tests/click_test.exe tests/write_test.exe tests/new_test.exe tests/sel_test.exe tests/layer_test.exe tests/sunpo_test.exe tests/zoku_test.exe tests/moji_test.exe tests/zokusel_test.exe tests/zokuhen2_test.exe tests/blkmake_test.exe tests/blkedit_test.exe tests/kihon_test.exe tests/jikkaku_test.exe tests/sunpodlg_test.exe tests/bairitsu_test.exe tests/figure_test.exe tests/figreg_test.exe tests/zokattr_test.exe tests/snap_test.exe tests/coord_test.exe tests/session_test.exe tests/poly_test.exe tests/mentori_test.exe tests/bunkatsu_test.exe tests/nisen_test.exe tests/chushin_test.exe tests/zokuhen_test.exe tests/xform_test.exe tests/dxf_test.exe tests/dxfread_test.exe tests/sfcread_test.exe tests/sfcwrite_test.exe tests/jwcread_test.exe tests/jwcwrite_test.exe tests/block_test.exe tests/menu_test.exe tests/sessen_test.exe tests/sekien_test.exe tests/curve_test.exe tests/hatch_test.exe tests/houraku_test.exe tests/seiri_test.exe tests/paper_test.exe"

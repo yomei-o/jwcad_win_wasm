@@ -11,6 +11,7 @@ typedef struct {
     const unsigned char *b;
     long n, o;
     int bad;
+    int fig;                    /* reading a 図形 (.jws) rather than a .jww */
 } ar_t;
 
 static const unsigned char *ar_raw(ar_t *a, long n)
@@ -410,23 +411,35 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
         for (i = 0; i < 7; i++)
             o->d[i] = ar_d(a);
         o->n = ar_l(a);
-        /* The original brings the start angle into (-pi, pi] as it reads.
-           tools/mkgeom.c writes an arc starting at 3pi/2; every file the
-           original has written from it since -- decomp/res/zhlayer.jww and
+        /* The original brings the start angle into (-pi, pi], and marks a
+           whole circle as one, as it reads a **drawing**.  tools/mkgeom.c
+           writes an arc starting at 3pi/2; every file the original has
+           written from it since -- decomp/res/zhlayer.jww and
            decomp/res/figreg.jws both -- carries -pi/2 there instead, to the
            bit, so it is one subtraction rather than an atan2 (pi itself is
-           left alone, and the sweep is never touched). */
-        while (o->d[3] > 3.141592653589793)
-            o->d[3] -= 6.283185307179586;
-        while (o->d[3] <= -3.141592653589793)
-            o->d[3] += 6.283185307179586;
-        /* and it marks a whole circle as one.  The field is the flag at
-           +0x90 of CDataEnko, which makes the drawing code take the sweep
-           as 2pi whatever it says; tools/mkgeom.c leaves it at 0 on an arc
-           that goes all the way round, and the original's own copy of that
-           drawing has it at 1. */
-        if (o->d[4] >= 6.283185307179586 || o->d[4] <= -6.283185307179586)
-            o->n = 1;
+           left alone, and the sweep is never touched).  The flag is the one
+           at +0x90 of CDataEnko, which makes the drawing code take the sweep
+           as 2pi whatever it says; mkgeom leaves it at 0 on an arc that goes
+           all the way round and the original's own copy has it at 1.
+
+           **Not on a figure.**  CDataEnko::Serialize (0x0042e7f0) reads its
+           seven doubles and the flag and touches none of them, so neither of
+           these is part of the record itself: they are a pass over what was
+           just loaded, and the 341 figures Jw_cad ships are the evidence
+           that a .jws does not get it -- 106 of them carry an angle outside
+           (-pi, pi] or a 2pi sweep with the flag at 0, and with this left
+           alone every one of the 341 is written back byte for byte.  Where
+           exactly the drawing gets its pass is still not found (it is not in
+           CJw_winDoc::Serialize either); until it is, this is what the files
+           say. */
+        if (!a->fig) {
+            while (o->d[3] > 3.141592653589793)
+                o->d[3] -= 6.283185307179586;
+            while (o->d[3] <= -3.141592653589793)
+                o->d[3] += 6.283185307179586;
+            if (o->d[4] >= 6.283185307179586 || o->d[4] <= -6.283185307179586)
+                o->n = 1;
+        }
         break;
     case JW_TEN:
         o->d[0] = ar_d(a);
@@ -847,6 +860,7 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     a.n = n;
     a.o = 0;
     a.bad = 0;
+    a.fig = 0;
 
     sig = ar_raw(&a, 8);
     if (!sig || memcmp(sig, "JwwData.", 8)) {
@@ -917,6 +931,7 @@ int jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
     a.n = n;
     a.o = 0;
     a.bad = 0;
+    a.fig = 1;
 
     sig = ar_raw(&a, 8);
     if (!sig || memcmp(sig, "JwsData.", 8)) {
@@ -956,11 +971,21 @@ int jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
         }
         read_objs(&a, d, L, -1);
         d->ndrawn = d->nobj;
+        /* A .jww carries a second list for its block definitions; a figure
+           written by 図形登録 has one too, empty.  Some of the ones Jw_cad
+           ships have not got it at all, so it is only read when there is
+           anything left to read it from. */
+        if (d->version > 0x13 && a.o < a.n && !a.bad)
+            read_objs(&a, d, L, -1);
         lctx_free(L);
     }
     if (a.bad) {
         if (!d->error)
             d->error = "the figure ends in the middle of a record";
+        return 0;
+    }
+    if (a.o != n) {
+        d->error = "the parse did not land on the end of the figure";
         return 0;
     }
     return 1;

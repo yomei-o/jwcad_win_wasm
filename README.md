@@ -485,8 +485,8 @@ outside the text areas: 0 differ (0.000%)
 tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 
 === drawings against the original
-    Test1  outside the text areas: 193 differ (0.021%)
-           --, 94 are one pixel out (49%) and 99 are somewhere else entirely
+    Test1  outside the text areas: 28 differ (0.003%)
+           --, 0 are one pixel out (0%) and 28 are somewhere else entirely
     Test7  outside the text areas: 23 differ (0.002%)
            --, 0 are one pixel out (0%) and 23 are somewhere else entirely
 ```
@@ -496,15 +496,19 @@ tests/out/frame.png vs tests/out/wasm.png: 1264x741, 0 of 936624 differ (0.000%)
 座標が 1e-9 まで一致）。ダイアログは**原典が自分で描いた絵**と画素で、
 ファイル形式は**原典が書いたものと 1 バイトずつ**比べています。
 
-残る 193＋23 画素は**破線の円弧**です。環（どの画素を通るか）は原典と
-合っていて、**どれを点けるか**だけが違います —— 原典は GDI の `Arc` に
-線種つきのペンを渡していて、その刻みが点数でも長さでも周期で表せない
-ことまで分かっています（RESUME.md の「破線の円弧」）。
+**破線の円弧は入りました。**原典は**実線の円弧だけ**を GDI の `Arc` に
+渡し、線種が付いていれば弦の折れ線にしてから、直線と同じ線種の描き手に
+渡していました（刻み幅は「図面のミリ」の階段で決まり、パターンの位置は
+弦をまたいで持ち回されます）。同梱 15 枚の残差が **4,445 → 1,933 画素**、
+`天空率表.jww` は 1,487 → 132、`Test1` は 193 → 28 になりました
+（RESUME.md の「破線の円弧」）。残るのは線の位置が 1 画素ずれるもので、
+円弧とは別の話に見えます。
 
 同梱 15 枚ぶんは `sh tools/refshots.sh && sh tools/scoreall.sh`
 （基準画像は**前面で**撮る必要があります。背景の `PrintWindow` では
-作図領域が当てになりません）。いまは画布に対して 0.10%〜1.67%、
-一番よいのが `Test5.jww` の 0.104%、悪いのが下の「原典が一部を描かない」3 枚です。
+作図領域が当てになりません）。いまは画布に対して 0.000%〜0.064%、
+`円地図.jww` が 0 画素、悪いのが `Ａマンション平面例` の 490 画素
+（0.064%）です。
 
 図面のほうは、**字形の入る矩形を別勘定**にしてこの数字です
 （`tests/shot.exe` が図面から矩形を書き出し、`tools/cmp.py` がそれを外します）。

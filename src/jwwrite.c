@@ -398,31 +398,39 @@ int jw_write_jws(const jw_drawing *d, double bx, double by,
     *out = 0;
     *n = 0;
     memset(&w, 0, sizeof w);
-    w_raw(&w, "JwsData.", 8);
-    for (i = 0; i < 192; i++)
-        w_b(&w, '.');
-    w_l(&w, JW_JWS_VERSION);
-    w_d(&w, bx);
-    w_d(&w, by);
-    for (i = 0; i < 16; i++)
-        w_d(&w, d->group[i].scale);
-    for (i = 1; i <= 6; i++)
-        w_l(&w, i);
-    for (i = 1; i <= 6; i++)
-        w_d(&w, (double)i);
-    for (i = 0; i < d->ndrawn; i++) {
-        double a, b, c, e;
+    if (d->head && d->nhead == 452) {
+        /* A figure that was read keeps its own head -- version, base point,
+           scales and the box -- and writing it back out with that is how the
+           189 Jw_cad ships come out byte for byte.  Only 図形登録, which
+           builds its drawing from nothing, gets the head below. */
+        w_raw(&w, d->head, d->nhead);
+    } else {
+        w_raw(&w, "JwsData.", 8);
+        for (i = 0; i < 192; i++)
+            w_b(&w, '.');
+        w_l(&w, JW_JWS_VERSION);
+        w_d(&w, bx);
+        w_d(&w, by);
+        for (i = 0; i < 16; i++)
+            w_d(&w, d->group[i].scale);
+        for (i = 1; i <= 6; i++)
+            w_l(&w, i);
+        for (i = 1; i <= 6; i++)
+            w_d(&w, (double)i);
+        for (i = 0; i < d->ndrawn; i++) {
+            double a, b, c, e;
 
-        jw_obj_box(&d->obj[i], &a, &b, &c, &e);
-        if (a < x0) x0 = a;
-        if (b < y0) y0 = b;
-        if (c > x1) x1 = c;
-        if (e > y1) y1 = e;
+            jw_obj_box(&d->obj[i], &a, &b, &c, &e);
+            if (a < x0) x0 = a;
+            if (b < y0) y0 = b;
+            if (c > x1) x1 = c;
+            if (e > y1) y1 = e;
+        }
+        w_d(&w, x0);
+        w_d(&w, y0);
+        w_d(&w, x1);
+        w_d(&w, y1);
     }
-    w_d(&w, x0);
-    w_d(&w, y0);
-    w_d(&w, x1);
-    w_d(&w, y1);
     {
         int seen[JW_NCLASS], nload = 1;
 

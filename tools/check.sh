@@ -12,9 +12,11 @@
 #   python tools/mkzoku.py
 set -e
 cd "$(dirname "$0")/.."
-# node comes with emsdk and is not on PATH there.
+# node comes with emsdk and is not on PATH there.  Where it sits inside the
+# node package moved: the 22 series has it under bin/, the 24 series at the
+# top, so look in both.
 if ! command -v node >/dev/null 2>&1; then
-    for d in "${EMSDK:-/c/prog/emsdk/emsdk}"/node/*/bin; do
+    for d in "${EMSDK:-/c/prog/emsdk/emsdk}"/node/*/bin              "${EMSDK:-/c/prog/emsdk/emsdk}"/node/*; do
         [ -x "$d/node.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
     done
 fi
@@ -42,21 +44,49 @@ sh tools/build_wasm.sh
 # this drawing, so it has to be the same one tools/refanswers.sh drove with.
 if [ ! -f tmp/geom.jww ]; then
     mkdir -p tmp
-    ${CC:-gcc} -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c         src/jwwrite.c src/cp932.c && ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
+    # in a subshell, because putting w64devkit in front of PATH here would
+    # also put its busybox sh, python and node in front of the real ones for
+    # the rest of this script
+    (
+        if [ -z "$CC" ] && ! command -v gcc >/dev/null 2>&1; then
+            for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
+                [ -x "$d/gcc.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
+            done
+        fi
+        ${CC:-gcc} -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c             src/jwwrite.c src/cp932.c && ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
+    )
 fi
 
 echo
+echo "=== 図形ファイル (.jws) —— 同梱の図形が末尾ぴったりで読めて、そのまま書き戻せるか"
+# Both levels: the six folders themselves and the subfolders under them
+# (人物, 樹木, 車, ２．５Ｄ用, 木造平面) -- 341 figures, not the 189 the
+# top level alone has.
+JWS="orig/*/*.jws orig/*/*.JWS orig/*/*/*.jws orig/*/*/*.JWS"
+printf '    %s\n' "$(./tests/jws_test.exe $JWS 2>/dev/null | tail -1)"
+./tests/jws_test.exe $JWS 2>/dev/null | grep '^BAD' || true
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
-printf '    %s of %s\n' "$(./tests/jww_test.exe orig/*.jww | grep -c '^ok')" \
-                        "$(ls orig/*.jww | wc -l)"
-./tests/jww_test.exe orig/*.jww | grep '^BAD' || true
+# Jw_cad's own sixteen, and every answer the original has written for this
+# port besides: a hundred and fifty more drawings in every state the tests
+# have ever put it in, which is a far wider sample of the format.
+printf '    %s of %s\n' \
+    "$(./tests/jww_test.exe orig/*.jww decomp/res/*.jww | grep -c '^ok')" \
+    "$(ls orig/*.jww decomp/res/*.jww | wc -l)"
+./tests/jww_test.exe orig/*.jww decomp/res/*.jww | grep '^BAD' || true
 
 echo
 echo "=== writing a drawing back out: the bytes have to be identical"
-# decomp/res/sfcin.jww is the one with a 図形 in it (tools/refanswers.sh)
-./tests/write_test.exe orig/*.jww decomp/res/sfcin.jww \
-    | grep -c '^ok' | sed 's/^/    /'
-./tests/write_test.exe orig/*.jww decomp/res/sfcin.jww | grep '^BAD' || true
+# The same wide set, with decomp/res/sfcgeo.jww left out: that one came in
+# through 読取 from an SFC, so its arcs still carry a start angle outside
+# (-pi, pi] (0x45ac is just over 3pi/2), and the reader brings them in the
+# way the original does when it loads a drawing -- decomp/res/zhlayer.jww is
+# the original's own proof of that.  So that file is written back different
+# in one double on purpose, and the original would do the same to it.
+WRITE="$(ls orig/*.jww decomp/res/*.jww | grep -v 'sfcgeo')"
+./tests/write_test.exe $WRITE | grep -c '^ok' | sed 's/^/    /'
+./tests/write_test.exe $WRITE | grep '^BAD' || true
 
 echo
 echo "=== what is under the mouse"
