@@ -40,14 +40,32 @@ extern int jw_stretch;
 /* Fit a sheet of half-width hw and half-height hh into r. */
 void jw_view_fit(jw_view *v, const rect_t *r, double hw, double hh);
 
+/* Millimetres of paper to a whole number of pixels.
+ *
+ * The cast is undefined when the value will not fit in an int, and it does
+ * not take a damaged file to get there: jw_numbers_sane() lets a coordinate
+ * reach 1e12, and a fitted sheet is about half a millimetre to the pixel, so
+ * an honest read of a damaged drawing hands this 2e12.  A hundred million
+ * pixels is already a hundred thousand screens away, so pinning there
+ * changes nothing that can be seen -- it only keeps the conversion defined,
+ * and it leaves room to subtract two of them without overflowing an int.
+ * Written as !(p > lo) so that a NaN, which loses every comparison, falls
+ * into the first clamp. */
+static __inline int jw_px_round(double p)
+{
+    if (!(p > -1e8)) return -100000000;
+    if (!(p <  1e8)) return  100000000;
+    return (int)p;
+}
+
 static __inline int jw_sx(const jw_view *v, double x)
 {
-    return v->bx + (int)((x - v->ox) / v->mmpp + jw_round_x);
+    return v->bx + jw_px_round((x - v->ox) / v->mmpp + jw_round_x);
 }
 
 static __inline int jw_sy(const jw_view *v, double y)
 {
-    return v->by - (int)((y - v->oy) / v->mmpp + jw_round_y);
+    return v->by - jw_px_round((y - v->oy) / v->mmpp + jw_round_y);
 }
 
 /* The same, but before the rounding: how far across and up the point is from

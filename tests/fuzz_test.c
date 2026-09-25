@@ -111,7 +111,10 @@ static int one(const unsigned char *b, long n, int kind)
        1e300 went into a sixteen-byte "%.2f" and a sun figure into a
        sixty-four byte one.  Painting is far slower than parsing, so this is
        a sample, at a small window. */
-    if (ok && written % 512 == 0 && app_resize(320, 240)) {
+    /* JW_FUZZ_NOPAINT leaves the parsing and drops the painting, to tell
+       which half a sanitizer report belongs to without editing the file. */
+    if (ok && written % 512 == 0 && !getenv("JW_FUZZ_NOPAINT")
+        && app_resize(320, 240)) {
         unsigned char *raw = 0;
         long rawn = 0;
         if (jw_write(&d, &raw, &rawn)) {

@@ -89,6 +89,13 @@ echo "=== 形式をまたいで続けて読む —— 前の読み手が残し�
 ./tests/seq_test.exe orig/Test1.jww decomp/res/aci1.dxf decomp/res/geo.sfc     decomp/res/t5.jwc | sed 's/^/    /'
 
 echo
+echo "=== 表に無い大きさの円 —— 弧の四分円の枠からはみ出さないか"
+# Past radius 256 the ring comes from a midpoint walk, and that emits more
+# points than the radius.  A quadrant of ARC_MAX/8 was written past from
+# radius 5,792 up, which zooming into any circle reaches.
+./tests/bigcirc_test.exe | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests

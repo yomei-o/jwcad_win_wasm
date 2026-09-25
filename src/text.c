@@ -60,10 +60,19 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
         return;
     stride = (f->width + 7) / 8;
     /* one screen pixel per step, so nothing is skipped when scaling up */
-    nx = (int)(cw / v->mmpp + 0.5);
-    ny = (int)(ch / v->mmpp + 0.5);
+    /* jw_px_round, not a bare cast: a damaged file may give a text style a
+       character 1e12 millimetres across, and the cast is undefined when the
+       value will not fit.  See src/view.h. */
+    nx = jw_px_round(cw / v->mmpp + 0.5);
+    ny = jw_px_round(ch / v->mmpp + 0.5);
     if (nx < 1) nx = 1;
     if (ny < 1) ny = 1;
+    /* One sample a screen pixel is all it takes to leave no gaps, so a cell
+       wider than the whole framebuffer needs no more steps than that.  A
+       damaged file can ask for a character 1e12 millimetres across, and
+       without this the two loops below run for the rest of the day. */
+    if (nx > fb->w + fb->h) nx = fb->w + fb->h;
+    if (ny > fb->w + fb->h) ny = fb->w + fb->h;
     for (j = 0; j < ny; j++) {
         gy = f->height - 1 - j * f->height / ny;
         for (i = 0; i < nx; i++) {

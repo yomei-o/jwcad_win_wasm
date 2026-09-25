@@ -297,8 +297,28 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
             }
         }
     }
-    x0 = v->bx + (int)u0; y0 = v->by - (int)w0;
-    x1 = v->bx + (int)u1; y1 = v->by - (int)w1;
+    /* The cut above only works on the *long* axis, so a dead-level line
+       1e12 millimetres above the sheet arrives here with its across-axis
+       inside the window and its up-axis nowhere near an int.  Two things
+       follow from that.
+
+       jw_px_round rather than a bare cast, because the cast itself is
+       undefined at that distance (see src/view.h).  And then throw the line
+       out if it cannot touch the window at all: the walk below steps once
+       per pixel of the short axis when that is the longer of the two in
+       pixels, which is two hundred million steps, every one of them thrown
+       away by put().  The widest pen is JW_WIDE_MAX = 16, so 64 pixels of
+       margin is more than anything can reach out of. */
+    x0 = v->bx + jw_px_round(u0); y0 = v->by - jw_px_round(w0);
+    x1 = v->bx + jw_px_round(u1); y1 = v->by - jw_px_round(w1);
+    {
+        int lo_x = c->x - 64, hi_x = c->x + c->w + 64;
+        int lo_y = c->y - 64, hi_y = c->y + c->h + 64;
+
+        if ((x0 < lo_x && x1 < lo_x) || (x0 > hi_x && x1 > hi_x)
+            || (y0 < lo_y && y1 < lo_y) || (y0 > hi_y && y1 > hi_y))
+            return;
+    }
     dx = x1 > x0 ? x1 - x0 : x0 - x1;
     dy = y1 > y0 ? y1 - y0 : y0 - y1;
 
@@ -572,16 +592,28 @@ static int circle_points(int rp, int odd, short *out)
 {
     /* One quadrant an entry, from (0, r) to (r, 0).  Either box is drawn as
        two CDC::Arc calls and an arc ring does not fold about the axes, so
-       all four are read from the table. */
-    static short qxs[4][ARC_MAX / 8], qys[4][ARC_MAX / 8];
+       all four are read from the table.
+
+       ARC_MAX/4 a quadrant, not ARC_MAX/8: past radius 256 the table has
+       nothing and the midpoint walk below runs instead, and that emits about
+       sqrt(2) * rp points -- more than rp.  A quadrant of ARC_MAX/8 was
+       written past from radius 5,792 up, which the radius guard (below,
+       ARC_MAX/8 - 2) let through: zooming far enough into any circle
+       reaches it.  tests/bigcirc_test.c holds that shut. */
+    static short qxs[4][ARC_MAX / 4], qys[4][ARC_MAX / 4];
     short *qx = qxs[0], *qy = qys[0];
-    long rx2 = (long)rp * rp, ry2 = (long)rp * rp;
-    long px = 0, py = 2 * rx2 * rp;
+    /* doubles, not longs: `long` is 32 bits on both the Windows build and
+       wasm, and 2 * rp^3 passes what one holds at rp = 1,291 -- well inside
+       the radii this walks.  Every value here is a whole number under 2^53,
+       so a double carries them exactly and the walk is unchanged. */
+    double rx2, ry2, px = 0, py;
     double p;
     int x = 0, y = rp, nq = 0, n = 0, i, nq2[4];
 
     if (rp <= 0 || rp >= ARC_MAX / 8 - 2)
         return 0;
+    rx2 = ry2 = (double)rp * rp;
+    py = 2 * rx2 * rp;
     nq = circle_table(rp, odd, 0, qx, qy);
     nq2[0] = nq2[1] = nq2[2] = nq2[3] = nq;
     if (nq > 0) {
@@ -597,7 +629,7 @@ static int circle_points(int rp, int odd, short *out)
             goto mirror;
     }
     qx[nq] = (short)x; qy[nq] = (short)y; nq++;
-    p = (double)ry2 - (double)rx2 * rp + 0.25 * rx2;
+    p = ry2 - rx2 * rp + 0.25 * rx2;
     while (px < py) {
         x++;
         px += 2 * ry2;
@@ -606,21 +638,21 @@ static int circle_points(int rp, int odd, short *out)
         } else {
             y--;
             py -= 2 * rx2;
-            p += (double)ry2 + px - py;
+            p += ry2 + px - py;
         }
         qx[nq] = (short)x; qy[nq] = (short)y; nq++;
     }
-    p = (double)ry2 * (x + 0.5) * (x + 0.5)
-      + (double)rx2 * (y - 1) * (y - 1) - (double)rx2 * ry2;
+    p = ry2 * (x + 0.5) * (x + 0.5)
+      + rx2 * (y - 1) * (y - 1) - rx2 * ry2;
     while (y > 0) {
         y--;
         py -= 2 * rx2;
         if (p > 0) {
-            p += (double)rx2 - py;
+            p += rx2 - py;
         } else {
             x++;
             px += 2 * ry2;
-            p += (double)rx2 - py + px;
+            p += rx2 - py + px;
         }
         qx[nq] = (short)x; qy[nq] = (short)y; nq++;
     }
@@ -747,7 +779,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     if (flat == 1.0 && LTYPE[lt].bits == 0xffffffffu
         && centre_inside(v, cx, cy)) {
         static short pts[2 * ARC_MAX];
-        int rp = (int)(r / v->mmpp + 0.5);     /* FUN_004b8250 */
+        int rp = jw_px_round(r / v->mmpp + 0.5);   /* FUN_004b8250 */
         int cxp = jw_sx(v, cx), cyp = jw_sy(v, cy);
         /* A whole circle goes into a box 2r across, a part of one into a box
          * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
@@ -921,8 +953,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
              * says: FUN_00436a20 moves to it and draws one pixel when the
              * chord is the last one and the pen is a thin one. */
             if (wide < 2)
-                wide_dot(fb, &v->clip, v->bx + (int)sx, v->by - (int)sy,
-                         col, wide, 1);
+                wide_dot(fb, &v->clip, v->bx + jw_px_round(sx),
+                         v->by - jw_px_round(sy), col, wide, 1);
         }
     }
 }
@@ -955,8 +987,9 @@ static void fill_ring(fb_t *fb, const jw_view *v, const short *pts, int n,
             if ((y0 <= y) == (y1 <= y) || m >= 512)
                 continue;
             xs[m++] = pts[2 * j]
-                    + (int)((double)(y - y0) * (pts[2 * i] - pts[2 * j])
-                            / (y1 - y0) + 0.5);
+                    + jw_px_round((double)(y - y0)
+                                  * (pts[2 * i] - pts[2 * j])
+                                  / (y1 - y0) + 0.5);
         }
         for (i = 1; i < m; i++) {
             int k = xs[i], q = i - 1;
@@ -986,7 +1019,7 @@ static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
     static short pts[2 * (ARC_MAX + 2)];
     double r = o->d[2], flat = o->d[6] > 0.0 ? 1.0 : 1.0;
     double a0 = o->d[5], sw = o->d[6], tilt = o->d[4], ratio = o->d[3];
-    int rp = (int)(r / v->mmpp + 0.5), n = 0, k, steps;
+    int rp = jw_px_round(r / v->mmpp + 0.5), n = 0, k, steps;
     unsigned int col;
 
     (void)flat;
@@ -1072,8 +1105,9 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
             int y0 = py[j], y1 = py[i];
             if ((y0 <= y) == (y1 <= y))
                 continue;
-            xs[m++] = px[j] + (int)((double)(y - y0) * (px[i] - px[j])
-                                    / (y1 - y0) + 0.5);
+            xs[m++] = px[j] + jw_px_round((double)(y - y0)
+                                          * ((double)px[i] - px[j])
+                                          / (y1 - y0) + 0.5);
         }
         for (i = 1; i < m; i++) {
             int k = xs[i], q = i - 1;
@@ -1153,9 +1187,17 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
      * the minimum is 15, while 5 mm never reaches 11.6.  That one rule covers
      * all fifteen.
      */
+    /* The >= 1.0 pair is not the original's rule, which is mesh_min alone.
+       It is there because a damaged file may say mesh_min <= 0 with a
+       spacing of 1e-300, and then the two loops below step across the window
+       in 1e-300 millimetre hops and never come back -- and the first pixel
+       divides by that spacing, which is past what a long holds.  Every
+       drawing to hand says 15, so no real one notices. */
     if (d->mesh_ix > 0.0 && d->mesh_iy > 0.0
         && d->mesh_ix / v->mmpp >= d->mesh_min
-        && d->mesh_iy / v->mmpp >= d->mesh_min) {
+        && d->mesh_iy / v->mmpp >= d->mesh_min
+        && d->mesh_ix / v->mmpp >= 1.0
+        && d->mesh_iy / v->mmpp >= 1.0) {
         /* over the whole drawing area, not just the sheet: the original's
            grid carries two more columns past each edge of the paper */
         double lx = v->ox + (v->clip.x - v->bx) * v->mmpp;
@@ -1163,8 +1205,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
         double ly = v->oy - (v->clip.y + v->clip.h - v->by) * v->mmpp;
         double hy = v->oy - (v->clip.y - v->by) * v->mmpp;
         double x0 = d->mesh_ox, y0 = d->mesh_oy, x, y;
-        long k = (long)floor((lx - x0) / d->mesh_ix);
-        long j0 = (long)floor((ly - y0) / d->mesh_iy);
+        long k = jw_px_round(floor((lx - x0) / d->mesh_ix));
+        long j0 = jw_px_round(floor((ly - y0) / d->mesh_iy));
 
         for (x = x0 + k * d->mesh_ix; x <= hx; x += d->mesh_ix)
             for (y = y0 + j0 * d->mesh_iy; y <= hy; y += d->mesh_iy)

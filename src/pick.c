@@ -312,7 +312,11 @@ typedef struct {
 static void offer(read_t *r, double x, double y)
 {
     double s = r->v->scale;
-    int m = (int)(ab(x - r->px) * s + 0.5) + (int)(ab(y - r->py) * s + 0.5);
+    /* jw_px_round, not a bare cast: the drawing may put the point 1e12 away
+       and the view may be scaled up, and the cast is undefined when the
+       product will not fit.  See src/view.h. */
+    int m = jw_px_round(ab(x - r->px) * s + 0.5)
+          + jw_px_round(ab(y - r->py) * s + 0.5);
 
     if (m > JW_READ_PX || (r->got && m >= r->d))
         return;

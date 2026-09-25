@@ -50,6 +50,13 @@ void app_zoom(double factor, int sx, int sy)
         return;
     wx = view.ox + (sx - view.bx) / view.scale;
     wy = view.oy + (view.by - sy) / view.scale;
+    /* Enough steps one way run the millimetres per pixel out of the range
+       of a double, and a view whose scale is 0 or infinite turns every
+       coordinate after it into a NaN.  Refuse the step instead: nothing a
+       person can reach is anywhere near this, but the command fuzzer holds
+       the zoom key down thousands of times. */
+    if (!(view.mmpp / factor > 1e-300 && view.mmpp / factor < 1e300))
+        return;
     view.mmpp /= factor;
     view.scale = 1.0 / view.mmpp;
     view.ox = wx - (sx - view.bx) / view.scale;

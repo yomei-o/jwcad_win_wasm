@@ -857,7 +857,18 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
     jw_text_px(fb, ui_right(panes[3].x0 + 4, fb->w), ty, "\x81\xda 0", C_BTNTEXT);
     /* two decimals, cut not rounded, and a trailing zero dropped: the
        original shows 0.21, 0.3, 0.42 and 0.1 for the four sheet sizes */
-    sprintf(buf, "\x81\x7e %g", (double)(long)(zoom * 100.0 + 1e-9) / 100.0);
+    {
+        /* Cut, do not round, and drop a trailing zero.  The cast to long is
+           undefined when the value does not fit, and the zoom is a quotient
+           the command bar can drive as far as it likes, so clamp first --
+           the same hole as the pen width in src/coord.c. */
+        double z = zoom * 100.0 + 1e-9;
+
+        /* written as !(a > b) so that a NaN falls into the first clamp */
+        if (!(z > -2147483000.0)) z = -2147483000.0;
+        if (!(z <  2147483000.0)) z =  2147483000.0;
+        sprintf(buf, "\x81\x7e %g", (double)(long)z / 100.0);
+    }
     jw_text_px(fb, ui_right(panes[4].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
 }
 
