@@ -19,3 +19,4 @@ tests/*.exe
 src/gen/
 tests/out/
 jw_port.exe
+sync.tgz
