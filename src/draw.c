@@ -495,16 +495,29 @@ static int obj_wide(const jw_drawing *d, const jw_obj *o)
     return pen_wide(d, o->color);
 }
 
-/* A circle, the way GDI draws it.  Jw_cad hands Arc the box
- * (cx-r, cy-r)-(cx+r, cy+r); those corners are exclusive, so the circle sits
- * half a pixel up and to the left of the centre pixel -- drawing it centred
- * on the pixel puts every pixel of it in the wrong place.  The boundary is
- * the textbook midpoint ellipse, which is the family GDI's own is from.
+/* A circle, the way GDI draws it.
+ *
+ * A *whole* circle: Jw_cad sets the box to (cx-r, cy-r)-(cx+r, cy+r) and
+ * calls CDC::Arc **twice**, from (+r,0) round to (-r,0) and back again
+ * (FUN_00421490's whole-circle arm; the only Arc() in the program is
+ * FUN_004b5090 and FUN_004b50e0 is its only caller).  Those corners are
+ * exclusive, so the circle sits half a pixel up and to the left of the
+ * centre pixel -- drawing it centred on the pixel puts every pixel of it in
+ * the wrong place.  And GDI's arc is not GDI's ellipse: of 256 radii, 163
+ * come out on a different ring.  So the table for this box is taken from
+ * the two arcs, and because two arcs do not fold, all four quadrants of it
+ * are written down.
+ *
+ * A *part* of a circle goes in a box one bigger, (cx+r+1, cy+r+1), and is
+ * one CDC::Arc.  Its ring depends on where the arc starts and stops -- a
+ * table cannot hold that -- so the ellipse in that box is used instead,
+ * which is close but not the same (15 drawings: 916 pixels this way, 820 if
+ * GDI is asked directly).  One quadrant is enough for an ellipse.
  *
  * The points come out in order round the circle so a line type can advance
  * along it, and so an arc can start where it is told to.
  *
- * Up to radius 256 the quadrant is GDI's own, written down by asking it
+ * Up to radius 256 the quadrants are GDI's own, written down by asking it
  * (src/gen/circle.h, tools/gdicirc.c).  GDI's circle is not the textbook
  * midpoint one -- for radius 5 the textbook walk goes (0,5) (1,5) (2,5)
  * (3,4) and GDI's goes (0,5) (1,5) (2,4) (3,4) -- and nothing as simple as a
@@ -515,17 +528,18 @@ static int obj_wide(const jw_drawing *d, const jw_obj *o)
 
 /* Fill the quadrant from GDI's own walk.  Returns how many points, or 0 if
    that radius is not in the table. */
-static int circle_table(int rp, int odd, short *qx, short *qy)
+static int circle_table(int rp, int odd, int quad, short *qx, short *qy)
 {
-    const unsigned short *off = odd ? jw_circ_off1 : jw_circ_off0;
+    const unsigned int *off = odd ? jw_circ_off1 : jw_circ_off0;
     const unsigned short *len = odd ? jw_circ_len1 : jw_circ_len0;
     const unsigned char *bits = odd ? jw_circ_bits1 : jw_circ_bits0;
     int n = 0, x = 0, y = rp, i, base, steps;
+    int at = odd ? rp : rp * JW_CIRC_QUADS + quad;
 
-    if (rp < 1 || rp > JW_CIRC_RMAX || len[rp] == 0)
+    if (rp < 1 || rp > JW_CIRC_RMAX || len[at] == 0)
         return 0;
-    base = off[rp];
-    steps = len[rp];
+    base = off[at];
+    steps = len[at];
     qx[n] = 0;
     qy[n] = (short)rp;
     n++;
@@ -545,18 +559,34 @@ static int circle_table(int rp, int odd, short *qx, short *qy)
 
 static int circle_points(int rp, int odd, short *out)
 {
-    /* the first quadrant, from (0, r) to (r, 0) */
-    static short qx[ARC_MAX / 8], qy[ARC_MAX / 8];
+    /* One quadrant an entry, from (0, r) to (r, 0).  The 2r+1 box folds, so
+       only [0] is filled for it; the 2r box is two arcs and does not, so all
+       four are read from the table. */
+    static short qxs[4][ARC_MAX / 8], qys[4][ARC_MAX / 8];
+    short *qx = qxs[0], *qy = qys[0];
     long rx2 = (long)rp * rp, ry2 = (long)rp * rp;
     long px = 0, py = 2 * rx2 * rp;
     double p;
-    int x = 0, y = rp, nq = 0, n = 0, i;
+    int x = 0, y = rp, nq = 0, n = 0, i, nq2[4];
 
     if (rp <= 0 || rp >= ARC_MAX / 8 - 2)
         return 0;
-    nq = circle_table(rp, odd, qx, qy);
-    if (nq > 0)
-        goto mirror;
+    nq = circle_table(rp, odd, 0, qx, qy);
+    nq2[0] = nq2[1] = nq2[2] = nq2[3] = nq;
+    if (nq > 0) {
+        if (!odd) {
+            int q;
+            for (q = 1; q < 4; q++) {
+                nq2[q] = circle_table(rp, odd, q, qxs[q], qys[q]);
+                if (nq2[q] <= 0) {      /* a quadrant that would not walk */
+                    nq = 0;
+                    break;
+                }
+            }
+        }
+        if (nq > 0)
+            goto mirror;
+    }
     qx[nq] = (short)x; qy[nq] = (short)y; nq++;
     p = (double)ry2 - (double)rx2 * rp + 0.25 * rx2;
     while (px < py) {
@@ -585,6 +615,15 @@ static int circle_points(int rp, int odd, short *out)
         }
         qx[nq] = (short)x; qy[nq] = (short)y; nq++;
     }
+    /* the midpoint walk is one quadrant folded four ways, like the ellipse */
+    nq2[0] = nq2[1] = nq2[2] = nq2[3] = nq;
+    {
+        int q;
+        for (q = 1; q < 4; q++) {
+            memcpy(qxs[q], qxs[0], (size_t)nq * sizeof qxs[0][0]);
+            memcpy(qys[q], qys[0], (size_t)nq * sizeof qys[0][0]);
+        }
+    }
 
     /* Round the circle, starting at three o'clock and going anticlockwise on
      * screen (which is the direction the file's angles run).  An odd box is
@@ -593,17 +632,25 @@ static int circle_points(int rp, int odd, short *out)
 mirror:
     {
         int lo = odd ? 0 : -1;               /* the right and bottom sides  */
-        for (i = nq - 1; i >= 0; i--) {      /* 0 to 90 degrees   */
-            out[2 * n] = (short)(qx[i] + lo); out[2 * n + 1] = (short)(-qy[i]); n++;
+        short *ax = qxs[0], *ay = qys[0];    /* top right                   */
+        short *bx = odd ? qxs[0] : qxs[1];   /* top left                    */
+        short *by = odd ? qys[0] : qys[1];
+        short *cx = odd ? qxs[0] : qxs[2];   /* bottom left                 */
+        short *cy = odd ? qys[0] : qys[2];
+        short *dx = odd ? qxs[0] : qxs[3];   /* bottom right                */
+        short *dy = odd ? qys[0] : qys[3];
+
+        for (i = nq2[0] - 1; i >= 0; i--) {  /* 0 to 90 degrees   */
+            out[2 * n] = (short)(ax[i] + lo); out[2 * n + 1] = (short)(-ay[i]); n++;
         }
-        for (i = 0; i < nq; i++) {           /* 90 to 180         */
-            out[2 * n] = (short)(-qx[i]); out[2 * n + 1] = (short)(-qy[i]); n++;
+        for (i = 0; i < nq2[1]; i++) {       /* 90 to 180         */
+            out[2 * n] = (short)(-bx[i]); out[2 * n + 1] = (short)(-by[i]); n++;
         }
-        for (i = nq - 1; i >= 0; i--) {      /* 180 to 270        */
-            out[2 * n] = (short)(-qx[i]); out[2 * n + 1] = (short)(qy[i] + lo); n++;
+        for (i = nq2[2] - 1; i >= 0; i--) {  /* 180 to 270        */
+            out[2 * n] = (short)(-cx[i]); out[2 * n + 1] = (short)(cy[i] + lo); n++;
         }
-        for (i = 0; i < nq; i++) {           /* 270 to 360        */
-            out[2 * n] = (short)(qx[i] + lo); out[2 * n + 1] = (short)(qy[i] + lo); n++;
+        for (i = 0; i < nq2[3]; i++) {       /* 270 to 360        */
+            out[2 * n] = (short)(dx[i] + lo); out[2 * n + 1] = (short)(dy[i] + lo); n++;
         }
     }
     return n;
