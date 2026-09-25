@@ -279,8 +279,10 @@ static jw_obj *place(sfcr *r, int cls)
     o->lgroup = 0;
     o->color = (unsigned short)(100 + inum(r, 1));
     o->ltype = (unsigned char)(30 + inum(r, 2));
+    /* jw_whole: the width came out of the file through atof(), so it may be
+       1e300, and the cast to int would be undefined. */
     o->width = (unsigned short)(w > 0 && w < NWIDTH
-                                ? (int)(r->width[w] * 100.0 + 0.5) : 0);
+                                ? jw_whole(r->width[w] * 100.0 + 0.5) : 0);
     return o;
 }
 

@@ -334,4 +334,21 @@ int jw_text_drawn(const jw_obj *o);
    (decomp/res/paperA3.jww). */
 void jw_paper_set(jw_drawing *d, int n);
 
+/* A number out of a file as a whole one.
+ *
+ * DXF, SFC and JWC all keep their numbers as text, and a damaged one may say
+ * 1e300 where it means 7.  Converting a double to an int is *undefined* when
+ * the value will not fit -- not merely wrong -- so every such conversion on
+ * a path a file can reach goes through here.  Written as !(v > lo) so that a
+ * NaN, which loses every comparison, falls into the first clamp.
+ *
+ * src/view.h has the same thing for paper millimetres, pinned much tighter
+ * (a pixel count has to survive being subtracted from another). */
+static __inline int jw_whole(double v)
+{
+    if (!(v > -2147483000.0)) return -2147483000;
+    if (!(v <  2147483000.0)) return  2147483000;
+    return (int)v;
+}
+
 #endif

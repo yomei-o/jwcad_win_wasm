@@ -423,7 +423,7 @@ static void ltypes(dxfr *r)
             if (r->code == 2)
                 copy_name(name, r->str);
             if (r->code == 0x49) {
-                n = (int)r->num;
+                n = jw_whole(r->num);
                 if (n > 8)
                     n = 8;
             }
@@ -469,9 +469,9 @@ static void layers(dxfr *r)
             if (r->code == 6)
                 r->lay[r->nlay].ltype = ltype_of(r, r->str);
             if (r->code == 0x3e)
-                r->lay[r->nlay].color = colour(r, (int)r->num, 0);
+                r->lay[r->nlay].color = colour(r, jw_whole(r->num), 0);
             if (r->code == 0x1a4)
-                r->lay[r->nlay].color = colour(r, (int)r->num, 1);
+                r->lay[r->nlay].color = colour(r, jw_whole(r->num), 1);
         } while (r->code > 0);
         r->nlay++;
     }
@@ -525,10 +525,10 @@ static int attr_take(dxfr *r, attr *a)
         a->ltype = ltype_of(r, r->str);
         return 1;
     case 0x3e:
-        a->color = colour(r, (int)r->num, 0);
+        a->color = colour(r, jw_whole(r->num), 0);
         return 1;
     case 0x1a4:
-        a->color = colour(r, (int)r->num, 1);
+        a->color = colour(r, jw_whole(r->num), 1);
         return 1;
     }
     return 0;
@@ -760,9 +760,9 @@ static void ent_hatch(dxfr *r)
         else if (r->code == 98)
             fill = 0;           /* what follows are seed points */
         else if (r->code == 93)
-            nedge = (int)r->num;
+            nedge = jw_whole(r->num);
         else if (r->code == 72) {
-            etype = (int)r->num;
+            etype = jw_whole(r->num);
             if (etype >= 2)
                 arc = 1;
         } else if (fill && etype == 2) {
@@ -991,7 +991,7 @@ static void ent_poly(dxfr *r, int lw)
             if (attr_take(r, &a))
                 continue;
             if (r->code == 0x46)
-                close = (int)r->num & 1;
+                close = jw_whole(r->num) & 1;
             if (r->code == 10 && n < 256) {
                 x[n] = put_x(r, r->num);
                 y[n] = 0.0;
@@ -1005,7 +1005,7 @@ static void ent_poly(dxfr *r, int lw)
             if (attr_take(r, &a))
                 continue;
             if (r->code == 0x46)
-                close = (int)r->num & 1;
+                close = jw_whole(r->num) & 1;
         }
         /* the corners, each its own entity, until SEQEND */
         while (r->code == 0 && !strcmp(r->str, "VERTEX")) {

@@ -152,6 +152,30 @@ int main(void)
         printf("ok   radius 1e12 millimetres: %ld painted\n", n);
     }
 
+    /* And then every radius the ring walk will take, one after another.
+     *
+     * The spot checks above are not enough, and the fuzzer is no help here.
+     * The band that was being written past is only 5,792 to 8,189 -- a
+     * factor of 1.41 -- and the fuzzer reaches a big radius only by zooming,
+     * which walks the centre of the circle off the screen long before the
+     * radius gets there (GDI's ring is only asked for while the centre is
+     * still inside).  That is measured, not guessed: the whole reader sweep,
+     * 198 files and 393,800 damaged copies, with the fix taken back out and
+     * AddressSanitizer watching, came back clean.  So the domain is walked
+     * whole instead -- 1 to ARC_MAX/8 - 2, where circle_points gives up. */
+    {
+        double r;
+        int bad = 0;
+
+        for (r = 1; r <= 8200; r++)
+            if (draw_at(&fb, 100.0, 2.0 * 3.14159265358979323846, r) < 0)
+                bad++;
+        for (r = 1; r <= 8200; r++)
+            if (draw_at(&fb, 100.0, 1.0, r) < 0)
+                bad++;
+        ck(!bad, "every radius from 1 to 8,200, whole and part");
+    }
+
     fb_free(&fb);
     printf("%s bigcirc\n", fails ? "BAD " : "ok  ");
     return fails ? 1 : 0;
