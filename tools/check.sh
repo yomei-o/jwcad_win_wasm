@@ -67,6 +67,10 @@ printf '    %s\n' "$(./tests/jws_test.exe $JWS 2>/dev/null | tail -1)"
 ./tests/jws_test.exe $JWS 2>/dev/null | grep '^BAD' || true
 
 echo
+echo "=== 壊れたファイル —— 読み手が落ちず、いつまでも回らないか"
+./tests/fuzz_test.exe orig/*.jww decomp/res/*.jww $JWS     decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc 2>/dev/null     | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests

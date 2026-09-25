@@ -397,9 +397,10 @@ static void element(sfcr *r)
             double a0 = num(r, 8), a1 = num(r, 9), sw;
 
             sw = back ? a0 - a1 : a1 - a0;
-            while (sw < 0.0)
+            /* bounded, so a damaged file cannot spin here */
+            while (sw < 0.0 && sw > -1e9)
                 sw += 360.0;
-            while (sw >= 360.0)
+            while (sw >= 360.0 && sw < 1e9)
                 sw -= 360.0;
             if (back)
                 sw = -sw;

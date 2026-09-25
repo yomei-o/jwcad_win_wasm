@@ -249,6 +249,9 @@ static void read_header(ar_t *a, jw_drawing *d)
             unsigned c = (unsigned)ar_l(a);
             d->print_rgb[i] = c;
             d->print_width[i] = ar_l(a);
+            /* and a double each: the point radius in millimetres that
+               FUN_00424200 would draw a 仮点 with (doc+0x6948).  Not used
+               yet -- see "仮点の形" in RESUME.md. */
             ar_d(a);
         }
         for (i = 2; i < 10; i++)
@@ -432,6 +435,19 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
            exactly the drawing gets its pass is still not found (it is not in
            CJw_winDoc::Serialize either); until it is, this is what the files
            say. */
+        /* A damaged file can carry 1e300 in an angle, and the walk below
+           steps one turn at a time -- which would take longer than the
+           machine will live.  Nothing the original writes is more than a
+           turn or two out, so this far out means the record was read with
+           the wrong shape and the rest of the file is guesswork anyway.
+           (tests/fuzz_test.c found this by handing the reader a drawing
+           with one byte changed.) */
+        if (!(o->d[3] > -1e6 && o->d[3] < 1e6)
+            || !(o->d[4] > -1e6 && o->d[4] < 1e6)) {
+            d->error = "an arc with an angle that cannot be";
+            a->bad = 1;
+            break;
+        }
         if (!a->fig) {
             while (o->d[3] > 3.141592653589793)
                 o->d[3] -= 6.283185307179586;

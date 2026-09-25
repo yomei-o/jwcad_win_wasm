@@ -596,9 +596,11 @@ static void ent_arc(dxfr *r, int circle)
         case 0x33: {
             double s = r->num - a0;
 
-            while (s > 360.0)
+            /* the range tests keep a damaged file from stepping one
+               turn at a time through 1e300 (tests/fuzz_test.c) */
+            while (s > 360.0 && s < 1e9)
                 s -= 360.0;
-            while (s < 0.0)
+            while (s < 0.0 && s > -1e9)
                 s += 360.0;
             sweep = s / 180.0 * PI;
             a0 = a0 / 180.0 * PI;
@@ -612,9 +614,9 @@ static void ent_arc(dxfr *r, int circle)
     }
     /* the start angle comes back between -180 and 180 degrees: an arc the
        original wrote as starting at 270 is stored as -90 */
-    while (a0 > PI)
+    while (a0 > PI && a0 < 1e9)
         a0 -= 2.0 * PI;
-    while (a0 < -PI)
+    while (a0 < -PI && a0 > -1e9)
         a0 += 2.0 * PI;
     o = place(r, JW_ENKO, &a);
     if (o) {
@@ -790,9 +792,9 @@ static void ent_hatch(dxfr *r)
     if (etype == 2 && nedge == 1 && rad > 0.0) {
         double s = a0 * PI / 180.0, e = a1 * PI / 180.0, sw = e - s;
 
-        while (sw <= 0.0)
+        while (sw <= 0.0 && sw > -1e9)
             sw += 2.0 * PI;
-        while (sw > 2.0 * PI)
+        while (sw > 2.0 * PI && sw < 1e9)
             sw -= 2.0 * PI;
         o = place(r, JW_SOLID, &a);
         if (o) {
