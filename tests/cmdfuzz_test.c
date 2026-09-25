@@ -111,6 +111,16 @@ static int round_trip(const jw_drawing *d, const char *who)
  * drawing has been through the format it is a drawing that format can hold,
  * and putting it through again must not change it any further.
  *
+ * DXF is left out, and not because the port is wrong: **Jw_cad's own DXF
+ * round trip does not settle**.  A layer's name goes into a DXF as
+ * `_<group>-<layer>_<name>`, and when one is read back the whole of that
+ * becomes the name -- tests/dxfread_test.c holds the port's layer names
+ * against the original's and they agree -- so the next writing says
+ * `_0-a__0-a_東壁日影`, and the one after that adds another.  The names
+ * growing changes what the LAYER table holds, and that moves which layer an
+ * element lands on (`_0-d_ADD_LINE` comes back as `_0-e_ADD_LINE`).  So
+ * only SFC and JWC are asked to settle.
+ *
  * The text readers read *into* a drawing -- that is what 読込 does in the
  * original, and what the port's window does: the sheet, the pens and the
  * rest stay and only the elements are replaced.  So each generation starts
@@ -307,6 +317,18 @@ int main(int argc, char **argv)
         free(b);
         files++;
     drive:
+        /* before anything is touched: the drawing as it came off the disk
+           has to go round the formats too, and a fault there is one that
+           can be looked at without replaying the random walk */
+        {
+            const char *who0 = argc > 1 ? argv[i] : "(nothing)";
+            int w;
+            if (!round_trip(app_drawing(), who0))
+                bad++;
+            for (w = 1; w < 3; w++)   /* DXF does not settle: see above */
+                if (!settles(app_drawing(), w, who0))
+                    bad++;
+        }
         t0 = clock();
 
         for (k = 0; k < steps; k++) {
@@ -344,7 +366,7 @@ int main(int argc, char **argv)
                 int w;
                 if (!round_trip(app_drawing(), who))
                     bad++;
-                for (w = 0; w < 3; w++)
+                for (w = 1; w < 3; w++)   /* DXF does not settle: see above */
                     if (!settles(app_drawing(), w, who))
                         bad++;
             }
