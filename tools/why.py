@@ -242,6 +242,20 @@ def main():
                     print("      %4d %4d   r=%.3f" % (dx, dy,
                                                       math.hypot(dx, dy)))
 
+    # a picture of one patch of both, for when the numbers are not enough
+    #   WHY_BOX=x0,y0,x1,y1 python tools/why.py ref out
+    if os.environ.get("WHY_BOX"):
+        x0, y0, x1, y1 = (int(v) for v in os.environ["WHY_BOX"].split(","))
+        print("  # both drew it, T theirs only, O ours only  (%d,%d)-(%d,%d)"
+              % (x0, y0, x1, y1))
+        for yy in range(max(0, y0), min(h, y1 + 1)):
+            row = ""
+            for xx in range(max(0, x0), min(w, x1 + 1)):
+                ta = pa[xx, yy] != bg
+                tb = pb[xx, yy] != bg
+                row += "#" if ta and tb else "T" if ta else "O" if tb else "."
+            print("  %5d %s" % (yy, row))
+
     if os.environ.get("WHY_LIST"):
         for x, y, what, off, along in worst[:int(os.environ["WHY_LIST"])]:
             print("  %4d,%-4d %-10s off=%.2f along=%.1f" %

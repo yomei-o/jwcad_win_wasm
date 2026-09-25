@@ -372,8 +372,14 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         nbits = (int)(major / ppb) + 2;
         for (i = 0; i <= nbits; ) {
             int b, am, an, bm, bn, open;
-            if (phase && (m1 > m0 ? m0 + (int)(i * stepm) >= m1
-                                  : m0 + (int)(i * stepm) <= m1))
+            /* FUN_004bbef0 steps while the truncated position is still
+               short of the far end -- for a line as much as for a chord.
+               Without this a run that starts past the end still draws, back
+               to the end, and the line spills a pixel or two beyond itself:
+               the 補助線 down the side of 天空率表.jww put two pixels above
+               its own top. */
+            if (m1 > m0 ? m0 + (int)(i * stepm) >= m1
+                        : m0 + (int)(i * stepm) <= m1)
                 break;
             if (!(bits & (1u << ((base + i) % unit)))) {
                 i++;
