@@ -342,6 +342,20 @@ for n in 1 7; do
 done
 
 echo
+echo "=== 狭い窓・広い窓でも native と WASM が同じか"
+# The two builds were only ever held against each other at 1264x741, which
+# is where the bars and buttons all fit.  A narrow window is what pushes
+# them off the edge -- and that is where src/ui.c's checker() was found
+# writing past the framebuffer, so it is worth watching.
+for wh in "320 240" "640 480" "1484 841"; do
+    set -- $wh
+    ./tests/shot.exe "tests/out/sz_$1x$2.png" orig/Test1.jww "$1" "$2"         >/dev/null
+    node tests/wasm_check.js "tests/out/wsz_$1x$2.png" "$1" "$2"         --open orig/Test1.jww >/dev/null
+    printf '    %sx%s ' "$1" "$2"
+    python tools/cmp.py "tests/out/sz_$1x$2.png" "tests/out/wsz_$1x$2.png"         -d "tests/out/sz_$1x$2.diff.png" | head -1
+done
+
+echo
 echo "=== 同梱の図面をぜんぶ描いてみる —— 落ちないか、両方で同じか"
 # Every drawing, both ways round: the native build and the WebAssembly one
 # go through the same src/*.c, so a drawing that comes out differently is
