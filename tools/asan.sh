@@ -133,3 +133,38 @@ if [ "$n" != 0 ]; then
     exit 1
 fi
 echo "ok   nothing undefined either"
+
+# And the drawing itself, which neither fuzzer covers: a whole window, over
+# every bundled drawing and a spread of window sizes.  The bars and buttons
+# are laid out for 1264 pixels across, so a narrow window is what pushes
+# them off the edge -- that is how ui.c's checker() was caught writing past
+# the framebuffer.
+for san in address undefined; do
+    "$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=$san \
+        -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=1GB -sMAXIMUM_MEMORY=4GB \
+        -sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1 \
+        -o tmp/shot_san.js tests/shot.c tests/png.c $COMMON || exit 1
+    : > tmp/asan_shot.out
+    mkdir -p tmp/sanshot
+    for f in orig/*.jww; do
+        ASAN_OPTIONS=quarantine_size_mb=16 UBSAN_OPTIONS=print_stacktrace=1 \
+            "$NODE" tmp/shot_san.js \
+            "tmp/sanshot/$(basename "$f" .jww).png" "$f" \
+            >> tmp/asan_shot.out 2>&1
+    done
+    for wh in "1 1" "20 20" "100 80" "200 150" "640 480" "2000 1200"; do
+        ASAN_OPTIONS=quarantine_size_mb=16 UBSAN_OPTIONS=print_stacktrace=1 \
+            "$NODE" tmp/shot_san.js tmp/sanshot/sz.png orig/Test1.jww $wh \
+            >> tmp/asan_shot.out 2>&1
+    done
+    n=$(grep -c "runtime error\|ERROR: AddressSanitizer" tmp/asan_shot.out)
+    if [ "$n" != 0 ]; then
+        echo "BAD  $n reports while drawing (-fsanitize=$san):"
+        grep -m1 -A6 "ERROR: AddressSanitizer" tmp/asan_shot.out |
+            sed 's/^/    /'
+        grep "runtime error" tmp/asan_shot.out | sed 's/: runtime error/ ->/' |
+            sort | uniq -c | sort -rn | head -6 | sed 's/^/    /'
+        exit 1
+    fi
+done
+echo "ok   the drawing too, at every window size"

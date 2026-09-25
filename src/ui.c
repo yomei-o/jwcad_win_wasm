@@ -120,14 +120,27 @@ static void button_frame(fb_t *fb, int x, int y, int w, int h, int pressed)
 
 /* The pressed-in button's face is a checkerboard of highlight and face,
  * phased on the window, not on the button. */
+/* One pixel, if it is on the framebuffer at all.  The bars and the buttons
+   are laid out for a 1264-wide window, and ui_ax/ui_right put the ones that
+   hang off the right edge outside a narrower one; fb_fill and
+   fb_blit_cell_ex cut those away themselves, and what is below has to do the
+   same.  Without it a window small enough to push a pressed button off the
+   edge writes past the end of the framebuffer -- found by rendering at
+   200x150 under AddressSanitizer (tools/asan.sh). */
+static void px_put(fb_t *fb, int x, int y, unsigned int c)
+{
+    if (x >= 0 && x < fb->w && y >= 0 && y < fb->h)
+        fb->px[(size_t)y * fb->w + x] = c;
+}
+
 static void checker(fb_t *fb, int x, int y, int w, int h)
 {
     int i, j;
 
     for (j = 0; j < h; j++)
         for (i = 0; i < w; i++)
-            fb->px[(size_t)(y + j) * fb->w + x + i] =
-                ((x + i + y + j) & 1) ? C_BTNHILIGHT : C_BTNFACE;
+            px_put(fb, x + i, y + j,
+                   ((x + i + y + j) & 1) ? C_BTNHILIGHT : C_BTNFACE);
 }
 
 static unsigned int cellpx(const jw_bitmap_t *bm, int cell, int i, int j)
@@ -154,13 +167,12 @@ static void blit_cell_state(fb_t *fb, const jw_bitmap_t *bm, int cell,
      * top.  0xc0c0c0 is the face the art is drawn against, not ink. */
     for (j = 0; j < CELL_H; j++)
         for (i = 0; i < CELL_W; i++)
-            if (cellpx(bm, cell, i, j) != 0xc0c0c0u
-                && x + i + 1 < fb->w && y + j + 1 < fb->h)
-                fb->px[(size_t)(y + j + 1) * fb->w + x + i + 1] = C_BTNHILIGHT;
+            if (cellpx(bm, cell, i, j) != 0xc0c0c0u)
+                px_put(fb, x + i + 1, y + j + 1, C_BTNHILIGHT);
     for (j = 0; j < CELL_H; j++)
         for (i = 0; i < CELL_W; i++)
             if (cellpx(bm, cell, i, j) != 0xc0c0c0u)
-                fb->px[(size_t)(y + j) * fb->w + x + i] = C_BTNSHADOW;
+                px_put(fb, x + i, y + j, C_BTNSHADOW);
 }
 
 
@@ -871,10 +883,10 @@ static void paint_status(fb_t *fb)
             int x = x0 + 4 * k;
             if (x > fb->w - 2)
                 break;
-            fb->px[(size_t)y * fb->w + x] = C_BTNHILIGHT;
+            px_put(fb, x, y, C_BTNHILIGHT);
             for (j = 1; j <= 2; j++)
                 if (x + j <= fb->w - 2)
-                    fb->px[(size_t)y * fb->w + x + j] = C_BTNSHADOW;
+                    px_put(fb, x + j, y, C_BTNSHADOW);
         }
     }
 }
