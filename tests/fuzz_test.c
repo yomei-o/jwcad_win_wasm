@@ -178,7 +178,7 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         FILE *f = fopen(argv[i], "rb");
         unsigned char *b, *c;
-        long n, k, step, flips;
+        long n, k, step, phase, flips;
         int kind = kind_of(argv[i]);
         clock_t t0;
 
@@ -203,22 +203,34 @@ int main(int argc, char **argv)
         /* Every prefix up to the end of the header, then a coarser grid --
            coarse enough that a big file does not take a minute on its own
            (a reader costs about a byte's work per byte, so a step of one
-           all the way through would be quadratic). */
+           all the way through would be quadratic).
+           The coarse part is shifted by the seed.  Without that the cuts
+           were the same in every run and only the flips below moved, so
+           twenty seeds walked the same few thousand truncations twenty
+           times; now each seed cuts a big file somewhere else.  The dense
+           part is left alone: it covers the headers, which is where both
+           the sfcread and the jw_parse_jws holes turned up (a .sfc cut to
+           304 bytes and a .jws cut to 348). */
         step = n / 100 + 37;
+        phase = (long)(nextr() % (unsigned long)step);
         for (k = 0; k <= n; k += (k < 0x600 ? 1 : step)) {
-            c = (unsigned char *)malloc((size_t)(k ? k : 1));
+            long cut = k < 0x600 ? k : k + phase;
+
+            if (cut > n)
+                break;
+            c = (unsigned char *)malloc((size_t)(cut ? cut : 1));
             if (!c)
                 break;
-            memcpy(c, b, (size_t)k);
+            memcpy(c, b, (size_t)cut);
             /* JW_FUZZ_TRACE prints the case before it is read, so that a
                run that dies inside a reader says which file and how much of
                it was handed over.  A sanitizer build stops at the fault
                with no stack worth reading, and this is what is left. */
             if (trace) {
-                printf("try %s cut to %ld\n", argv[i], k);
+                printf("try %s cut to %ld\n", argv[i], cut);
                 fflush(stdout);
             }
-            read_ok += one(c, k, kind) ? 1 : 0;
+            read_ok += one(c, cut, kind) ? 1 : 0;
             tries++;
             free(c);
         }
