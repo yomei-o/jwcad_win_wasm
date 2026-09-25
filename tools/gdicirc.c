@@ -63,7 +63,21 @@ int main(void)
             int nbit = 0;
 
             memset(bits, 0xff, (size_t)W * H * 4);
-            Ellipse(dc, cx - r, cy - r, cx + r + odd, cy + r + odd);
+            if (odd) {
+                /* a part of a circle: the box is 2r+1 and FUN_00421490 asks
+                   GDI for an arc inside it.  The whole ring is what a table
+                   can hold, so ask for all of it in one go. */
+                Ellipse(dc, cx - r, cy - r, cx + r + 1, cy + r + 1);
+            } else {
+                /* a whole circle: FUN_00421490 does NOT call Ellipse.  It
+                   sets the box to 2r across and calls CDC::Arc twice, from
+                   (+r,0) round to (-r,0) and back again -- and GDI's arc is
+                   not GDI's ellipse, so the ring is a different one. */
+                Arc(dc, cx - r, cy - r, cx + r, cy + r,
+                    cx + r, cy, cx - r, cy);
+                Arc(dc, cx - r, cy - r, cx + r, cy + r,
+                    cx - r, cy, cx + r, cy);
+            }
             GdiFlush();
             for (y = 0; y < H; y++)
                 for (x = 0; x < W; x++)
