@@ -107,6 +107,12 @@ echo "=== ほかの要素も枠の外に出ないか —— 円弧・点・ソ�
 ./tests/clipwalk_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 拾い上げ —— 窓の全画素を押して、返る番号が図面のものか"
+# 返った番号はそのまま d->obj の添字に使われる。要素の並びは 1 つの
+# malloc なので、隣を指してもその中に落ちてサニタイザには映らない。
+./tests/pickwalk_test.exe | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests
