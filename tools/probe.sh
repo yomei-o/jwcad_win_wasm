@@ -1,24 +1,18 @@
 #!/bin/sh
-# The control that was never run: does the **port's own** ring match the ring
-# GDI draws for the box the port passes?
+# Fit the middle and the radius of the original's ink, arc by arc.
 #
-# tools/boxask.py has been reading "nine of thirteen arcs fit a 2r+2 ring
-# better" as a fact about the original.  That only holds if the port itself
-# sits exactly on GDI's 2r+1 ring -- and nobody checked.  The decompilation
-# is flat that FUN_00421490 passes 2r+1 and nothing else (read again today:
-# the rect is always middle +/- rp, with a +1 on the far corner), so if the
-# port is off GDI's ring, the port is the odd one, not the original.
+# Reading the ink at the port's own middle cannot tell "a ring a pixel
+# bigger" from "the same ring a pixel across", and those have different
+# causes -- FUN_004b8250 for the radius, FUN_004b6d60 for the middle.  The
+# tallies so far have been inconsistent because of it: arcs of 6.0 mm come
+# out on both sides, and the radius cannot depend on where a thing is.
 #
-# BOXASK_MIN is dropped to 20 so `サンプル`'s smaller arcs come in too.
+# So walk both at once, over every arc of `Ａマンション平面例` that has a
+# ring to speak of, and print what the original's ink fits.
 cd "$(dirname "$0")/.."
 sh tools/score.sh > /dev/null 2>&1 || { echo "build failed"; exit 1; }
-PATH="$PATH:/c/prog/tools/w64devkit/bin"
-gcc -O2 -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 || exit 1
-for d in d14 d08; do
-    echo "================ $d"
-    JW_SHOT_ELEMS=1 ./tests/shot.exe tmp/$d.out.png tmp/$d.jww > /dev/null 2>&1
-    BOXASK_MIN=20 python tools/boxask.py tmp/refs/$d.png tmp/$d.out.png
-    tmp/gdiarc.exe < tmp/boxes.txt > tmp/gdibox.out
-    BOXASK_MIN=20 python tools/boxask.py tmp/refs/$d.png tmp/$d.out.png \
-        tmp/gdibox.out 2>&1 | sed -n '1,80p'
+JW_SHOT_ELEMS=1 ./tests/shot.exe tmp/d14.out.png tmp/d14.jww > /dev/null 2>&1
+for i in 1656 53 444 182 194 571 583 846 974 1236 1364 1376; do
+    python tools/arcpic.py tmp/refs/d14.png tmp/d14.out.png $i 2>&1 \
+        | grep -E '^arc |the original: |the port:     '
 done
