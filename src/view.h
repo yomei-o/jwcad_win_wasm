@@ -72,7 +72,7 @@ static __inline int jw_px_round(double p)
  * The question is real: the port's truncation is not symmetric about the
  * pinned pixel, so a point left of bx rounds one way and a point right of
  * it the other.  `Test6`'s blue wall starts at 158.138 and the original
- * paints 158 where the port paints 159 (RESUME.md,「`Test6` の線は」).
+ * paints 158 where the port paints 159 (docs\notes-pixels.md,「`Test6` の線は」).
  * An earlier note says flooring "both axes" costs 149,336 pixels -- but
  * flooring the y of `by - (int)(w)` rounds the screen y *up*, so that
  * measurement asked a different question from the one it meant to. */

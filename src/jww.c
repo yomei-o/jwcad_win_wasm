@@ -251,7 +251,7 @@ static void read_header(ar_t *a, jw_drawing *d)
             d->print_width[i] = ar_l(a);
             /* and a double each: the point radius in millimetres that
                FUN_00424200 would draw a 仮点 with (doc+0x6948).  Not used
-               yet -- see "仮点の形" in RESUME.md. */
+               yet -- see "仮点の形" in docs/notes-pixels.md. */
             ar_d(a);
         }
         for (i = 2; i < 10; i++)

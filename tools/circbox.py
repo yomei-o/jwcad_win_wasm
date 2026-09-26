@@ -8,7 +8,7 @@ FUN_00421490 draws a whole circle into a box 2r across and a part of one
 into a box 2r+1 across, so the two rings sit half a pixel apart.  The port
 puts every whole circle in the 2r box, and for `日影図` that is wrong by 223
 pixels -- its one circle measures as though it had gone in the 2r+1 box.
-Nothing in that element says so (RESUME.md, 「`日影図` の円 1 つ」).
+Nothing in that element says so (docs\notes-pixels.md, 「`日影図` の円 1 つ」).
 
 This fits the original's own ink around **every** whole circle in a drawing,
 not only the ones the port gets wrong, and prints the fitted middle next to

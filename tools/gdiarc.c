@@ -8,7 +8,7 @@
  * part of a circle is one Arc call with two endpoints, and **GDI's ring
  * depends on those endpoints** -- which is why a table keyed by the radius
  * cannot hold it, and why most of what the port still gets wrong is on
- * partial arcs (RESUME.md,「円弧も 1 本ずつ測れます」).
+ * partial arcs (docs\notes-pixels.md,「円弧も 1 本ずつ測れます」).
  *
  * So ask, one arc at a time.  Each line of the input is
  *

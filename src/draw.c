@@ -349,7 +349,7 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
     x1 = v->bx + jw_px_round(u1); y1 = v->by - jw_px_round(w1);
     /* JW_LINE_OUT=1 rounds the two ends *outwards* instead -- the lower end
        down, the upper end up -- so that the line covers every pixel it
-       grazes.  RESUME.md's「`Test6` の線は、原典のほうが 1 画素長く
+       grazes.  docs/notes-pixels.md's「`Test6` の線は、原典のほうが 1 画素長く
        始まります」works out that the original paints floor(left)..ceil(right)
        for one wall of Test6, and says the port cannot simply swap to that;
        but it says so by reasoning, and never measured it.  This is the
@@ -1028,7 +1028,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
            So that circle really is in the 2r+1 box and those 27 really are
            in the 2r box -- 27 against 1, with the port nowhere in the
            measurement.  What no one has found is *why*: the elements are
-           the same in every field (RESUME.md,「同じ円が、置かれた場所だけ
+           the same in every field (docs/notes-pixels.md,「同じ円が、置かれた場所だけ
            で違う枠に入ります」), and the only thing that tells the odd one
            out is the layer it is on.  The original draws a display-only
            element in one flat grey whatever it says, so it does go through
@@ -1549,7 +1549,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
              * src/jww.c reads out of a header -- all 3,535 of them, bytes,
              * words, longs and doubles, the skipped ones as well -- was
              * held up drawing against drawing, and nothing separates the
-             * three groups (RESUME.md, "仮点の形"); doc+0x8238 looks like a
+             * three groups (docs/notes-pixels.md, "仮点の形"); doc+0x8238 looks like a
              * registry setting, written with WriteProfileInt under "Point".
              * So this goes by what the element carries instead: bit 0x400
              * of +0x44 for the cross, nothing at all (or only the "came

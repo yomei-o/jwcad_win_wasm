@@ -78,7 +78,7 @@ int main(int argc, char **argv)
                        JW_SHOT_PAD multiplies that, which is how much of the
                        remaining score is close enough to a text to be
                        hidden by a more generous mask: doubling it takes the
-                       fifteen from 814 pixels to 313 (RESUME.md,「採点は
+                       fifteen from 814 pixels to 313 (docs/notes-pixels.md,「採点は
                        窓の 85.7% を見ています」).  The default is 1. */
                     pad = (int)(o->d[5] * v.scale) + 4;
                     {
@@ -147,7 +147,7 @@ int main(int argc, char **argv)
                        way the seg line keeps its ends.  Which box the
                        original put a circle in may turn on where the middle
                        falls inside its pixel, and the rounded one cannot say
-                       (RESUME.md 「`日影図` の円 1 つ」). */
+                       (docs\notes-pixels.md 「`日影図` の円 1 つ」). */
                     fprintf(m, "arc %d %d %d %.4f %.12g %.12g %d"
                                " %.6f %.6f %d %d %d %.10g %d %ld"
                                " %.17g %.17g\n", i,

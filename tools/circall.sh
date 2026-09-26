@@ -7,7 +7,7 @@
 #
 # tools/circbox.py does one drawing; this walks them and puts the lines in
 # one table, so the rule -- if there is one -- can be read off.  See
-# RESUME.md 「`日影図` の円 1 つは「円弧の枠」で描かれています」.
+# docs\notes-pixels.md 「`日影図` の円 1 つは「円弧の枠」で描かれています」.
 cd "$(dirname "$0")/.."
 set -e
 which=$*

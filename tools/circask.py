@@ -9,7 +9,7 @@ u"""Which box did the original put each whole circle in?  Ask GDI.
 A whole circle is drawn by FUN_00421490 as **two** Arc calls round a box
 2r across; a part of one goes in a box 2r+1 across.  `日影図`'s single
 circle measures as though it had gone in the 2r+1 box -- 223 pixels of the
-remaining score, and nothing in the element says why (RESUME.md,「`日影図`
+remaining score, and nothing in the element says why (docs/notes-pixels.md,「`日影図`
 の円 1 つは「円弧の枠」で描かれています」).
 
 Everything that has looked at this so far has gone through the port: the
