@@ -92,23 +92,46 @@ def bres(x0, y0, x1, y1, out, last):
         out.add((x0, y0))
 
 
-def flatten(p, out, depth=0, tol=1.0):
-    """Cut the curve up until each piece is about a pixel long.
+def bres_frac(x0, y0, x1, y1, out):
+    """A line whose ends are not whole numbers.
 
-    GDI's own flattening of a 140 pixel arc comes back as 141 points
-    (tools/gdiarc.c, odd 9) -- a point a pixel.  Coarser than that draws the
-    chords instead of the curve (18 points for the same arc put 111 of its
-    140 pixels in the wrong place); **finer** than that is no better, since
-    rounding points that sit less than a pixel apart makes the staircase
-    wander (203 points, 83 pixels out, even with GDI's own control points).
-    So aim for a point a pixel and no more.
+    GDI strokes the flattened path with the fractions it still holds -- the
+    path keeps fixed point and GetPath only rounds for the caller.  That is
+    what lets its flattening be coarse (14 pieces for a 140 pixel arc, a
+    sagitta of about a third of a pixel) and still land on the arc's own
+    pixels: rounding the ends first would move the whole track by as much
+    as the sagitta.
+
+    Walk the longer axis a whole step at a time and take the other from the
+    line, both ends included.
+    """
+    dx, dy = x1 - x0, y1 - y0
+    n = int(math.ceil(max(abs(dx), abs(dy))))
+    if n <= 0:
+        out.add((rnd(x0), rnd(y0)))
+        return
+    for i in range(n + 1):
+        t = float(i) / n
+        out.add((rnd(x0 + dx * t), rnd(y0 + dy * t)))
+
+
+def flatten(p, out, depth=0, tol=0.25):
+    """Cut the curve up until it is within `tol` of its chord.
+
+    GDI's own flattening, read out with FlattenPath and GetPath, is far
+    coarser than a point a pixel: a 149 degree arc of radius 61 comes back
+    as **14 points**, one piece about 11.5 degrees.  The sagitta of such a
+    chord is 61*(1 - cos 5.75) = 0.31 of a pixel, so GDI is flattening to
+    something like a quarter of a pixel and stroking the pieces with the
+    fractions it still holds.  (An earlier reading of this said a point a
+    pixel; it was measuring the pixels of a plain Arc, because odd 9 was
+    not in the branch that handles it.)
     """
     (x0, y0), (x1, y1), (x2, y2), (x3, y3) = p
-    dx, dy = x3 - x0, y3 - y0
-    far = dx * dx + dy * dy
     mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0
     my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0
-    if depth < 24 and far > tol * tol:
+    sag = ((x0 + x3) / 2.0 - mx) ** 2 + ((y0 + y3) / 2.0 - my) ** 2
+    if depth < 24 and sag > tol * tol:
         ax, ay = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         bx, by = (x1 + x2) / 2.0, (y1 + y2) / 2.0
         cx, cy = (x2 + x3) / 2.0, (y2 + y3) / 2.0
@@ -177,7 +200,7 @@ def control(rp, a0, sweep):
     return segs
 
 
-def pixels(rp, a0, sweep, tol=1.0):
+def pixels(rp, a0, sweep, tol=0.5):
     out = set()
     pts = []
     for seg in control(rp, a0, sweep):
@@ -185,9 +208,7 @@ def pixels(rp, a0, sweep, tol=1.0):
             pts.append((float(seg[0][0]), float(seg[0][1])))
         flatten(tuple((float(q[0]), float(q[1])) for q in seg), pts, 0, tol)
     for i in range(len(pts) - 1):
-        x0, y0 = rnd(pts[i][0]), rnd(pts[i][1])
-        x1, y1 = rnd(pts[i + 1][0]), rnd(pts[i + 1][1])
-        bres(x0, y0, x1, y1, out, 0)
+        bres_frac(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], out)
     return out
 
 
@@ -214,7 +235,7 @@ def show(rp, a0, sweep):
     for seg in control(rp, a0, sweep):
         if not pts:
             pts.append((float(seg[0][0]), float(seg[0][1])))
-        flatten(tuple((float(q[0]), float(q[1])) for q in seg), pts, 0, 1.0)
+        flatten(tuple((float(q[0]), float(q[1])) for q in seg), pts, 0, tol)
     mine = [(rnd(x), rnd(y)) for x, y in pts]
     print("GDI has %d points, mine %d" % (len(gl), len(mine)))
     for i in range(max(len(gl), len(mine))):
@@ -224,6 +245,30 @@ def show(rp, a0, sweep):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "tol":
+        got = read_sets("tmp/pix.out")
+        cs = cases()
+        for tol in (1.2, 0.8, 0.6, 0.5, 0.4, 0.3):
+            tot = same = n = 0
+            small = smalln = 0
+            for tag, rp, a0, sw in cs:
+                g = got.get(tag)
+                if g is None:
+                    continue
+                tot += 1
+                m = pixels(rp, a0, sw, tol)
+                d = len(m ^ g)
+                n += d
+                if not d:
+                    same += 1
+                if rp in (14, 19, 24):
+                    small += d
+                    smalln += len(g)
+            print("tol %.1f: %3d of %d exact, %5d pixels out; radius 14-24:"
+                  " %4d out of %5d (%4.1f%%)"
+                  % (tol, same, tot, n, small, smalln,
+                     100.0 * small / smalln if smalln else 0.0))
+        return
     if len(sys.argv) > 3:
         show(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]))
         return
@@ -248,14 +293,19 @@ def main():
         n = sum(d[0] for d in diffs)
         print("%d pixels out over the rest, %.1f an arc"
               % (n, float(n) / len(diffs)))
+        byrp = {}
+        for d, ng, tag, rp, a0, sw in diffs:
+            byrp[rp] = byrp.get(rp, [0, 0, 0])
+            byrp[rp][0] += 1
+            byrp[rp][1] += d
+            byrp[rp][2] += ng
         print("")
-        print("%6s %6s %-12s %5s %8s %8s" % ("differ", "of", "arc", "rp",
-                                             "start", "sweep"))
-        for d, ng, tag, rp, a0, sw in diffs[:6]:
-            print("%6d %6d %-12s %5d %8.4f %8.4f" % (d, ng, tag, rp, a0, sw))
-        print("   ... and the worst:")
-        for d, ng, tag, rp, a0, sw in diffs[-4:]:
-            print("%6d %6d %-12s %5d %8.4f %8.4f" % (d, ng, tag, rp, a0, sw))
+        print("%5s %8s %10s %10s %8s"
+              % ("rp", "wrong", "pixels out", "of", "a share"))
+        for rp in sorted(byrp):
+            k, d, ng = byrp[rp]
+            print("%5d %8d %10d %10d %7.1f%%"
+                  % (rp, k, d, ng, 100.0 * d / ng if ng else 0.0))
 
 
 if __name__ == "__main__":

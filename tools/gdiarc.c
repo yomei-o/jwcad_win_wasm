@@ -106,7 +106,7 @@ int main(void)
                 cx + rp, cy, cx - rp, cy);
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx - rp, cy, cx + rp, cy);
-        } else if (odd == 7 || odd == 8) {
+        } else if (odd == 7 || odd == 8 || odd == 9) {
             /* Ask GDI what an Arc *is*, rather than guessing.
              *
              * BeginPath / Arc / EndPath puts the arc into a path, and
@@ -139,6 +139,16 @@ int main(void)
                  * against GDI, so this is a recipe it can follow. */
                 FlattenPath(dc);
                 got = GetPath(dc, pp, tt, 4096);
+                /* The types matter as much as the points: a PT_MOVETO in
+                 * the middle means the flattened path is in more than one
+                 * piece, and stroking straight through it would draw a
+                 * chord across the gap.  Stroking GetPath's 141 points in
+                 * order gave 2,228 pixels where the arc has 140, which is
+                 * what that would look like. */
+                fprintf(stderr, "%s types:", tag);
+                for (q = 0; q < got && q < 200; q++)
+                    fprintf(stderr, " %d", (int)tt[q]);
+                fprintf(stderr, "\n");
                 printf("%s %d\n", tag, got < 0 ? 0 : got);
                 for (q = 0; q < got; q++)
                     printf("%d %d\n", (int)pp[q].x - cx,
