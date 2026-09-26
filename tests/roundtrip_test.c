@@ -37,8 +37,7 @@ static int fails;
 
 static void ck(int ok, const char *what)
 {
-    printf("%s %s
-", ok ? "same" : "----", what);
+    printf("%s %s\n", ok ? "same" : "----", what);
     if (!ok)
         fails++;
 }
