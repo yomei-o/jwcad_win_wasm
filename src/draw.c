@@ -845,6 +845,20 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             if (oddone >= 0 && d && o - d->obj == (long)oddone)
                 oddbox = 1;
         }
+        /* JW_ARC_DIMBOX=1: the 2r+1 box for anything on a layer that is
+           shown but not editable.  The original draws those through a route
+           of its own -- one flat grey whatever the element says -- so it is
+           at least the kind of thing that could carry a different box, and
+           `日影図`'s one circle (the biggest single piece of the remaining
+           score) is on such a layer.  A guess with one drawing behind it;
+           see RESUME.md. */
+        {
+            static int dimbox = -1;
+            if (dimbox < 0)
+                dimbox = getenv("JW_ARC_DIMBOX") != 0;
+            if (dimbox && shown(d, o) == 1)
+                oddbox = 1;
+        }
         /* A whole circle under two pixels across is not drawn as a circle
          * at all: FUN_00421490 moves to the centre and draws the one pixel
          * (the `if (local_e8 < 2)` arm, MoveTo then LineTo one to the
