@@ -77,7 +77,9 @@ def ray(rp, a):
 
 
 def wanted(a):
-    """The arcs this can ask about: solid, round, and a part of a circle."""
+    """The arcs this one asks about: solid, round, and a *part* of a circle.
+    A whole circle is two Arc calls and a question of its own -- that is
+    tools/circask.py."""
     if a["lt"] % 100 != 1 or a["flat"] != 1.0:
         return False
     return abs(a["sw"]) <= TWO_PI - 1e-7

@@ -955,17 +955,36 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             if (oddone >= 0 && d && o - d->obj == (long)oddone)
                 oddbox = 1;
         }
-        /* JW_ARC_DIMBOX=1: the 2r+1 box for anything on a layer that is
-           shown but not editable.  The original draws those through a route
-           of its own -- one flat grey whatever the element says -- so it is
-           at least the kind of thing that could carry a different box, and
-           `日影図`'s one circle (the biggest single piece of the remaining
-           score) is on such a layer.  A guess with one drawing behind it;
-           see RESUME.md. */
+        /* The 2r+1 box for anything on a layer that is shown but not
+           editable.  JW_ARC_DIMBOX=0 turns it off.
+
+           **The fact is settled; the rule is a guess.**  GDI itself was
+           asked (tools/circask.py, which draws both rings into a memory
+           bitmap and counts how many of their pixels are inked in the
+           original's own picture):
+
+               `日影図`'s one circle   2r: 97 on, 108 off
+                                      2r+1: 206 on, 4 off
+               `天空率表`'s 27 circles 2r: every one of them N on, 0 off
+
+           So that circle really is in the 2r+1 box and those 27 really are
+           in the 2r box -- 27 against 1, with the port nowhere in the
+           measurement.  What no one has found is *why*: the elements are
+           the same in every field (RESUME.md,「同じ円が、置かれた場所だけ
+           で違う枠に入ります」), and the only thing that tells the odd one
+           out is the layer it is on.  The original draws a display-only
+           element in one flat grey whatever it says, so it does go through
+           a route of its own -- but FUN_00421490's three callers all end up
+           in the same place, so the route is not in the decompilation.
+           One drawing stands behind the rule.  It is worth 215 pixels and
+           moves nothing else; if a drawing ever turns up with a
+           display-only circle in the 2r box, this is what to take out. */
         {
             static int dimbox = -1;
-            if (dimbox < 0)
-                dimbox = getenv("JW_ARC_DIMBOX") != 0;
+            if (dimbox < 0) {
+                const char *t = getenv("JW_ARC_DIMBOX");
+                dimbox = !(t && *t == '0');
+            }
             if (dimbox && shown(d, o) == 1)
                 oddbox = 1;
         }
