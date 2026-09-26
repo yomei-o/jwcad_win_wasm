@@ -18,6 +18,8 @@ import math
 import os
 import sys
 
+TWO_PI = 2.0 * math.pi
+
 try:
     from PIL import Image
 except ImportError:
@@ -119,6 +121,24 @@ def main():
     # own middle cannot tell a ring a pixel bigger from a ring a pixel
     # across, and the two have different causes: FUN_004b8250 works the
     # radius out, FUN_004b6d60 the middle.  So walk both.
+    # Is it a quarter, or the whole ring?  The 2r+2 box the original's ink
+    # measures as wanting is the same rectangle as a **whole circle's** box
+    # (middle +/- rp with no +1) taken about (cx+1, cy+1) with rp+1 -- and a
+    # whole circle is the one thing FUN_00421490 draws that way.  If the
+    # original really went round the whole ring, the ink is there to see.
+    print("")
+    print("the whole ring, not just the arc's own quarter:")
+    for r in range(max(1, rp - 2), rp + 3):
+        na = nb = 0
+        for k in range(0, 1440):
+            t = TWO_PI * k / 1440.0
+            x = int(round(cx + r * math.cos(t)))
+            y = int(round(cy - r * math.sin(t)))
+            if 0 <= x < w and 0 <= y < h:
+                na += cell(pa, x, y) == "#"
+                nb += cell(pb, x, y) == "#"
+        print("   r %3d   original %5d / 1440   port %5d / 1440" % (r, na, nb))
+
     print("")
     print("the middle and the radius that fit the original's ink best:")
     best = None

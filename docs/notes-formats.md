@@ -1351,3 +1351,47 @@ else
 座標ファイルのずれはそれで見つかりました。
 
 **原典を駆動できるようになったら、まずこの 4 つの標本を作ること。**
+
+## 寸法図形の入った図面は開けません（2026-09-26 に気づきました）
+
+`src/jww.c` が知っている要素は 5 つ（`CDataSen`・`CDataEnko`・
+`CDataTen`・`CDataMoji`・`CDataSolid`）と `CDataBlock` だけです。
+それ以外の名前が出てくると **`unknown element class …` で読み込み
+そのものが止まります** —— 要素 1 つが飛ぶのではなく、**ファイルが
+開けません**。
+
+当たるのは:
+
+* **`CDataSunpou`（寸法図形）** —— 基本設定で「寸法線と寸法値を
+  寸法図形にする」を入れて描いた寸法。同梱の図面には 1 つもないので
+  気づいていませんでした
+* **`CData3DSen` / `CData3DEnko` / `CData3DSolid`** —— 2.5D のもの
+
+**飛ばすこともできません。**`CArchive` の入れ子オブジェクトは長さを
+持たないので、中身を読めない限り次の要素の頭が分かりません。
+
+### `CDataSunpou::Serialize`（`0x0042f110`）の形
+
+```c
+CData::Serialize(ar);                  /* 共通の 15 バイト */
+member_0x68 ->Serialize(ar);           /* 大きさ 0x68。CDataSen の形 */
+member_0xd0 ->Serialize(ar);           /* 大きさ 0xf0 */
+if (版 > 0x1a3) {                       /* 419。同梱はどれも 600 */
+    ar >> *(ushort *)(this + 0x1c0);
+    member_0x1c8->Serialize(ar);       /* 0x68 */
+    member_0x2b0->Serialize(ar);       /* 0x68 */
+    member_0x398->Serialize(ar);       /* 0x80 */
+    member_0x418->Serialize(ar);
+    member_0x230->Serialize(ar);       /* 0x80 */
+    member_0x318->Serialize(ar);       /* 0x80 */
+}
+```
+
+**入れ子は「クラスの札」を書きません。**埋め込みの部品の `Serialize` を
+直に呼ぶので、中身がそのまま並びます。**順番は番地の順ではありません**
+（0x230 と 0x318 が最後）。
+
+**標本がないと、それぞれの部品が何のクラスかを確かめられません。**
+大きさからは 0x68 が `CDataSen`、0xf0 が `CDataMoji` らしく見えますが、
+当てずっぽうで 8 つ並べても合っているかを言えません。
+**原典に寸法図形を 1 つ描かせるのが先です。**
