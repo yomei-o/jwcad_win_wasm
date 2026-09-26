@@ -197,6 +197,88 @@ static void reads(const char *file, const char *answer)
     jw_free(&ref);
 }
 
+
+/* Write a drawing out and read it straight back.  The byte-for-byte tests
+ * above only cover the two files the original was made to write, and those
+ * use three of the ten words a text can go out under -- `ch`, `ck` and
+ * `cz`.  The other seven went out as `ch` and came back with their bits at
+ * +0x44 cleared, and nothing noticed, because no answer file has one.
+ *
+ * `Test6` has 212 texts with 0x8000 (the original writes those as `c2`) and
+ * `サンプル` twelve with 0x10 (`cs`).  A round trip needs no answer file
+ * and catches exactly that: what goes out must come back the same.
+ */
+/* The bits at +0x44 that decide which of the ten words a text goes out
+   under: 0x10 picks the family and the nine others pick within it. */
+#define MOJIKW_BITS 0x97f0u
+
+static void roundtrip(const char *src)
+{
+    jw_drawing d, back;
+    unsigned char *txt = 0;
+    long n, i, k, m, bad = 0, texts = 0;
+    unsigned char *b = slurp(src, &n);
+
+    if (!b) {
+        printf("BAD  cannot open %s\n", src);
+        fails++;
+        return;
+    }
+    memset(&d, 0, sizeof d);
+    if (!jw_parse(&d, b, n)) {
+        printf("BAD  cannot read %s\n", src);
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    for (i = 0; i < d.nobj; i++)
+        d.obj[i].sel = 1;
+    m = 0;
+    if (!jw_write_coord(&d, 0.0, 0.0, &txt, &m) || !txt) {
+        printf("BAD  %s writes nothing\n", src);
+        fails++;
+        jw_free(&d);
+        return;
+    }
+    memset(&back, 0, sizeof back);
+    jw_parse_coord(&back, &d, txt, m);
+    for (i = 0, k = 0; i < d.ndrawn && k < back.ndrawn; i++) {
+        const jw_obj *p = &d.obj[i];
+
+        if (p->cls != JW_MOJI)
+            continue;
+        while (k < back.ndrawn && back.obj[k].cls != JW_MOJI)
+            k++;
+        if (k >= back.ndrawn)
+            break;
+        texts++;
+        /* Only the bits that pick the word are the file's business.
+           Bit 8 goes on everything read out of a coordinate file, the way
+           the original's own read-back does (src/coord.c), and bit 2 is
+           the selection mark jw_draw_sel looks at -- neither is carried by
+           the format, in the original either. */
+        if ((back.obj[k].flags & MOJIKW_BITS)
+            != (p->flags & MOJIKW_BITS)) {
+            if (bad < 4)
+                printf("     text %ld went out with 0x%x and came back "
+                       "0x%x\n", i, p->flags, back.obj[k].flags);
+            bad++;
+        }
+        k++;
+    }
+    {
+        char what[160];
+
+        sprintf(what, "  %s: all %ld texts keep their +0x44 through a "
+                      "coordinate file", src, texts);
+        ck(texts > 0 && !bad, what);
+    }
+    free(txt);
+    jw_free(&d);
+    jw_free(&back);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -204,6 +286,8 @@ int main(void)
     writes("orig/Test5.jww", "decomp/res/coord2.txt");
     reads("decomp/res/coord.txt", "decomp/res/coordin.jww");
     reads("decomp/res/coord2.txt", "decomp/res/coordin2.jww");
+    roundtrip("orig/Test6.jww");
+    roundtrip("orig/Test5.jww");
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

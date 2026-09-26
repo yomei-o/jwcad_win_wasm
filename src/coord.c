@@ -293,12 +293,38 @@ int jw_write_coord(const jw_drawing *d, double ox, double oy,
             put(&w, "\r\n", 2);
             break;
         case JW_MOJI: {
-            /* Which of the three words a text goes out under follows the
-               bits at +0x44: 128 is a dimension's, 64 one that came with a
-               figure, and nothing at all is a text of its own. */
-            const char *kw = (o->flags & 128) ? "cz"
-                           : (o->flags & 64) ? "ck" : "ch";
+            /* Which word a text goes out under is settled by the bits at
+               +0x44, and the original's own ladder is the whole of it (the
+               coordinate writer in decomp/decomp/all_005c7556.c, and the
+               token numbers it hands FUN_00607230).  Bit 0x10 picks the
+               family; inside a family the *last* bit that matches wins,
+               because the original tests them one after another without
+               an else:
 
+                   0x10 clear   ch, 0x20 cv, 0x40 ck, 0x80 cz, 0x8000 c2
+                   0x10 set     cs, 0x100 cr, 0x200 co, 0x400 cp, 0x1000 ct
+ 
+               Three of those were all the port had, which was enough for
+               the drawings the byte-for-byte test uses -- but `Test6` has
+               212 texts with 0x8000 and `Ａマンション25d` 70, and those
+               were going out as `ch` where the original writes `c2`.
+               See docs/notes-formats.md,「座標ファイルの語彙を原典から
+               起こしました」. */
+            const char *kw;
+
+            if (!(o->flags & 0x10)) {
+                kw = "ch";
+                if (o->flags & 0x20)   kw = "cv";
+                if (o->flags & 0x40)   kw = "ck";
+                if (o->flags & 0x80)   kw = "cz";
+                if (o->flags & 0x8000) kw = "c2";
+            } else {
+                kw = "cs";
+                if (o->flags & 0x100)  kw = "cr";
+                if (o->flags & 0x200)  kw = "co";
+                if (o->flags & 0x400)  kw = "cp";
+                if (o->flags & 0x1000) kw = "ct";
+            }
             puts_(&w, kw);
             num(&w, mx(&m, o->d[0]));
             num(&w, my(&m, o->d[1]));
@@ -478,10 +504,18 @@ int jw_parse_coord(jw_drawing *d, const jw_drawing *host,
         if (t[0] == 'c' && t[1] == 'c') { continue; }   /* always 0 so far */
         if (head)
             continue;
-        if (t[0] == 'c' && (t[1] == 'z' || t[1] == 'k' || t[1] == 'h')) {
+        if (t[0] == 'c' && t[1] && strchr("zkhv2sropt", t[1])) {
             /* a text: x y dx dy "the text.  Which word it came under says
-               what it belongs to, and reading one always adds bit 8. */
+               what it belongs to -- the ten the original writes, the same
+               ladder as the writer above read backwards. */
             const char *q = strchr(t, '"');
+            static const struct { char c; unsigned short f; } mojikw[] = {
+                { 'h', 0 },      { 'v', 0x20 },  { 'k', 0x40 },
+                { 'z', 0x80 },   { '2', 0x8000 },
+                { 's', 0x10 },   { 'r', 0x110 }, { 'o', 0x210 },
+                { 'p', 0x410 },  { 't', 0x1010 }
+            };
+            int mi;
 
             if (!q || nums(t + 2, v, 4) < 4)
                 continue;
@@ -499,8 +533,10 @@ int jw_parse_coord(jw_drawing *d, const jw_drawing *host,
             o->ltype = 1;
             o->width = 0;
             o->n = cn;
-            o->flags = (unsigned short)(t[1] == 'z' ? 128
-                                        : t[1] == 'k' ? 64 : 0);
+            o->flags = 0;
+            for (mi = 0; mi < (int)(sizeof mojikw / sizeof mojikw[0]); mi++)
+                if (mojikw[mi].c == t[1])
+                    o->flags = mojikw[mi].f;
             o->text = jw_add_str(d, q + 1);
         } else if (t[0] == 'c' && t[1] == 'i') {
             k = nums(t + 2, v, 8);
