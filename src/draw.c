@@ -242,9 +242,12 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
                  double *phase)
 {
     const rect_t *c = &v->clip;
-    const unsigned int bits = LTYPE[ltype].bits;
+    unsigned int bits = LTYPE[ltype].bits;
     const int unit = LTYPE[ltype].unit;
     int x0, y0, x1, y1, dx, dy;
+    /* which of FUN_004280f0's three cases this is, kept for the short-line
+       rule further down */
+    const int was_level = w0 == w1, was_upright = u0 == u1;
 
     {
         /* FUN_004280f0 has three cases, and which one a line falls into
@@ -266,7 +269,7 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
          */
         double lo_u = c->x - 2 - v->bx, hi_u = c->x + c->w + 2 - v->bx;
         double lo_w = v->by - (c->y + c->h + 2), hi_w = v->by - (c->y - 2);
-        int level = w0 == w1, upright = u0 == u1;
+        int level = was_level, upright = was_upright;
         double eu = u1 > u0 ? u1 - u0 : u0 - u1;
         double ew = w1 > w0 ? w1 - w0 : w0 - w1;
         int xmaj = level ? 1 : upright ? 0 : eu > ew;
@@ -350,6 +353,34 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
     }
     dx = x1 > x0 ? x1 - x0 : x0 - x1;
     dy = y1 > y0 ? y1 - y0 : y0 - y1;
+
+    /* JW_LINE_SHORT=1: a line type other than 実線 is only walked as a
+       pattern when the line is long enough, and a short one is drawn solid.
+       FUN_004280f0 says so three times over, once in each of its cases:
+
+           dead level     if (4 < |x0 - x1|)  -> FUN_004bbef0
+           dead upright   if (4 < |y0 - y1|)  -> FUN_004bbef0
+           anything else  if (4 < |dx| + |dy|) -> FUN_004bbef0
+
+       and where the test fails it falls through to MoveTo/LineTo, which is
+       a solid line.  Note the last one is a *Manhattan* length, not the
+       longer axis.  The port has never had this rule. */
+    {
+        static int shortsolid = -1;
+        if (shortsolid < 0)
+            shortsolid = getenv("JW_LINE_SHORT") != 0;
+        /* `phase` is the tell: a chord of an arc is handed one so that the
+           pattern carries on across the corners, and a line of its own is
+           handed nothing.  The rule belongs to the element drawer only --
+           the chords of a dashed arc are every one of them shorter than
+           four pixels, and making those solid turns the dashes off
+           altogether (that was measured: 814 -> 854). */
+        if (shortsolid && !phase && bits != 0xffffffffu) {
+            int len = was_level ? dx : was_upright ? dy : dx + dy;
+            if (len <= 4)
+                bits = 0xffffffffu;
+        }
+    }
 
     if (bits == 0xffffffffu) {
         /* a solid line: every pixel of it */
