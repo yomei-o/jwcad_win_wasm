@@ -236,6 +236,39 @@ static void wide_dot(fb_t *fb, const rect_t *c, int x, int y,
  * w up -- because the original cuts the line against the view in paper
  * millimetres, before anything is rounded.  Rounding first and cutting after
  * moves a line that runs off the screen by a pixel. */
+/* Where bit k of a line type's pattern sits along the two axes.
+ *
+ * The port worked this out as (int)(k * step) for a long time.
+ * FUN_004bbef0 **adds** a step at a time instead --
+ * `local_48 = local_48 + local_3c` -- and the two are not the same in
+ * floating point: a sum of two hundred steps carries its own rounding, and
+ * once that crosses an integer boundary a dash starts a pixel off.
+ *
+ * Adding up is worth 65 pixels over the fifteen drawings (589 -> 524) and
+ * five of them improve while none gets worse -- `日影図`'s dash starts,
+ * which had been the second biggest piece of what was left, go from 60
+ * wrong pixels to 8.  JW_DASH_ACC=0 puts the multiplication back.
+ *
+ * Both walks only ever ask for a k at or past the last one, so the running
+ * sum needs no rewinding.
+ */
+static void dash_at(int acc, int k, double stepm, double stepn,
+                    double *accm, double *accn, int *ai, int *m, int *n)
+{
+    if (!acc) {
+        *m = (int)(k * stepm);
+        *n = (int)(k * stepn);
+        return;
+    }
+    while (*ai < k) {
+        *accm += stepm;
+        *accn += stepn;
+        (*ai)++;
+    }
+    *m = (int)*accm;
+    *n = (int)*accn;
+}
+
 static void line(fb_t *fb, const jw_view *v, double u0, double w0,
                  double u1, double w1,
                  unsigned int col, int wide, int ltype, double ppb,
@@ -439,6 +472,9 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         int major = m1 > m0 ? m1 - m0 : m0 - m1;
         double stepm, stepn;
         int nbits, i, base = phase ? (int)*phase : 0;
+        /* for the added-up walk; see JW_DASH_ACC below */
+        double accm = 0.0, accn = 0.0;
+        int ai = 0, dash_acc = 0;
 
         if (!major) {
             stroke(fb, c, x0, y0, x1, y1, col, wide, 0);
@@ -461,6 +497,17 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         stepm = m1 > m0 ? ppb : -ppb;
         stepn = (double)(n1 - n0) / major * ppb;
         nbits = (int)(major / ppb) + 2;
+        /* see dash_at: the position is added up, not multiplied */
+        {
+            static int acc = -1;
+            if (acc < 0) {
+                const char *t = getenv("JW_DASH_ACC");
+                acc = !(t && *t == '0');
+            }
+            dash_acc = acc;
+        }
+        accm = accn = 0.0;
+        ai = 0;
         for (i = 0; i <= nbits; ) {
             int b, am, an, bm, bn, open;
             /* FUN_004bbef0 steps while the truncated position is still
@@ -469,9 +516,13 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
                to the end, and the line spills a pixel or two beyond itself:
                the 補助線 down the side of 天空率表.jww put two pixels above
                its own top. */
-            if (m1 > m0 ? m0 + (int)(i * stepm) >= m1
-                        : m0 + (int)(i * stepm) <= m1)
-                break;
+            {
+                int tm, tn;
+                dash_at(dash_acc, i, stepm, stepn, &accm, &accn, &ai,
+                        &tm, &tn);
+                if (m1 > m0 ? m0 + tm >= m1 : m0 + tm <= m1)
+                    break;
+            }
             if (!(bits & (1u << ((base + i) % unit)))) {
                 i++;
                 continue;
@@ -479,10 +530,17 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
             b = i;
             while (b < nbits && (bits & (1u << ((base + b + 1) % unit))))
                 b++;
-            am = m0 + (int)(i * stepm);
-            an = n0 + (int)(i * stepn);
-            bm = m0 + (int)((b + 1) * stepm);
-            bn = n0 + (int)((b + 1) * stepn);
+            {
+                int tm, tn;
+                dash_at(dash_acc, i, stepm, stepn, &accm, &accn, &ai,
+                        &tm, &tn);
+                am = m0 + tm;
+                an = n0 + tn;
+                dash_at(dash_acc, b + 1, stepm, stepn, &accm, &accn, &ai,
+                        &tm, &tn);
+                bm = m0 + tm;
+                bn = n0 + tn;
+            }
             /* The last run stops at the end of the line, and that end is
              * drawn -- a solid line gets its far pixel too.  A chord does
              * not: its far end belongs to the chord after it, and the arc
