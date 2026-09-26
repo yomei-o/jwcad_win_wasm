@@ -230,6 +230,80 @@ int main(void)
     ck(!bad, "text, every size and eight directions");
     printf("     %ld drawn, %ld pixels outside the clip\n", cases, bad);
 
+    /* ブロック（図形の参照）: the reference carries a place, a size and a
+       turn, and the definition's members are drawn through it.  A
+       definition may hold a further reference, which src/draw.c follows
+       eight deep.  Everything above is reached again from here, but through
+       jw_obj_xform first, so a scale of 1e6 puts a member a long way from
+       where the reference sits. */
+    bad = cases = 0;
+    {
+        static jw_obj objs[8];
+        static const double sc[] = { 0.01, 1.0, 40.0, 1e6 };
+        static const double turn[] = { 0.0, 0.7, 3.0 };
+        int si, ti;
+
+        for (i = 0; i < NAT; i++)
+            for (si = 0; si < (int)(sizeof sc / sizeof sc[0]); si++)
+                for (ti = 0; ti < 3; ti++) {
+                    base(&d, &o);
+                    memset(objs, 0, sizeof objs);
+                    /* the reference */
+                    objs[0].cls = JW_BLOCK;
+                    objs[0].color = 1;
+                    objs[0].ltype = 1;
+                    objs[0].block = 7;
+                    objs[0].d[0] = AT[i];
+                    objs[0].d[1] = AT[(i + 7) % NAT];
+                    objs[0].d[2] = sc[si];
+                    objs[0].d[3] = sc[si];
+                    objs[0].d[4] = turn[ti];
+                    /* the definition, and the four members after it */
+                    objs[1].cls = JW_LIST;
+                    objs[1].list[0] = 7;
+                    objs[1].n = 4;
+                    objs[2].cls = JW_SEN;
+                    objs[2].color = 3;          /* the wide pen */
+                    objs[2].ltype = 4;          /* and a dashed one */
+                    objs[2].d[0] = -30; objs[2].d[1] = -20;
+                    objs[2].d[2] = 30;  objs[2].d[3] = 25;
+                    objs[3].cls = JW_ENKO;
+                    objs[3].color = 1;
+                    objs[3].ltype = 1;
+                    objs[3].d[2] = 18.0;
+                    objs[3].d[4] = 2 * PI;
+                    objs[3].d[6] = 1.0;
+                    objs[4].cls = JW_MOJI;
+                    objs[4].color = 1;
+                    objs[4].ltype = 1;
+                    objs[4].text = 1;
+                    objs[4].d[2] = 40.0;
+                    objs[4].d[4] = 5.0;
+                    objs[4].d[5] = 6.0;
+                    objs[5].cls = JW_BLOCK;     /* a reference inside one */
+                    objs[5].color = 1;
+                    objs[5].ltype = 1;
+                    objs[5].block = 8;
+                    objs[5].d[2] = 1.5;
+                    objs[5].d[3] = 1.5;
+                    /* and the definition that one stands for */
+                    objs[6].cls = JW_LIST;
+                    objs[6].list[0] = 8;
+                    objs[6].n = 1;
+                    objs[7].cls = JW_TEN;
+                    objs[7].color = 1;
+                    objs[7].n = 1;              /* 実点, with its ring */
+                    d.obj = objs;
+                    d.nobj = 8;
+                    d.cobj = 8;
+                    d.ndrawn = 1;
+                    bad += outside(&d);
+                    cases++;
+                }
+    }
+    ck(!bad, "block references, nested, at every scale and turn");
+    printf("     %ld drawn, %ld pixels outside the clip\n", cases, bad);
+
     /* And the far coordinates, for every class at once. */
     bad = 0;
     {
