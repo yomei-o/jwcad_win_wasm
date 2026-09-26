@@ -31,6 +31,9 @@
 #include "../src/jww.h"
 #include "../src/view.h"
 
+/* how far the clip sits inside the framebuffer */
+#define CLIN 12
+
 static int fails;
 
 static void ck(int ok, const char *what)
@@ -97,13 +100,34 @@ static long draw_at(fb_t *fb, double r, double sweep, double rp)
     v.oy = 0.0;
     v.bx = fb->w / 2;
     v.by = fb->h / 2;
-    v.clip.x = 0;
-    v.clip.y = 0;
-    v.clip.w = fb->w;
-    v.clip.h = fb->h;
+    /* The clip is inset from the framebuffer, the way the drawing area is
+       inset from the window, so that a pixel which gets past the cut lands
+       somewhere this test can see it.  outside_clip() counts those. */
+    v.clip.x = CLIN;
+    v.clip.y = CLIN;
+    v.clip.w = fb->w - 2 * CLIN;
+    v.clip.h = fb->h - 2 * CLIN;
     fb_fill(fb, 0, 0, fb->w, fb->h, bg);
     jw_draw(fb, &v, &d);
     return painted(fb, bg);
+}
+
+/* How many pixels landed outside the clip. */
+static long outside_clip(const fb_t *fb)
+{
+    unsigned int bg = 0x00ffffffu;
+    long n = 0;
+    int x, y;
+
+    for (y = 0; y < fb->h; y++)
+        for (x = 0; x < fb->w; x++) {
+            if (x >= CLIN && x < fb->w - CLIN
+                && y >= CLIN && y < fb->h - CLIN)
+                continue;
+            if (fb->px[(size_t)y * fb->w + x] != bg)
+                n++;
+        }
+    return n;
 }
 
 int main(void)
@@ -125,12 +149,13 @@ int main(void)
 
         sprintf(what, "whole circle, radius %g pixels: %ld painted",
                 rp[i], n);
-        /* GDI's own ring is only asked for when the centre is on screen, so
-           past about 400 pixels the whole ring is off the far side of a
-           640x480 window and nothing is painted -- the walk still runs, and
-           that is what is being watched here.  Below that the ring crosses
-           the window and has to leave pixels. */
-        ck(rp[i] > 400 ? n == 0 : n > 0, what);
+        /* GDI's own ring is only asked for while the centre is on screen,
+           so a big enough ring is off the far side of the clip and nothing
+           is painted -- the walk still runs, and that is what is being
+           watched here.  The clip is 616 by 456 about its middle, so a ring
+           crosses it while its radius is between 228 and 383; outside that
+           band the answer is settled either way. */
+        ck(rp[i] > 390 ? n == 0 : rp[i] <= 380 ? n > 0 : 1, what);
     }
 
     /* And a part of one, which takes the other box and the chord walk. */
@@ -140,7 +165,7 @@ int main(void)
 
         sprintf(what, "arc of 1 rad, radius %g pixels: %ld painted",
                 rp[i], n);
-        ck(rp[i] > 400 ? n == 0 : n > 0, what);
+        ck(rp[i] > 390 ? n == 0 : rp[i] <= 380 ? n > 0 : 1, what);
     }
 
     /* A radius the file could hold but no view can show: jw_numbers_sane
@@ -165,15 +190,28 @@ int main(void)
      * whole instead -- 1 to ARC_MAX/8 - 2, where circle_points gives up. */
     {
         double r;
-        int bad = 0;
+        long out = 0;
+        int quiet = 0;
 
-        for (r = 1; r <= 8200; r++)
-            if (draw_at(&fb, 100.0, 2.0 * 3.14159265358979323846, r) < 0)
-                bad++;
-        for (r = 1; r <= 8200; r++)
-            if (draw_at(&fb, 100.0, 1.0, r) < 0)
-                bad++;
-        ck(!bad, "every radius from 1 to 8,200, whole and part");
+        for (r = 1; r <= 8200; r++) {
+            long n = draw_at(&fb, 100.0, 2.0 * 3.14159265358979323846, r);
+            out += outside_clip(&fb);
+            if (r < 200 && n == 0)
+                quiet++;        /* a ring this small has to cross the clip */
+        }
+        for (r = 1; r <= 8200; r++) {
+            long n = draw_at(&fb, 100.0, 1.0, r);
+            out += outside_clip(&fb);
+            if (r < 200 && n == 0)
+                quiet++;
+        }
+        /* Two things, so that the sweep says something on a plain build as
+           well as under the sanitizer: nothing got past the cut, and the
+           rings that must be visible are.  (The first try here counted
+           `draw_at(...) < 0`, which painted() can never return -- a check
+           with no teeth in it at all.) */
+        ck(!out, "every radius from 1 to 8,200: nothing outside the clip");
+        ck(!quiet, "and every ring small enough to cross it leaves pixels");
     }
 
     fb_free(&fb);

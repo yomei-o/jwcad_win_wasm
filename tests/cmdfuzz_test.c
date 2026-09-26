@@ -24,6 +24,7 @@
 #include <time.h>
 
 #include "../src/app.h"
+#include "../src/cmd.h"
 #include "../src/jww.h"
 #include "../src/gen/cmds.h"
 #include "../src/gen/layout.h"
@@ -300,6 +301,7 @@ int main(int argc, char **argv)
     int steps = nsteps && *nsteps ? atoi(nsteps) : 600;
     int i, bad = 0, files = 0;
     long acts = 0;
+    long undone = 0;            /* the undo sweep at the end of each run */
 
     if (seed && *seed) {
         rng = strtoul(seed, 0, 0);
@@ -412,6 +414,41 @@ int main(int argc, char **argv)
                         bad++;
             }
         }
+        /* Then undo the lot.  Nothing has ever watched the undo stack here,
+           and two things can be said about it whatever the commands did: it
+           has to run out (a record that puts itself back would never stop),
+           and what is left has to be a drawing the readers and the writers
+           both accept.
+
+           "Does the element count come back to where it started?" was tried
+           here first and it is **not** a question this test can ask: the
+           walk presses 新規 and 全消去 like everything else, and those
+           empty the drawing and clear the stack.  Test7 came out as 4,207
+           elements to 0 after undoing 0 -- which says nothing at all about
+           undo.  That count is gone again. */
+        {
+            long undos = 0;
+            const jw_drawing *dr = app_drawing();
+
+            while (jw_cmd_can_undo() && undos < 500000) {
+                jw_cmd_undo((jw_drawing *)app_drawing());
+                undos++;
+            }
+            if (jw_cmd_can_undo()) {
+                printf("BAD  %s: the undo stack would not run out"
+                       " (%ld undone)\n", argv[i], undos);
+                bad++;
+            }
+            dr = app_drawing();
+            if (dr && !jw_numbers_sane(dr)) {
+                printf("BAD  %s: a number no drawing could hold after"
+                       " undoing everything\n", argv[i]);
+                bad++;
+            } else if (dr) {
+                write_every_way(dr);
+                undone += undos;
+            }
+        }
         {   /* a command that never comes back is as much a fault as one
                that falls over */
             /* the multiply first would overflow: a long run gets past two
@@ -424,5 +461,7 @@ int main(int argc, char **argv)
     printf("%d drawings, %ld commands, clicks and keys with nothing falling"
            " over, and what was left written out %ld times\n",
            files, acts, written);
+    printf("%ld steps undone afterwards, the stack running out every time"
+           " and what was left still writable\n", undone);
     return bad ? 1 : 0;
 }
