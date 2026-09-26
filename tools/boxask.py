@@ -58,6 +58,20 @@ def rects(path):
     return out
 
 
+def pens_of(path):
+    """The drawing's own pen widths, off the second line of the dump.
+
+    The original hands GDI the selected pen, and a pen two pixels wide
+    draws a thicker ring -- which this probe, always asking with a one
+    pixel pen, would read as "the bigger box fits better".  So the width
+    has to be in front of anyone reading the table.
+    """
+    for line in io.open(path, encoding="utf-8", errors="replace"):
+        if line.startswith("# pen widths"):
+            return [int(v) for v in line.split(":")[1].split()]
+    return []
+
+
 def arcs_of(path):
     out = []
     for line in io.open(path, encoding="utf-8", errors="replace"):
@@ -66,7 +80,8 @@ def arcs_of(path):
             continue
         a = dict(i=int(f[1]), cx=int(f[2]), cy=int(f[3]), rpx=float(f[4]),
                  a0=float(f[5]), sw=float(f[6]), lt=int(f[7]),
-                 flat=float(f[8]), tilt=float(f[9]),
+                 flat=float(f[8]), tilt=float(f[9]), col=int(f[10]),
+                 grp=int(f[11]), lay=int(f[12]),
                  ux=float(f[16]) if len(f) > 17 else None,
                  uy=float(f[17]) if len(f) > 17 else None)
         if a["lt"] % 100 != 1 or a["flat"] != 1.0:
@@ -169,12 +184,17 @@ def main():
         tally[BOXES[best][1]] = tally.get(BOXES[best][1], 0) + 1
         rows.append((a, sc, best))
 
-    print("%-6s %8s  %-15s %-15s %-15s  %s"
-          % ("arc", "radius", BOXES[0][1], BOXES[1][1], BOXES[2][1], "fits"))
+    pens = pens_of(out + ".elems")
+    print("the drawing's pen widths 1..9: %s" % pens)
+    print("%-6s %8s %4s %4s  %-15s %-15s %-15s  %s"
+          % ("arc", "radius", "pen", "wide", BOXES[0][1], BOXES[1][1],
+             BOXES[2][1], "fits"))
     for a, sc, best in rows:
         cells = ["%4d on %4d off" % s if s else "%15s" % "-" for s in sc]
-        print("%-6d %8.3f  %s %s %s  %s"
-              % (a["i"], a["rpx"], cells[0], cells[1], cells[2],
+        c = a["col"]
+        wide = pens[c - 1] if 1 <= c <= len(pens) else 0
+        print("%-6d %8.3f %4d %4d  %s %s %s  %s"
+              % (a["i"], a["rpx"], c, wide, cells[0], cells[1], cells[2],
                  BOXES[best][1]))
     print("\nof the %d arcs with a ring of %d pixels or more:" % (len(rows),
                                                                   least))
