@@ -106,6 +106,58 @@ int main(void)
                 cx + rp, cy, cx - rp, cy);
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx - rp, cy, cx + rp, cy);
+        } else if (odd == 7 || odd == 8) {
+            /* Ask GDI what an Arc *is*, rather than guessing.
+             *
+             * BeginPath / Arc / EndPath puts the arc into a path, and
+             * GetPath hands back the records it kept.  If the types come
+             * back as PT_BEZIERTO then GDI turns an arc into cubic Beziers
+             * and the question "is it Beziers?" is settled from the inside.
+             * FlattenPath then gives GDI's **own** polyline for it, which
+             * is a recipe the port can follow: its line drawing is already
+             * exact against GDI.
+             *
+             *   odd 7  print the path records (type, x, y), not pixels
+ *   odd 9  flatten first, so the polyline itself comes out
+             *   odd 8  flatten and stroke it, so the pixels can be held
+             *          against a plain Arc's
+             */
+            POINT pp[4096];
+            BYTE tt[4096];
+            int got, q;
+
+            BeginPath(dc);
+            Arc(dc, cx - rp, cy - rp, cx + rp + 1, cy + rp + 1,
+                cx + x1, cy + y1, cx + x2, cy + y2);
+            EndPath(dc);
+            if (odd == 8) {
+                FlattenPath(dc);
+                StrokePath(dc);
+            } else if (odd == 9) {
+                /* GDI's own flattening of the same arc: the polyline it
+                 * would stroke.  The port's line drawing is already exact
+                 * against GDI, so this is a recipe it can follow. */
+                FlattenPath(dc);
+                got = GetPath(dc, pp, tt, 4096);
+                printf("%s %d\n", tag, got < 0 ? 0 : got);
+                for (q = 0; q < got; q++)
+                    printf("%d %d\n", (int)pp[q].x - cx,
+                           (int)pp[q].y - cy);
+                AbortPath(dc);
+                continue;
+            } else {
+                got = GetPath(dc, pp, tt, 4096);
+                printf("%s %d\n", tag, got < 0 ? 0 : got);
+                for (q = 0; q < got; q++)
+                    printf("%d %d\n", (int)pp[q].x - cx,
+                           (int)pp[q].y - cy);
+                fprintf(stderr, "%s types:", tag);
+                for (q = 0; q < got && q < 40; q++)
+                    fprintf(stderr, " %d", (int)tt[q]);
+                fprintf(stderr, "\n");
+                AbortPath(dc);
+                continue;
+            }
         } else if (odd == 6) {
             /* The same arc as odd 1, but handed over as cubic Beziers.
              *
