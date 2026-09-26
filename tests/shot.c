@@ -130,12 +130,20 @@ int main(int argc, char **argv)
                             jw_sx(&v, x1), jw_sy(&v, y0));
                 }
                 if (o->cls == JW_ENKO)
+                    /* The last two are the centre *before* the rounding, the
+                       way the seg line keeps its ends.  Which box the
+                       original put a circle in may turn on where the middle
+                       falls inside its pixel, and the rounded one cannot say
+                       (RESUME.md 「`日影図` の円 1 つ」). */
                     fprintf(m, "arc %d %d %d %.4f %.12g %.12g %d"
-                               " %.6f %.6f %d %d %d %.10g %d %ld\n", i,
+                               " %.6f %.6f %d %d %d %.10g %d %ld"
+                               " %.17g %.17g\n", i,
                             jw_sx(&v, o->d[0]), jw_sy(&v, o->d[1]),
                             o->d[2] / v.mmpp, o->d[3], o->d[4], o->ltype,
                             o->d[6], o->d[5], o->color, o->lgroup, o->layer,
-                            o->d[2], o->flags, (long)o->n);
+                            o->d[2], o->flags, (long)o->n,
+                            v.bx + jw_ux(&v, o->d[0]),
+                            v.by - jw_uy(&v, o->d[1]));
                 else if (o->cls == JW_SEN)
                     fprintf(m, "seg %d %d %d %d %d %d"
                                " %.17g %.17g %.17g %.17g\n", i,

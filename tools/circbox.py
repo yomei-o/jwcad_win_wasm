@@ -42,7 +42,9 @@ def elements(path):
                          colour=int(f[10]), grp=int(f[11]), lay=int(f[12]),
                          rmm=float(f[13]),
                          flags=int(f[14]) if len(f) > 14 else 0,
-                         n=int(f[15]) if len(f) > 15 else 0))
+                         n=int(f[15]) if len(f) > 15 else 0,
+                         ux=float(f[16]) if len(f) > 16 else None,
+                         uy=float(f[17]) if len(f) > 17 else None))
     return arcs
 
 
@@ -134,23 +136,53 @@ def main():
         sys.exit("no %s.elems -- run shot.exe with JW_SHOT_ELEMS=1" % out)
 
     name = os.path.basename(out).split(".")[0]
-    for a in arcs:
-        whole = abs(a["sweep"]) > TWO_PI - 1e-7
-        if not whole or a["flat"] != 1.0:
+    circles = [a for a in arcs
+               if abs(a["sweep"]) > TWO_PI - 1e-7 and a["flat"] == 1.0]
+    if not circles:
+        print("%-4s no whole circles" % name)
+        return
+    for a in circles:
+        # Only a solid one goes through GDI's own ring; a dashed one is a
+        # chord polyline, and its ring says nothing about the box.
+        if a["ltype"] % 100 != 1:
             continue
+        # A radius under about ten pixels has too few pixels to fit, and one
+        # with another arc within four pixels of its ring catches that arc's
+        # ink as well -- the concentric runs of d09 are all like that.
+        if a["rpx"] < 10.0:
+            continue
+        near = [b for b in arcs
+                if b is not a
+                and abs(b["cx"] - a["cx"]) < 3 and abs(b["cy"] - a["cy"]) < 3
+                and abs(b["rpx"] - a["rpx"]) < 4.0]
         g = fit(px, w, h, masked, bg, a["cx"], a["cy"], a["rpx"])
         if not g:
             continue
         ox, oy, rad, n, worst = g
         # -0.5,-0.5 is the 2r box (the port's own); 0,0 is the 2r+1 box
-        box = "2r  " if ox < -0.25 and oy < -0.25 else \
-              "2r+1" if ox > -0.25 and oy > -0.25 else "?   "
+        box = "2r  " if ox < -0.35 and oy < -0.35 else \
+              "2r+1" if ox > -0.15 and oy > -0.15 else "?   "
+        # Where the middle falls inside its own pixel, and how wide the box
+        # would be if the original took its corners from the unrounded
+        # numbers rather than from a rounded radius either side of a rounded
+        # middle.  If that is the rule, `span` is 2r for one and 2r+1 for the
+        # other; if it is not, span will not line up with `box`.
+        span = ""
+        if a["ux"] is not None:
+            rp = int(a["rpx"] + 0.5)
+            wide = math.floor(a["ux"] + a["rpx"]) - math.floor(a["ux"] - a["rpx"])
+            tall = math.floor(a["uy"] + a["rpx"]) - math.floor(a["uy"] - a["rpx"])
+            span = ("  mid %+.3f,%+.3f  rfrac %.3f  span %d,%d vs 2r=%d"
+                    % (a["ux"] - math.floor(a["ux"]) - 0.5,
+                       a["uy"] - math.floor(a["uy"]) - 0.5,
+                       a["rpx"] - math.floor(a["rpx"]), wide, tall, 2 * rp))
         print("%-4s arc %-5d %s  off %+.2f,%+.2f  rfit %7.3f  rpx %8.4f"
               "  rmm %9.4f  lt %2d  col %2d  g%d/l%-2d  flags %d  n %d"
-              "  a0 %.6f  fit<=%.2f  (%d px)"
+              "  a0 %.6f  fit<=%.2f  (%d px)%s%s"
               % (name, a["i"], box, ox, oy, rad, a["rpx"], a["rmm"],
                  a["ltype"], a["colour"], a["grp"], a["lay"], a["flags"],
-                 a["n"], a["a0"], worst, n))
+                 a["n"], a["a0"], worst, n, span,
+                 "  [%d others on this ring]" % len(near) if near else ""))
 
 
 if __name__ == "__main__":

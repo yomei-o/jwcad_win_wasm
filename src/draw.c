@@ -809,6 +809,26 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             if (oddfull)
                 oddbox = 1;
         }
+        /* JW_ARC_RFRAC=<t> is the same knob with a condition on it: put a
+           whole circle in the 2r+1 box when the fraction the radius loses to
+           the rounding is t or more.  It is there to measure a guess, not
+           because anything in the original says so -- of the three circles
+           that can be fitted against the original's own ink, the two in the
+           2r box lose 0.570 and the one in the 2r+1 box loses 0.744
+           (tools/circall.sh).  Two values are not a rule; this is how to
+           find out whether they are even a coincidence. */
+        {
+            static double rfrac = -1.0;
+            if (rfrac < 0.0) {
+                const char *t = getenv("JW_ARC_RFRAC");
+                rfrac = t && *t ? atof(t) : 2.0;
+            }
+            if (rfrac <= 1.0) {
+                double rp2 = r / v->mmpp;
+                if (rp2 - floor(rp2) >= rfrac)
+                    oddbox = 1;
+            }
+        }
         /* A whole circle under two pixels across is not drawn as a circle
          * at all: FUN_00421490 moves to the centre and draws the one pixel
          * (the `if (local_e8 < 2)` arm, MoveTo then LineTo one to the
