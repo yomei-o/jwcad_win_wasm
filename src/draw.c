@@ -908,21 +908,47 @@ static void bez_point(double cx, double cy, double rp, double a,
     *y = cy - rp * sin(a);
 }
 
-/* One cubic, flattened by halving until the middle of the curve is within
- * half a pixel of the middle of the chord, then stroked.  GDI's own
- * flattening comes out about a pixel a step (tools/gdiarc.c, odd 9), so
- * this aims for the same grain. */
+/* One cubic, halved until it is flat, then stroked.
+ *
+ * Where GDI cuts is measurable: tools/bezcut.py takes its control points
+ * (odd 7) and its flattening (odd 9) for the same arc and works out the
+ * parameter of every cut.  A full quadrant of radius 61 comes back as
+ * **eight equal pieces** and a 59 degree one as five -- an eighth, an
+ * eighth, then three quarters -- so GDI halves recursively, and
+ * adaptively, the same shape as this.  What was wrong before was the test
+ * it stops on.
+ *
+ * The test is the classic one: how far the two inner control points stray
+ * from the chord.  At **0.70 of a pixel** it reproduces GDI's own split
+ * exactly (eight and five for the two pieces above); a sagitta through the
+ * middle of the curve, which is what this used at first, does not.
+ */
+static double bez_far(double x0, double y0, double x1, double y1,
+                      double x2, double y2, double x3, double y3)
+{
+    double ax = x3 - x0, ay = y3 - y0;
+    double n = sqrt(ax * ax + ay * ay), d1, d2;
+
+    if (n < 1e-12) {
+        d1 = sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+        d2 = sqrt((x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0));
+        return d1 > d2 ? d1 : d2;
+    }
+    d1 = (ax * (y0 - y1) - ay * (x0 - x1)) / n;
+    d2 = (ax * (y0 - y2) - ay * (x0 - x2)) / n;
+    if (d1 < 0) d1 = -d1;
+    if (d2 < 0) d2 = -d2;
+    return d1 > d2 ? d1 : d2;
+}
+
 static void bez_seg(fb_t *fb, const rect_t *c, double x0, double y0,
                     double x1, double y1, double x2, double y2,
                     double x3, double y3, unsigned int col, int wide,
                     int depth, int *px, int *py, int *first)
 {
-    double mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0;
-    double my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0;
-    double dx = (x0 + x3) / 2.0 - mx;
-    double dy = (y0 + y3) / 2.0 - my;
-
-    if (depth < 16 && (dx * dx + dy * dy) > 0.02) {
+    if (depth < 20 && bez_far(x0, y0, x1, y1, x2, y2, x3, y3) > 0.70) {
+        double mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0;
+        double my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0;
         double ax = (x0 + x1) / 2.0, ay = (y0 + y1) / 2.0;
         double bx = (x1 + x2) / 2.0, by = (y1 + y2) / 2.0;
         double cx2 = (x2 + x3) / 2.0, cy2 = (y2 + y3) / 2.0;
@@ -955,36 +981,53 @@ static void bez_arc(fb_t *fb, const rect_t *c, int cx, int cy, int rp,
                     double a0, double sweep, unsigned int col, int wide)
 {
     double half = 1.5707963267948966;
-    double a = a0, left = sweep < 0 ? -sweep : sweep;
-    int dir = sweep < 0 ? -1 : 1, px = 0, py = 0, first = 1, guard = 0;
+    double gx = (double)((int)(rp * cos(a0)));
+    double gy = (double)(-(int)(rp * sin(a0)));
+    double ex = (double)((int)(rp * cos(a0 + sweep)));
+    double ey = (double)(-(int)(rp * sin(a0 + sweep)));
+    /* Both ends come from the **ray through the point FUN_00421490 hands
+       GDI**, measured from the rect's own middle -- not from the start plus
+       the sweep.  Carrying the near end's rounding to the far one makes the
+       error grow along the arc: at radius 40 GDI ends at (40, 5) where that
+       gives (40, 6). */
+    double a = atan2(-(gy - 0.5), gx - 0.5);
+    double b = atan2(-(ey - 0.5), ex - 0.5);
+    double d = sweep < 0 ? -1.0 : 1.0;
+    double left = (b - a) * d;
+    int px = 0, py = 0, first = 1, guard = 0;
 
     if (rp < 1)
         return;
+    while (left <= 0.0)
+        left += 6.283185307179586;
+    while (left > 6.283185307179586)
+        left -= 6.283185307179586;
     while (left > 1e-12 && guard++ < 64) {
-        /* how far to the next quarter turn, the way GDI splits */
         double q = a / half;
-        double next = dir > 0 ? (floor(q) + 1.0) * half
-                              : (ceil(q) - 1.0) * half;
-        double step = dir > 0 ? next - a : a - next;
-        double k, b0, b1, x0, y0, x3, y3, c1x, c1y, c2x, c2y;
+        double next = d > 0 ? (floor(q) + 1.0) * half : (ceil(q) - 1.0) * half;
+        double step = d > 0 ? next - a : a - next;
+        double k, b1, x0, y0, x3, y3, c1x, c1y, c2x, c2y;
 
-        if (step < 1e-9 || step > left)
+        if (step < 1e-9)
+            step = half;
+        if (step > left)
             step = left;
-        b0 = a;
-        b1 = a + dir * step;
-        k = 4.0 / 3.0 * tan(step / 4.0) * dir;
-        bez_point(cx, cy, rp, b0, &x0, &y0);
-        bez_point(cx, cy, rp, b1, &x3, &y3);
-        c1x = x0 - k * rp * sin(b0);
-        c1y = y0 - k * rp * cos(b0);
+        b1 = a + d * step;
+        k = 4.0 / 3.0 * tan(step / 4.0) * d;
+        x0 = rp * cos(a);
+        y0 = -rp * sin(a);
+        x3 = rp * cos(b1);
+        y3 = -rp * sin(b1);
+        c1x = x0 - k * rp * sin(a);
+        c1y = y0 - k * rp * cos(a);
         c2x = x3 + k * rp * sin(b1);
         c2y = y3 + k * rp * cos(b1);
-        /* GDI keeps the path in whole device units, so round the control
-           points the way GetPath hands them back. */
-        bez_seg(fb, c, floor(x0 + 0.5), floor(y0 + 0.5),
-                floor(c1x + 0.5), floor(c1y + 0.5),
-                floor(c2x + 0.5), floor(c2y + 0.5),
-                floor(x3 + 0.5), floor(y3 + 0.5), col, wide, 0,
+        /* GDI keeps a path in whole device units, so the control points go
+           in rounded -- that is what GetPath hands back. */
+        bez_seg(fb, c, cx + floor(x0 + 0.5), cy + floor(y0 + 0.5),
+                cx + floor(c1x + 0.5), cy + floor(c1y + 0.5),
+                cx + floor(c2x + 0.5), cy + floor(c2y + 0.5),
+                cx + floor(x3 + 0.5), cy + floor(y3 + 0.5), col, wide, 0,
                 &px, &py, &first);
         a = b1;
         left -= step;

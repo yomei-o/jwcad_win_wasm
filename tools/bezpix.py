@@ -115,23 +115,33 @@ def bres_frac(x0, y0, x1, y1, out):
         out.add((rnd(x0 + dx * t), rnd(y0 + dy * t)))
 
 
-def flatten(p, out, depth=0, tol=0.25):
-    """Cut the curve up until it is within `tol` of its chord.
+def flat_enough(p, tol):
+    """The classic test: how far the two inner control points stray from
+    the chord.
 
-    GDI's own flattening, read out with FlattenPath and GetPath, is far
-    coarser than a point a pixel: a 149 degree arc of radius 61 comes back
-    as **14 points**, one piece about 11.5 degrees.  The sagitta of such a
-    chord is 61*(1 - cos 5.75) = 0.31 of a pixel, so GDI is flattening to
-    something like a quarter of a pixel and stroking the pieces with the
-    fractions it still holds.  (An earlier reading of this said a point a
-    pixel; it was measuring the pixels of a plain Arc, because odd 9 was
-    not in the branch that handles it.)
+    Measuring where GDI actually cuts (tools/bezcut.py) shows it halving
+    recursively like this, and **adaptively** -- a full quadrant of radius
+    61 comes out in eight equal pieces, while a 59 degree one keeps quarters
+    except for its first, which goes to eighths.  An even split would not do
+    that.  What was wrong before was the stopping test, not the halving: a
+    sagitta through the middle of the curve is not what GDI asks.
     """
     (x0, y0), (x1, y1), (x2, y2), (x3, y3) = p
-    mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0
-    my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0
-    sag = ((x0 + x3) / 2.0 - mx) ** 2 + ((y0 + y3) / 2.0 - my) ** 2
-    if depth < 24 and sag > tol * tol:
+    ax, ay = x3 - x0, y3 - y0
+    n = math.hypot(ax, ay)
+    if n < 1e-12:
+        return (math.hypot(x1 - x0, y1 - y0) <= tol
+                and math.hypot(x2 - x0, y2 - y0) <= tol)
+    d1 = abs(ax * (y0 - y1) - ay * (x0 - x1)) / n
+    d2 = abs(ax * (y0 - y2) - ay * (x0 - x2)) / n
+    return max(d1, d2) <= tol
+
+
+def flatten(p, out, depth=0, tol=0.5):
+    if depth < 24 and not flat_enough(p, tol):
+        (x0, y0), (x1, y1), (x2, y2), (x3, y3) = p
+        mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0
+        my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0
         ax, ay = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         bx, by = (x1 + x2) / 2.0, (y1 + y2) / 2.0
         cx, cy = (x2 + x3) / 2.0, (y2 + y3) / 2.0
@@ -142,7 +152,7 @@ def flatten(p, out, depth=0, tol=0.25):
         flatten(((mx, my), (ex, ey), (cx, cy), (x3, y3)), out, depth + 1,
                 tol)
         return
-    out.append((x3, y3))
+    out.append((p[3][0], p[3][1]))
 
 
 def rnd(v):
