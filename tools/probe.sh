@@ -1,8 +1,5 @@
 #!/bin/sh
+# The readers and the drawing changed today (src/coord.c, src/text.c,
+# src/draw.c), and the note says to run the sanitisers after that.
 cd "$(dirname "$0")/.."
-PATH="$PATH:/c/prog/tools/w64devkit/bin"
-mkdir -p tmp
-gcc -O2 -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 || exit 1
-python tools/arcswap.py
-tmp/gdiarc.exe < tmp/sw.txt > tmp/sw.out 2>/dev/null
-python tools/arcswap.py tmp/sw.out
+sh tools/asan.sh 2>&1 | tail -40
