@@ -87,23 +87,44 @@ static __inline int jw_px_mode(void)
             if (*t == 'y') m = 2;
             if (t[0] == 'x' && t[1] == 'y') m = 3;
         }
+        t = getenv("JW_PX_MODE");
+        if (t && *t)
+            m = atoi(t);
     }
     return m;
 }
 
+/* The rounding a mode asks for.  Bit 0/1 are the floors above; 2/3 round the
+ * other way and 4/5 round to the nearest.
+ *
+ * Why the last two are worth measuring: the port's truncation is toward
+ * zero and the zero is the pinned pixel, so the drawing is cut in two --
+ * 109 of `Ａマンション平面例`'s arc middles land left of it and round up,
+ * 106 land right of it and round down.  If the original's own pinned pixel
+ * is not in the same place, every middle between the two rounds differently.
+ * Rounding the same way everywhere, or to the nearest, are the two shapes
+ * that have no such seam, and neither has ever been put on the scoreboard.
+ * FUN_004b6d60 reads as a plain (int), so this is a measurement, not a
+ * reading. */
+static __inline double jw_px_bend(double p, int lo)
+{
+    int m = jw_px_mode();
+    if (m & (1 << lo))  return floor(p);
+    if (m & (4 << lo))  return ceil(p);
+    if (m & (16 << lo)) return floor(p + 0.5);
+    return p;
+}
+
 static __inline int jw_sx(const jw_view *v, double x)
 {
-    double p = (x - v->ox) / v->mmpp + jw_round_x;
-    if (jw_px_mode() & 1)
-        p = floor(p);
+    double p = jw_px_bend((x - v->ox) / v->mmpp + jw_round_x, 0);
     return v->bx + jw_px_round(p);
 }
 
 static __inline int jw_sy(const jw_view *v, double y)
 {
-    double p = (y - v->oy) / v->mmpp + jw_round_y;
-    if (jw_px_mode() & 2)
-        p = ceil(p);            /* by - ceil(p) is the screen y rounded down */
+    /* by - this, so a floor here is the screen y rounded *up* */
+    double p = jw_px_bend((y - v->oy) / v->mmpp + jw_round_y, 1);
     return v->by - jw_px_round(p);
 }
 

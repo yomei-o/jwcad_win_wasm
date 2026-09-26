@@ -381,3 +381,22 @@ sh tools/decomp_get.sh
 リポジトリに入らないので新しい環境ではそこがまるごと欠けます。いまは
 `tools/jwdraw.ps1`・`tools/bars.ps1` が本体で、`tmp/` の同名は転送する
 だけです。
+
+## VM の走りを `&` で切り離さない（2026-09-26 にまた踏みました）
+
+`sh sync.sh '...' > file 2>&1 &` のように手元のシェルで切り離すと、
+**手元の側だけが終わり、VM の側は走り続けます**。次の `check.sh` は
+`ld.exe: cannot open output file tests/fuzz_test.exe: Permission denied`
+で落ちます —— 前の試験がまだその exe を掴んでいるからです。
+
+* 切り離しは**道具側の仕組みに任せる**（手元の `&` を使わない）
+* 詰まったら、まず VM 側を掃除する:
+
+```sh
+for n in fuzz_test.exe cmdfuzz_test.exe shot.exe bigcirc_test.exe          linewalk_test.exe clipwalk_test.exe pickwalk_test.exe; do
+    taskkill //F //IM "$n" > /dev/null 2>&1 || true
+done
+```
+
+`taskkill` は当たらないと 128 を返し、`grep` も当たらないと 1 を返すので、
+`probe.sh` の中では `|| true` を付けないとそこで終わります。
