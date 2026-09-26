@@ -1,30 +1,28 @@
 #!/usr/bin/env python3
 u"""Fit the control points GDI gives an Arc.
 
-    tmp/gdiarc.exe < tmp/cps.txt > tmp/cps.out 2> tmp/cps.types
+    tmp/gdiarc.exe < tmp/cps.txt > tmp/cps.out
     python tools/bezfit.py
 
 GDI turns an Arc into cubic Beziers -- BeginPath / Arc / EndPath / GetPath
 hands back PT_MOVETO followed by PT_BEZIERTO, and flattening that path and
 stroking it paints exactly what Arc paints.  So the port can draw an arc the
-way GDI does, if it can work out the same control points.
+way GDI does, once it can work out the same control points.
 
-This holds a candidate rule up against GDI's own answer, arc by arc, and
-says where it parts company.  The rule under test:
+Two rules are settled (docs/notes-pixels.md):
 
-  * the middle is (cx, cy) and the radius rp exactly -- Arc's rect is
-    exclusive on the right and bottom, so (cx-rp, cy-rp, cx+rp+1, cy+rp+1)
-    covers cx-rp .. cx+rp
-  * the sweep is cut at the quarter turns
-  * each piece is the textbook arc Bezier, k = 4/3 tan(step/4)
-  * every point is rounded to whole device units
+  * the cuts are at the quarter turns, with a degenerate Bezier where the
+    sweep does not reach one
+  * the radius is **rp + 0.5**, not rp -- read straight off GDI's own
+    quadrant control points, where the tangent step is k*(rp+0.5) rounded
 
-The run prints how many arcs match outright and, for the rest, the first
-point that differs -- which says which of those four is wrong.
+What is fitted here is the rest: where the ends sit, and hence where the
+degenerate piece falls.  `lead` tries the reading that a piece is emitted
+for the stretch behind a start that sits on a quarter turn, which is what
+would put a degenerate one at the front rather than the back.
 """
 import io
 import math
-import os
 import sys
 
 TWO = 2.0 * math.pi
@@ -67,144 +65,57 @@ def read_points(path):
     return got
 
 
-def rnd(v):
-    return int(math.floor(v + 0.5))
+def rounder(how):
+    if how == "round":
+        return lambda t: int(math.floor(t + 0.5))
+    if how == "floor":
+        return lambda t: int(math.floor(t))
+    if how == "ceil":
+        return lambda t: int(math.ceil(t))
+    return lambda t: int(t)
 
 
-def mine(rp, a0, sweep):
-    """The candidate: quarter-turn cuts, textbook Bezier, rounded."""
-    pts = []
-    a = a0
-    left = abs(sweep)
+def build(rp, a0, sweep, acen, pcen, prad, how, lead, krad):
+    f = rounder(how)
+    R = rp + prad
+    gx, gy = ray(rp, a0)
+    a = math.atan2(-(gy - acen), gx - acen)
     d = 1.0 if sweep >= 0 else -1.0
-    x, y = rp * math.cos(a), -rp * math.sin(a)
-    pts.append((rnd(x), rnd(y)))
+    left = abs(sweep)
+    pts = [(f(pcen + R * math.cos(a)), f(pcen - R * math.sin(a)))]
     guard = 0
+    if lead:
+        q = a / HALF
+        if abs(q - round(q)) < 1e-9:
+            x0 = pcen + R * math.cos(a)
+            y0 = pcen - R * math.sin(a)
+            pts.append((f(x0), f(y0)))
+            pts.append((f(x0), f(y0)))
+            pts.append((f(x0), f(y0)))
     while left > 1e-12 and guard < 64:
         guard += 1
         q = a / HALF
-        nxt = (math.floor(q) + 1.0) * HALF if d > 0 else (math.ceil(q) - 1.0) * HALF
+        if d > 0:
+            nxt = (math.floor(q) + 1.0) * HALF
+        else:
+            nxt = (math.ceil(q) - 1.0) * HALF
         step = (nxt - a) if d > 0 else (a - nxt)
-        if step < 1e-9 or step > left:
-            step = left
-        b0, b1 = a, a + d * step
-        k = 4.0 / 3.0 * math.tan(step / 4.0) * d
-        x0, y0 = rp * math.cos(b0), -rp * math.sin(b0)
-        x3, y3 = rp * math.cos(b1), -rp * math.sin(b1)
-        c1x, c1y = x0 - k * rp * math.sin(b0), y0 - k * rp * math.cos(b0)
-        c2x, c2y = x3 + k * rp * math.sin(b1), y3 + k * rp * math.cos(b1)
-        pts.append((rnd(c1x), rnd(c1y)))
-        pts.append((rnd(c2x), rnd(c2y)))
-        pts.append((rnd(x3), rnd(y3)))
-        a = b1
-        left -= step
-    return pts
-
-
-VARIANTS = []
-for acen in (0.0, 0.5):
-    for pcen, prad in ((0.0, 0.0), (0.5, 0.5)):
-        for how in ("round", "floor", "trunc", "ceil"):
-            VARIANTS.append((acen, pcen, prad, how))
-
-
-def place(v, rp, gx, gy):
-    """Where a candidate rule puts the arc's end, given the point asked for."""
-    acen, pcen, prad, how = v
-    vx, vy = gx - acen, gy - acen
-    a = math.atan2(-vy, vx)
-    R = rp + prad
-    x = pcen + R * math.cos(a)
-    y = pcen - R * math.sin(a)
-    if how == "round":
-        f = lambda t: int(math.floor(t + 0.5))
-    elif how == "floor":
-        f = lambda t: int(math.floor(t))
-    elif how == "ceil":
-        f = lambda t: int(math.ceil(t))
-    else:
-        f = lambda t: int(t)
-    return f(x), f(y)
-
-
-def mine(rp, a0, sweep):
-    """The candidate control points: quarter-turn cuts, textbook Bezier."""
-    pts = []
-    a = a0
-    left = abs(sweep)
-    d = 1.0 if sweep >= 0 else -1.0
-    HALFT = math.pi / 2.0
-    x, y = rp * math.cos(a), -rp * math.sin(a)
-    pts.append((rnd(x), rnd(y)))
-    guard = 0
-    while left > 1e-12 and guard < 64:
-        guard += 1
-        q = a / HALFT
-        nxt = (math.floor(q) + 1.0) * HALFT if d > 0 else (math.ceil(q) - 1.0) * HALFT
-        step = (nxt - a) if d > 0 else (a - nxt)
-        if step < 1e-9 or step > left:
-            step = left
-        b0, b1 = a, a + d * step
-        k = 4.0 / 3.0 * math.tan(step / 4.0) * d
-        x0, y0 = rp * math.cos(b0), -rp * math.sin(b0)
-        x3, y3 = rp * math.cos(b1), -rp * math.sin(b1)
-        c1 = (x0 - k * rp * math.sin(b0), y0 - k * rp * math.cos(b0))
-        c2 = (x3 + k * rp * math.sin(b1), y3 + k * rp * math.cos(b1))
-        pts.append((rnd(c1[0]), rnd(c1[1])))
-        pts.append((rnd(c2[0]), rnd(c2[1])))
-        pts.append((rnd(x3), rnd(y3)))
-        a = b1
-        left -= step
-    return pts
-
-
-def rnd(v):
-    return int(math.floor(v + 0.5))
-
-
-def build(rp, a0, sweep, acen, pcen, prad, how):
-    """A candidate: cut at the quarter turns with ceil, textbook Bezier."""
-    if how == "round":
-        f = lambda t: int(math.floor(t + 0.5))
-    elif how == "floor":
-        f = lambda t: int(math.floor(t))
-    elif how == "ceil":
-        f = lambda t: int(math.ceil(t))
-    else:
-        f = lambda t: int(t)
-    R = rp + prad
-    HALFT = math.pi / 2.0
-    gx, gy = ray(rp, a0)
-    ex, ey = ray(rp, a0 + sweep)
-    a = math.atan2(-(gy - acen), gx - acen)
-    b = math.atan2(-(ey - acen), ex - acen)
-    d = 1.0 if sweep >= 0 else -1.0
-    left = abs(sweep)
-    pts = []
-    pts.append((f(pcen + R * math.cos(a)), f(pcen - R * math.sin(a))))
-    guard = 0
-    while left > -1e-12 and guard < 64:
-        guard += 1
-        q = a / HALFT
-        nxt = math.ceil(q) * HALFT if d > 0 else math.floor(q) * HALFT
-        step = (nxt - a) if d > 0 else (a - nxt)
+        if step < 1e-9:
+            step = HALF
         if step > left:
             step = left
         b1 = a + d * step
         k = 4.0 / 3.0 * math.tan(step / 4.0) * d
+        KR = (rp + krad) * k
         x0, y0 = pcen + R * math.cos(a), pcen - R * math.sin(a)
         x3, y3 = pcen + R * math.cos(b1), pcen - R * math.sin(b1)
-        c1 = (x0 - k * R * math.sin(a), y0 - k * R * math.cos(a))
-        c2 = (x3 + k * R * math.sin(b1), y3 + k * R * math.cos(b1))
+        c1 = (x0 - KR * math.sin(a), y0 - KR * math.cos(a))
+        c2 = (x3 + KR * math.sin(b1), y3 + KR * math.cos(b1))
         pts.append((f(c1[0]), f(c1[1])))
         pts.append((f(c2[0]), f(c2[1])))
         pts.append((f(x3), f(y3)))
-        left -= step
         a = b1
-        if left <= 1e-12:
-            break
-        if step <= 1e-12:
-            a = a + d * 1e-9
+        left -= step
     return pts
 
 
@@ -216,24 +127,29 @@ def main():
         for pcen in (0.0, 0.5):
             for prad in (0.0, 0.5):
                 for how in ("round", "floor", "trunc", "ceil"):
-                    ok = n = same_len = 0
-                    for tag, rp, a0, sw in cs:
+                    for krad in (0.0, 0.5, 1.0):
+                     for lead in (0, 1):
+                      ok = n = same = 0
+                      for tag, rp, a0, sw in cs:
                         g = got.get(tag)
                         if not g:
                             continue
                         n += 1
-                        m = build(rp, a0, sw, acen, pcen, prad, how)
+                        m = build(rp, a0, sw, acen, pcen, prad, how, lead,
+                                  krad)
                         if len(m) == len(g):
-                            same_len += 1
+                            same += 1
                         if m == g:
                             ok += 1
-                    best.append((ok, same_len, acen, pcen, prad, how, n))
+                      best.append((ok, same, acen, pcen, prad, how, lead,
+                                   krad, n))
     best.sort(reverse=True)
-    print("%6s %8s  %-6s %-6s %-8s %-7s" % ("exact", "same n", "angle",
-                                            "point", "radius", "round"))
-    for ok, sl, ac, pc, pr, how, n in best[:10]:
-        print("%6d %8d  %-6.1f %-6.1f %-8s %-7s   (of %d)"
-              % (ok, sl, ac, pc, "rp+%.1f" % pr, how, n))
+    print("%6s %8s  %-6s %-6s %-8s %-7s %-5s %-6s"
+          % ("exact", "same n", "angle", "point", "radius", "round", "lead",
+             "k rad"))
+    for ok, same, ac, pc, pr, how, lead, krad, n in best[:12]:
+        print("%6d %8d  %-6.1f %-6.1f %-8s %-7s %-5d rp+%.1f   (of %d)"
+              % (ok, same, ac, pc, "rp+%.1f" % pr, how, lead, krad, n))
 
 
 if __name__ == "__main__":

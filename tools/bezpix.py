@@ -92,20 +92,32 @@ def bres(x0, y0, x1, y1, out, last):
         out.add((x0, y0))
 
 
-def flatten(p, out, depth=0, tol=0.1):
+def flatten(p, out, depth=0, tol=1.0):
+    """Cut the curve up until each piece is about a pixel long.
+
+    GDI's own flattening of a 140 pixel arc comes back as 141 points
+    (tools/gdiarc.c, odd 9) -- a point a pixel.  Coarser than that draws the
+    chords instead of the curve (18 points for the same arc put 111 of its
+    140 pixels in the wrong place); **finer** than that is no better, since
+    rounding points that sit less than a pixel apart makes the staircase
+    wander (203 points, 83 pixels out, even with GDI's own control points).
+    So aim for a point a pixel and no more.
+    """
     (x0, y0), (x1, y1), (x2, y2), (x3, y3) = p
+    dx, dy = x3 - x0, y3 - y0
+    far = dx * dx + dy * dy
     mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0
     my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0
-    dx = (x0 + x3) / 2.0 - mx
-    dy = (y0 + y3) / 2.0 - my
-    if depth < 18 and dx * dx + dy * dy > tol:
+    if depth < 24 and far > tol * tol:
         ax, ay = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         bx, by = (x1 + x2) / 2.0, (y1 + y2) / 2.0
         cx, cy = (x2 + x3) / 2.0, (y2 + y3) / 2.0
         dx2, dy2 = (ax + bx) / 2.0, (ay + by) / 2.0
         ex, ey = (bx + cx) / 2.0, (by + cy) / 2.0
-        flatten(((x0, y0), (ax, ay), (dx2, dy2), (mx, my)), out, depth + 1, tol)
-        flatten(((mx, my), (ex, ey), (cx, cy), (x3, y3)), out, depth + 1, tol)
+        flatten(((x0, y0), (ax, ay), (dx2, dy2), (mx, my)), out, depth + 1,
+                tol)
+        flatten(((mx, my), (ex, ey), (cx, cy), (x3, y3)), out, depth + 1,
+                tol)
         return
     out.append((x3, y3))
 
@@ -115,25 +127,49 @@ def rnd(v):
 
 
 def control(rp, a0, sweep):
-    """The candidate control points: quarter-turn cuts, textbook Bezier."""
+    """GDI's control points, as far as they have been worked out.
+
+    Both ends are taken from the **ray through the point the caller gave**,
+    measured from the rect's true middle -- not from the start plus the
+    sweep.  That is what the port had wrong: the rounding of the far end
+    was carried from the near one, so the error grew along the arc (radius
+    40, sweep 2.6: GDI ends at (40,5) and the port ended at (40,6)).
+
+    The cuts are at the quarter turns and each piece is the textbook arc
+    Bezier, k = 4/3 tan(step/4), every point rounded to whole units.
+    The points themselves sit on rp, but the **tangent step** is
+    k*(rp + 0.5) -- read off GDI's own quadrant answers, where rp alone
+    gives 10 at radius 19 and 13 at 24 where GDI has 11 and 14.
+    """
     segs = []
-    a = a0
-    left = abs(sweep)
+    gx, gy = ray(rp, a0)
+    ex, ey = ray(rp, a0 + sweep)
+    a = math.atan2(-(gy - 0.5), gx - 0.5)
+    b = math.atan2(-(ey - 0.5), ex - 0.5)
     d = 1.0 if sweep >= 0 else -1.0
+    span = (b - a) * d
+    while span <= 0:
+        span += TWO
+    while span > TWO:
+        span -= TWO
+    left = span
     guard = 0
     while left > 1e-12 and guard < 64:
         guard += 1
         q = a / HALF
         nxt = (math.floor(q) + 1.0) * HALF if d > 0 else (math.ceil(q) - 1.0) * HALF
         step = (nxt - a) if d > 0 else (a - nxt)
-        if step < 1e-9 or step > left:
+        if step < 1e-9:
+            step = HALF
+        if step > left:
             step = left
-        b0, b1 = a, a + d * step
+        b1 = a + d * step
         k = 4.0 / 3.0 * math.tan(step / 4.0) * d
-        x0, y0 = rp * math.cos(b0), -rp * math.sin(b0)
+        KR = k * (rp + 0.5)
+        x0, y0 = rp * math.cos(a), -rp * math.sin(a)
         x3, y3 = rp * math.cos(b1), -rp * math.sin(b1)
-        c1 = (x0 - k * rp * math.sin(b0), y0 - k * rp * math.cos(b0))
-        c2 = (x3 + k * rp * math.sin(b1), y3 + k * rp * math.cos(b1))
+        c1 = (x0 - KR * math.sin(a), y0 - KR * math.cos(a))
+        c2 = (x3 + KR * math.sin(b1), y3 + KR * math.cos(b1))
         segs.append(((rnd(x0), rnd(y0)), (rnd(c1[0]), rnd(c1[1])),
                      (rnd(c2[0]), rnd(c2[1])), (rnd(x3), rnd(y3))))
         a = b1
@@ -141,7 +177,7 @@ def control(rp, a0, sweep):
     return segs
 
 
-def pixels(rp, a0, sweep, tol=0.1):
+def pixels(rp, a0, sweep, tol=1.0):
     out = set()
     pts = []
     for seg in control(rp, a0, sweep):
@@ -155,7 +191,42 @@ def pixels(rp, a0, sweep, tol=0.1):
     return out
 
 
+def show(rp, a0, sweep):
+    """One arc, my flattened polyline against GDI's own (odd 9)."""
+    gl = []
+    lines = io.open("tmp/fl.out", encoding="ascii",
+                    errors="replace").read().split("\n")
+    k = 0
+    while k < len(lines):
+        head = lines[k].split()
+        k += 1
+        if len(head) != 2:
+            continue
+        n = int(head[1])
+        for _ in range(n):
+            if k >= len(lines):
+                break
+            q = lines[k].split()
+            k += 1
+            if len(q) == 2:
+                gl.append((int(q[0]), int(q[1])))
+    pts = []
+    for seg in control(rp, a0, sweep):
+        if not pts:
+            pts.append((float(seg[0][0]), float(seg[0][1])))
+        flatten(tuple((float(q[0]), float(q[1])) for q in seg), pts, 0, 1.0)
+    mine = [(rnd(x), rnd(y)) for x, y in pts]
+    print("GDI has %d points, mine %d" % (len(gl), len(mine)))
+    for i in range(max(len(gl), len(mine))):
+        a = str(gl[i]) if i < len(gl) else "-"
+        b = str(mine[i]) if i < len(mine) else "-"
+        print("   %-12s %-12s%s" % (a, b, "" if a == b else "   <="))
+
+
 def main():
+    if len(sys.argv) > 3:
+        show(int(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3]))
+        return
     got = read_sets("tmp/pix.out")
     cs = cases()
     tot = same = 0
