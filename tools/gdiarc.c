@@ -19,12 +19,17 @@
  * down).  `odd` says which box and how many calls:
  *
  *     0   one Arc, in the 2r box
- *     1   one Arc, in the 2r+1 box          (a part of a circle)
+ *     1   one Arc, in the 2r+1 box          (what the port uses)
+ *     4   one Arc, in the 2r+2 box
  *     2   two Arcs round the whole ring, 2r box     (a whole circle)
  *     3   two Arcs round the whole ring, 2r+1 box
+ *     5   two Arcs round the whole ring, 2r+2 box
  *
- * The last two are how a whole circle is drawn, and asking for both is the
- * question `日影図`'s one circle raises.  Out comes
+ * Two Arcs is how a whole circle is drawn, and asking for both boxes is the
+ * question `日影図`'s one circle raised -- GDI answered 206 pixels on the
+ * original's ink against 97 (RESUME.md).  The 2r+2 box is here because a
+ * ring half a pixel bigger is what `Ａマンション平面例`'s partial arcs
+ * measure as wanting.  Out comes
  *
  *     <tag> <n>
  *     <dx> <dy>          ... n of them, offsets from the middle
@@ -87,21 +92,21 @@ int main(void)
         cx = w / 2;
         cy = h / 2;
         memset(bits, 0xff, (size_t)w * h * 4);
-        if (odd >= 2) {
+        if (odd == 2 || odd == 3 || odd == 5) {
             /* A whole circle: FUN_00421490 calls Arc **twice**, (+r,0)
                round to (-r,0) and back, so that the two halves tile the
                ring exactly once (GDI's Arc leaves its far end out, the way
                LineTo does).  odd 2 is the 2r box a whole circle goes in and
                odd 3 the 2r+1 box a part of one goes in -- which is the
                question `日影図`'s one circle asks. */
-            int hi = (odd == 3) ? 1 : 0;
+            int hi = (odd == 3) ? 1 : (odd == 5) ? 2 : 0;
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx + rp, cy, cx - rp, cy);
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx - rp, cy, cx + rp, cy);
         } else {
-            Arc(dc, cx - rp, cy - rp, cx + rp + (odd ? 1 : 0),
-                cy + rp + (odd ? 1 : 0),
+            int hi = (odd == 1) ? 1 : (odd == 4) ? 2 : 0;
+            Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx + x1, cy + y1, cx + x2, cy + y2);
         }
         GdiFlush();

@@ -17,10 +17,10 @@ esac
 sh tools/score.sh > /dev/null 2>&1 || { echo "build failed"; exit 1; }
 gcc -O2 -w -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 || { echo "gdiarc failed"; exit 1; }
 
-for n in d11 d09 d12; do
+for n in d14 d08; do
     echo "=== $n"
     JW_SHOT_ELEMS=1 ./tests/shot.exe "tmp/$n.out.png" "tmp/$n.jww" >/dev/null
-    python tools/circask.py "tmp/refs/$n.png" "tmp/$n.out.png" >/dev/null || continue
-    tmp/gdiarc.exe < tmp/circs.txt > tmp/gdicirc.out
-    python tools/circask.py "tmp/refs/$n.png" "tmp/$n.out.png" tmp/gdicirc.out
+    python tools/boxask.py "tmp/refs/$n.png" "tmp/$n.out.png" >/dev/null || continue
+    tmp/gdiarc.exe < tmp/boxes.txt > tmp/gdibox.out
+    BOXASK_MIN=20 python tools/boxask.py "tmp/refs/$n.png" "tmp/$n.out.png" tmp/gdibox.out
 done
