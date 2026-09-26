@@ -102,6 +102,11 @@ echo "=== 線の刻み —— 9 種 x 52 方向 x 9 長さ x 3 ペン、枠の�
 ./tests/linewalk_test.exe | sed 's/^/    /'
 
 echo
+echo "=== ほかの要素も枠の外に出ないか —— 円弧・点・ソリッド・文字"
+# 同じ番兵の手で、線以外の描き手ぜんぶを枠の縁にまたがらせる。
+./tests/clipwalk_test.exe | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests
