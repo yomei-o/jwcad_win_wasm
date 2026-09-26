@@ -9,11 +9,16 @@
 # shells; writing the commands to a file instead and running that removes
 # the whole class of mistake.
 cd "$(dirname "$0")/.."
+case ":$PATH:" in
+    *:/c/prog/tools/w64devkit/bin:*) ;;
+    *) PATH="$PATH:/c/prog/tools/w64devkit/bin" ;;
+esac
 
-sh tools/check.sh > tmp/ck.txt 2>&1
-echo "check.sh exit code: $?"
-echo "lines: $(wc -l < tmp/ck.txt)"
-echo "--- the last five"
-tail -5 tmp/ck.txt
-echo "--- any build failures left behind"
-ls tests/out/obj/*.fail 2>/dev/null | head -3 || echo none
+sh tools/score.sh > /dev/null 2>&1 || { echo "build failed"; exit 1; }
+gcc -O2 -w -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 || { echo "gdiarc failed"; exit 1; }
+
+n=d14
+JW_SHOT_ELEMS=1 ./tests/shot.exe "tmp/$n.out.png" "tmp/$n.jww" >/dev/null
+python tools/arcask.py "tmp/refs/$n.png" "tmp/$n.out.png"
+tmp/gdiarc.exe < tmp/arcs.txt > tmp/gdiarc.out
+python tools/arcask.py "tmp/refs/$n.png" "tmp/$n.out.png" tmp/gdiarc.out

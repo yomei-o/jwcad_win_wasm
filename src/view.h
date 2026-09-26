@@ -8,6 +8,9 @@
 #ifndef JW_VIEW_H
 #define JW_VIEW_H
 
+#include <math.h>
+#include <stdlib.h>
+
 #include "fb.h"
 
 /* The original's own shape, from FUN_004b6d60: a paper point (ox, oy) is
@@ -58,14 +61,50 @@ static __inline int jw_px_round(double p)
     return (int)p;
 }
 
+/* JW_PX_FLOOR picks the rounding, for measuring rather than for use:
+ *
+ *   unset   0 towards zero, which is what FUN_004b6d60's (int) does
+ *   "x"     x rounds down instead
+ *   "y"     y rounds down *on the screen*, which is ceil here because the
+ *           port takes by - this
+ *   "xy"    both
+ *
+ * The question is real: the port's truncation is not symmetric about the
+ * pinned pixel, so a point left of bx rounds one way and a point right of
+ * it the other.  `Test6`'s blue wall starts at 158.138 and the original
+ * paints 158 where the port paints 159 (RESUME.md,「`Test6` の線は」).
+ * An earlier note says flooring "both axes" costs 149,336 pixels -- but
+ * flooring the y of `by - (int)(w)` rounds the screen y *up*, so that
+ * measurement asked a different question from the one it meant to. */
+static __inline int jw_px_mode(void)
+{
+    static int m = -1;
+    if (m < 0) {
+        const char *t = getenv("JW_PX_FLOOR");
+        m = 0;
+        if (t) {
+            if (*t == 'x') m = 1;
+            if (*t == 'y') m = 2;
+            if (t[0] == 'x' && t[1] == 'y') m = 3;
+        }
+    }
+    return m;
+}
+
 static __inline int jw_sx(const jw_view *v, double x)
 {
-    return v->bx + jw_px_round((x - v->ox) / v->mmpp + jw_round_x);
+    double p = (x - v->ox) / v->mmpp + jw_round_x;
+    if (jw_px_mode() & 1)
+        p = floor(p);
+    return v->bx + jw_px_round(p);
 }
 
 static __inline int jw_sy(const jw_view *v, double y)
 {
-    return v->by - jw_px_round((y - v->oy) / v->mmpp + jw_round_y);
+    double p = (y - v->oy) / v->mmpp + jw_round_y;
+    if (jw_px_mode() & 2)
+        p = ceil(p);            /* by - ceil(p) is the screen y rounded down */
+    return v->by - jw_px_round(p);
 }
 
 /* The same, but before the rounding: how far across and up the point is from
