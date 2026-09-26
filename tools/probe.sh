@@ -2,12 +2,9 @@
 # A scratch script for one-off questions on the build box.
 #
 #   sh sync.sh 'sh tools/probe.sh'
-#
-# Its contents change from one question to the next and nothing depends on
-# it.  It exists because sync.sh hands its argument to `bash -lc "..."` on
-# the far side, so anything with quotes, pipes or $ in it has to survive two
-# shells; writing the commands to a file instead and running that removes
-# the whole class of mistake.
 cd "$(dirname "$0")/.."
-
-sh tools/sweepenv.sh JW_DASH_ACC 1
+sh tools/score.sh > /dev/null 2>&1 || { echo "build failed"; exit 1; }
+echo "--- where the walk ends"
+sh tools/sweepenv.sh JW_ARC_ENDADD 1 -1 2 -2
+echo "--- where it starts"
+sh tools/sweepenv.sh JW_ARC_STARTADD 1 -1

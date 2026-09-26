@@ -1112,6 +1112,23 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
              * moving either end one further either way is worse again: the
              * start one back 848, the start one on 826, the far end one
              * more back 832. */
+            /* JW_ARC_STARTADD / JW_ARC_ENDADD move where the ring walk
+               begins and ends, for every arc at once.  The table of those
+               sweeps in RESUME.md was taken before the box of a whole
+               circle and the adding-up of a dash were put right, and what
+               is left of `サンプル` is two thirds ends (「掃引の外」28 and
+               「弧の端」19 of its 70), so it is worth asking again. */
+            {
+                static int sadd = -1000, eadd = -1000;
+                if (sadd == -1000) {
+                    const char *t = getenv("JW_ARC_STARTADD");
+                    sadd = t && *t ? atoi(t) : 0;
+                    t = getenv("JW_ARC_ENDADD");
+                    eadd = t && *t ? atoi(t) : 0;
+                }
+                one_start += sadd;
+                one_end += eadd;
+            }
             if (one_start) {
                 start = (start + one_start) % n;
                 if (start < 0) start += n;

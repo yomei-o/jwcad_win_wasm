@@ -201,6 +201,23 @@ def main():
     for k2 in sorted(tally, key=lambda kk: -tally[kk]):
         print("   %4d fit the %s box best" % (tally[k2], k2))
 
+    # GDI walks a curve an octant at a time, so an end that sits close to an
+    # octant boundary (a multiple of pi/4) could fall either side of it and
+    # take a different run of pixels with it.  Nothing has looked at that.
+    print("\nhow far each end is from the nearest eighth of a turn:")
+    for a, sc, best in rows:
+        s = a["a0"] + a["tilt"]
+        e = s + a["sw"]
+        def off(t):
+            q = t / (math.pi / 4.0)
+            return abs(q - round(q)) * (math.pi / 4.0)
+        # and the same for the ray the truncated endpoint really makes
+        rp = int(a["rpx"] + 0.5)
+        rs = math.atan2(-ray(rp, s)[1], ray(rp, s)[0])
+        re = math.atan2(-ray(rp, e)[1], ray(rp, e)[0])
+        print("   arc %-5d %-16s start %.4f (ray %.4f)  end %.4f (ray %.4f)"
+              % (a["i"], BOXES[best][1], off(s), off(rs), off(e), off(re)))
+
 
 if __name__ == "__main__":
     main()
