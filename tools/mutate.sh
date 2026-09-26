@@ -63,4 +63,11 @@ try "the solid fill takes its far edge in" src/draw.c     's@            int a =
 
 try "no text drawn at all" src/draw.c     's@        case JW_MOJI:@        case JW_MOJI: break;@'
 
+# And two on the harness itself rather than on the port: how much of the
+# window does the text mask take out, and how much error is hiding in the
+# margin it leaves round every text?
+try "the text mask with no margin" tests/shot.c     's@                    pad = (int)(o->d\[5\] \* v.scale) + 4;@                    pad = 0;@'
+
+try "the text mask twice as wide" tests/shot.c     's@                    pad = (int)(o->d\[5\] \* v.scale) + 4;@                    pad = 2 * ((int)(o->d[5] * v.scale) + 4);@'
+
 echo MUTATEDONE
