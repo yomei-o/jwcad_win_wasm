@@ -18,6 +18,7 @@
  * FUN_00421490 computes them ((int)(rp*cos a) across, -(int)(rp*sin a)
  * down).  `odd` says which box and how many calls:
  *
+ *     6   one PolyBezier over the same arc, in the 2r+1 box
  *     0   one Arc, in the 2r box
  *     1   one Arc, in the 2r+1 box          (what the port uses)
  *     4   one Arc, in the 2r+2 box
@@ -41,6 +42,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define RMAX 9000
 #define PAD 8
@@ -104,6 +106,61 @@ int main(void)
                 cx + rp, cy, cx - rp, cy);
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx - rp, cy, cx + rp, cy);
+        } else if (odd == 6) {
+            /* The same arc as odd 1, but handed over as cubic Beziers.
+             *
+             * Why ask: tools/arcsame.py showed the ring depends on **both**
+             * ends together, not just the start -- stretching the far end
+             * moves pixels near the near one.  A walk that accumulates from
+             * the start cannot do that; splitting the curve into Beziers
+             * whose control points depend on the whole sweep can.  If Arc
+             * and PolyBezier paint the same pixels, the port can flatten
+             * the same Beziers and hand the pieces to its own line drawing,
+             * which is already exact against GDI. */
+            double l = cx - rp, t = cy - rp, r = cx + rp + 1, b = cy + rp + 1;
+            double mx = (l + r) / 2.0, my = (t + b) / 2.0;
+            double R = (r - l) / 2.0;
+            /* Angles the way the caller gives its ends: y counted up, so
+             * the sweep from the first point to the second is positive.
+             * Taking them screen-side (y down) turns the arc into its
+             * complement, which is what the first run of this measured. */
+            double a0 = atan2(my - (cy + y1), (cx + x1) - mx);
+            double a1 = atan2(my - (cy + y2), (cx + x2) - mx);
+            double sweep = a1 - a0;
+            POINT pts[64];
+            int np = 0, seg, nseg;
+            double step, a;
+
+            while (sweep <= 0.0)
+                sweep += 6.283185307179586;
+            nseg = (int)(sweep / 1.5707963267948966) + 1;
+            if (nseg > 20)
+                nseg = 20;
+            step = sweep / nseg;
+            a = a0;
+            pts[np].x = (LONG)floor(mx + R * cos(a) + 0.5);
+            pts[np].y = (LONG)floor(my - R * sin(a) + 0.5);
+            np++;
+            for (seg = 0; seg < nseg && np + 3 < 64; seg++) {
+                double k = 4.0 / 3.0 * tan(step / 4.0);
+                double b0 = a, b1 = a + step;
+                double x0 = mx + R * cos(b0), y0 = my - R * sin(b0);
+                double x3 = mx + R * cos(b1), y3 = my - R * sin(b1);
+                double c1x = x0 - k * R * sin(b0), c1y = y0 - k * R * cos(b0);
+                double c2x = x3 + k * R * sin(b1), c2y = y3 + k * R * cos(b1);
+
+                pts[np].x = (LONG)floor(c1x + 0.5);
+                pts[np].y = (LONG)floor(c1y + 0.5);
+                np++;
+                pts[np].x = (LONG)floor(c2x + 0.5);
+                pts[np].y = (LONG)floor(c2y + 0.5);
+                np++;
+                pts[np].x = (LONG)floor(x3 + 0.5);
+                pts[np].y = (LONG)floor(y3 + 0.5);
+                np++;
+                a = b1;
+            }
+            PolyBezier(dc, pts, np);
         } else {
             int hi = (odd == 1) ? 1 : (odd == 4) ? 2 : 0;
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
