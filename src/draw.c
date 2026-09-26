@@ -354,9 +354,9 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
     dx = x1 > x0 ? x1 - x0 : x0 - x1;
     dy = y1 > y0 ? y1 - y0 : y0 - y1;
 
-    /* JW_LINE_SHORT=1: a line type other than 実線 is only walked as a
-       pattern when the line is long enough, and a short one is drawn solid.
-       FUN_004280f0 says so three times over, once in each of its cases:
+    /* A line type other than 実線 is only walked as a pattern when the line
+       is long enough; a short one is drawn solid.  FUN_004280f0 says so
+       three times over, once in each of its cases:
 
            dead level     if (4 < |x0 - x1|)  -> FUN_004bbef0
            dead upright   if (4 < |y0 - y1|)  -> FUN_004bbef0
@@ -364,11 +364,15 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
 
        and where the test fails it falls through to MoveTo/LineTo, which is
        a solid line.  Note the last one is a *Manhattan* length, not the
-       longer axis.  The port has never had this rule. */
+       longer axis.  Worth 10 pixels over the fifteen (824 -> 814 -- all of
+       it `Test6`, which is the drawing full of short 補助線 stubs) and
+       nothing else moves.  JW_LINE_SHORT=0 turns it off again. */
     {
         static int shortsolid = -1;
-        if (shortsolid < 0)
-            shortsolid = getenv("JW_LINE_SHORT") != 0;
+        if (shortsolid < 0) {
+            const char *t = getenv("JW_LINE_SHORT");
+            shortsolid = !(t && *t == '0');
+        }
         /* `phase` is the tell: a chord of an arc is handed one so that the
            pattern carries on across the corners, and a line of its own is
            handed nothing.  The rule belongs to the element drawer only --
@@ -377,8 +381,15 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
            altogether (that was measured: 814 -> 854). */
         if (shortsolid && !phase && bits != 0xffffffffu) {
             int len = was_level ? dx : was_upright ? dy : dx + dy;
-            if (len <= 4)
+            if (len <= 4) {
+                /* Both, not just `bits`: `bits` picks the walk but the
+                   per-pixel test is bits_set(ltype, ...), which looks the
+                   type up again.  Setting only `bits` took the solid walk
+                   and kept the dashes -- which is how the first measurement
+                   came out worse instead of better. */
                 bits = 0xffffffffu;
+                ltype = 1;                      /* 実線 */
+            }
         }
     }
 
