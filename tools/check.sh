@@ -96,6 +96,12 @@ echo "=== 表に無い大きさの円 —— 弧の四分円の枠からはみ�
 ./tests/bigcirc_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 線の刻み —— 9 種 x 52 方向 x 9 長さ x 3 ペン、枠の外に出ないか"
+# put() の切り取りは画布より小さい clip に対して効くので、そこを抜けた
+# 画素は画布の中に落ちてサニタイザには映らない。番兵で塗ってから数える。
+./tests/linewalk_test.exe | sed 's/^/    /'
+
+echo
 echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests
