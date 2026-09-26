@@ -156,9 +156,20 @@ int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)
     return x;
 }
 
-void jw_text(fb_t *fb, const jw_view *v, const char *s,
-             double x0, double y0, double x1, double y1,
-             double cw, double ch, unsigned int col)
+/* 縦書き -- bit 0x20 of the flags at +0x44.  The two ends the file gives
+ * still say where the run goes (the two in `天空率表` have x0 == x1 and run
+ * straight down), so the advance is unchanged; what changes is that the
+ * letters stay **upright** instead of turning with the run.  That is what
+ * 縦書き means, and it is why the original writes those texts under `cv`
+ * rather than `ch` in a coordinate file (docs/notes-formats.md).
+ *
+ * Nothing in the score can see this: the mask tests/shot.c lays over a text
+ * is the box round its two ends widened by a letter's height, which covers
+ * the column either way.  So this is read rather than measured, and the two
+ * texts it touches are the only ones in the sixteen drawings. */
+void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
+                 double x0, double y0, double x1, double y1,
+                 double cw, double ch, unsigned int col, int tate)
 {
     double dx = x1 - x0, dy = y1 - y0;
     double len = sqrt(dx * dx + dy * dy);
@@ -193,6 +204,14 @@ void jw_text(fb_t *fb, const jw_view *v, const char *s,
             p += 1;
         }
         glyph(fb, v, code, x0 + ux * step * i, y0 + uy * step * i,
-              ux, uy, vx, vy, cw, ch, col);
+              tate ? 1.0 : ux, tate ? 0.0 : uy,
+              tate ? 0.0 : vx, tate ? 1.0 : vy, cw, ch, col);
     }
+}
+
+void jw_text(fb_t *fb, const jw_view *v, const char *s,
+             double x0, double y0, double x1, double y1,
+             double cw, double ch, unsigned int col)
+{
+    jw_text_run(fb, v, s, x0, y0, x1, y1, cw, ch, col, 0);
 }

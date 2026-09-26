@@ -1584,8 +1584,9 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         }
         case JW_MOJI:
-            jw_text(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
-                    o->d[2], o->d[3], o->d[4], o->d[5], col);
+            jw_text_run(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
+                        o->d[2], o->d[3], o->d[4], o->d[5], col,
+                        (o->flags & 0x20) != 0);
             break;
         case JW_BLOCK:
             block(fb, v, d, o, 0);

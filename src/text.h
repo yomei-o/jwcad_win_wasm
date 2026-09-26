@@ -33,4 +33,11 @@ void jw_text(fb_t *fb, const jw_view *v, const char *s,
              double x0, double y0, double x1, double y1,
              double cw, double ch, unsigned int col);
 
+/* The same, with 縦書き: the run still goes where the two ends say, but the
+   letters stay upright instead of turning with it.  `tate` is bit 0x20 of
+   the element's flags at +0x44. */
+void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
+                 double x0, double y0, double x1, double y1,
+                 double cw, double ch, unsigned int col, int tate);
+
 #endif
