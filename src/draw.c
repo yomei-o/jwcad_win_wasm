@@ -781,6 +781,45 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         static short pts[2 * ARC_MAX];
         int rp = jw_px_round(r / v->mmpp + 0.5);   /* FUN_004b8250 */
         int cxp = jw_sx(v, cx), cyp = jw_sy(v, cy);
+        /* JW_ARC_ONE=<i> with JW_ARC_ONE_RP / _START / _END picks one
+           element and nudges its radius, its first ring pixel or its last
+           by that many steps.  The whole-drawing sweeps of all three are in
+           RESUME.md and none of them helps; what has never been looked at is
+           whether the arcs that come out wrong want the *same* nudge as each
+           other.  tools/arcone.sh walks a drawing's arcs with it. */
+        int one_start = 0, one_end = 0;
+        {
+            static int one = -2, orp = 0, ost = 0, oen = 0, odx = 0, ody = 0;
+            if (one == -2) {
+                const char *t = getenv("JW_ARC_ONE");
+                one = t && *t ? atoi(t) : -1;
+                t = getenv("JW_ARC_ONE_RP");    orp = t && *t ? atoi(t) : 0;
+                t = getenv("JW_ARC_ONE_START"); ost = t && *t ? atoi(t) : 0;
+                t = getenv("JW_ARC_ONE_END");   oen = t && *t ? atoi(t) : 0;
+                t = getenv("JW_ARC_ONE_DX");    odx = t && *t ? atoi(t) : 0;
+                t = getenv("JW_ARC_ONE_DY");    ody = t && *t ? atoi(t) : 0;
+            }
+            if (one >= 0 && d && o - d->obj == (long)one) {
+                rp += orp;
+                cxp += odx;
+                cyp += ody;
+                one_start = ost;
+                one_end = oen;
+            }
+        }
+        /* JW_ARC_RPADD=<k> is the same nudge for **every** part of a circle
+           (a whole one is left alone).  One at a time, +1 takes the whole of
+           several of `Ａマンション平面例`'s wrong arcs away; this says
+           whether it is a rule or just those. */
+        {
+            static int rpadd = -1000;
+            if (rpadd == -1000) {
+                const char *t = getenv("JW_ARC_RPADD");
+                rpadd = t && *t ? atoi(t) : 0;
+            }
+            if (rpadd && !(sweep > 2 * PI - 1e-7 || sweep < -(2 * PI - 1e-7)))
+                rp += rpadd;
+        }
         /* A whole circle goes into a box 2r across, a part of one into a box
          * 2r+1 across -- FUN_00421490 passes cx+r+1 in the second case and
          * cx+r in the first.  So a whole circle is half a pixel off centre
@@ -925,6 +964,10 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
              * moving either end one further either way is worse again: the
              * start one back 848, the start one on 826, the far end one
              * more back 832. */
+            if (one_start) {
+                start = (start + one_start) % n;
+                if (start < 0) start += n;
+            }
             if (!full) {
                 double bestd2 = 1e9;
                 int endi = start, k;
@@ -937,8 +980,8 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                     if (dd < 0) dd = -dd;
                     if (dd < bestd2) { bestd2 = dd; endi = k; }
                 }
-                endi = (endi - step) % n;        /* the far pixel is not painted */
-                if (endi < 0) endi += n;
+                endi = (endi - step + one_end * step) % n;
+                if (endi < 0) endi += n;         /* the far pixel is not painted */
                 nsteps = ((endi - start) * step) % n;
                 if (nsteps < 0) nsteps += n;
             }
