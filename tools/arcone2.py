@@ -91,6 +91,27 @@ def main():
         mark = "" if (dx, dy) in whole else "   <= not in the whole ring"
         print("%5d %6d %6d  %8.3f%s" % (i, dx, dy, r, mark))
 
+    # Side by side, over the arc's own stretch: what the arc paints and what
+    # the whole ring has there.  The difference is what a replacement has to
+    # get right, and it turns out to be a handful of **swaps**, not a drift.
+    print("")
+    print("the arc against the whole ring over the same stretch:")
+    span = (sw if sw > 0 else -sw)
+    def inrange(p):
+        return ((math.atan2(-p[1], p[0]) - lo) % TWO_PI) <= span + 1e-9
+    both = sorted(ps | set(q for q in whole if inrange(q)), key=key)
+    na = nw = 0
+    for dx, dy in both:
+        a = (dx, dy) in ps
+        w = (dx, dy) in whole
+        tag = "both" if a and w else ("arc only" if a else "ring only")
+        if a and not w:
+            na += 1
+        if w and not a:
+            nw += 1
+        print("   %6d %6d   %-10s" % (dx, dy, tag))
+    print("   %d only the arc has, %d only the ring has" % (na, nw))
+
     print("")
     print("and the whole ring, in angle order, with the same radius:")
     for i, (dx, dy) in enumerate(sorted(whole,
