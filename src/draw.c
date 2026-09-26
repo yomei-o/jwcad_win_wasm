@@ -311,6 +311,35 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
        margin is more than anything can reach out of. */
     x0 = v->bx + jw_px_round(u0); y0 = v->by - jw_px_round(w0);
     x1 = v->bx + jw_px_round(u1); y1 = v->by - jw_px_round(w1);
+    /* JW_LINE_OUT=1 rounds the two ends *outwards* instead -- the lower end
+       down, the upper end up -- so that the line covers every pixel it
+       grazes.  RESUME.md's「`Test6` の線は、原典のほうが 1 画素長く
+       始まります」works out that the original paints floor(left)..ceil(right)
+       for one wall of Test6, and says the port cannot simply swap to that;
+       but it says so by reasoning, and never measured it.  This is the
+       measurement. */
+    {
+        static int out = -1;
+        if (out < 0)
+            out = getenv("JW_LINE_OUT") != 0;
+        if (out) {
+            if (u0 <= u1) {
+                x0 = v->bx + jw_px_round(floor(u0));
+                x1 = v->bx + jw_px_round(ceil(u1));
+            } else {
+                x0 = v->bx + jw_px_round(ceil(u0));
+                x1 = v->bx + jw_px_round(floor(u1));
+            }
+            /* y runs the other way: by - w, so the larger w is the smaller y */
+            if (w0 <= w1) {
+                y0 = v->by - jw_px_round(floor(w0));
+                y1 = v->by - jw_px_round(ceil(w1));
+            } else {
+                y0 = v->by - jw_px_round(ceil(w0));
+                y1 = v->by - jw_px_round(floor(w1));
+            }
+        }
+    }
     {
         int lo_x = c->x - 64, hi_x = c->x + c->w + 64;
         int lo_y = c->y - 64, hi_y = c->y + c->h + 64;

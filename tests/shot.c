@@ -74,7 +74,20 @@ int main(int argc, char **argv)
                     x1 = jw_sx(&v, o->d[0] > o->d[2] ? o->d[0] : o->d[2]);
                     y0 = jw_sy(&v, o->d[1] > o->d[3] ? o->d[1] : o->d[3]);
                     y1 = jw_sy(&v, o->d[1] < o->d[3] ? o->d[1] : o->d[3]);
+                    /* One letter's height and four pixels round every text.
+                       JW_SHOT_PAD multiplies that, which is how much of the
+                       remaining score is close enough to a text to be
+                       hidden by a more generous mask: doubling it takes the
+                       fifteen from 814 pixels to 313 (RESUME.md,「採点は
+                       窓の 85.7% を見ています」).  The default is 1. */
                     pad = (int)(o->d[5] * v.scale) + 4;
+                    {
+                        const char *mul = getenv("JW_SHOT_PAD");
+                        int k = mul && *mul ? atoi(mul) : 1;
+                        if (k < 0) k = 0;
+                        if (k > 64) k = 64;
+                        pad *= k;
+                    }
                     fprintf(m, "%d %d %d %d\n", x0 - pad, y0 - pad,
                             x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
                 }
