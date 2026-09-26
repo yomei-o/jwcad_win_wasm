@@ -257,7 +257,9 @@ static int ltype_match(dxfr *r, int n, const double *pat)
             tot += pat[k];
             sum += fabs(pat[k] - q[k]);
         }
-        dist = tot < 0.001 ? 999999999 : (int)(sum / tot * 100.0 + 0.5);
+        /* jw_whole: the lengths came out of the file, so the quotient can
+           be 1e300 and the cast would be undefined */
+        dist = tot < 0.001 ? 999999999 : jw_whole(sum / tot * 100.0 + 0.5);
         if (dist < bestd) {
             bestd = dist;
             best = i;

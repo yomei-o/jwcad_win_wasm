@@ -480,6 +480,10 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
                     d0 = d1;
                     d1 = t;
                 }
+                /* jw_prefold first: the drawing may hold 1e12 radians and
+                   a turn at a time would never get there.  See src/jww.h. */
+                d0 = jw_prefold(d0, 360.0);
+                d1 = jw_prefold(d1, 360.0);
                 while (d0 < 0.0) d0 += 360.0;
                 while (d0 >= 360.0) d0 -= 360.0;
                 while (d1 < 0.0) d1 += 360.0;

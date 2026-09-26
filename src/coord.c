@@ -468,7 +468,9 @@ int jw_parse_coord(jw_drawing *d, const jw_drawing *host,
                     cw = v2[0];
                     chh = v2[1];
                     csp = v2[2];
-                    ccol = (int)v2[3];
+                    /* jw_whole: the colour came out of the file through
+                       atof(), so it may be 1e300 and the cast undefined */
+                    ccol = jw_whole(v2[3]);
                 }
             }
             continue;

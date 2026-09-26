@@ -1619,7 +1619,7 @@ static void curve_draw(jw_drawing *d)
     s = s0;
     px = CURVE_X(s0);
     py = CURVE_Y(s0);
-    k = s1 > s0 ? (int)floor(s0 / ss) + 1 : (int)ceil(s0 / ss) - 1;
+    k = s1 > s0 ? jw_whole(floor(s0 / ss)) + 1 : jw_whole(ceil(s0 / ss)) - 1;
     for (;;) {
         double sn = k * ss, qx, qy;
         jw_obj *o;
@@ -2005,10 +2005,20 @@ static void hatch(jw_drawing *d)
     }
     hatch_span(nx, ny, &lo, &hi);
     bo = ht_base ? nx * ht_bx + ny * ht_by : 0.0;
-    k0 = (int)ceil((lo - bo) / pitch);
-    k1 = (int)floor((hi - bo) / pitch);
-    if (k1 - k0 > 100000)
-        return;
+    /* Count in doubles first.  A pitch the dialog will accept can be as
+       small as it likes, and (lo - bo) / pitch then leaves the range of an
+       int, where the cast itself is undefined -- and the subtraction that
+       was catching a runaway count would overflow before it could.  Written
+       as !(span <= n) so that a NaN, from a pitch of zero, also turns back. */
+    {
+        double dlo = ceil((lo - bo) / pitch);
+        double dhi = floor((hi - bo) / pitch);
+
+        if (!(dhi - dlo <= 100000.0))
+            return;
+        k0 = jw_whole(dlo);
+        k1 = jw_whole(dhi);
+    }
     /* the original goes from the far side back: its first line is the one at
        the highest offset, and inside a ２線 or ３線 group the same way round
        -- 301, 300, 299, then 291, 290, 289 */
@@ -2165,12 +2175,18 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
 
     hatch_span(n2x, n2y, &qlo, &qhi);
     hatch_span(ux, uy, &plo, &phi);
-    klo = (int)ceil((qlo - bq) / vp);
-    khi = (int)floor((qhi - bq) / vp);
-    mlo = (int)ceil((plo - bp) / half);
-    mhi = (int)floor((phi - bp) / half);
-    if (khi - klo > 100000 || mhi - mlo > 100000)
-        return 0;
+    /* in doubles first, for the reason the other hatch gives */
+    {
+        double dklo = ceil((qlo - bq) / vp), dkhi = floor((qhi - bq) / vp);
+        double dmlo = ceil((plo - bp) / half), dmhi = floor((phi - bp) / half);
+
+        if (!(dkhi - dklo <= 100000.0) || !(dmhi - dmlo <= 100000.0))
+            return 0;
+        klo = jw_whole(dklo);
+        khi = jw_whole(dkhi);
+        mlo = jw_whole(dmlo);
+        mhi = jw_whole(dmhi);
+    }
     for (k = klo; k <= khi; k++)
         made += hatch_at(d, -(bq + k * vp), ux, uy, nx, ny);
     for (par = 0; par < 2; par++)
@@ -4432,7 +4448,9 @@ int jw_cmd_bar(jw_drawing *d, int id)
 
 int jw_cmd_sunpo_angle(void)
 {
-    return (int)sun_angle();
+    /* the angle comes out of a text box through atof(), so it may be 1e300
+       and the cast would be undefined */
+    return jw_whole(sun_angle());
 }
 
 static void box_put(int id, const char *v)

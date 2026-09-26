@@ -838,6 +838,15 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 aend = ray_angle(rp, a + sweep);
                 a = ray_angle(rp, a);
             }
+            /* Both are subtracted from an atan2 below and the difference
+               brought into one turn by hand, a turn at a time.  A drawing
+               may hold an angle of 1e12 radians -- jw_numbers_sane allows
+               it -- and that loop would then run for the rest of the day,
+               once for each of up to forty-six thousand ring pixels.  Under
+               a million jw_prefold passes the value straight through, so
+               nothing a real drawing holds is touched.  See src/jww.h. */
+            a = jw_prefold(a, 2 * PI);
+            aend = jw_prefold(aend, 2 * PI);
 
             /* Which boundary pixel the arc starts on.  The pixels are not
              * spaced evenly in angle, so ask each one rather than working

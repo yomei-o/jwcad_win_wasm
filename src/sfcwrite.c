@@ -466,6 +466,10 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                 int whole = sw >= 2.0 * PI - 1e-9 || sw <= -2.0 * PI + 1e-9;
                 double cx = (o->d[0] + hw) * sc, cy = (o->d[1] + hh) * sc;
 
+                /* jw_prefold first: a drawing may hold 1e12 radians, and a
+                   turn at a time would never get there.  See src/jww.h. */
+                s0 = jw_prefold(s0, 360.0);
+                s1 = jw_prefold(s1, 360.0);
                 while (s0 < 0.0) s0 += 360.0;
                 while (s0 >= 360.0) s0 -= 360.0;
                 while (s1 < 0.0) s1 += 360.0;
@@ -484,6 +488,9 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     double t1 = t0 + sw / PI * 180.0;
                     double tu = f32(o->d[5] / PI * 180.0);
 
+                    t0 = jw_prefold(t0, 360.0);
+                    t1 = jw_prefold(t1, 360.0);
+                    tu = jw_prefold(tu, 360.0);
                     while (t0 < 0.0) t0 += 360.0;
                     while (t0 >= 360.0) t0 -= 360.0;
                     while (t1 < 0.0) t1 += 360.0;
@@ -561,6 +568,8 @@ int jw_sfc_write(const jw_drawing *d, const char *name, const char *stamp,
                     double s1 = s0 + sw / PI * 180.0;
                     int whole = sw >= 2.0 * PI - 1e-9 || sw <= -2.0 * PI + 1e-9;
 
+                    s0 = jw_prefold(s0, 360.0);
+                    s1 = jw_prefold(s1, 360.0);
                     while (s0 < 0.0) s0 += 360.0;
                     while (s0 >= 360.0) s0 -= 360.0;
                     while (s1 < 0.0) s1 += 360.0;

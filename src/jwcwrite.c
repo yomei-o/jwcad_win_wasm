@@ -133,6 +133,15 @@ static int deg(double rad)
     double v = rad / PI * 180.0;
     int k;
 
+    /* A drawing may hold 1e12 radians -- jw_numbers_sane allows it -- and
+       then a turn at a time would never get there.  jw_prefold takes the
+       bulk off and leaves anything under a million alone, so a real
+       drawing's angles go round exactly the loops they always did.  A NaN
+       passes through it, which is why it is turned away here: the cast
+       below would be undefined.  See src/jww.h. */
+    if (!(v > -1e300 && v < 1e300))
+        return 0;
+    v = jw_prefold(v, 360.0);
     while (v < 0.0)
         v += 360.0;
     while (v >= 360.0)
@@ -352,10 +361,10 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
         put_f(&w, (o->d[0] + hw) * unit);
         put_f(&w, (o->d[1] + hh) * unit);
         put_f(&w, o->d[2] * unit);
-        put_l(&w, (int)(o->d[6] * 10000.0 + 0.5));
+        put_l(&w, jw_whole(o->d[6] * 10000.0 + 0.5));
         put_l(&w, a0);
         put_l(&w, a1);
-        put_s(&w, (short)deg(o->d[5]));
+        put_s(&w, (short)deg(o->d[5]));   /* deg() gives 0..359 */
         put_b(&w, o->ltype);
         put_b(&w, o->color);
         put_b(&w, o->layer & 15);

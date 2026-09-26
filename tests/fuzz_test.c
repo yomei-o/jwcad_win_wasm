@@ -197,9 +197,37 @@ static void monsters(void)
         o->d[0] = -9e11; o->d[1] = -9e11;
         o->d[2] = 9e11;  o->d[3] = 9e11;
     }
+    /* An arc whose angles are at that edge too.  jw_numbers_sane lets a
+       number reach 1e12, and 1e12 radians is 5.7e13 degrees: every writer
+       brings an angle into one turn by adding or subtracting a turn at a
+       time, which at that size is a hundred and sixty thousand million
+       times round -- the program never comes back.  Drawing it is the same
+       (src/draw.c picks the ring pixel nearest an angle).  Nothing in the
+       197 files reaches this, so it is put here by hand. */
+    o = jw_add(&d, JW_ENKO);
+    if (o) {
+        o->d[0] = 0;    o->d[1] = 0;    o->d[2] = 50;
+        o->d[3] = 9e11;                 /* start angle, radians  */
+        o->d[4] = -9e11;                /* sweep                 */
+        o->d[5] = 9e11;                 /* tilt                  */
+        o->d[6] = 1.0;
+        o->ltype = 1;
+        o->color = 1;
+    }
     d.group[0].layer_name[0] = jw_add_str(&d, big);
     d.name = jw_add_str(&d, big);
     write_every_way(&d);
+    /* and draw it, which is a different set of angle folds again */
+    {
+        unsigned char *raw = 0;
+        long rawn = 0;
+
+        if (app_resize(320, 240) && jw_write(&d, &raw, &rawn)) {
+            if (app_open(raw, rawn))
+                app_paint();
+            free(raw);
+        }
+    }
     jw_free(&d);
     free(big);
 }

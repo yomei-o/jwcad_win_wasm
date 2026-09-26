@@ -8,6 +8,8 @@
 #ifndef JW_JWW_H
 #define JW_JWW_H
 
+#include <math.h>
+
 enum {
     JW_SEN,         /* line          */
     JW_ENKO,        /* arc           */
@@ -349,6 +351,25 @@ static __inline int jw_whole(double v)
     if (!(v > -2147483000.0)) return -2147483000;
     if (!(v <  2147483000.0)) return  2147483000;
     return (int)v;
+}
+
+/* Take the long way round off an angle before it is folded by hand.
+ *
+ * Every writer brings its angles into one turn the way the original does --
+ * adding or subtracting a turn until the value fits -- and that is what
+ * keeps the last bit the same as the original's.  But a damaged drawing may
+ * hand it 1e12 radians, and then the loop runs a hundred and sixty thousand
+ * million times and the program never comes back.  This takes the bulk off
+ * with fmod, and *only* when there is a bulk: under a million the value is
+ * passed through untouched, so every angle a drawing really holds still goes
+ * round the same loops it always did, bit for bit.  A NaN is passed through
+ * too -- it loses both comparisons -- so a caller that cannot have one has
+ * to say so itself. */
+static __inline double jw_prefold(double v, double period)
+{
+    if (v > 1e6 || v < -1e6)
+        v = fmod(v, period);
+    return v;
 }
 
 #endif
