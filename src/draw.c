@@ -829,6 +829,22 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                     oddbox = 1;
             }
         }
+        /* JW_ARC_ODDONE=<i> moves **one** element into the 2r+1 box.
+           Fitting the original's ink can only read the circles that are
+           large and alone; the score can read every one of them, one at a
+           time -- if moving a circle makes the drawing worse it was in the
+           2r box, and if it makes it better it was in the other.  That is
+           how arc 3 and arc 6 of 天空率表 were read.  tools/oddone.sh
+           walks a drawing's circles with it. */
+        {
+            static int oddone = -2;
+            if (oddone == -2) {
+                const char *t = getenv("JW_ARC_ODDONE");
+                oddone = t && *t ? atoi(t) : -1;
+            }
+            if (oddone >= 0 && d && o - d->obj == (long)oddone)
+                oddbox = 1;
+        }
         /* A whole circle under two pixels across is not drawn as a circle
          * at all: FUN_00421490 moves to the centre and draws the one pixel
          * (the `if (local_e8 < 2)` arm, MoveTo then LineTo one to the
