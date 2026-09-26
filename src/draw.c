@@ -874,6 +874,123 @@ static int centre_inside(const jw_view *v, double cx, double cy)
 /* An arc: centre, radius, flattening, start and end angle, tilt.  A solid
  * circle goes through GDI's own boundary; anything else is a polyline, and
  * the two do not land on the same ring. */
+/* A part of a circle the way GDI draws one: as cubic Beziers.
+ *
+ * Asking GDI from the inside settles what an Arc *is* --
+ *
+ *     BeginPath(dc); Arc(dc, ...); EndPath(dc);
+ *     GetPath(dc, pts, types, n);
+ *
+ * hands back PT_MOVETO followed by PT_BEZIERTO, one cubic per quadrant of
+ * the sweep (with a degenerate one for the remainder), and
+ *
+ *     plain Arc 34 pixels, flatten+stroke 34, differ 0
+ *
+ * says that flattening that path and stroking it paints exactly what Arc
+ * paints (docs/notes-pixels.md,「GDI の弧は Bézier でした」).
+ *
+ * That matters because the ring of a part of a circle is **not** a stretch
+ * of the whole circle's ring -- 364 of 448 arcs paint a pixel the whole
+ * ring does not have -- which is what the port had been assuming.  A curve
+ * cut into Beziers explains it: the control points depend on the whole
+ * sweep, so moving the far end moves pixels near the near one.
+ *
+ * The rect Arc is given is exclusive on the right and bottom, so
+ * (cx-rp, cy-rp, cx+rp+1, cy+rp+1) covers cx-rp .. cx+rp: the middle is cx
+ * exactly and the radius rp exactly.
+ *
+ * JW_ARC_BEZ=1 turns this on; without it the old ring walk runs.
+ */
+static void bez_point(double cx, double cy, double rp, double a,
+                      double *x, double *y)
+{
+    *x = cx + rp * cos(a);
+    *y = cy - rp * sin(a);
+}
+
+/* One cubic, flattened by halving until the middle of the curve is within
+ * half a pixel of the middle of the chord, then stroked.  GDI's own
+ * flattening comes out about a pixel a step (tools/gdiarc.c, odd 9), so
+ * this aims for the same grain. */
+static void bez_seg(fb_t *fb, const rect_t *c, double x0, double y0,
+                    double x1, double y1, double x2, double y2,
+                    double x3, double y3, unsigned int col, int wide,
+                    int depth, int *px, int *py, int *first)
+{
+    double mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0;
+    double my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0;
+    double dx = (x0 + x3) / 2.0 - mx;
+    double dy = (y0 + y3) / 2.0 - my;
+
+    if (depth < 16 && (dx * dx + dy * dy) > 0.02) {
+        double ax = (x0 + x1) / 2.0, ay = (y0 + y1) / 2.0;
+        double bx = (x1 + x2) / 2.0, by = (y1 + y2) / 2.0;
+        double cx2 = (x2 + x3) / 2.0, cy2 = (y2 + y3) / 2.0;
+        double dx2 = (ax + bx) / 2.0, dy2 = (ay + by) / 2.0;
+        double ex = (bx + cx2) / 2.0, ey = (by + cy2) / 2.0;
+
+        bez_seg(fb, c, x0, y0, ax, ay, dx2, dy2, mx, my, col, wide,
+                depth + 1, px, py, first);
+        bez_seg(fb, c, mx, my, ex, ey, cx2, cy2, x3, y3, col, wide,
+                depth + 1, px, py, first);
+        return;
+    }
+    {
+        int qx = (int)floor(x3 + 0.5), qy = (int)floor(y3 + 0.5);
+
+        if (*first) {
+            *px = (int)floor(x0 + 0.5);
+            *py = (int)floor(y0 + 0.5);
+            *first = 0;
+        }
+        if (qx != *px || qy != *py) {
+            stroke(fb, c, *px, *py, qx, qy, col, wide, 1);
+            *px = qx;
+            *py = qy;
+        }
+    }
+}
+
+static void bez_arc(fb_t *fb, const rect_t *c, int cx, int cy, int rp,
+                    double a0, double sweep, unsigned int col, int wide)
+{
+    double half = 1.5707963267948966;
+    double a = a0, left = sweep < 0 ? -sweep : sweep;
+    int dir = sweep < 0 ? -1 : 1, px = 0, py = 0, first = 1, guard = 0;
+
+    if (rp < 1)
+        return;
+    while (left > 1e-12 && guard++ < 64) {
+        /* how far to the next quarter turn, the way GDI splits */
+        double q = a / half;
+        double next = dir > 0 ? (floor(q) + 1.0) * half
+                              : (ceil(q) - 1.0) * half;
+        double step = dir > 0 ? next - a : a - next;
+        double k, b0, b1, x0, y0, x3, y3, c1x, c1y, c2x, c2y;
+
+        if (step < 1e-9 || step > left)
+            step = left;
+        b0 = a;
+        b1 = a + dir * step;
+        k = 4.0 / 3.0 * tan(step / 4.0) * dir;
+        bez_point(cx, cy, rp, b0, &x0, &y0);
+        bez_point(cx, cy, rp, b1, &x3, &y3);
+        c1x = x0 - k * rp * sin(b0);
+        c1y = y0 - k * rp * cos(b0);
+        c2x = x3 + k * rp * sin(b1);
+        c2y = y3 + k * rp * cos(b1);
+        /* GDI keeps the path in whole device units, so round the control
+           points the way GetPath hands them back. */
+        bez_seg(fb, c, floor(x0 + 0.5), floor(y0 + 0.5),
+                floor(c1x + 0.5), floor(c1y + 0.5),
+                floor(c2x + 0.5), floor(c2y + 0.5),
+                floor(x3 + 0.5), floor(y3 + 0.5), col, wide, 0,
+                &px, &py, &first);
+        a = b1;
+        left -= step;
+    }
+}
+
 static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 const jw_obj *o)
 {
@@ -1054,6 +1171,25 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         if (!odd && rp < 2) {
             put(fb, &v->clip, cxp, cyp, col);
             return;
+        }
+        /* JW_ARC_BEZ=1 draws a part of a circle the way GDI does, as cubic
+           Beziers flattened and stroked, instead of cutting a stretch out
+           of the whole circle's ring.  The ring walk is wrong in principle
+           -- 364 of 448 arcs paint a pixel the whole ring does not have
+           (tools/arcsub.py) -- and asking GDI from the inside says why:
+           BeginPath/Arc/EndPath/GetPath hands back PT_BEZIERTO, and
+           flattening that path and stroking it paints exactly what Arc
+           paints.  A whole circle keeps the ring, which is right: it is
+           baked from GDI's own two Arc calls. */
+        {
+            static int bez = -1;
+            if (bez < 0)
+                bez = getenv("JW_ARC_BEZ") != 0;
+            if (bez && odd) {
+                bez_arc(fb, &v->clip, cxp, cyp, rp, a0 + tilt, sweep,
+                        col, wide);
+                return;
+            }
         }
         /* debugging hook: write the boundary walk out, so a render can be
            sampled along it and held against the original's */

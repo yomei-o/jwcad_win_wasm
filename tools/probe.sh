@@ -1,23 +1,22 @@
 #!/bin/sh
-# What control points does GDI give an Arc?  The path holds them as integers
-# (GetPath returned PT_MOVETO + PT_BEZIERTO), so if the rule can be worked
-# out the rest is deterministic.  Ask for a spread of ends at one radius,
-# and for a few radii at one pair of ends.
 cd "$(dirname "$0")/.."
 PATH="$PATH:/c/prog/tools/w64devkit/bin"
 mkdir -p tmp
 gcc -O2 -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 || exit 1
-{
-  echo "q0 24 7 24 0 0 -24"
-  echo "q1 24 7 0 -24 -24 0"
-  echo "q2 24 7 -24 0 0 24"
-  echo "q3 24 7 0 24 24 0"
-  echo "h0 24 7 24 0 -24 0"
-  echo "e0 24 7 23 -2 -2 -23"
-  echo "e1 24 7 22 -4 -4 -22"
-  echo "e2 24 7 20 -8 -8 -20"
-  echo "r7 7 7 7 0 0 -7"
-  echo "r14 14 7 14 0 0 -14"
-  echo "r61 61 7 61 0 0 -61"
-} > tmp/cp.txt
-tmp/gdiarc.exe < tmp/cp.txt
+python - <<'PY'
+import io, math
+TWO = 2.0 * math.pi
+def ray(rp, a):
+    return int(rp * math.cos(a)), -int(rp * math.sin(a))
+with io.open('tmp/cps.txt', 'w', encoding='ascii') as f:
+    for rp in (7, 14, 19, 24, 40, 61):
+        for k in range(16):
+            a0 = TWO * k / 16.0
+            for sw in (math.pi / 2, math.pi / 4, 1.0, 2.6):
+                x1, y1 = ray(rp, a0)
+                x2, y2 = ray(rp, a0 + sw)
+                f.write("%d_%d_%d %d 7 %d %d %d %d\n"
+                        % (rp, k, int(sw * 1000), rp, x1, y1, x2, y2))
+PY
+tmp/gdiarc.exe < tmp/cps.txt > tmp/cps.out 2>/dev/null
+python tools/bezfit.py
