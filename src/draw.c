@@ -433,9 +433,28 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         int xmaj = dx > dy, mj = xmaj ? dx : dy, mn = xmaj ? dy : dx;
         int tie = xmaj ? (sy < 0) : (sx < 0);
         int e = 2 * mn - mj, k;
+        /* The far end belongs to the line only while the pen is thin.
+         * FUN_004280f0 reaches it by hand in all three of its cases --
+         * the level one adds 1 to the far x before LineTo, the upright
+         * one takes 1 off the far y, and the sloping one draws a second
+         * LineTo one pixel further -- and all three do it only
+         * `if (... && local_b0 < 2)`, that is, only when the pen is under
+         * two pixels wide.  LineTo leaves its far end out, so with a
+         * thick pen the far end stays out.  JW_LINE_FAREND=1 puts the old
+         * always-inclusive walk back.
+         *
+         * **Read, not measured.**  The fifteen drawings do not move a
+         * pixel either way: at the zoom they are scored at every pen comes
+         * to one pixel.  It is in because the original says so. */
+        static int farend = -1;
+        int last;
+
+        if (farend < 0)
+            farend = getenv("JW_LINE_FAREND") != 0;
+        last = !farend && wide >= 2 && mj > 0 ? mj - 1 : mj;
         if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
             return;
-        for (k = 0; k <= mj; k++) {
+        for (k = 0; k <= last; k++) {
             if (bits_set(ltype, step, ppb))
                 wide_dot(fb, c, x0, y0, col, wide, xmaj);
             step += 1.0;
