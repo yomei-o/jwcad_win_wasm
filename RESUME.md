@@ -184,7 +184,35 @@ sh tools/probectl.sh sen1336 0 1336 '500,400;700,500'
 **移植に入れて採点すると 838**（既定の環の歩きは 524）なので、
 **既定は従来のまま**です（`JW_ARC_BEZ=1` で切り替わります）。
 
-**次に試すなら**、平坦化を追うのをやめて**画素の側から**攻めること ——
+**道筋が見えました（2026-09-28）。**GDI の中は推測しなくても**名前で
+読めます** —— Microsoft は `win32kfull.sys` の公開シンボルを出していて、
+`tools/pdbid.py` が出す URL からそのまま落ちます（2.5 MB、**名前つき
+関数 8,440 個**）。弧はこう流れています:
+
+    NtGdiArcInternal → bPartialArc(… EPATHOBJ&, EBOX&, EPOINTFL&, EFLOAT& …)
+                     → bPartialQuadrantArc（四分円ごと ← こちらの確定と一致）
+                     → EPATHOBJ::bFlatten
+                     → BEZIER32::vInit/bNext(POINTFIX*)（または BEZIER64）
+                     → DDA_CLIPLINE::bInit(POINTFIX const*, POINTFIX const*)
+
+これで詰まっていた 2 つが同時に説明できます（**要確認**、ただし筋は通ります）:
+
+* 点の値が `B(k/8)` でも整数二分でもないのは、平坦化が**固定小数の
+  前進差分**（`BEZIER32`/`BEZIER64`）で、角度が `double` ではなく GDI
+  自前のソフトウェア浮動小数 `EFLOAT` だから
+* **GDI 自身の折れ線を渡しても画素が合わない**のは、本当の点が
+  `POINTFIX`（小数部つき）で、`GetPath` が返す `POINT` はその小数部を
+  **捨てた**ものだから。線の DDA も `POINTFIX` を受け取ります
+
+**次にやること**は `win32kfull.sys` を既存の一式で逆コンパイルすること
+（`tools/analyze_box.bat`・`tools/decomp_box.ps1` は作業ディレクトリと
+アドレス範囲を引数に取るのでそのまま使えます。PDB を食わせれば名前が
+付くので、Jw_cad のときのような無名関数の海にはなりません）。読むのは
+上の 5 つだけです。詳しくは
+[`docs/notes-pixels.md`](docs/notes-pixels.md)の
+「GDI 自身の関数名が全部読めます」。
+
+**それでも行き詰まったら**、平坦化を追うのをやめて**画素の側から**攻めること ——
 `odd 9` の折れ線は「GDI がそう持っている」だけで、画素はそこから更に
 一段先です。道具は揃っています（`tools/gdiarc.c` が制御点・折れ線・
 画素を返し、`tools/bezfit.py`・`bezpix.py`・`bezcut.py` が突き合わせ

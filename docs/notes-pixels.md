@@ -1441,6 +1441,48 @@ C 側が 838 になるので、**折れ線の点をこちらで丸めている**
 ものでもありません**。ここから先は GDI の中の算術そのものの話で、
 今夜はここまでです。
 
+### GDI 自身の関数名が全部読めます（2026-09-28）
+
+「中の算術」は推測しなくても**名前で分かります**。Microsoft は
+`win32kfull.sys`・`gdi32full.dll` の**公開シンボル（PDB）を出している**
+ので、関数名・引数の型がそのまま手に入ります。取り方は `tmp/pdbid.py`
+（PE の CodeView レコードから GUID を読む）→
+
+    https://msdl.microsoft.com/download/symbols/<name>.pdb/<GUID><Age>/<name>.pdb
+
+`win32kfull.pdb` は 2.5 MB、**名前つき関数 8,440 個**。弧の道筋がそのまま
+並んでいます:
+
+| シンボル | 何か |
+|---|---|
+| `NtGdiArcInternal` | `Arc`/`Chord`/`Pie` の入口（システムコール） |
+| `bPartialArc(PARTIALARC, EPATHOBJ&, EBOX&, EPOINTFL&, long, EFLOAT&, EFLOAT&, long, long)` | 部分弧。**EPATHOBJ に積む** |
+| `bPartialQuadrantArc(...)` | **四分円ごと**（こちらの確定と一致） |
+| `EPATHOBJ::bFlatten()` | 平坦化 |
+| `BEZIER32::vInit/bNext(POINTFIX*)`・`BEZIER64::…` | **平坦化の本体。1 点ずつ返す** |
+| `DDA_CLIPLINE::bInit(POINTFIX const*, POINTFIX const*)`・`yCompute` | 線を引く DDA |
+| `EFLOAT`・`vArctan(EFLOAT, EFLOAT, EFLOAT&, long&)` | GDI 自前の**ソフトウェア浮動小数** |
+
+**ここから、詰まっていた 2 つが同時に説明できます（要確認、ただし筋は通ります）:**
+
+1. **点の値が `B(k/8)` でも整数二分でもない理由** —— 平坦化は
+   `BEZIER32`/`BEZIER64` という**固定小数の前進差分**で、媒介変数を
+   評価していません。しかも大きさで 32 ビット版と 64 ビット版を使い分けます。
+   角度計算も IEEE の `double` ではなく `EFLOAT`（自前の仮数・指数）です。
+   **こちらが `double` で出した値と合わないのは当然**でした
+2. **GDI 自身の折れ線 14 点を渡しても画素が合わない理由** —— 折れ線の点は
+   `POINTFIX`（**小数部つき**の固定小数）で、線を引く `DDA_CLIPLINE` も
+   `POINTFIX` を受け取ります。`GetPath` が返す `POINT` は**その小数部を
+   捨てた整数**です。こちらは捨てられた後の整数どうしを結んでいたので、
+   同じ画素になりようがありません
+
+**次にやること。**`win32kfull.sys`（ARM64、`.text` 3.3 MB）を既存の一式で
+逆コンパイルします —— `tools/analyze_box.bat`・`tools/decomp_box.ps1` は
+作業ディレクトリとアドレス範囲を引数に取るので、そのまま使えます。
+Jw_win.exe の 25,983 関数を 342 秒で解析できた機械です。**PDB を
+Ghidra に食わせれば名前が付く**ので、Jw_cad のときのような無名関数の
+海にはなりません。読むのは上の表の 6 つだけで足ります。
+
 ### 端が四分円に揃っていても、部分集合とは限りません（否定）
 
 軸に揃った四分円（半径 24、(24,0) → (0,−24)）は **34 画素すべてが真円の
