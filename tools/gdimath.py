@@ -167,18 +167,33 @@ def mulhi(v):
 
 
 class Box(object):
-    """`EBOX`: the middle and the two half-axes, in POINTFIX.
+    """`EBOX`: the middle and the two half-axes, in POINTFIX, plus the
+    middle the **angle** is measured from, which is not the same place.
 
-    For the rect Arc is handed -- (cx-rp, cy-rp) to (cx+rp+1, cy+rp+1) --
-    the ellipse is taken with **both edges in**, so the middle is cx, cy
-    exactly and the half-axes are rp.  u points along +x, v along -y, which
-    puts quadrant 0 between three o'clock and twelve.
+    GDI is handed a rect that is exclusive on the right and the bottom.
+    The ellipse is the one that rect's *inclusive* corners describe, so its
+    middle is (l + r - 1) / 2 and its half-axis (r - 1 - l) / 2; the angle
+    of an end point, though, is taken against the rect as given, middle
+    (l + r) / 2 and half-width (r - l) / 2.  Jw_cad hands `Arc` a box
+    2rp+1 across for a part of a circle and one 2rp across for a whole one,
+    so the two differ by half a pixel -- which is the whole of the
+    difference between the two rings the port had to tell apart by hand.
     """
 
-    def __init__(self, cx, cy, rp):
-        self.m = (cx * 16, cy * 16)
-        self.u = (rp * 16, 0)
-        self.v = (0, -rp * 16)
+    def __init__(self, l, t, r, b):
+        self.m = ((l + r - 1) * 8, (t + b - 1) * 8)
+        self.u = ((r - 1 - l) * 8, 0)
+        self.v = (0, -(b - 1 - t) * 8)
+        self.cx = (l + r) / 2.0
+        self.cy = (t + b) / 2.0
+        self.hx = (r - l) / 2.0
+        self.hy = (b - t) / 2.0
+
+    def angle(self, px, py):
+        """The angle and quadrant of one of the two points Arc is given."""
+        dx = f32(f32(px - self.cx) / f32(self.hx))
+        dy = f32(f32(py - self.cy) / f32(self.hy))
+        return varctan(dx, f32(-dy))
 
     def corner(self, i):
         """C0 = M+u+v, C1 = M-u+v, C2 = M-u-v, C3 = M+u-v."""
@@ -219,6 +234,14 @@ class Box(object):
                 (c[0] - au[0], c[1] - au[1]),
                 (c[0] + av[0], c[1] + av[1]),
                 (c[0] + self.v[0], c[1] + self.v[1])]
+
+
+def arc(box, x1, y1, x2, y2):
+    """One `Arc` call: the cubics from (x1,y1) round to (x2,y2), in
+    POINTFIX, the way GDI builds them."""
+    a0, q0 = box.angle(x1, y1)
+    a1, q1 = box.angle(x2, y2)
+    return partial_arc(box, a0, q0, a1, q1)
 
 
 def partial_arc(box, a0, q0, a1, q1):

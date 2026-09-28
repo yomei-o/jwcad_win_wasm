@@ -897,17 +897,11 @@ static int centre_inside(const jw_view *v, double cx, double cy)
  *
  * The rect Arc is given is exclusive on the right and bottom, so
  * (cx-rp, cy-rp, cx+rp+1, cy+rp+1) covers cx-rp .. cx+rp: the middle is cx
- * exactly and the radius rp exactly.
+ * exactly and the radius rp exactly.  A whole circle goes in a box 2rp
+ * across instead, which puts it half a pixel off centre.
  *
- * JW_ARC_BEZ=1 turns this on; without it the old ring walk runs.
+ * JW_ARC_BEZ=0 puts the old ring walk back.
  */
-static void bez_point(double cx, double cy, double rp, double a,
-                      double *x, double *y)
-{
-    *x = cx + rp * cos(a);
-    *y = cy - rp * sin(a);
-}
-
 #define JW_BEZ_MAX 4096
 
 /* GDI's own Bezier flattener, written out from the decompilation.
@@ -928,10 +922,12 @@ static void bez_point(double cx, double cy, double rp, double a,
  *     e0 = P0            e1 = P3 - P0
  *     e2 = 6(P1 - 2 P2 + P3)      e3 = 6(P0 - 2 P1 + P2)
  *
- * which is what `bInit` computes (its 0x1800 is 6 * 0x400, and the 0x400
- * with the later << 3 makes the << 13).  The limit is the same number in
- * both halves of the decompilation: `bNext` tests 0x7fe00 and `bInit`
- * tests 0xffc0 at a scale eight times coarser.
+ * but `bInit` builds them at a **coarser** scale -- 0x400, and 6 * 0x400
+ * for e2 and e3 -- and does the halving that brings the error inside the
+ * limit there, leaving e3 whole and averaging only e2; the move to
+ * << 13 comes at the end, in one shift.  Halving at the fine scale
+ * instead truncates once a round and costs a bit or two on any curve big
+ * enough to need several, which is every arc over about 300 pixels.
  *
  * Held against GDI itself (tools/hfd.py): **352 of 352** arc-shaped curves
  * come out exactly, over radii 3 to 300 and all eight orientations.
@@ -944,30 +940,24 @@ typedef struct {
     int e0, e1, e2, e3;
 } hfd_t;
 
-static void hfd_init(hfd_t *h, int p0, int p1, int p2, int p3)
-{
-    h->e0 = p0 << HFD_SHIFT;
-    h->e1 = (p3 - p0) << HFD_SHIFT;
-    h->e2 = 6 * (p1 - 2 * p2 + p3) << HFD_SHIFT;
-    h->e3 = 6 * (p0 - 2 * p1 + p2) << HFD_SHIFT;
-}
-
 static int hfd_abs(int v) { return v < 0 ? -v : v; }
+
+static int hfd_big(int a, int b)
+{
+    a = hfd_abs(a);
+    b = hfd_abs(b);
+    return a > b ? a : b;
+}
 
 static int hfd_err(const hfd_t *h)
 {
-    int a = hfd_abs(h->e2), b = hfd_abs(h->e3);
-    return a > b ? a : b;
+    return hfd_big(h->e2, h->e3);
 }
 
-/* What the error would be after doubling the step, over four: doubling
- * takes e2 to 8*e2 - 4*e3 and e3 to 4*e3.  The decompilation names
- * `lParentErrorDividedBy4` but does not show it; this is what it must be,
- * and sweeping the threshold against GDI picks 0x7fe00/4 by 188 to 94. */
+/* What the error would be after the step doubled, over four. */
 static int hfd_parent(const hfd_t *h)
 {
-    int a = hfd_abs(2 * h->e2 - h->e3), b = hfd_abs(h->e3);
-    return a > b ? a : b;
+    return hfd_big(2 * h->e2 - h->e3, h->e3);
 }
 
 static void hfd_take(hfd_t *h)
@@ -996,27 +986,64 @@ static void hfd_double(hfd_t *h)
     h->e2 = h->e2 * 8 - e3 * 4;
 }
 
-/* One cubic in POINTFIX, flattened the way GDI flattens it.  `out` takes
- * the points after the curve's own first one, which the caller already
- * has.  Returns how many were written. */
+/* Flatten one cubic given in POINTFIX.  Writes the points **after** the
+ * curve's own first one, which the caller already has.  Returns how many,
+ * or 0 for a curve too big for the 32-bit flattener -- over about 1024
+ * pixels a side, where GDI falls to `BEZIER64` instead. */
 static int hfd_flatten(const int *px, const int *py, int *ox, int *oy,
                        int max)
 {
     hfd_t x, y;
-    int ax = px[0], ay = py[0], k;
+    int ax = px[0], ay = py[0], k, s, count = 0;
+    int xs[4], ys[4];
+    int x0, x1, x2, x3, y0, y1, y2, y3;
     int steps = 1, n = 0;
 
     for (k = 1; k < 4; k++) {
         if (px[k] < ax) ax = px[k];
         if (py[k] < ay) ay = py[k];
     }
-    hfd_init(&x, px[0] - ax, px[1] - ax, px[2] - ax, px[3] - ax);
-    hfd_init(&y, py[0] - ay, py[1] - ay, py[2] - ay, py[3] - ay);
-    while (hfd_err(&x) > HFD_LIMIT || hfd_err(&y) > HFD_LIMIT) {
-        hfd_halve(&x);
-        hfd_halve(&y);
+    for (k = 0; k < 4; k++) {
+        xs[k] = px[k] - ax;
+        ys[k] = py[k] - ay;
+        if (((unsigned int)xs[k] & 0xffffc000u)
+            || ((unsigned int)ys[k] & 0xffffc000u))
+            return 0;
+    }
+    x0 = xs[0] * 0x400;
+    x1 = (xs[3] - xs[0]) * 0x400;
+    x2 = (xs[1] - 2 * xs[2] + xs[3]) * 0x1800;
+    x3 = (xs[0] - 2 * xs[1] + xs[2]) * 0x1800;
+    y0 = ys[0] * 0x400;
+    y1 = (ys[3] - ys[0]) * 0x400;
+    y2 = (ys[1] - 2 * ys[2] + ys[3]) * 0x1800;
+    y3 = (ys[0] - 2 * ys[1] + ys[2]) * 0x1800;
+    for (;;) {
+        int limit = 0xffc0 << count, t, u;
+
+        if (hfd_big(x2, x3) <= limit && hfd_big(y2, y3) <= limit)
+            break;
+        t = (x2 + x3) >> 1;
+        u = (y3 + y2) >> 1;
+        count += 2;
+        x2 = t;
+        y2 = u;
+        x1 = (x1 - (t >> count)) >> 1;
+        y1 = (y1 - (u >> count)) >> 1;
         steps <<= 1;
     }
+    x0 <<= 3;
+    x1 <<= 3;
+    y0 <<= 3;
+    y1 <<= 3;
+    s = count - 3;
+    if (s < 0) {
+        x2 <<= -s; x3 <<= -s; y2 <<= -s; y3 <<= -s;
+    } else {
+        x2 >>= s; x3 >>= s; y2 >>= s; y3 >>= s;
+    }
+    x.e0 = x0; x.e1 = x1; x.e2 = x2; x.e3 = x3;
+    y.e0 = y0; y.e1 = y1; y.e2 = y2; y.e3 = y3;
     /* bInit ends with one step taken and the count down by one. */
     hfd_take(&x);
     hfd_take(&y);
@@ -1046,188 +1073,553 @@ static int hfd_flatten(const int *px, const int *py, int *ox, int *oy,
     }
 }
 
-/* One piece of a flattened path, the way GDI strokes it: step the longer
- * axis a whole pixel at a time from the rounded start, take the other axis
- * off the line through the **unrounded** ends, and leave the far end out
- * the way LineTo does.  Held against GDI (tools/fixline.py): 10 of 10. */
+/* `bLines`, win32kfull.sys at 1401210c0: how GDI turns one POINTFIX line
+ * into pixels.  Every line it paints goes through this, and it works in
+ * sixteenths, not in whole pixels, which is why stroking the rounded
+ * points never matched.
+ *
+ * 1. **Put the line in the first octant.**  Swap the ends so x grows
+ *    (flag 0x20 remembers that), mirror y if it falls (0x08), swap the
+ *    axes if y is the longer one (0x05).  `gaflRound` then says, for that
+ *    octant, which way a tie rounds (0x8000) and how the end pixels go
+ *    (0x80).
+ * 2. **Bresenham in sixteenths.**  The error starts at
+ *    `((mf + 8) * G - Mf * g) >> 4`, where G and g are the two deltas and
+ *    Mf, mf the fractional parts of the start; the `+ 8` is the half pixel
+ *    that makes the minor axis round to nearest.
+ * 3. **Decide the two ends**, from where they sit inside their own pixels.
+ *
+ * Held against GDI (tools/gdiline.py): 120 of 120 random Beziers exactly.
+ */
+static const unsigned int GAFL_ROUND[8] = {
+    0x8080u, 0x8080u, 0x80u, 0x8000u, 0x8000u, 0xffffffffu, 0x80u,
+    0xffffffffu
+};
+
+static int fix_div(int a, int b)
+{
+    return a >= 0 ? a / b : -((-a + b - 1) / b);
+}
+
 static void fix_line(fb_t *fb, const rect_t *c, int x0, int y0, int x1,
                      int y1, unsigned int col, int wide)
 {
-    int ax0 = (x0 + 8) >> 4, ay0 = (y0 + 8) >> 4;
-    int ax1 = (x1 + 8) >> 4, ay1 = (y1 + 8) >> 4;
-    int dxp = ax1 - ax0, dyp = ay1 - ay0, i;
+    unsigned int fl;
+    int xlo, ylo, xhi, yhi, big, small, major, minor;
+    int mw, nw, mf, nf, down, first = -1, top, i, err;
+    int end_mf, end_nf, n, base, ref;
+    long long num;
 
-    if (dxp == 0 && dyp == 0) {
-        wide_dot(fb, c, ax0, ay0, col, wide, 1);
-        return;
+    if (x0 <= x1) {
+        fl = 0; xlo = x0; ylo = y0; xhi = x1; yhi = y1;
+    } else {
+        fl = 0x20; xlo = x1; ylo = y1; xhi = x0; yhi = y0;
     }
-    if ((dxp < 0 ? -dxp : dxp) >= (dyp < 0 ? -dyp : dyp)) {
-        int n = dxp < 0 ? -dxp : dxp, sx = dxp > 0 ? 1 : -1;
-        double m = x1 != x0 ? (double)(y1 - y0) / (double)(x1 - x0) : 0.0;
+    if (yhi < ylo) {
+        ylo = -ylo;
+        yhi = -yhi;
+        fl |= 8;
+    }
+    big = xhi - xlo;
+    small = yhi - ylo;
+    major = xlo;
+    minor = ylo;
+    if (big <= small) {
+        if (big == small) {
+            fl |= 0x10;
+        } else {
+            int t = big;
 
-        for (i = 0; i < n; i++) {
-            int qx = ax0 + sx * i;
-            double yy = (y0 + (qx * 16 - x0) * m) / 16.0;
-
-            wide_dot(fb, c, qx, (int)floor(yy + 0.5), col, wide, 1);
+            fl |= 5;
+            big = small;
+            small = t;
+            major = ylo;
+            minor = xlo;
+        }
+    }
+    fl |= GAFL_ROUND[(fl >> 2) & 7];
+    down = (fl & 0x80) ? 1 : 0;
+    mw = major >> 4;
+    nw = minor >> 4;
+    mf = major & 0xf;
+    nf = minor & 0xf;
+    num = (long long)(nf + 8) * big - (long long)mf * small;
+    if (fl & 0x8000)
+        num -= 1;
+    err = (int)(num >> 4);
+    end_mf = (big + mf) & 0xf;
+    end_nf = (small + nf) & 0xf;
+    n = (big + mf) >> 4;
+    if ((fl & 0x20) == 0) {
+        top = n - 1;
+        if (end_mf != 0) {
+            if (end_nf == 0) {
+                if ((end_mf - down) + 8 > 0xf)
+                    top = n;
+            } else if (hfd_abs(end_nf - 8) <= end_mf) {
+                top = n;
+            }
+        }
+        if ((fl & 0x90) == 0x90) {
+            if (end_mf != 0 && end_nf == end_mf + 8)
+                top--;
+            if (mf != 0 && nf == mf + 8)
+                first = 0;
+        }
+        if (first < 0) {
+            first = 0;
+            if (mf != 0) {
+                if (nf == 0)
+                    first = (mf - down) + 8 > 0xf ? 1 : 0;
+                else if (hfd_abs(nf - 8) <= mf)
+                    first = 1;
+            }
         }
     } else {
-        int n = dyp < 0 ? -dyp : dyp, sy = dyp > 0 ? 1 : -1;
-        double m = y1 != y0 ? (double)(x1 - x0) / (double)(y1 - y0) : 0.0;
-
-        for (i = 0; i < n; i++) {
-            int qy = ay0 + sy * i;
-            double xx = (x0 + (qy * 16 - y0) * m) / 16.0;
-
-            wide_dot(fb, c, (int)floor(xx + 0.5), qy, col, wide, 1);
+        top = n;
+        if (end_nf == 0) {
+            if ((end_mf - down) + 8 > 0xf)
+                top++;
+        } else if (hfd_abs(end_nf - 8) + end_mf > 0x10) {
+            top++;
         }
+        if ((fl & 0x90) == 0x10) {
+            if (end_nf != 0 && end_mf == end_nf + 8)
+                top++;
+            if (nf != 0 && mf == nf + 8)
+                first = 2;
+        }
+        if (first < 0) {
+            first = 1;
+            if (nf == 0) {
+                if ((mf - down) + 8 >= 0x10)
+                    first = 2;
+            } else if (hfd_abs(nf - 8) + mf > 0x10) {
+                first = 2;
+            }
+        }
+    }
+    if (top < first)
+        return;
+    ref = fix_div(err + first * small, big);
+    base = ref < 0 ? 0 : ref;
+    for (i = first; i <= top; i++) {
+        int b = nw + base + fix_div(err + i * small, big) - ref;
+        int a = mw + i;
+        int qx, qy;
+
+        if (fl & 5) {
+            qx = b; qy = a;
+        } else {
+            qx = a; qy = b;
+        }
+        if (fl & 8)
+            qy = -qy;
+        wide_dot(fb, c, qx, qy, col, wide, 1);
     }
 }
 
-/* A part of a circle, drawn the way GDI draws one.
+/* A part of a circle, drawn the way GDI draws one -- which is as cubic
+ * Beziers, one a quadrant, flattened and stroked.
  *
- * Read out of `win32kfull.sys` and `win32kbase.sys` (see `decomp/gdi/`),
- * in four steps:
+ * Asking GDI from the inside settles what an Arc *is*:
+ * BeginPath / Arc / EndPath / GetPath hands back PT_MOVETO followed by
+ * PT_BEZIERTO, and flattening and stroking that path paints exactly what
+ * Arc paints.  That matters because the ring of a part of a circle is
+ * **not** a stretch of the whole circle's ring, which is what the port had
+ * been assuming; the control points depend on the whole sweep, so moving
+ * the far end moves pixels near the near one.
  *
- * 1. **the ends.**  NtGdiArcInternal normalises the point Jw_cad hands it
- *    by the rect's own middle and half-widths -- for Arc's rect
+ * Four steps, all out of `win32kfull.sys` and `win32kbase.sys`:
+ *
+ * 1. **the ends.**  The point Jw_cad hands `Arc` is normalised by the
+ *    rect's own middle and half-widths -- for the rect
  *    (cx-rp, cy-rp, cx+rp+1, cy+rp+1) that is (cx+.5, cy+.5) and rp+.5 --
- *    and takes its angle.  (GDI uses `vArctan`, which walks a table; this
- *    uses atan2, which is the same thing to within a sixteenth of a pixel
- *    on most arcs.)
- *
+ *    and `vArctan` takes its angle off `gaefArctan`, a table of
+ *    atan(i/32) in **degrees**.  `vCosSin` then puts it back on the unit
+ *    circle off `gaefSin`, or, when the two ends are less than three
+ *    degrees apart and the table's 2.8-degree step would put them in the
+ *    same cell, `vCosSinPrecise` does it with a Taylor series.
  * 2. **the control points** (`bPartialQuadrantArc`), on the unit circle:
  *
- *        cross = p0.x*p3.y - p0.y*p3.x
+ *        cross = |p0.x*p3.y - p0.y*p3.x|
  *        c     = |cos((a1 - a0) / 2)|
  *        beta  = (4/3 * c) / (c + 1)        alpha = 1 - beta
- *        c1 = (alpha*p0.x + beta*(p3.y-p0.y)/cross,
- *              alpha*p0.y + beta*(p0.x-p3.x)/cross)
- *        c2 = (alpha*p3.x + beta*(p3.y-p0.y)/cross,
- *              alpha*p3.y + beta*(p0.x-p3.x)/cross)
+ *        c1 = alpha*p0 + beta*((p3.y-p0.y)/cross, (p0.x-p3.x)/cross)
+ *        c2 = alpha*p3 + beta*(      same             )
  *
- *    For a whole quadrant that gives beta = 0.5523 -- kappa -- and the
- *    textbook control points.
- *
+ *    For a whole quadrant beta comes out kappa, 0.5523.  Only the two end
+ *    pieces go this way: a quadrant in the middle is built from the box's
+ *    corners with one integer multiply, `(v * 0x729d7775) >> 32`, which is
+ *    v times (1 - kappa) rounded **down**.
  * 3. **onto the ellipse** (`EBOX::ptlXform`): P = middle + u*p.x + v*p.y,
- *    rounded, in POINTFIX.  EBOX builds u, v and the middle from the
- *    rect's corners, and takes the rect with **both edges in**: the
- *    ellipse spans cx-rp to cx+rp, so its middle is cx and its radius rp.
- *    (The angle in step 1 and the ellipse here do not share a middle.
- *    That is GDI's doing, not a slip here, and it is what made the port's
- *    guesses look arbitrary from outside.)
+ *    rounded, in POINTFIX.  EBOX takes the rect with **both edges in**, so
+ *    the ellipse spans cx-rp to cx+rp: its middle is cx exactly and its
+ *    radius rp exactly.  The angle in step 1 and the ellipse here do not
+ *    share a middle.  That is GDI's doing, not a slip here, and it is what
+ *    made the port's guesses look arbitrary from outside.
+ * 4. **flatten and stroke**: hfd_flatten and fix_line above.
  *
- * 4. **flatten and stroke**, which are hfd_flatten and fix_line above.
- *
- * Held against GDI itself (tools/arcfull.py): 48 of 80 arcs come out
- * pixel for pixel, and the rest differ by a pixel or two at the ends,
- * where the table GDI reads its angles from is finer than atan2's answer
- * rounds to.  Against that, the ring the port cut out of a whole circle
+ * Held against GDI itself (tools/arcfull.py): **472 of 472** arcs come out
+ * pixel for pixel, over radii 1 to 1023, every start angle and every
+ * sweep.  Against that, the ring the port cut out of a whole circle
  * differed on about half the pixels of every arc.
  */
-static void gdi_unit(int rp, int px, int py, double *ux, double *uy)
-{
-    double dx = (px - 0.5) / (rp + 0.5);
-    double dy = -(py - 0.5) / (rp + 0.5);
-    double n = sqrt(dx * dx + dy * dy);
+/* gaefArctan at 1402af470: atan(i/32) in degrees, and the 0 that
+ * follows it, which the interpolation reads when the index is 32. */
+static const float GDI_ARCTAN[34] = {
+    0.0f, 1.78991055f, 3.57633448f, 5.35582495f, 7.12501621f,
+    8.8806591f, 10.6196556f, 12.3390875f, 14.0362434f, 15.7086382f,
+    17.3540249f, 18.9704075f, 20.5560455f, 22.1094475f, 23.6293774f,
+    25.1148357f, 26.565052f, 27.979475f, 29.3577538f, 30.6997223f,
+    32.0053825f, 33.2748871f, 34.508522f, 35.7066917f, 36.8698959f,
+    37.9987335f, 39.0938606f, 40.1559982f, 41.1859245f, 42.1844444f,
+    43.1523895f, 44.0906181f, 45.0f, 0.0f,
+};
 
-    if (n < 1e-12) {
-        *ux = 1.0;
-        *uy = 0.0;
+/* gaefSin at 1402af3a0: sin(i * 90/32) in degrees. */
+static const float GDI_SIN[33] = {
+    0.0f, 0.0490676761f, 0.0980171412f, 0.146730468f, 0.195090324f,
+    0.242980182f, 0.290284663f, 0.336889863f, 0.382683426f, 0.427555084f,
+    0.471396744f, 0.514102757f, 0.555570245f, 0.59569931f, 0.634393275f,
+    0.671558976f, 0.707106769f, 0.740951121f, 0.773010433f, 0.803207517f,
+    0.831469595f, 0.857728601f, 0.881921291f, 0.903989315f, 0.923879504f,
+    0.941544056f, 0.956940353f, 0.970031261f, 0.980785251f, 0.989176512f,
+    0.99518472f, 0.99879545f, 1.0f,
+};
+
+/* The constants that sit beside the tables in the image. */
+#define GDI_SINE_FACTOR 0.355555564f
+#define GDI_EPSILON 1.52587891e-05f
+#define GDI_FOUR_THIRDS 1.33333337f
+#define GDI_PI 3.1415925f
+
+static float gdi_sin_up(int i, float f)
+{
+    float d = GDI_SIN[i + 1] - GDI_SIN[i];
+    float p = d * f;
+
+    return p + GDI_SIN[i];
+}
+
+static float gdi_sin_down(int i, float f)
+{
+    float d = GDI_SIN[32 - i] - GDI_SIN[31 - i];
+    float p = d * f;
+
+    return GDI_SIN[32 - i] - p;
+}
+
+/* `vCosSin`: both at once, each off its own end of `gaefSin`. */
+static void gdi_cossin(float deg, float *pc, float *ps)
+{
+    int neg = deg < 0.0f, k, q, i, flip;
+    float a = neg ? -deg : deg, t, fr, s, cs;
+
+    t = GDI_SINE_FACTOR * a;
+    k = (int)t;
+    fr = t - (float)k;
+    q = k >> 5;
+    i = k & 0x1f;
+    s = (q & 1) == 0 ? gdi_sin_up(i, fr) : gdi_sin_down(i, fr);
+    flip = (q & 2) ? !neg : neg;
+    if (flip)
+        s = -s;
+    cs = ((q + 1) & 1) == 0 ? gdi_sin_up(i, fr) : gdi_sin_down(i, fr);
+    if ((q + 1) & 2)
+        cs = -cs;
+    *pc = cs;
+    *ps = s;
+}
+
+/* `efCos`, which is `efSin(x + 90)` and nothing else. */
+static float gdi_cos(float deg)
+{
+    float cs, s;
+
+    gdi_cossin(deg, &cs, &s);
+    return cs;
+}
+
+/* `vCosSinPrecise`: the Taylor series to twelve terms.  GDI picks this
+ * over the table when the arc's two ends are less than three degrees
+ * apart. */
+static void gdi_cossin_precise(float deg, float *pc, float *ps)
+{
+    int neg = deg < 0.0f, flip_sin = 0, flip_cos = 0, n;
+    float a = neg ? -deg : deg, r, x, term, cs, sn, fact, k, t;
+
+    r = a / 360.0f;
+    r = r - (float)(int)r;
+    r = r * 360.0f;
+    if (180.0f - r < 0.0f) {
+        r = 360.0f - r;
+        flip_sin = 1;
+    }
+    if (90.0f - r < 0.0f) {
+        flip_cos = 1;
+        r = 180.0f - r;
+    }
+    x = GDI_PI * r;
+    x = x / 180.0f;
+    term = x;
+    cs = 1.0f;
+    sn = x;
+    fact = 2.0f;
+    k = 2.0f;
+    for (n = 2; n < 13; n++) {
+        term = term * x;
+        t = term / fact;
+        if (n & 2)
+            t = -t;
+        if ((n & 1) == 0)
+            cs = cs + t;
+        else
+            sn = sn + t;
+        k = k + 1.0f;
+        fact = fact * k;
+    }
+    if ((neg != 0) != (flip_sin != 0))
+        sn = -sn;
+    if (flip_cos)
+        cs = -cs;
+    *pc = cs;
+    *ps = sn;
+}
+
+/* `vArctan`: the angle of (x, y) in degrees, and its quadrant.  Fold into
+ * the first eighth, divide lo * 32 / hi, truncate that to an index into
+ * `gaefArctan`, interpolate to the next entry, put the eighth back on. */
+static float gdi_arctan(float x, float y, int *quad)
+{
+    static const unsigned char oq[8] = { 0, 1, 3, 2, 0, 1, 3, 2 };
+    int o, qq, i;
+    float ax, ay, hi, lo, t, fr, a0, ang;
+
+    qq = x >= 0.0f ? 2 : 3;
+    o = x >= 0.0f ? 0 : 1;
+    ax = x >= 0.0f ? x : -x;
+    ay = y;
+    if (y < 0.0f) {
+        o = qq;
+        ay = -y;
+    }
+    hi = ax;
+    lo = ay;
+    if (ax < ay) {
+        o |= 4;
+        hi = ay;
+        lo = ax;
+    }
+    *quad = oq[o];
+    if (hi == 0.0f)
+        return 0.0f;
+    t = lo * 32.0f;
+    t = t / hi;
+    i = (int)t;
+    if (i > 32)
+        i = 32;
+    fr = t - (float)i;
+    a0 = GDI_ARCTAN[i];
+    ang = GDI_ARCTAN[i + 1] - a0;
+    ang = ang * fr;
+    ang = ang + a0;
+    switch (o) {
+    case 1: ang = 180.0f - ang; break;
+    case 2: ang = 360.0f - ang; break;
+    case 3: ang = ang + 180.0f; break;
+    case 4: ang = 90.0f - ang; break;
+    case 5: ang = ang + 90.0f; break;
+    case 6: ang = ang + 270.0f; break;
+    case 7: ang = 270.0f - ang; break;
+    default: break;
+    }
+    return ang;
+}
+
+/* The angle of one of the two points Jw_cad hands Arc.  It is measured
+ * against the rect **as given**, middle (l+r)/2 and half-width (r-l)/2,
+ * while the ellipse the point lands on is the one the rect's *inclusive*
+ * corners describe -- middle (l+r-1)/2, half-axis (r-1-l)/2.  The two are
+ * half a pixel apart.  That is GDI's doing, not a slip here, and it is
+ * what made the port's guesses look arbitrary from outside. */
+static float gdi_angle(float cx, float cy, float hx, float hy,
+                       int px, int py, int *quad)
+{
+    float dx = (float)px - cx;
+    float dy = (float)py - cy;
+
+    dx = dx / hx;
+    dy = dy / hy;
+    return gdi_arctan(dx, -dy, quad);
+}
+
+/* `bPartialQuadrantArc`: the cubic through p0 and p3 for a piece that
+ * stays inside one quadrant, on the unit circle.  Writes x,y interleaved. */
+static void gdi_quad_bezier(const float *p0, const float *p3, float a0,
+                            float a1, float *out)
+{
+    float cr, t, c, beta, alpha, tx, ty;
+
+    t = p0[0] * p3[1];
+    cr = p0[1] * p3[0];
+    cr = t - cr;
+    if (cr < 0.0f)
+        cr = -cr;
+    out[0] = p0[0]; out[1] = p0[1];
+    out[6] = p3[0]; out[7] = p3[1];
+    if (!(GDI_EPSILON < cr)) {
+        out[2] = p0[0]; out[3] = p0[1];
+        out[4] = p3[0]; out[5] = p3[1];
         return;
     }
-    *ux = dx / n;
-    *uy = dy / n;
+    t = a1 - a0;
+    t = t * 0.5f;
+    c = gdi_cos(t);
+    if (c < 0.0f)
+        c = -c;
+    beta = GDI_FOUR_THIRDS * c;
+    beta = beta / (c + 1.0f);
+    alpha = 1.0f - beta;
+    tx = p3[1] - p0[1];
+    tx = tx / cr;
+    tx = beta * tx;
+    ty = p0[0] - p3[0];
+    ty = ty / cr;
+    ty = beta * ty;
+    out[2] = alpha * p0[0] + tx;
+    out[3] = alpha * p0[1] + ty;
+    out[4] = alpha * p3[0] + tx;
+    out[5] = alpha * p3[1] + ty;
 }
 
-static int gdi_fix(double v)
+static int gdi_round_fix(float v)
 {
-    return (int)floor(v + 0.5);
+    return v >= 0.0f ? (int)(v + 0.5f) : -(int)(-v + 0.5f);
 }
 
-/* One quadrant piece: the unit-circle control points, carried onto the
- * ellipse, in POINTFIX. */
-static void gdi_piece(int cx, int cy, int rp, double a, double b,
-                      int *px, int *py)
+/* v times (1 - kappa), rounded down: the one integer step, and the reason
+ * a whole quadrant in the middle of an arc can sit a sixteenth of a pixel
+ * off where the float path would put it. */
+static int gdi_mulhi(int v)
 {
-    double p0x = cos(a), p0y = sin(a);
-    double p3x = cos(b), p3y = sin(b);
-    double cross = p0x * p3y - p0y * p3x;
-    double c, beta, alpha, tx, ty;
-    double qx[4], qy[4];
-    int i;
+    return (int)(((long long)v * 0x729d7775LL) >> 32);
+}
 
-    if (cross < 0) cross = -cross ? p0x * p3y - p0y * p3x : cross;
-    cross = p0x * p3y - p0y * p3x;
-    qx[0] = p0x; qy[0] = p0y;
-    qx[3] = p3x; qy[3] = p3y;
-    if (cross > -1e-12 && cross < 1e-12) {
-        qx[1] = p0x; qy[1] = p0y;
-        qx[2] = p3x; qy[2] = p3y;
+/* One `Arc` call: from (x1,y1) round to (x2,y2), counter-clockwise, in the
+ * box (l, t, r, b) -- which GDI takes exclusive on the right and the
+ * bottom.  Jw_cad passes a box 2rp+1 across for a part of a circle and one
+ * 2rp across for a whole one, and the two end points in that order
+ * whichever way the sweep runs. */
+static void gdi_arc(fb_t *fb, const rect_t *c, int l, int t, int r, int b,
+                    int x1, int y1, int x2, int y2, unsigned int col,
+                    int wide)
+{
+    static const float AXIS_COORD[4] = { 0.0f, 1.0f, 0.0f, -1.0f };
+    static const float AXIS_ANGLE[4] = { 0.0f, 90.0f, 180.0f, 270.0f };
+    int q0, q1, q, mx, my, ux, vy, au, av;
+    int pcs[8][8], npc = 0, i, j, k;
+    /* static, not on the stack: two of these is 32 KB, and the WebAssembly
+     * build's whole stack is 64 KB.  Nothing here recurses. */
+    static int ox[JW_BEZ_MAX], oy[JW_BEZ_MAX];
+    int ppx = 0, ppy = 0;
+    float pa, pb, diff, p0[2], p1[2], ap[2], cp[8];
+
+    if (r - l < 2 || b - t < 2)
+        return;
+    mx = (l + r - 1) * 8;
+    my = (t + b - 1) * 8;
+    ux = (r - 1 - l) * 8;
+    vy = -(b - 1 - t) * 8;
+    pa = gdi_angle((l + r) * 0.5f, (t + b) * 0.5f,
+                   (r - l) * 0.5f, (b - t) * 0.5f, x1, y1, &q0);
+    pb = gdi_angle((l + r) * 0.5f, (t + b) * 0.5f,
+                   (r - l) * 0.5f, (b - t) * 0.5f, x2, y2, &q1);
+    diff = pb - pa;
+    if (diff < 0.0f)
+        diff = -diff;
+    if (diff - 3.0f >= 0.0f || diff == 0.0f) {
+        gdi_cossin(pa, &p0[0], &p0[1]);
+        gdi_cossin(pb, &p1[0], &p1[1]);
     } else {
-        c = cos((b - a) * 0.5);
-        if (c < 0) c = -c;
-        beta = (4.0 / 3.0 * c) / (c + 1.0);
-        alpha = 1.0 - beta;
-        tx = beta * ((p3y - p0y) / cross);
-        ty = beta * ((p0x - p3x) / cross);
-        qx[1] = alpha * p0x + tx;
-        qy[1] = alpha * p0y + ty;
-        qx[2] = alpha * p3x + tx;
-        qy[2] = alpha * p3y + ty;
+        gdi_cossin_precise(pa, &p0[0], &p0[1]);
+        gdi_cossin_precise(pb, &p1[0], &p1[1]);
     }
-    for (i = 0; i < 4; i++) {
-        px[i] = gdi_fix(cx * 16.0 + rp * 16.0 * qx[i]);
-        py[i] = gdi_fix(cy * 16.0 - rp * 16.0 * qy[i]);
+    au = gdi_mulhi(ux);
+    av = gdi_mulhi(vy);
+
+#define GDI_PUSH_CP()                                                        do {                                                                         for (k = 0; k < 4; k++) {                                                    float fx = (float)mx + (float)ux * cp[k * 2];                            float fy = (float)my + (float)vy * cp[k * 2 + 1];                        pcs[npc][k * 2] = gdi_round_fix(fx);                                     pcs[npc][k * 2 + 1] = gdi_round_fix(fy);                             }                                                                        npc++;                                                               } while (0)
+
+    if (q0 == q1 && pb > pa) {
+        gdi_quad_bezier(p0, p1, pa, pb, cp);
+        GDI_PUSH_CP();
+    } else {
+        int nxt = (q0 + 1) & 3;
+
+        ap[0] = AXIS_COORD[(nxt + 1) & 3];
+        ap[1] = AXIS_COORD[nxt];
+        gdi_quad_bezier(p0, ap, pa, AXIS_ANGLE[nxt], cp);
+        GDI_PUSH_CP();
+        q = nxt;
+        while (q != q1 && npc < 6) {
+            /* A whole quadrant in the middle does not go through the float
+             * path at all: `bPartialArc` builds it off the box's corners
+             * -- C0 = M+u+v, C1 = M-u+v, C2 = M-u-v, C3 = M+u-v -- with
+             * one integer multiply, and that rounds down where the float
+             * path rounds to nearest. */
+            int sx = (q == 0 || q == 3) ? 1 : -1;
+            int sy = (q == 0 || q == 1) ? 1 : -1;
+            int qx = mx + sx * ux, qy = my + sy * vy;
+            int *p = pcs[npc];
+
+            if (q == 0) {
+                p[0] = qx;      p[1] = qy - vy;
+                p[2] = qx;      p[3] = qy - av;
+                p[4] = qx - au; p[5] = qy;
+                p[6] = qx - ux; p[7] = qy;
+            } else if (q == 1) {
+                p[0] = qx + ux; p[1] = qy;
+                p[2] = qx + au; p[3] = qy;
+                p[4] = qx;      p[5] = qy - av;
+                p[6] = qx;      p[7] = qy - vy;
+            } else if (q == 2) {
+                p[0] = qx;      p[1] = qy + vy;
+                p[2] = qx;      p[3] = qy + av;
+                p[4] = qx + au; p[5] = qy;
+                p[6] = qx + ux; p[7] = qy;
+            } else {
+                p[0] = qx - ux; p[1] = qy;
+                p[2] = qx - au; p[3] = qy;
+                p[4] = qx;      p[5] = qy + av;
+                p[6] = qx;      p[7] = qy + vy;
+            }
+            npc++;
+            q = (q + 1) & 3;
+        }
+        ap[0] = AXIS_COORD[(q1 + 1) & 3];
+        ap[1] = AXIS_COORD[q1];
+        gdi_quad_bezier(ap, p1, AXIS_ANGLE[q1], pb, cp);
+        GDI_PUSH_CP();
     }
-}
+#undef GDI_PUSH_CP
 
-static void gdi_arc(fb_t *fb, const rect_t *c, int cx, int cy, int rp,
-                    double a0, double sweep, unsigned int col, int wide)
-{
-    double half = 1.5707963267948966;
-    int gx = (int)(rp * cos(a0)), gy = -(int)(rp * sin(a0));
-    int ex = (int)(rp * cos(a0 + sweep)), ey = -(int)(rp * sin(a0 + sweep));
-    double sx, sy, tx2, ty2, a, b, d, left;
-    int fx[4], fy[4], guard = 0;
-    int ppx = 0, ppy = 0, have = 0;
+    for (i = 0; i < npc; i++) {
+        int fx[4], fy[4], n;
 
-    if (rp < 1)
-        return;
-    gdi_unit(rp, gx, gy, &sx, &sy);
-    gdi_unit(rp, ex, ey, &tx2, &ty2);
-    a = atan2(sy, sx);
-    b = atan2(ty2, tx2);
-    d = sweep < 0 ? -1.0 : 1.0;
-    left = (b - a) * d;
-    while (left <= 0.0)
-        left += 6.283185307179586;
-    while (left > 6.283185307179586)
-        left -= 6.283185307179586;
-    while (left > 1e-12 && guard++ < 16) {
-        double q = a / half;
-        double next = d > 0 ? (floor(q) + 1.0) * half : (ceil(q) - 1.0) * half;
-        double step = d > 0 ? next - a : a - next;
-        int ox[JW_BEZ_MAX], oy[JW_BEZ_MAX], n, i;
-
-        if (step < 1e-9)
-            step = half;
-        if (step > left)
-            step = left;
-        gdi_piece(cx, cy, rp, a, a + d * step, fx, fy);
-        n = hfd_flatten(fx, fy, ox, oy, JW_BEZ_MAX);
-        if (!have) {
+        for (k = 0; k < 4; k++) {
+            fx[k] = pcs[i][k * 2];
+            fy[k] = pcs[i][k * 2 + 1];
+        }
+        if (i == 0) {
             ppx = fx[0];
             ppy = fy[0];
-            have = 1;
         }
-        for (i = 0; i < n; i++) {
-            fix_line(fb, c, ppx, ppy, ox[i], oy[i], col, wide);
-            ppx = ox[i];
-            ppy = oy[i];
+        n = hfd_flatten(fx, fy, ox, oy, JW_BEZ_MAX);
+        for (j = 0; j < n; j++) {
+            fix_line(fb, c, ppx, ppy, ox[j], oy[j], col, wide);
+            ppx = ox[j];
+            ppy = oy[j];
         }
-        a += d * step;
-        left -= step;
     }
 }
 
@@ -1412,27 +1804,87 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             put(fb, &v->clip, cxp, cyp, col);
             return;
         }
-        /* JW_ARC_BEZ=1 draws a part of a circle the way GDI does, as cubic
-           Beziers flattened and stroked, instead of cutting a stretch out
-           of the whole circle's ring.  The ring walk is wrong in principle
-           -- 364 of 448 arcs paint a pixel the whole ring does not have
-           (tools/arcsub.py) -- and asking GDI from the inside says why:
-           BeginPath/Arc/EndPath/GetPath hands back PT_BEZIERTO, and
-           flattening that path and stroking it paints exactly what Arc
-           paints.  A whole circle keeps the ring, which is right: it is
-           baked from GDI's own two Arc calls. */
+        /* A part of a circle goes the way GDI goes: cubic Beziers,
+           flattened and stroked.  Cutting a stretch out of the whole
+           circle's ring is wrong in principle -- 364 of 448 arcs paint a
+           pixel the whole ring does not have (tools/arcsub.py) -- and
+           asking GDI from the inside says why: BeginPath/Arc/EndPath/
+           GetPath hands back PT_BEZIERTO, and flattening that path and
+           stroking it paints exactly what Arc paints.  Held against GDI,
+           472 of 472 arcs come out pixel for pixel (tools/arcfull.py).
+           JW_ARC_BEZ=0 puts the old ring walk back.  A whole circle keeps
+           the ring, which is right: it is baked from GDI's own two Arc
+           calls. */
         {
-            static int bez = -1;
-            if (bez < 0)
-                bez = getenv("JW_ARC_BEZ") != 0;
-            if (bez && odd) {
-                gdi_arc(fb, &v->clip, cxp, cyp, rp, a0 + tilt, sweep,
-                        col, wide);
+            static int bez = -1, bezcirc = -1;
+            if (bez < 0) {
+                const char *t = getenv("JW_ARC_BEZ");
+                bez = !(t && *t == '0');
+                t = getenv("JW_ARC_BEZCIRC");
+                bezcirc = t && *t != '0';
+            }
+            if (bez) {
+                /* The box: 2rp+1 across for a part of a circle, 2rp for a
+                 * whole one unless something above asked for the other. */
+                int l = cxp - rp, t = cyp - rp;
+                int rr = cxp + rp + oddbox, bb = cyp + rp + oddbox;
+
+                if (odd) {
+                    /* The two ends, the way FUN_00421490 works them out:
+                     * ((int)(rp cos a), -(int)(rp sin a)), for the start
+                     * angle and for the start plus the sweep, handed to
+                     * Arc in that order however the sweep runs. */
+                    /* The two ends, the way FUN_00421490 works them out:
+                     * ((int)(rp cos a), -(int)(rp sin a)) for the start
+                     * angle and for the start plus the sweep. */
+                    double a = a0 + tilt;
+                    double asw = sweep < 0 ? -sweep : sweep;
+                    int gx = cxp + (int)(rp * cos(a));
+                    int gy = cyp - (int)(rp * sin(a));
+                    int ex = cxp + (int)(rp * cos(a + sweep));
+                    int ey = cyp - (int)(rp * sin(a + sweep));
+                    int same = gx == ex && gy == ey;
+
+                    /* Not every part of a circle goes to GDI.  The
+                     * original asks for the Arc only when the radius is
+                     * over one pixel **and** either the two ends came out
+                     * as different whole pixels and the sweep is over 0.1
+                     * radians, or they came out the same and the sweep is
+                     * over pi.  Anything else is the polyline below --
+                     * which is why a short arc does not sit on the ring at
+                     * all. */
+                    if (!(rp > 1 && ((!same && asw > 0.1)
+                                     || (same && asw > PI))))
+                        goto polyline;
+                    /* GDI's Arc always runs counter-clockwise, so the
+                     * original hands it the two ends the other way round
+                     * when the sweep is negative (FUN_00421490's
+                     * `if (0.0 < local_b4)`, whose two arms pass the same
+                     * pair of points in the two orders). */
+                    if (sweep < 0.0) {
+                        int t2 = gx; gx = ex; ex = t2;
+                        t2 = gy; gy = ey; ey = t2;
+                    }
+                    gdi_arc(fb, &v->clip, l, t, rr, bb, gx, gy, ex, ey,
+                            col, wide);
+                } else if (bezcirc) {
+                    /* A whole circle is two Arc calls, (+rp,0) round to
+                     * (-rp,0) and back, so that the two halves tile the
+                     * ring exactly once -- Arc leaves its far end out, the
+                     * way LineTo does. */
+                    gdi_arc(fb, &v->clip, l, t, rr, bb,
+                            cxp + rp, cyp, cxp - rp, cyp, col, wide);
+                    gdi_arc(fb, &v->clip, l, t, rr, bb,
+                            cxp - rp, cyp, cxp + rp, cyp, col, wide);
+                } else {
+                    goto ringwalk;
+                }
                 return;
             }
         }
         /* debugging hook: write the boundary walk out, so a render can be
            sampled along it and held against the original's */
+    ringwalk:;
         int dumpwalk = getenv("JW_ARC_WALK") != 0;
         int n = circle_points(rp, oddbox, pts);
         if (n > 0) {
@@ -1542,6 +1994,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
         }
     }
 
+  polyline:
     /* The polyline (FUN_0042e140).  The step in angle is not a fraction of
      * the sweep, and it is not a fraction of the arc on screen either: the
      * original takes the bigger half axis **in the drawing's own

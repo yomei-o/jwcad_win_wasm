@@ -64,27 +64,17 @@ from gdimath import f32
 
 
 def arc_pieces(cx, cy, rp, a0, sweep):
-    """The cubics GDI would build for this arc, in POINTFIX.
+    """The cubics GDI would build for the arc Jw_cad asks for, in POINTFIX.
 
-    The two end points Jw_cad hands `Arc` are whole pixels; GDI measures
-    their angle from the rect's own middle (cx+.5, cy+.5) with half-widths
-    rp+.5, and lays the curve on the ellipse EBOX builds, middle cx and
-    radius rp.  The two are not the same place -- that is GDI's doing, and
-    it is what made the port's guesses look arbitrary from outside.
+    Jw_cad passes the box (cx-rp, cy-rp, cx+rp+1, cy+rp+1) and the two end
+    points it works out itself, as whole pixels.
     """
     gx, gy = ray(rp, a0)
     ex, ey = ray(rp, a0 + sweep)
     if sweep < 0:
         gx, gy, ex, ey = ex, ey, gx, gy
-
-    def ang(px, py):
-        dx = f32(f32(px - 0.5) / f32(rp + 0.5))
-        dy = f32(-f32(f32(py - 0.5) / f32(rp + 0.5)))
-        return gdimath.varctan(dx, dy)
-
-    a, q0 = ang(gx, gy)
-    b, q1 = ang(ex, ey)
-    return gdimath.partial_arc(gdimath.Box(cx, cy, rp), a, q0, b, q1)
+    box = gdimath.Box(cx - rp, cy - rp, cx + rp + 1, cy + rp + 1)
+    return gdimath.arc(box, cx + gx, cy + gy, cx + ex, cy + ey)
 
 
 def main():
