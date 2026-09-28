@@ -455,6 +455,17 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 echo
+echo "=== 弧は GDI と同じか —— src/draw.c を tools/gdimath.py に当てる"
+echo "    原典も画面も要りません。模型のほうは GDI 自身に 472 本で"
+echo "    確かめてあり（tools/arcfull.py）、ここで見るのは移植の C が"
+echo "    その模型と同じかどうかです"
+if sh tools/arccheck.sh >/dev/null 2>&1; then
+    python tools/arccheck.py 2>&1 | sed 's/^/    /'
+else
+    echo "    BAD  tools/arccheck.sh will not build"
+fi
+
+echo
 echo "=== drawings against the original"
 echo "    the glyphs cannot match -- the original draws them with a Windows"
 echo "    font -- so the text rectangles are scored separately"
