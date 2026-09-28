@@ -37,8 +37,9 @@ def cases():
     import random
     random.seed(23)
     out = []
-    mid = 420
-    for rp in (2, 3, 5, 9, 14, 24, 40, 61, 100, 160, 260, 380):
+    mid = 2000
+    for rp in (2, 3, 5, 9, 14, 24, 40, 61, 100, 160, 260, 380,
+                700, 1023, 1024, 1300, 1800):
         for k in range(14):
             a0 = random.uniform(0, 2 * math.pi)
             sw = random.choice([random.uniform(0.11, 0.9),

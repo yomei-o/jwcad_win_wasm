@@ -163,11 +163,19 @@ def bez_init(pts):
     return x, y, steps - 1, ox, oy
 
 
+# `pprFlattenRec` tries BEZIER32 first and falls to BEZIER64 when bInit says
+# no, which is any curve over 1023 pixels a side.  The 64-bit walk keeps the
+# same error bound at a finer scale: 0x7fe00 << 15 (tools/hfd64.py).
+BEZIER64_ERROR = 0x7fe00 << 15
+
+
 def flatten(pts, parent_limit=PARENT_LIMIT):
     """pts: four (x, y) in POINTFIX.  Returns the points bNext hands back."""
     init = bez_init(pts)
     if init is None:
-        raise ValueError("too big for BEZIER32")
+        import hfd64
+
+        return hfd64.flatten(pts, BEZIER64_ERROR)
     x, y, steps, ox, oy = init
     out = []
     while True:

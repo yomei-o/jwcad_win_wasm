@@ -21,8 +21,8 @@
 
 #include "fb.h"
 
-#define W 900
-#define H 900
+#define W 4100
+#define H 4100
 
 void gdi_arc(fb_t *fb, const rect_t *c, int l, int t, int r, int b,
              int x1, int y1, int x2, int y2, unsigned int col, int wide);

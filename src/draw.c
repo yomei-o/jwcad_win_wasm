@@ -986,10 +986,188 @@ static void hfd_double(hfd_t *h)
     h->e2 = h->e2 * 8 - e3 * 4;
 }
 
+/* `BEZIER64`, which is what `pprFlattenRec` uses when `BEZIER32::bInit`
+ * says no -- any curve over 1023 pixels a side, which zooming into any
+ * drawing reaches.
+ *
+ * The shape is different.  BEZIER32 walks the curve once; this keeps
+ * **two** walks: a coarse one over the whole curve (the *parent*) and, for
+ * each of its steps, a fine one over the piece that step covers (the
+ * *child*).  The parent's state is turned back into four control points
+ * (`HFDBASIS64::vUntransform`) and the child is started from those.  Both
+ * are Hermite forward differences at POINTFIX << 28; the parent splits
+ * until its second differences fall under 0x300000000001 and the child
+ * until they fall under the tolerance `pprFlattenRec` hands in, which is
+ * the same error bound BEZIER32 uses at the finer scale.
+ *
+ * Held against GDI itself (tools/hfd64.py): 60 of 60 curves over radii
+ * 1024 to 2400, quadrants and wild ones alike, come out exactly.
+ */
+#define HFD64_SHIFT 28
+#define HFD64_HALF (1LL << (HFD64_SHIFT - 1))
+#define HFD64_PARENT_LIMIT 0x300000000001LL
+#define HFD64_ERROR (0x7fe00LL << 15)
+
+typedef struct {
+    long long e0, e1, e2, e3;
+} hfd64_t;
+
+static long long hfd64_abs(long long v) { return v < 0 ? -v : v; }
+
+static long long hfd64_big(long long a, long long b)
+{
+    a = hfd64_abs(a);
+    b = hfd64_abs(b);
+    return a > b ? a : b;
+}
+
+static void hfd64_init(hfd64_t *h, int a, int b, int c, int d)
+{
+    h->e0 = (long long)a * 0x10000000LL;
+    h->e1 = ((long long)d - a) * 0x10000000LL;
+    h->e2 = ((long long)d - 2LL * c + b) * 0x60000000LL;
+    h->e3 = ((long long)a - 2LL * b + c) * 0x60000000LL;
+}
+
+static long long hfd64_err(const hfd64_t *h)
+{
+    return hfd64_big(h->e2, h->e3);
+}
+
+static long long hfd64_parent(const hfd64_t *h)
+{
+    return hfd64_big(8 * h->e2 - 4 * h->e3, 4 * h->e3);
+}
+
+static void hfd64_take(hfd64_t *h)
+{
+    long long e2 = h->e2;
+
+    h->e0 += h->e1;
+    h->e1 += e2;
+    h->e2 = 2 * e2 - h->e3;
+    h->e3 = e2;
+}
+
+static void hfd64_halve(hfd64_t *h)
+{
+    long long e2 = (h->e2 + h->e3) >> 3;
+
+    h->e1 = (h->e1 - e2) >> 1;
+    h->e3 = h->e3 >> 2;
+    h->e2 = e2;
+}
+
+static void hfd64_double(hfd64_t *h)
+{
+    long long e2 = h->e2;
+
+    h->e3 = h->e3 * 4;
+    h->e1 = e2 + h->e1 * 2;
+    h->e2 = e2 * 8 - h->e3;
+}
+
+/* `HFDBASIS64::vUntransform`: the four control points this state stands
+ * for, back in POINTFIX. */
+static void hfd64_untransform(const hfd64_t *h, int *q)
+{
+    long long t = h->e1 * 6 - h->e2;
+    long long u = t * 2 - h->e3;
+    long long v = t - h->e3 * 2;
+    long long base = h->e0 + HFD64_HALF;
+
+    v /= 18;                    /* toward zero, the way the original does */
+    u /= 18;
+    q[0] = (int)(base >> HFD64_SHIFT);
+    q[1] = (int)((base + v) >> HFD64_SHIFT);
+    q[2] = (int)((base + u) >> HFD64_SHIFT);
+    q[3] = (int)((base + h->e1) >> HFD64_SHIFT);
+}
+
+static int hfd64_flatten(const int *px, const int *py, int *ox, int *oy,
+                         int max)
+{
+    hfd64_t pxh, pyh, cx, cy;
+    int parent = 1, child = 0, n = 0;
+    int qx[4], qy[4];
+
+    hfd64_init(&pxh, px[0], px[1], px[2], px[3]);
+    hfd64_init(&pyh, py[0], py[1], py[2], py[3]);
+    while (!(hfd64_err(&pxh) < HFD64_PARENT_LIMIT
+             && hfd64_err(&pyh) < HFD64_PARENT_LIMIT)) {
+        hfd64_halve(&pxh);
+        hfd64_halve(&pyh);
+        parent <<= 1;
+        if (parent <= 0)
+            return n;           /* a curve no view can show */
+    }
+    for (;;) {
+        if (child == 0) {
+            hfd64_untransform(&pxh, qx);
+            hfd64_untransform(&pyh, qy);
+            hfd64_init(&cx, qx[0], qx[1], qx[2], qx[3]);
+            hfd64_init(&cy, qy[0], qy[1], qy[2], qy[3]);
+            child = 1;
+            while (!(hfd64_err(&cx) <= HFD64_ERROR
+                     && hfd64_err(&cy) <= HFD64_ERROR)) {
+                child *= 2;
+                hfd64_halve(&cx);
+                hfd64_halve(&cy);
+                if (child <= 0)
+                    return n;
+            }
+            parent--;
+            if (parent != 0) {
+                hfd64_take(&pxh);
+                hfd64_take(&pyh);
+                if (!(hfd64_err(&pxh) < HFD64_PARENT_LIMIT
+                      && hfd64_err(&pyh) < HFD64_PARENT_LIMIT)) {
+                    parent <<= 1;
+                    hfd64_halve(&pxh);
+                    hfd64_halve(&pyh);
+                }
+                while ((parent & 1) == 0
+                       && hfd64_parent(&pxh) < HFD64_PARENT_LIMIT
+                       && hfd64_parent(&pyh) < HFD64_PARENT_LIMIT) {
+                    hfd64_double(&pxh);
+                    hfd64_double(&pyh);
+                    parent >>= 1;
+                }
+            }
+        }
+        hfd64_take(&cx);
+        hfd64_take(&cy);
+        if (n >= max)
+            return n;
+        ox[n] = (int)((cx.e0 + HFD64_HALF) >> HFD64_SHIFT);
+        oy[n] = (int)((cy.e0 + HFD64_HALF) >> HFD64_SHIFT);
+        n++;
+        child--;
+        if (child == 0 && parent == 0)
+            return n;
+        if (!(hfd64_err(&cx) <= HFD64_ERROR
+              && hfd64_err(&cy) <= HFD64_ERROR)) {
+            child *= 2;
+            hfd64_halve(&cx);
+            hfd64_halve(&cy);
+            if (child <= 0)
+                return n;
+        }
+        while ((child & 1) == 0) {
+            if (hfd64_parent(&cx) > HFD64_ERROR
+                || hfd64_parent(&cy) > HFD64_ERROR)
+                break;
+            hfd64_double(&cx);
+            hfd64_double(&cy);
+            child >>= 1;
+        }
+    }
+}
+
 /* Flatten one cubic given in POINTFIX.  Writes the points **after** the
- * curve's own first one, which the caller already has.  Returns how many,
- * or 0 for a curve too big for the 32-bit flattener -- over about 1024
- * pixels a side, where GDI falls to `BEZIER64` instead. */
+ * curve's own first one, which the caller already has.  Returns how many.
+ * A curve too big for the 32-bit walk -- over about 1024 pixels a side --
+ * goes to the 64-bit one above, which is what GDI does with it. */
 static int hfd_flatten(const int *px, const int *py, int *ox, int *oy,
                        int max)
 {
@@ -1008,7 +1186,7 @@ static int hfd_flatten(const int *px, const int *py, int *ox, int *oy,
         ys[k] = py[k] - ay;
         if (((unsigned int)xs[k] & 0xffffc000u)
             || ((unsigned int)ys[k] & 0xffffc000u))
-            return 0;
+            return hfd64_flatten(px, py, ox, oy, max);
     }
     x0 = xs[0] * 0x400;
     x1 = (xs[3] - xs[0]) * 0x400;
@@ -1830,12 +2008,13 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 t = getenv("JW_ARC_BEZCIRC");
                 bezcirc = !(t && *t == '0');
             }
-            /* `BEZIER32` holds its control points in fourteen bits of
-               POINTFIX, so it takes a curve up to 1023 pixels a side and no
-               further; GDI falls to `BEZIER64` there, which the port has
-               not read.  Zooming far enough into any circle reaches it, so
-               anything bigger keeps the ring walk rather than vanishing. */
-            if (bez && rp > 1023)
+            /* Past 1023 pixels a side `BEZIER32` gives up and the 64-bit
+               walk takes over, the way GDI's own flattener does.  Its
+               differences are a POINTFIX coordinate times 6 << 28, so a
+               radius over about 120 million would overflow a 64-bit
+               accumulator; nothing is on screen out there, and the ring
+               walk gives up on its own at ARC_MAX/8. */
+            if (bez && rp > 10000000)
                 goto ringwalk;
             if (bez) {
                 /* The box: 2rp+1 across for a part of a circle, 2rp for a

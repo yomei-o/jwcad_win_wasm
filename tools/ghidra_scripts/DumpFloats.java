@@ -28,6 +28,27 @@ public class DumpFloats extends GhidraScript {
 
         PrintWriter w = new PrintWriter(out);
         int found = 0;
+        // `@<hex>` reads an address instead of a symbol, which is how a
+        // value behind a pointer is reached -- `gpeqErrorLow` is a pointer
+        // to the tolerance BEZIER64 is given, not the tolerance itself.
+        if (want.startsWith("@")) {
+            Address a = currentProgram.getAddressFactory()
+                    .getDefaultAddressSpace()
+                    .getAddress(Long.parseLong(want.substring(1), 16));
+            w.println("# " + want + " at " + a);
+            for (int i = 0; i < count; i++) {
+                try {
+                    w.println(i + " " + currentProgram.getMemory()
+                            .getInt(a.add((long) i * 4)));
+                } catch (Exception e) {
+                    w.println(i + " -");
+                    break;
+                }
+            }
+            w.close();
+            println("DumpFloats: read " + count + " at " + want);
+            return;
+        }
         SymbolIterator it = currentProgram.getSymbolTable().getAllSymbols(true);
         while (it.hasNext() && !monitor.isCancelled()) {
             Symbol s = it.next();
