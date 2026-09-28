@@ -106,12 +106,41 @@ static __inline int jw_px_mode(void)
  * that have no such seam, and neither has ever been put on the scoreboard.
  * FUN_004b6d60 reads as a plain (int), so this is a measurement, not a
  * reading. */
+/* JW_PX_SEAM_X / JW_PX_SEAM_Y move the place where the truncation changes
+ * direction, in pixels from the pinned one.
+ *
+ * `(int)` rounds toward zero, so the drawing is cut in two at the pinned
+ * pixel: everything on one side rounds up and everything on the other
+ * rounds down.  The port's pinned pixel is where its own view fit puts it,
+ * and there is no reason the original's is in the same place --
+ * `doc+0x1720` is the original's, and nothing has ever measured where.
+ * Flooring or ceiling everywhere is the same as pushing the seam to one
+ * infinity or the other, and both were measured and are far worse; what
+ * was never tried is any place in between.  This is the knob for that.
+ * 0 leaves the seam where it is, which is what the port ships. */
+static __inline double jw_px_seam(int lo)
+{
+    static double sx = 1e30, sy = 1e30;
+    if (sx > 1e29) {
+        const char *t = getenv("JW_PX_SEAM_X");
+        sx = t && *t ? atof(t) : 0.0;
+        t = getenv("JW_PX_SEAM_Y");
+        sy = t && *t ? atof(t) : 0.0;
+    }
+    return lo ? sy : sx;
+}
+
 static __inline double jw_px_bend(double p, int lo)
 {
     int m = jw_px_mode();
+    double s;
+
     if (m & (1 << lo))  return floor(p);
     if (m & (4 << lo))  return ceil(p);
     if (m & (16 << lo)) return floor(p + 0.5);
+    s = jw_px_seam(lo);
+    if (s != 0.0)
+        return p >= s ? floor(p) : ceil(p);
     return p;
 }
 
