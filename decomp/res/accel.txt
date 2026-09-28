@@ -1,0 +1,25 @@
+
+=== ACCELERATOR 30997
+key=0x0022     cmd=58114 (0xe302) VIRTKEY
+key=0x0021     cmd=58115 (0xe303) VIRTKEY
+key=0x001b     cmd=58112 (0xe300) VIRTKEY
+
+=== ACCELERATOR 320
+key=0x0043 C   cmd=57634 (0xe122) VIRTKEY
+key=0x004e C   cmd=57600 (0xe100) VIRTKEY
+key=0x004f C   cmd=57601 (0xe101) VIRTKEY
+key=0x0050 C   cmd=57607 (0xe107) VIRTKEY
+key=0x0053 C   cmd=57603 (0xe103) VIRTKEY
+key=0x0056 C   cmd=57637 (0xe125) VIRTKEY
+key=0x0008 A   cmd=57643 (0xe12b) VIRTKEY
+key=0x002e     cmd=32794 (0x801a) VIRTKEY
+key=0x002e S   cmd=57635 (0xe123) VIRTKEY
+key=0x0070     cmd=57670 (0xe146) VIRTKEY
+key=0x0070 S   cmd=57669 (0xe145) VIRTKEY
+key=0x0075     cmd=57680 (0xe150) VIRTKEY
+key=0x0075 S   cmd=57681 (0xe151) VIRTKEY
+key=0x002d C   cmd=57634 (0xe122) VIRTKEY
+key=0x002d S   cmd=57637 (0xe125) VIRTKEY
+key=0x0058 C   cmd=57635 (0xe123) VIRTKEY
+key=0x0059 C   cmd=57644 (0xe12c) VIRTKEY
+key=0x005a C   cmd=57643 (0xe12b) VIRTKEY
