@@ -50,6 +50,53 @@ def ray(rp, a):
     return int(rp * math.cos(a)), -int(rp * math.sin(a))
 
 
+ARCTAN_SIZE = 64
+
+
+def varctan(x, y):
+    """GDI's own arctan: fold into the first eighth, look the ratio up in a
+    table and interpolate, and come back in **degrees**.
+
+    (`vArctan` in decomp/gdi/arc_x64.c.  The table is `gaefArctan`; here it
+    is synthesised, since what matters is its size and the interpolation.)
+    """
+    oct_ = 2 if x >= 0 else 3
+    ax = x if x >= 0 else -x
+    o = 0 if x >= 0 else 1
+    ay = y
+    if y < 0:
+        o = oct_
+        ay = -y
+    hi, lo = ax, ay
+    if ax < ay:
+        o |= 4
+        hi, lo = ay, ax
+    if hi == 0.0:
+        return 0.0
+    t = (lo * ARCTAN_SIZE) / hi
+    i = int(t)
+    f = t - i
+    import math as m
+    a0 = m.degrees(m.atan(float(i) / ARCTAN_SIZE))
+    a1 = m.degrees(m.atan(float(i + 1) / ARCTAN_SIZE))
+    ang = a0 + (a1 - a0) * f
+    if o == 1:
+        return 180.0 - ang
+    if o == 2:
+        return 360.0 - ang
+    if o == 3:
+        return ang + 180.0
+    if o == 4:
+        return 90.0 - ang
+    if o == 5:
+        return ang + 90.0
+    if o == 6:
+        return ang + 270.0
+    if o == 7:
+        return 270.0 - ang
+    return ang
+
+
 def quad_bezier(p0, p3, a0, a1):
     """bPartialQuadrantArc, on the unit circle."""
     cross = p0[0] * p3[1] - p0[1] * p3[0]
@@ -97,10 +144,13 @@ def arc_pieces(cx, cy, rp, a0, sweep):
         n = math.hypot(dx, dy)
         return (dx / n, dy / n)
 
-    p0 = unit(gx, gy)
-    p3 = unit(ex, ey)
-    a = math.atan2(p0[1], p0[0])
-    b = math.atan2(p3[1], p3[0])
+    # vArctan is handed the point in **device** terms -- y downward -- and
+    # answers in degrees the same way round, so the maths angle is its
+    # negative.
+    a = -math.radians(varctan((gx - 0.5) / (rp + 0.5),
+                              (gy - 0.5) / (rp + 0.5)))
+    b = -math.radians(varctan((ex - 0.5) / (rp + 0.5),
+                              (ey - 0.5) / (rp + 0.5)))
     d = 1.0 if sweep >= 0 else -1.0
     left = (b - a) * d
     while left <= 0:

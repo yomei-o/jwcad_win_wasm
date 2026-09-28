@@ -908,128 +908,325 @@ static void bez_point(double cx, double cy, double rp, double a,
     *y = cy - rp * sin(a);
 }
 
-/* One cubic, halved until it is flat, then stroked.
- *
- * Where GDI cuts is measurable: tools/bezcut.py takes its control points
- * (odd 7) and its flattening (odd 9) for the same arc and works out the
- * parameter of every cut.  A full quadrant of radius 61 comes back as
- * **eight equal pieces** and a 59 degree one as five -- an eighth, an
- * eighth, then three quarters -- so GDI halves recursively, and
- * adaptively, the same shape as this.  What was wrong before was the test
- * it stops on.
- *
- * The test is the classic one: how far the two inner control points stray
- * from the chord.  At **0.70 of a pixel** it reproduces GDI's own split
- * exactly (eight and five for the two pieces above); a sagitta through the
- * middle of the curve, which is what this used at first, does not.
- */
-static double bez_far(double x0, double y0, double x1, double y1,
-                      double x2, double y2, double x3, double y3)
-{
-    double ax = x3 - x0, ay = y3 - y0;
-    double n = sqrt(ax * ax + ay * ay), d1, d2;
+#define JW_BEZ_MAX 4096
 
-    if (n < 1e-12) {
-        d1 = sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
-        d2 = sqrt((x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0));
-        return d1 > d2 ? d1 : d2;
-    }
-    d1 = (ax * (y0 - y1) - ay * (x0 - x1)) / n;
-    d2 = (ax * (y0 - y2) - ay * (x0 - x2)) / n;
-    if (d1 < 0) d1 = -d1;
-    if (d2 < 0) d2 = -d2;
-    return d1 > d2 ? d1 : d2;
+/* GDI's own Bezier flattener, written out from the decompilation.
+ *
+ * `decomp/gdi/flatten.c` holds `BEZIER32::bInit` and `bNext` out of
+ * `win32kbase.sys`.  They walk a Hermite forward difference, not the
+ * curve's own parameter -- which is why the port's points never landed on
+ * GDI's however they were placed.
+ *
+ * The state is four numbers an axis, at **POINTFIX << 13**:
+ *
+ *     e0   where we are          e1   the first difference
+ *     e2   the second difference at this step
+ *     e3   the second difference at the step before
+ *
+ * and the starting values are the Bezier's own forward differences,
+ *
+ *     e0 = P0            e1 = P3 - P0
+ *     e2 = 6(P1 - 2 P2 + P3)      e3 = 6(P0 - 2 P1 + P2)
+ *
+ * which is what `bInit` computes (its 0x1800 is 6 * 0x400, and the 0x400
+ * with the later << 3 makes the << 13).  The limit is the same number in
+ * both halves of the decompilation: `bNext` tests 0x7fe00 and `bInit`
+ * tests 0xffc0 at a scale eight times coarser.
+ *
+ * Held against GDI itself (tools/hfd.py): **352 of 352** arc-shaped curves
+ * come out exactly, over radii 3 to 300 and all eight orientations.
+ */
+#define HFD_SHIFT 13
+#define HFD_LIMIT 0x7fe00
+#define HFD_PARENT (HFD_LIMIT / 4)
+
+typedef struct {
+    int e0, e1, e2, e3;
+} hfd_t;
+
+static void hfd_init(hfd_t *h, int p0, int p1, int p2, int p3)
+{
+    h->e0 = p0 << HFD_SHIFT;
+    h->e1 = (p3 - p0) << HFD_SHIFT;
+    h->e2 = 6 * (p1 - 2 * p2 + p3) << HFD_SHIFT;
+    h->e3 = 6 * (p0 - 2 * p1 + p2) << HFD_SHIFT;
 }
 
-static void bez_seg(fb_t *fb, const rect_t *c, double x0, double y0,
-                    double x1, double y1, double x2, double y2,
-                    double x3, double y3, unsigned int col, int wide,
-                    int depth, int *px, int *py, int *first)
-{
-    if (depth < 20 && bez_far(x0, y0, x1, y1, x2, y2, x3, y3) > 0.70) {
-        double mx = (x0 + 3.0 * (x1 + x2) + x3) / 8.0;
-        double my = (y0 + 3.0 * (y1 + y2) + y3) / 8.0;
-        double ax = (x0 + x1) / 2.0, ay = (y0 + y1) / 2.0;
-        double bx = (x1 + x2) / 2.0, by = (y1 + y2) / 2.0;
-        double cx2 = (x2 + x3) / 2.0, cy2 = (y2 + y3) / 2.0;
-        double dx2 = (ax + bx) / 2.0, dy2 = (ay + by) / 2.0;
-        double ex = (bx + cx2) / 2.0, ey = (by + cy2) / 2.0;
+static int hfd_abs(int v) { return v < 0 ? -v : v; }
 
-        bez_seg(fb, c, x0, y0, ax, ay, dx2, dy2, mx, my, col, wide,
-                depth + 1, px, py, first);
-        bez_seg(fb, c, mx, my, ex, ey, cx2, cy2, x3, y3, col, wide,
-                depth + 1, px, py, first);
+static int hfd_err(const hfd_t *h)
+{
+    int a = hfd_abs(h->e2), b = hfd_abs(h->e3);
+    return a > b ? a : b;
+}
+
+/* What the error would be after doubling the step, over four: doubling
+ * takes e2 to 8*e2 - 4*e3 and e3 to 4*e3.  The decompilation names
+ * `lParentErrorDividedBy4` but does not show it; this is what it must be,
+ * and sweeping the threshold against GDI picks 0x7fe00/4 by 188 to 94. */
+static int hfd_parent(const hfd_t *h)
+{
+    int a = hfd_abs(2 * h->e2 - h->e3), b = hfd_abs(h->e3);
+    return a > b ? a : b;
+}
+
+static void hfd_take(hfd_t *h)
+{
+    int e2 = h->e2;
+
+    h->e0 += h->e1;
+    h->e1 += e2;
+    h->e2 = 2 * e2 - h->e3;
+    h->e3 = e2;
+}
+
+static void hfd_halve(hfd_t *h)
+{
+    h->e2 = (h->e2 + h->e3) >> 3;
+    h->e1 = (h->e1 - h->e2) >> 1;
+    h->e3 = h->e3 >> 2;
+}
+
+static void hfd_double(hfd_t *h)
+{
+    int e3 = h->e3;
+
+    h->e3 = e3 * 4;
+    h->e1 = 2 * h->e1 + h->e2;
+    h->e2 = h->e2 * 8 - e3 * 4;
+}
+
+/* One cubic in POINTFIX, flattened the way GDI flattens it.  `out` takes
+ * the points after the curve's own first one, which the caller already
+ * has.  Returns how many were written. */
+static int hfd_flatten(const int *px, const int *py, int *ox, int *oy,
+                       int max)
+{
+    hfd_t x, y;
+    int ax = px[0], ay = py[0], k;
+    int steps = 1, n = 0;
+
+    for (k = 1; k < 4; k++) {
+        if (px[k] < ax) ax = px[k];
+        if (py[k] < ay) ay = py[k];
+    }
+    hfd_init(&x, px[0] - ax, px[1] - ax, px[2] - ax, px[3] - ax);
+    hfd_init(&y, py[0] - ay, py[1] - ay, py[2] - ay, py[3] - ay);
+    while (hfd_err(&x) > HFD_LIMIT || hfd_err(&y) > HFD_LIMIT) {
+        hfd_halve(&x);
+        hfd_halve(&y);
+        steps <<= 1;
+    }
+    /* bInit ends with one step taken and the count down by one. */
+    hfd_take(&x);
+    hfd_take(&y);
+    steps--;
+    for (;;) {
+        if (n >= max)
+            return n;
+        ox[n] = ax + ((x.e0 + (1 << (HFD_SHIFT - 1))) >> HFD_SHIFT);
+        oy[n] = ay + ((y.e0 + (1 << (HFD_SHIFT - 1))) >> HFD_SHIFT);
+        n++;
+        if (steps == 0)
+            return n;
+        if (hfd_err(&x) > HFD_LIMIT || hfd_err(&y) > HFD_LIMIT) {
+            hfd_halve(&x);
+            hfd_halve(&y);
+            steps <<= 1;
+        }
+        while ((steps & 1) == 0 && hfd_parent(&x) <= HFD_PARENT
+               && hfd_parent(&y) <= HFD_PARENT) {
+            hfd_double(&x);
+            hfd_double(&y);
+            steps >>= 1;
+        }
+        steps--;
+        hfd_take(&x);
+        hfd_take(&y);
+    }
+}
+
+/* One piece of a flattened path, the way GDI strokes it: step the longer
+ * axis a whole pixel at a time from the rounded start, take the other axis
+ * off the line through the **unrounded** ends, and leave the far end out
+ * the way LineTo does.  Held against GDI (tools/fixline.py): 10 of 10. */
+static void fix_line(fb_t *fb, const rect_t *c, int x0, int y0, int x1,
+                     int y1, unsigned int col, int wide)
+{
+    int ax0 = (x0 + 8) >> 4, ay0 = (y0 + 8) >> 4;
+    int ax1 = (x1 + 8) >> 4, ay1 = (y1 + 8) >> 4;
+    int dxp = ax1 - ax0, dyp = ay1 - ay0, i;
+
+    if (dxp == 0 && dyp == 0) {
+        wide_dot(fb, c, ax0, ay0, col, wide, 1);
         return;
     }
-    {
-        int qx = (int)floor(x3 + 0.5), qy = (int)floor(y3 + 0.5);
+    if ((dxp < 0 ? -dxp : dxp) >= (dyp < 0 ? -dyp : dyp)) {
+        int n = dxp < 0 ? -dxp : dxp, sx = dxp > 0 ? 1 : -1;
+        double m = x1 != x0 ? (double)(y1 - y0) / (double)(x1 - x0) : 0.0;
 
-        if (*first) {
-            *px = (int)floor(x0 + 0.5);
-            *py = (int)floor(y0 + 0.5);
-            *first = 0;
+        for (i = 0; i < n; i++) {
+            int qx = ax0 + sx * i;
+            double yy = (y0 + (qx * 16 - x0) * m) / 16.0;
+
+            wide_dot(fb, c, qx, (int)floor(yy + 0.5), col, wide, 1);
         }
-        if (qx != *px || qy != *py) {
-            stroke(fb, c, *px, *py, qx, qy, col, wide, 1);
-            *px = qx;
-            *py = qy;
+    } else {
+        int n = dyp < 0 ? -dyp : dyp, sy = dyp > 0 ? 1 : -1;
+        double m = y1 != y0 ? (double)(x1 - x0) / (double)(y1 - y0) : 0.0;
+
+        for (i = 0; i < n; i++) {
+            int qy = ay0 + sy * i;
+            double xx = (x0 + (qy * 16 - y0) * m) / 16.0;
+
+            wide_dot(fb, c, (int)floor(xx + 0.5), qy, col, wide, 1);
         }
     }
 }
 
-static void bez_arc(fb_t *fb, const rect_t *c, int cx, int cy, int rp,
+/* A part of a circle, drawn the way GDI draws one.
+ *
+ * Read out of `win32kfull.sys` and `win32kbase.sys` (see `decomp/gdi/`),
+ * in four steps:
+ *
+ * 1. **the ends.**  NtGdiArcInternal normalises the point Jw_cad hands it
+ *    by the rect's own middle and half-widths -- for Arc's rect
+ *    (cx-rp, cy-rp, cx+rp+1, cy+rp+1) that is (cx+.5, cy+.5) and rp+.5 --
+ *    and takes its angle.  (GDI uses `vArctan`, which walks a table; this
+ *    uses atan2, which is the same thing to within a sixteenth of a pixel
+ *    on most arcs.)
+ *
+ * 2. **the control points** (`bPartialQuadrantArc`), on the unit circle:
+ *
+ *        cross = p0.x*p3.y - p0.y*p3.x
+ *        c     = |cos((a1 - a0) / 2)|
+ *        beta  = (4/3 * c) / (c + 1)        alpha = 1 - beta
+ *        c1 = (alpha*p0.x + beta*(p3.y-p0.y)/cross,
+ *              alpha*p0.y + beta*(p0.x-p3.x)/cross)
+ *        c2 = (alpha*p3.x + beta*(p3.y-p0.y)/cross,
+ *              alpha*p3.y + beta*(p0.x-p3.x)/cross)
+ *
+ *    For a whole quadrant that gives beta = 0.5523 -- kappa -- and the
+ *    textbook control points.
+ *
+ * 3. **onto the ellipse** (`EBOX::ptlXform`): P = middle + u*p.x + v*p.y,
+ *    rounded, in POINTFIX.  EBOX builds u, v and the middle from the
+ *    rect's corners, and takes the rect with **both edges in**: the
+ *    ellipse spans cx-rp to cx+rp, so its middle is cx and its radius rp.
+ *    (The angle in step 1 and the ellipse here do not share a middle.
+ *    That is GDI's doing, not a slip here, and it is what made the port's
+ *    guesses look arbitrary from outside.)
+ *
+ * 4. **flatten and stroke**, which are hfd_flatten and fix_line above.
+ *
+ * Held against GDI itself (tools/arcfull.py): 48 of 80 arcs come out
+ * pixel for pixel, and the rest differ by a pixel or two at the ends,
+ * where the table GDI reads its angles from is finer than atan2's answer
+ * rounds to.  Against that, the ring the port cut out of a whole circle
+ * differed on about half the pixels of every arc.
+ */
+static void gdi_unit(int rp, int px, int py, double *ux, double *uy)
+{
+    double dx = (px - 0.5) / (rp + 0.5);
+    double dy = -(py - 0.5) / (rp + 0.5);
+    double n = sqrt(dx * dx + dy * dy);
+
+    if (n < 1e-12) {
+        *ux = 1.0;
+        *uy = 0.0;
+        return;
+    }
+    *ux = dx / n;
+    *uy = dy / n;
+}
+
+static int gdi_fix(double v)
+{
+    return (int)floor(v + 0.5);
+}
+
+/* One quadrant piece: the unit-circle control points, carried onto the
+ * ellipse, in POINTFIX. */
+static void gdi_piece(int cx, int cy, int rp, double a, double b,
+                      int *px, int *py)
+{
+    double p0x = cos(a), p0y = sin(a);
+    double p3x = cos(b), p3y = sin(b);
+    double cross = p0x * p3y - p0y * p3x;
+    double c, beta, alpha, tx, ty;
+    double qx[4], qy[4];
+    int i;
+
+    if (cross < 0) cross = -cross ? p0x * p3y - p0y * p3x : cross;
+    cross = p0x * p3y - p0y * p3x;
+    qx[0] = p0x; qy[0] = p0y;
+    qx[3] = p3x; qy[3] = p3y;
+    if (cross > -1e-12 && cross < 1e-12) {
+        qx[1] = p0x; qy[1] = p0y;
+        qx[2] = p3x; qy[2] = p3y;
+    } else {
+        c = cos((b - a) * 0.5);
+        if (c < 0) c = -c;
+        beta = (4.0 / 3.0 * c) / (c + 1.0);
+        alpha = 1.0 - beta;
+        tx = beta * ((p3y - p0y) / cross);
+        ty = beta * ((p0x - p3x) / cross);
+        qx[1] = alpha * p0x + tx;
+        qy[1] = alpha * p0y + ty;
+        qx[2] = alpha * p3x + tx;
+        qy[2] = alpha * p3y + ty;
+    }
+    for (i = 0; i < 4; i++) {
+        px[i] = gdi_fix(cx * 16.0 + rp * 16.0 * qx[i]);
+        py[i] = gdi_fix(cy * 16.0 - rp * 16.0 * qy[i]);
+    }
+}
+
+static void gdi_arc(fb_t *fb, const rect_t *c, int cx, int cy, int rp,
                     double a0, double sweep, unsigned int col, int wide)
 {
     double half = 1.5707963267948966;
-    double gx = (double)((int)(rp * cos(a0)));
-    double gy = (double)(-(int)(rp * sin(a0)));
-    double ex = (double)((int)(rp * cos(a0 + sweep)));
-    double ey = (double)(-(int)(rp * sin(a0 + sweep)));
-    /* Both ends come from the **ray through the point FUN_00421490 hands
-       GDI**, measured from the rect's own middle -- not from the start plus
-       the sweep.  Carrying the near end's rounding to the far one makes the
-       error grow along the arc: at radius 40 GDI ends at (40, 5) where that
-       gives (40, 6). */
-    double a = atan2(-(gy - 0.5), gx - 0.5);
-    double b = atan2(-(ey - 0.5), ex - 0.5);
-    double d = sweep < 0 ? -1.0 : 1.0;
-    double left = (b - a) * d;
-    int px = 0, py = 0, first = 1, guard = 0;
+    int gx = (int)(rp * cos(a0)), gy = -(int)(rp * sin(a0));
+    int ex = (int)(rp * cos(a0 + sweep)), ey = -(int)(rp * sin(a0 + sweep));
+    double sx, sy, tx2, ty2, a, b, d, left;
+    int fx[4], fy[4], guard = 0;
+    int ppx = 0, ppy = 0, have = 0;
 
     if (rp < 1)
         return;
+    gdi_unit(rp, gx, gy, &sx, &sy);
+    gdi_unit(rp, ex, ey, &tx2, &ty2);
+    a = atan2(sy, sx);
+    b = atan2(ty2, tx2);
+    d = sweep < 0 ? -1.0 : 1.0;
+    left = (b - a) * d;
     while (left <= 0.0)
         left += 6.283185307179586;
     while (left > 6.283185307179586)
         left -= 6.283185307179586;
-    while (left > 1e-12 && guard++ < 64) {
+    while (left > 1e-12 && guard++ < 16) {
         double q = a / half;
         double next = d > 0 ? (floor(q) + 1.0) * half : (ceil(q) - 1.0) * half;
         double step = d > 0 ? next - a : a - next;
-        double k, b1, x0, y0, x3, y3, c1x, c1y, c2x, c2y;
+        int ox[JW_BEZ_MAX], oy[JW_BEZ_MAX], n, i;
 
         if (step < 1e-9)
             step = half;
         if (step > left)
             step = left;
-        b1 = a + d * step;
-        k = 4.0 / 3.0 * tan(step / 4.0) * d;
-        x0 = rp * cos(a);
-        y0 = -rp * sin(a);
-        x3 = rp * cos(b1);
-        y3 = -rp * sin(b1);
-        c1x = x0 - k * rp * sin(a);
-        c1y = y0 - k * rp * cos(a);
-        c2x = x3 + k * rp * sin(b1);
-        c2y = y3 + k * rp * cos(b1);
-        /* GDI keeps a path in whole device units, so the control points go
-           in rounded -- that is what GetPath hands back. */
-        bez_seg(fb, c, cx + floor(x0 + 0.5), cy + floor(y0 + 0.5),
-                cx + floor(c1x + 0.5), cy + floor(c1y + 0.5),
-                cx + floor(c2x + 0.5), cy + floor(c2y + 0.5),
-                cx + floor(x3 + 0.5), cy + floor(y3 + 0.5), col, wide, 0,
-                &px, &py, &first);
-        a = b1;
+        gdi_piece(cx, cy, rp, a, a + d * step, fx, fy);
+        n = hfd_flatten(fx, fy, ox, oy, JW_BEZ_MAX);
+        if (!have) {
+            ppx = fx[0];
+            ppy = fy[0];
+            have = 1;
+        }
+        for (i = 0; i < n; i++) {
+            fix_line(fb, c, ppx, ppy, ox[i], oy[i], col, wide);
+            ppx = ox[i];
+            ppy = oy[i];
+        }
+        a += d * step;
         left -= step;
     }
 }
@@ -1229,7 +1426,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
             if (bez < 0)
                 bez = getenv("JW_ARC_BEZ") != 0;
             if (bez && odd) {
-                bez_arc(fb, &v->clip, cxp, cyp, rp, a0 + tilt, sweep,
+                gdi_arc(fb, &v->clip, cxp, cyp, rp, a0 + tilt, sweep,
                         col, wide);
                 return;
             }
