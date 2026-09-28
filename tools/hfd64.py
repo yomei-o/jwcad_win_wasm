@@ -191,21 +191,26 @@ def cases(rp):
     return out
 
 
+# The child's tolerance is the one number that is not in the
+# decompilation: `gpeqErrorLow` is a pointer and what it points at is not
+# laid out.  So it was measured -- of the values the code makes plausible,
+# only this one reproduces GDI, and it is the error bound `BEZIER32` uses
+# written at the finer scale (0x7fe00 << 15 == 0x7fe00 << 13 << 2 ... the
+# two walks differ by fifteen bits).
+ERROR = 0x7fe00 << 15
+
+
 def main():
-    """The tolerance is the one number that is not in the decompilation --
-    `gpeqErrorLow` is a pointer, and what it points at is not laid out.  So
-    it is measured: try the ones the code makes plausible and see which
-    reproduces GDI."""
-    want = [0x7fe00 << 15, 0x300000000001, 0x300000000000, 0x7fe00 << 14,
-            0x7fe00 << 16, 1 << 40, 3 << 40, 1 << 41, 0x3f800000000,
-            0x7fe00 << 13, 0x7fe00 << 17]
-    cs = []
-    for rp in (1100, 1400, 1800):
-        cs.extend(cases(rp))
-    got = ask_gdi(cs, 1900)
-    best = None
-    for err in want:
-        same = n = 0
+    import random
+
+    random.seed(31)
+    same = n = 0
+    for rp in (1024, 1100, 1300, 1600, 2000, 2400):
+        cs = cases(rp)
+        for _ in range(6):
+            cs.append(tuple((random.randint(-rp, rp), random.randint(-rp, rp))
+                            for _ in range(4)))
+        got = ask_gdi(cs, rp + 40)
         for i, c in enumerate(cs):
             g = got.get("C%d" % i)
             if not g:
@@ -213,13 +218,13 @@ def main():
             n += 1
             fix = [(p[0] * 16, p[1] * 16) for p in c]
             mine = [c[0]] + [((p[0] + 8) >> 4, (p[1] + 8) >> 4)
-                             for p in flatten(fix, err)]
+                             for p in flatten(fix, ERROR)]
             if mine == g:
                 same += 1
-        print("tolerance 0x%x: %d / %d" % (err, same, n))
-        if best is None or same > best[0]:
-            best = (same, err)
-    print("best: 0x%x with %d" % (best[1], best[0]))
+            else:
+                print("   differ at rp %d, case %d: GDI %d points, mine %d"
+                      % (rp, i, len(g), len(mine)))
+    print("BEZIER64: %d / %d の曲線が GDI と同じ点列" % (same, n))
 
 
 if __name__ == "__main__":
