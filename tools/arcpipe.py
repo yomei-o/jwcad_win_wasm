@@ -47,32 +47,52 @@ def gdi(lines):
     return got
 
 
+def rnd_away(v):
+    """Half away from zero -- which is what GDI's line does: on the segment
+    from (4.5, -18.4375) the sample at x = 4 lands on y = -18.5 exactly, and
+    GDI paints -19."""
+    return int(math.floor(v + 0.5)) if v >= 0 else -int(math.floor(-v + 0.5))
+
+
 def walk(x0, y0, x1, y1, out):
-    """One piece of the polyline, the way GDI strokes it: the longer axis a
-    whole pixel at a time from the rounded start, the other axis off the
-    line through the unrounded ends, and the far end left out."""
-    ax0, ay0 = (x0 + 8) >> 4, (y0 + 8) >> 4
-    ax1, ay1 = (x1 + 8) >> 4, (y1 + 8) >> 4
-    dxp, dyp = ax1 - ax0, ay1 - ay0
-    if dxp == 0 and dyp == 0:
-        out.add((ax0, ay0))
-        return
-    if abs(dxp) >= abs(dyp):
-        n = abs(dxp)
-        sx = 1 if dxp > 0 else -1
-        m = (y1 - y0) / float(x1 - x0) if x1 != x0 else 0.0
-        for i in range(n):
-            px = ax0 + sx * i
-            out.add((px, int(math.floor((y0 + (px * 16 - x0) * m) / 16.0
-                                        + 0.5))))
+    """One piece of the polyline, the way GDI strokes it.
+
+    The samples sit on whole values of the longer axis, starting at the
+    first one **in the direction of travel** -- from 4.5 going down that is
+    4, from -10.9375 going up it is -10 -- and running to the far end,
+    which is left out the way LineTo leaves its last point out.  The other
+    axis comes off the line through the unrounded ends.
+    """
+    fx0, fy0 = x0 / 16.0, y0 / 16.0
+    fx1, fy1 = x1 / 16.0, y1 / 16.0
+    dx, dy = fx1 - fx0, fy1 - fy0
+    if abs(dx) >= abs(dy):
+        if dx == 0:
+            out.add((rnd_away(fx0), rnd_away(fy0)))
+            return
+        m = dy / dx
+        if dx > 0:
+            a = int(math.ceil(fx0))
+            while a < fx1:
+                out.add((a, rnd_away(fy0 + (a - fx0) * m)))
+                a += 1
+        else:
+            a = int(math.floor(fx0))
+            while a > fx1:
+                out.add((a, rnd_away(fy0 + (a - fx0) * m)))
+                a -= 1
     else:
-        n = abs(dyp)
-        sy = 1 if dyp > 0 else -1
-        m = (x1 - x0) / float(y1 - y0) if y1 != y0 else 0.0
-        for i in range(n):
-            py = ay0 + sy * i
-            out.add((int(math.floor((x0 + (py * 16 - y0) * m) / 16.0 + 0.5)),
-                     py))
+        m = dx / dy
+        if dy > 0:
+            a = int(math.ceil(fy0))
+            while a < fy1:
+                out.add((rnd_away(fx0 + (a - fy0) * m), a))
+                a += 1
+        else:
+            a = int(math.floor(fy0))
+            while a > fy1:
+                out.add((rnd_away(fx0 + (a - fy0) * m), a))
+                a -= 1
 
 
 def pixels(segs):
