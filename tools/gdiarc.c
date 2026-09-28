@@ -55,7 +55,7 @@ int main(void)
     HBITMAP bm = 0;
     unsigned *px;
     char tag[64];
-    int rp, odd, x1, y1, x2, y2;
+    int rp, odd, x1, y1, x2, y2, ex0 = 0, ey0 = 0, ex1 = 0, ey1 = 0;
     int w = 0, h = 0;
 
     memset(&bi, 0, sizeof bi);
@@ -66,6 +66,10 @@ int main(void)
 
     while (scanf("%63s %d %d %d %d %d %d", tag, &rp, &odd,
                  &x1, &y1, &x2, &y2) == 7) {
+        if (odd == 10 || odd == 11) {
+            if (scanf("%d %d %d %d", &ex0, &ey0, &ex1, &ey1) != 4)
+                break;
+        }
         int need, cx, cy, x, y, n = 0;
 
         if (rp < 1 || rp > RMAX) {
@@ -106,6 +110,47 @@ int main(void)
                 cx + rp, cy, cx - rp, cy);
             Arc(dc, cx - rp, cy - rp, cx + rp + hi, cy + rp + hi,
                 cx - rp, cy, cx + rp, cy);
+        } else if (odd == 10 || odd == 11) {
+            /* A Bezier with control points of our own choosing, put through
+             * GDI's own flattener.  The arc route hands the flattener
+             * POINTFIX control points with fractions in them, and GetPath
+             * only shows the whole part -- so the flattener could never be
+             * tested on its own.  Here the four points come in as whole
+             * numbers, which are exact in POINTFIX, and what comes back is
+             * GDI's flattening of exactly the curve we asked for.
+             *
+             *   odd 10  the flattened polyline
+             *   odd 11  the pixels of stroking it
+             *
+             * The four points arrive as rp (unused), then x1 y1 x2 y2 for
+             * the two inner ones; the ends come from the two extra numbers
+             * on the line.
+             */
+            POINT bz[4], pp[4096];
+            BYTE tt[4096];
+            int got, q;
+
+            bz[0].x = cx + ex0; bz[0].y = cy + ey0;
+            bz[1].x = cx + x1;  bz[1].y = cy + y1;
+            bz[2].x = cx + x2;  bz[2].y = cy + y2;
+            bz[3].x = cx + ex1; bz[3].y = cy + ey1;
+            BeginPath(dc);
+            MoveToEx(dc, bz[0].x, bz[0].y, 0);
+            PolyBezierTo(dc, bz + 1, 3);
+            EndPath(dc);
+            if (odd == 11) {
+                FlattenPath(dc);
+                StrokePath(dc);
+            } else {
+                FlattenPath(dc);
+                got = GetPath(dc, pp, tt, 4096);
+                printf("%s %d\n", tag, got < 0 ? 0 : got);
+                for (q = 0; q < got; q++)
+                    printf("%d %d\n", (int)pp[q].x - cx,
+                           (int)pp[q].y - cy);
+                AbortPath(dc);
+                continue;
+            }
         } else if (odd == 7 || odd == 8 || odd == 9) {
             /* Ask GDI what an Arc *is*, rather than guessing.
              *

@@ -1,0 +1,276 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),
+        '2;1');
+FILE_NAME('pens.sfc',
+        '2026-9-24T4:9:41',
+        (''),
+        (''),
+        'SCADEC_API_Ver3.30',
+        'Jw_cad',
+        '');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+
+/*SXF
+#10 = pre_defined_colour_feature(\'red\')
+SXF*/
+
+/*SXF
+#20 = pre_defined_colour_feature(\'deeppink\')
+SXF*/
+
+/*SXF
+#30 = pre_defined_colour_feature(\'green\')
+SXF*/
+
+/*SXF
+#40 = pre_defined_colour_feature(\'black\')
+SXF*/
+
+/*SXF
+#50 = pre_defined_colour_feature(\'blue\')
+SXF*/
+
+/*SXF
+#60 = pre_defined_colour_feature(\'yellow\')
+SXF*/
+
+/*SXF
+#70 = pre_defined_colour_feature(\'magenta\')
+SXF*/
+
+/*SXF
+#80 = pre_defined_colour_feature(\'cyan\')
+SXF*/
+
+/*SXF
+#90 = pre_defined_colour_feature(\'white\')
+SXF*/
+
+/*SXF
+#100 = pre_defined_colour_feature(\'brown\')
+SXF*/
+
+/*SXF
+#110 = pre_defined_colour_feature(\'orange\')
+SXF*/
+
+/*SXF
+#120 = pre_defined_colour_feature(\'lightgreen\')
+SXF*/
+
+/*SXF
+#130 = pre_defined_colour_feature(\'lightblue\')
+SXF*/
+
+/*SXF
+#140 = pre_defined_colour_feature(\'lavender\')
+SXF*/
+
+/*SXF
+#150 = pre_defined_colour_feature(\'lightgray\')
+SXF*/
+
+/*SXF
+#160 = pre_defined_colour_feature(\'darkgray\')
+SXF*/
+
+/*SXF
+#170 = user_defined_colour_feature('0','128','128')
+SXF*/
+
+/*SXF
+#180 = user_defined_colour_feature('240','180','180')
+SXF*/
+
+/*SXF
+#190 = pre_defined_font_feature(\'long dashed double-dotted\')
+SXF*/
+
+/*SXF
+#200 = pre_defined_font_feature(\'continuous\')
+SXF*/
+
+/*SXF
+#210 = pre_defined_font_feature(\'double-dashed double-dotted\')
+SXF*/
+
+/*SXF
+#220 = pre_defined_font_feature(\'dashed\')
+SXF*/
+
+/*SXF
+#230 = pre_defined_font_feature(\'dashed spaced\')
+SXF*/
+
+/*SXF
+#240 = pre_defined_font_feature(\'long dashed dotted\')
+SXF*/
+
+/*SXF
+#250 = pre_defined_font_feature(\'long dashed triplicate-dotted\')
+SXF*/
+
+/*SXF
+#260 = pre_defined_font_feature(\'dotted\')
+SXF*/
+
+/*SXF
+#270 = pre_defined_font_feature(\'chain\')
+SXF*/
+
+/*SXF
+#280 = pre_defined_font_feature(\'chain double dash\')
+SXF*/
+
+/*SXF
+#290 = pre_defined_font_feature(\'dashed dotted\')
+SXF*/
+
+/*SXF
+#300 = pre_defined_font_feature(\'double-dashed dotted\')
+SXF*/
+
+/*SXF
+#310 = pre_defined_font_feature(\'dashed double-dotted\')
+SXF*/
+
+/*SXF
+#320 = pre_defined_font_feature(\'dashed triplicate-dotted\')
+SXF*/
+
+/*SXF
+#330 = pre_defined_font_feature(\'double-dashed triplicate-dotted\')
+SXF*/
+
+/*SXF
+#340 = user_defined_font_feature(\'dot9\','4','(0.124000,0.876000,0.124000,0.876000)')
+SXF*/
+
+/*SXF
+#350 = width_feature('0.130000')
+SXF*/
+
+/*SXF
+#360 = width_feature('0.180000')
+SXF*/
+
+/*SXF
+#370 = width_feature('0.250000')
+SXF*/
+
+/*SXF
+#380 = width_feature('0.350000')
+SXF*/
+
+/*SXF
+#390 = width_feature('0.500000')
+SXF*/
+
+/*SXF
+#400 = width_feature('0.700000')
+SXF*/
+
+/*SXF
+#410 = width_feature('1.000000')
+SXF*/
+
+/*SXF
+#420 = width_feature('1.400000')
+SXF*/
+
+/*SXF
+#430 = width_feature('2.000000')
+SXF*/
+
+/*SXF
+#440 = width_feature('0.084667')
+SXF*/
+
+/*SXF
+#450 = width_feature('0.423333')
+SXF*/
+
+/*SXF
+#460 = width_feature('0.592667')
+SXF*/
+
+/*SXF
+#465 = text_font_feature(\'ÇlÇr ÉSÉVÉbÉN\')
+SXF*/
+
+/*SXF
+#470 = arc_feature('1','1','1','2','72100.000000','53400.000000','3000.000000','0','0.00000000000000','90.0000000000000')
+SXF*/
+
+/*SXF
+#480 = arc_feature('1','3','1','3','80100.000000','53400.000000','3000.000000','1','180.000000000000','90.0000000000000')
+SXF*/
+
+/*SXF
+#490 = arc_feature('1','5','1','4','88100.000000','53400.000000','3000.000000','0','270.000000000000','30.0000000000000')
+SXF*/
+
+/*SXF
+#500 = arc_feature('2','6','7','5','96100.000000','53400.000000','3000.000000','1','45.0000000000000','315.000000000000')
+SXF*/
+
+/*SXF
+#510 = circle_feature('1','6','1','12','96100.000000','43400.000000','3000.000000')
+SXF*/
+
+/*SXF
+#520 = circle_feature('2','2','3','2','88100.000000','43400.000000','5000.000000')
+SXF*/
+
+/*SXF
+#530 = point_marker_feature('1','3','80100.000000','45400.000000','3','0.00000000000000','1.00000000000000')
+SXF*/
+
+/*SXF
+#540 = point_marker_feature('2','5','72100.000000','45400.000000','3','0.00000000000000','1.00000000000000')
+SXF*/
+
+/*SXF
+#550 = line_feature('1','7','1','11','64100.000000','61400.000000','104100.000000','61400.000000')
+SXF*/
+
+/*SXF
+#560 = polyline_feature('1','3','1','2','4','(64100.000000,68100.000000,72100.000000,64100.000000)','(71400.000000,75400.000000,71400.000000,71400.000000)')
+SXF*/
+
+/*SXF
+#570 = text_string_feature('1','3','1',\'ABC\','64100.000000','61400.000000','500.000000','1875.000000','0.000000','0.00000000000000','0.00000000000000','1','1')
+SXF*/
+
+/*SXF
+#580 = text_string_feature('1','5','1',\'Ç†Ç¢abc\','64100.000000','66400.000000','800.000000','2800.000000','0.000000','30.0000000000000','0.00000000000000','1','1')
+SXF*/
+
+/*SXF
+#590 = text_string_feature('2','2','1',\'XY\','74100.000000','71400.000000','400.000000','800.000000','100.000000','90.0000000000000','0.00000000000000','1','1')
+SXF*/
+
+/*SXF
+#650 = sfig_org_feature(\'-GLay-0-\','1')
+SXF*/
+
+/*SXF
+#660 = sfig_locate_feature('0',\'-GLay-0-\','0.000000','0.000000','0.00000000000000','0.00500000000000','0.00500000000000')
+SXF*/
+
+/*SXF
+#670 = drawing_sheet_feature(\'sheet\','1','1','841','594')
+SXF*/
+
+/*SXF
+#680 = layer_feature(\'Å@ñ{ëÃ\','1')
+SXF*/
+
+/*SXF
+#690 = layer_feature(\'ï‚èïê¸\','0')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;
