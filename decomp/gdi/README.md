@@ -24,11 +24,27 @@ Ghidra の PDB Universal 解析器は、PDB を binary と同じ場所に置い�
 sh tools/gdi_decomp.sh          # 一式（転送・解析・逆コンパイル・持ち帰り）
 ```
 
+必要なものは**2 つのモジュールに分かれています**。弧を Bézier にする
+ところは `win32kfull.sys`、**平坦化と路は `win32kbase.sys`**（前者からは
+`__imp_` で呼ぶだけなので、`win32kfull` を見ても中身はありません）。
+
+```sh
+# 片方ずつ。ビルド機（20 コア）で解析 1 分、逆コンパイルは数秒
+scp win32kfull.sys win32kfull.pdb <box>:C:/prog/win32k/bin/
+ssh <box> 'C:\prog\win32knalyze_gdi_box.bat win32kfull.sys proj'
+ssh <box> 'C:\prog\win32k\decomp_gdi_box.bat win32kfull.sys proj arc.c ArcInternal PartialArc Arctan'
+```
+
 ## 中身
 
-* `arc.c` —— `Arc`/`Chord`/`Pie` から画素までの道筋にある関数だけ。
-  名前で選んでいます（`ArcInternal`・`PartialArc`・`BEZIER`・`bFlatten`・
-  `DDA_CLIPLINE`・`Arctan`）
+| | |
+|---|---|
+| [`HANDOVER.md`](HANDOVER.md) | **まずこれ。**何が問題で、何が確定で、何を否定したか、次の一手 |
+| `arc.c` | `win32kfull.sys` から 7 関数 —— `NtGdiArcInternal`・`bPartialArc`・`vArctan` ほか |
+| `flatten.c` | `win32kbase.sys` から 9 関数 —— **`BEZIER32::bInit`/`bNext`・`BEZIER64`**・`EPATHOBJ::bFlatten` ほか |
+
+`DecompileNamed.java` は**完全修飾名**で照合します（`BEZIER32::bNext` の
+`getName()` は `bNext` だけなので、クラス名で探すならこれが要ります）。
 
 **これは Microsoft の著作物から機械的に起こしたものです。**読むために
 置いてあり、移植に写してはいません —— 移植の答えは今までどおり
