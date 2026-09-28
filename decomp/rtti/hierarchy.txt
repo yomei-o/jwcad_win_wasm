@@ -1,0 +1,676 @@
+AAPAU1::PAUHWND__::?$CList : CObject
+AAPAV1::IAAIPAVCMFCToolBarButton::?$CMap : CObject
+AAU12::CMFCDynamicLayoutData::UItem::?$CList : CObject
+AAU1::UAFX_AUTOHIDE_DOCKSITE_SAVE_INFO::?$CList : CObject
+ABU12::CTaskDialog::U_CTaskDialogButton::?$CArray : CObject
+ABV1::VCVariantBoolPair::?$CArray : CObject
+ABW412::CArchive::W4LoadArrayObjType::?$CArray : CObject
+AFX_MODULE_STATE : CNoTrackObject
+AFX_MODULE_THREAD_STATE : CNoTrackObject
+ATL::ATL::VCAccessibleProxy::?$CComObjectNoLock : ATL::CAccessibleProxy <- ATL::ATL::VCComSingleThreadModel::?$CComObjectRootEx <- ATL::CComObjectRootBase <- ATL::ATL::VCAccessibleProxy::?$IAccessibleProxyImpl <- IAccessible <- IDispatch <- IUnknown <- IAccessibleProxy <- IUnknown <- IOleWindow <- IUnknown
+ATL::CImage : 
+ATL::IDocument : 
+C25DDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CAboutDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CAfxStringMgr : ATL::IAtlStringMgr
+CArchiveException : CException <- CObject
+CAutoDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CAutoHideDockSite : CDockSite <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CAutoPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CBasePane : CWnd <- CCmdTarget <- CObject
+CBaseTabbedPane : CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CBitmap : CGdiObject <- CObject
+CBitmapButton : CButton <- CWnd <- CCmdTarget <- CObject
+CBlkkDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CBlockEditDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CBlockSelNameDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CBlockTreeDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CBrush : CGdiObject <- CObject
+CBunkatsuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CButton : CWnd <- CCmdTarget <- CObject
+CButton9Dlg : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CButton9Dlg2 : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CByteArray : CObject
+CCellObj : CObject
+CCheckListBox : CListBox <- CWnd <- CCmdTarget <- CObject
+CChevronOwnerDrawMenu : CMenu <- CObject
+CClientDC : CDC <- CObject
+CCmdUI : 
+CColorButton : CBitmapButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CColorButton2 : CBitmapButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CColorDialog : CCommonDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CComboBox : CWnd <- CCmdTarget <- CObject
+CCommandLineInfo : CObject
+CCommandManager : 
+CCommonDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CCriticalSection : CSyncObject <- CObject
+CDC : CObject
+CDWordArray : CObject
+CData : CObject
+CData3DEnko : CDataEnko <- CData <- CObject
+CData3DSen : CDataSen <- CData <- CObject
+CData3DSolid : CDataSolid <- CData <- CObject
+CDataBlock : CData <- CObject
+CDataEnko : CData <- CObject
+CDataHenkei : CObject
+CDataHensuu : CObject
+CDataHndl : CObject
+CDataList : CData <- CObject
+CDataMoji : CData <- CObject
+CDataRecoveryHandler : CObject
+CDataSen : CData <- CObject
+CDataSolid : CData <- CObject
+CDataSunpou : CData <- CObject
+CDataTen : CData <- CObject
+CDialog : CWnd <- CCmdTarget <- CObject
+CDialogBar : CControlBar <- CWnd <- CCmdTarget <- CObject
+CDialogEx : CDialog <- CWnd <- CCmdTarget <- CObject
+CDialogImpl : 
+CDocItem : CCmdTarget <- CObject
+CDocManager : CObject
+CDockBar : CControlBar <- CWnd <- CCmdTarget <- CObject
+CDockContext : 
+CDockSite : CBasePane <- CWnd <- CCmdTarget <- CObject
+CDockState : CObject
+CDockablePane : CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CDockablePaneAdapter : CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CDockingManager : CObject
+CDockingPanesRow : CObject
+CDocument::CDocumentAdapter : ATL::IDocument
+CDocument::XInitializeWithStream : IInitializeWithStream <- IUnknown
+CDocument::XObjectWithSite : IObjectWithSite <- IUnknown
+CDocument::XOleWindow : IOleWindow <- IUnknown
+CDocument::XPreviewHandler : IPreviewHandler <- IUnknown
+CDocument::XPreviewHandlerVisuals : IPreviewHandlerVisuals <- IUnknown
+CDragDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CDrawingManager : CObject
+CDummyDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CDummyDockablePane : CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CDxfFile : 
+CDxfPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CDxfProgDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CEdit : CWnd <- CCmdTarget <- CObject
+CEditDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CEnkoDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CEnumArray : CCmdTarget <- CObject
+CEnumArray::XEnumVOID : IEnumVOID <- IUnknown
+CEnumFormatEtc : CEnumArray <- CCmdTarget <- CObject
+CFile : CObject
+CFileDialog : CCommonDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CFileDialog::XFileDialogControlEvents : IFileDialogControlEvents <- IUnknown
+CFileDialog::XFileDialogEvents : IFileDialogEvents <- IUnknown
+CFileException : CException <- CObject
+CFileFind : CObject
+CFont : CGdiObject <- CObject
+CFontComboBox : CLocalComboBox <- CComboBox <- CWnd <- CCmdTarget <- CObject
+CFrameImpl : 
+CFrameWnd : CWnd <- CCmdTarget <- CObject
+CFrameWndEx : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CFukusenDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CFukushaDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CFukushaZokuseiHenDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CFullScreenImpl : 
+CGaibuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CGamenBairitsuDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CGamenJoken : 
+CGamenPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CGazouDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CGdiObject : CObject
+CGlobalUtils : 
+CHachiDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CHandleMap : 
+CHeaderCtrl : CWnd <- CCmdTarget <- CObject
+CHelpComboBoxButton : CMFCToolBarComboBoxButton <- CMFCToolBarButton <- CObject
+CHikageJikanDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CHourakuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CIkkatstHenkanDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CIkktuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CImageList : CObject
+CInvalidArgException : CSimpleException <- CException <- CObject
+CJikukakuDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CJw_winApp : CWinApp <- CWinThread <- CCmdTarget <- CObject
+CJw_winDoc : CMiniDoc <- CDocument <- CCmdTarget <- CObject
+CJw_winView : CView <- CWnd <- CCmdTarget <- CObject <- CGamenJoken
+CKageDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CKeyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CKijunTenButton : CButton <- CWnd <- CCmdTarget <- CObject
+CKjiJunTenDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CKyokusenDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CLType : 
+CLayer : 
+CLayerButton : CBitmapButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CLayerControlBar : CToolBar <- CControlBar <- CWnd <- CCmdTarget <- CObject
+CLayerControlButton : CBitmapButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CLayerDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CListBox : CWnd <- CCmdTarget <- CObject
+CListCtrl : CWnd <- CCmdTarget <- CObject
+CLocalComboBox : CComboBox <- CWnd <- CCmdTarget <- CObject
+CMDIChildWnd : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMDIChildWndEx : CMDIChildWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMDIClientAreaWnd : CWnd <- CCmdTarget <- CObject
+CMDIFrameWnd : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMDIFrameWndEx : CMDIFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMDITabProxyWnd : CWnd <- CCmdTarget <- CObject
+CMFCAcceleratorKey : CObject
+CMFCAcceleratorKeyAssignCtrl : CEdit <- CWnd <- CCmdTarget <- CObject
+CMFCAutoHideBar : CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCAutoHideButton : CObject
+CMFCBaseAccessibleObject : CCmdTarget <- CObject
+CMFCBaseAccessibleObject::XAccessible : IAccessible <- IDispatch <- IUnknown
+CMFCBaseTabCtrl : CWnd <- CCmdTarget <- CObject
+CMFCBaseToolBar : CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCBaseVisualManager : CObject
+CMFCButton : CButton <- CWnd <- CCmdTarget <- CObject
+CMFCCaptionBar : CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCCaptionButton : CObject
+CMFCCaptionButtonEx : CMFCCaptionButton <- CObject
+CMFCCaptionMenuButton : CMFCCaptionButton <- CObject
+CMFCCmdUsageCount : CObject
+CMFCColorBar : CMFCPopupMenuBar <- CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCColorBarCmdUI : CCmdUI
+CMFCColorButton : CMFCButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CMFCColorDialog : CDialogEx <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCColorMenuButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CMFCColorPickerCtrl : CButton <- CWnd <- CCmdTarget <- CObject
+CMFCColorPopupMenu : CMFCPopupMenu <- CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCColorPropertySheet : CPropertySheet <- CWnd <- CCmdTarget <- CObject
+CMFCControlBarImpl : 
+CMFCControlContainer : CObject
+CMFCControlRenderer : CObject
+CMFCCustomColorsPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCCustomizeButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CMFCCustomizeMenuButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CMFCDisableMenuAnimation : 
+CMFCDragFrameImpl : 
+CMFCDropDownFrame : CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCDropDownToolBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCDropDownToolbarButton : CMFCToolBarButton <- CObject
+CMFCDynamicLayout : CObject
+CMFCEditBrowseCtrl : CEdit <- CWnd <- CCmdTarget <- CObject
+CMFCFontComboBox : CComboBox <- CWnd <- CCmdTarget <- CObject
+CMFCFontInfo : CObject
+CMFCHeaderCtrl : CHeaderCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCImageEditorDialog : CDialogEx <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCImageEditorPaletteBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCImagePaintArea : CButton <- CWnd <- CCmdTarget <- CObject
+CMFCLinkCtrl : CMFCButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CMFCListCtrl : CListCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCMaskedEdit : CEdit <- CWnd <- CCmdTarget <- CObject
+CMFCMenuBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCMenuButton : CMFCButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CMFCMousePropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCOutlookBar : CBaseTabbedPane <- CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCOutlookBarPane : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCOutlookBarPaneAdapter : CDockablePaneAdapter <- CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCOutlookBarPaneButton : CMFCToolBarButton <- CObject
+CMFCOutlookBarScrollButton : CMFCButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CMFCOutlookBarTabCtrl : CMFCBaseTabCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCOutlookBarToolBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCPopupMenu : CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCPopupMenuBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCPrintPreviewToolBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCPropertyGridCtrl : CWnd <- CCmdTarget <- CObject
+CMFCPropertyGridToolTipCtrl : CWnd <- CCmdTarget <- CObject
+CMFCPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCRibbonBaseElement : CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonButton : CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonButtonsGroup : CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonCaptionButton : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonCategory : CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonCmdUI : CCmdUI
+CMFCRibbonColorButton : CMFCRibbonGallery <- CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonColorMenuButton : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonDefaultPanelButton : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonEdit : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonGallery : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonGalleryIcon : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonKeyTip : CWnd <- CCmdTarget <- CObject
+CMFCRibbonLabel : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonLaunchButton : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonMainPanel : CMFCRibbonPanel <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonMiniToolBar : CMFCRibbonPanelMenu <- CMFCPopupMenu <- CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCRibbonPanel : CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonPanelMenu : CMFCPopupMenu <- CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCRibbonPanelMenuBar : CMFCPopupMenuBar <- CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCRibbonQuickAccessCustomizeButton : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonQuickAccessToolBar : CMFCRibbonButtonsGroup <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonRecentFilesList : CMFCRibbonButtonsGroup <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonRichEditCtrl : CRichEditCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCRibbonSeparator : CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonSpinButtonCtrl : CMFCSpinButtonCtrl <- CSpinButtonCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCRibbonTab : CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCRibbonUndoButton : CMFCRibbonGallery <- CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CMFCShadowRenderer : CMFCControlRenderer <- CObject
+CMFCShadowWnd : CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCShellListCtrl : CMFCListCtrl <- CListCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCShellTreeCtrl : CTreeCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCShowAllButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CMFCSpinButtonCtrl : CSpinButtonCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCStandardColorsPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCTabButton : CMFCButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CMFCTabCtrl : CMFCBaseTabCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCTabDropTarget : COleDropTarget <- CCmdTarget <- CObject
+CMFCTabInfo : CObject
+CMFCTasksPane : CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCTasksPaneFrameWnd : CPaneFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMFCTasksPanePropertyPage : CObject
+CMFCTasksPaneToolBar : CMFCToolBar <- CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCTasksPaneToolBarCmdUI : CCmdUI
+CMFCToolBar : CMFCBaseToolBar <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarButton : CObject
+CMFCToolBarButtonCustomizeDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarButtonsListButton : CButton <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarCmdUI : CCmdUI
+CMFCToolBarColorButton : CMFCToolBarButton <- CObject
+CMFCToolBarComboBoxButton : CMFCToolBarButton <- CObject
+CMFCToolBarComboBoxEdit : CEdit <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarDropSource : COleDropSource <- CCmdTarget <- CObject
+CMFCToolBarDropTarget : COleDropTarget <- CCmdTarget <- CObject
+CMFCToolBarEditBoxButton : CMFCToolBarButton <- CObject
+CMFCToolBarEditCtrl : CMFCEditBrowseCtrl <- CEdit <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarFontComboBox : CMFCToolBarComboBoxButton <- CMFCToolBarButton <- CObject
+CMFCToolBarFontSizeComboBox : CMFCToolBarComboBoxButton <- CMFCToolBarButton <- CObject
+CMFCToolBarImages : CObject
+CMFCToolBarMenuButton : CMFCToolBarButton <- CObject
+CMFCToolBarMenuButtonsButton : CMFCToolBarButton <- CObject
+CMFCToolBarNameDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarSystemMenuButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CMFCToolBarsCommandsListBox : CListBox <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsCommandsPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsCustomizeDialog : CPropertySheet <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsKeyboardPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsListCheckBox : CCheckListBox <- CListBox <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsListPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsMenuPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsOptionsPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolBarsToolsPropertyPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMFCToolTipCtrl : CToolTipCtrl <- CWnd <- CCmdTarget <- CObject
+CMFCVisualManager : CMFCBaseVisualManager <- CObject
+CMFCVisualManagerBitmapCache : 
+CMFCVisualManagerBitmapCache::CMFCVisualManagerBitmapCacheItem : 
+CMFCVisualManagerOffice2003 : CMFCVisualManagerOfficeXP <- CMFCVisualManager <- CMFCBaseVisualManager <- CObject
+CMFCVisualManagerOffice2007 : CMFCVisualManagerOffice2003 <- CMFCVisualManagerOfficeXP <- CMFCVisualManager <- CMFCBaseVisualManager <- CObject
+CMFCVisualManagerOfficeXP : CMFCVisualManager <- CMFCBaseVisualManager <- CObject
+CMFCZoomKernel : 
+CMainFrame : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMapPtrToPtr : CObject
+CMapStringToPtr : CObject
+CMapWordToOb : CObject
+CMemDC : 
+CMemFile : CFile <- CObject
+CMemoryException : CSimpleException <- CException <- CObject
+CMentoriDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMenu : CObject
+CMenuHash : 
+CMiniDoc : CDocument <- CCmdTarget <- CObject
+CMiniDockFrameWnd : CMiniFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMiniFrameWnd : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMirrorFile : CFile <- CObject
+CMojiDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMojiDialog2 : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMojiKensakuNameDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMojiPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMojiSeiriDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMojiSelDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMojiSizeDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMouseManager : CObject
+CMsgDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMtextStatus : 
+CMultiPaneFrameWnd : CPaneFrameWnd <- CWnd <- CCmdTarget <- CObject
+CMy02ComboBox : CComboBox <- CWnd <- CCmdTarget <- CObject
+CMy0ComboBox : CMyComboBox <- CComboBox <- CWnd <- CCmdTarget <- CObject
+CMy2ComboBox : CComboBox <- CWnd <- CCmdTarget <- CObject
+CMy2ComboBox1 : CMy2ComboBox <- CComboBox <- CWnd <- CCmdTarget <- CObject
+CMy3Button : CButton <- CWnd <- CCmdTarget <- CObject
+CMyBWnd : CWnd <- CCmdTarget <- CObject
+CMyButton : CButton <- CWnd <- CCmdTarget <- CObject
+CMyColorDialog : CColorDialog <- CCommonDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CMyComboBox : CComboBox <- CWnd <- CCmdTarget <- CObject
+CMyCtrlBar : CMyToolBar <- CToolBar <- CControlBar <- CWnd <- CCmdTarget <- CObject
+CMyDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMyFileDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CMyListCtrl : CListCtrl <- CWnd <- CCmdTarget <- CObject
+CMyPropertySheet : CPropertySheet <- CWnd <- CCmdTarget <- CObject
+CMyStatusBar : CStatusBar <- CControlBar <- CWnd <- CCmdTarget <- CObject
+CMyTabCtrl : CTabCtrl <- CWnd <- CCmdTarget <- CObject
+CMyToolBar : CToolBar <- CControlBar <- CWnd <- CCmdTarget <- CObject
+CMyTree2Ctrl : CTreeCtrl <- CWnd <- CCmdTarget <- CObject
+CMyTreeCtrl : CTreeCtrl <- CWnd <- CCmdTarget <- CObject
+CMyWnd : CWnd <- CCmdTarget <- CObject <- CGamenJoken
+CNamaeHenkouDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CNewFileDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CNewTypeDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CNotSupportedException : CSimpleException <- CException <- CObject
+CObArray : CObject
+CObList : CObject
+COffsetDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+COleBusyDialog : COleDialog <- CCommonDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+COleCntrFrameWnd : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+COleCntrFrameWndEx : COleCntrFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+COleDataSource : CCmdTarget <- CObject
+COleDataSource::XDataObject : IDataObject <- IUnknown
+COleDispatchImpl : IDispatch <- IUnknown
+COleDocIPFrameWnd : COleIPFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+COleDocIPFrameWndEx : COleDocIPFrameWnd <- COleIPFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+COleDropSource : CCmdTarget <- CObject
+COleDropSource::XDropSource : IDropSource <- IUnknown
+COleDropTarget : CCmdTarget <- CObject
+COleDropTarget::XDropTarget : IDropTarget <- IUnknown
+COleException : CException <- CObject
+COleIPFrameWnd : CFrameWnd <- CWnd <- CCmdTarget <- CObject
+COleIPFrameWndEx : COleIPFrameWnd <- CFrameWnd <- CWnd <- CCmdTarget <- CObject
+COleMessageFilter : CCmdTarget <- CObject
+COleMessageFilter::XMessageFilter : IMessageFilter <- IUnknown
+COleStreamFile : CFile <- CObject
+COutlookCustomizeButton : CMFCCustomizeButton <- CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+COutlookOptionsDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CPaintDC : CDC <- CObject
+CPalette : CGdiObject <- CObject
+CPane : CBasePane <- CWnd <- CCmdTarget <- CObject
+CPaneContainer : CObject
+CPaneContainerManager : CObject
+CPaneDivider : CBasePane <- CWnd <- CCmdTarget <- CObject
+CPaneFrameWnd : CWnd <- CCmdTarget <- CObject
+CPaneTrackingWnd : CWnd <- CCmdTarget <- CObject
+CPen : CGdiObject <- CObject
+CPngImage : CBitmap <- CGdiObject <- CObject
+CPreviewDC : CDC <- CObject
+CPreviewView : CScrollView <- CView <- CWnd <- CCmdTarget <- CObject
+CPreviewViewEx : CPreviewView <- CScrollView <- CView <- CWnd <- CCmdTarget <- CObject
+CPrintBairitsuDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CPrintDialog : CCommonDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CPrintKeishikiDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CPrintingDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CProgressCtrl : CWnd <- CCmdTarget <- CObject
+CPropertyPage : CDialog <- CWnd <- CCmdTarget <- CObject
+CPropertySheet : CWnd <- CCmdTarget <- CObject
+CProtectLayPassWordDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CPrtFileDlg : CDialog <- CWnd <- CCmdTarget <- CObject
+CPrtFileWnd : CDialog <- CWnd <- CCmdTarget <- CObject
+CPrtHnDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CPtrArray : CObject
+CPtrList : CObject
+CRecentDockSiteInfo : CObject
+CRecentFileList : 
+CRecentPaneContainerInfo : CObject
+CRenzokuSenDailog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CResourceException : CSimpleException <- CException <- CObject
+CRgn : CGdiObject <- CObject
+CRibbonCategoryScroll : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CRibbonUndoLabel : CMFCRibbonButton <- CMFCRibbonBaseElement <- CMFCBaseAccessibleObject <- CCmdTarget <- CObject
+CRichEditCtrl : CWnd <- CCmdTarget <- CObject
+CRitsumenDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CScaleDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CScreenWnd : CWnd <- CCmdTarget <- CObject
+CScrollBar : CWnd <- CCmdTarget <- CObject
+CScrollView : CView <- CWnd <- CCmdTarget <- CObject
+CSen2Dialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSenCollControlBar : CToolBar <- CControlBar <- CWnd <- CCmdTarget <- CObject
+CSenCollControlBar2 : CToolBar <- CControlBar <- CWnd <- CCmdTarget <- CObject
+CSenDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSenKigouDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSenPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSenshuButton : CBitmapButton <- CButton <- CWnd <- CCmdTarget <- CObject
+CSenshuDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CSenshuDialog2 : CDialog <- CWnd <- CCmdTarget <- CObject
+CSentakuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSesenDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSettingsStore : CObject
+CSharedFile : CMemFile <- CFile <- CObject
+CSimpleException : CException <- CObject
+CSingleDocTemplate : CDocTemplate <- CCmdTarget <- CObject
+CSmartDockingGroupGuide : CSmartDockingStandaloneGuide <- CObject
+CSmartDockingGroupGuidesManager : CObject
+CSmartDockingGroupGuidesWnd : CWnd <- CCmdTarget <- CObject
+CSmartDockingHighlighterWnd : CWnd <- CCmdTarget <- CObject
+CSmartDockingInfo : CObject
+CSmartDockingManager : CObject
+CSmartDockingStandaloneGuide : CObject
+CSmartDockingStandaloneGuideWnd : CWnd <- CCmdTarget <- CObject
+CSonotaPage : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSonotaPage1 : CPropertyPage <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSpiFileFind : CFileFind <- CObject
+CSpinButtonCtrl : CWnd <- CCmdTarget <- CObject
+CStatic : CWnd <- CCmdTarget <- CObject
+CStatusBar : CControlBar <- CWnd <- CCmdTarget <- CObject
+CStatusCmdUI : CCmdUI
+CStdioFile : CFile <- CObject
+CStringArray : CObject
+CStringList : CObject
+CStyle : 
+CSunpoDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CSunpoSetteiDialg : CDialog <- CWnd <- CCmdTarget <- CObject
+CSunpouZukeiKa : CZukeiSentaku <- CZukei <- CObject
+CSuuchiHyouDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CSxfFile : 
+CSyncObject : CObject
+CTabCtrl : CWnd <- CCmdTarget <- CObject
+CTabbedPane : CBaseTabbedPane <- CDockablePane <- CPane <- CBasePane <- CWnd <- CCmdTarget <- CObject
+CTagManager : CObject
+CTakakukeiDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CTaskDialog : CObject
+CTasksPaneHistoryButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CTasksPaneMenuButton : CMFCToolBarMenuButton <- CMFCToolBarButton <- CObject
+CTasksPaneNavigateButton : CMFCToolBarButton <- CObject
+CTateguDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CTateguKijuntenDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CTenkuuZuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CTestCmdUI : CCmdUI
+CThreadData : CNoTrackObject
+CToolBar : CControlBar <- CWnd <- CCmdTarget <- CObject
+CToolBarDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CToolCmdUI : CCmdUI
+CToolTipCtrl : CWnd <- CCmdTarget <- CObject
+CToukaritsDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CToukashokuDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CTourokuZuDialog : CMyDialog <- CDialog <- CWnd <- CCmdTarget <- CObject
+CTreeCtrl : CWnd <- CCmdTarget <- CObject
+CUIntArray : CObject
+CUserDefinedLTypeDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CUserException : CSimpleException <- CException <- CObject
+CUserTBDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CUserTool : CObject
+CVSListBox : CVSListBoxBase <- CStatic <- CWnd <- CCmdTarget <- CObject
+CVSListBoxBase : CStatic <- CWnd <- CCmdTarget <- CObject
+CVSListBoxEditCtrl : CMFCEditBrowseCtrl <- CEdit <- CWnd <- CCmdTarget <- CObject
+CVSToolsListBox : CVSListBox <- CVSListBoxBase <- CStatic <- CWnd <- CCmdTarget <- CObject
+CWinApp : CWinThread <- CCmdTarget <- CObject
+CWinThread : CCmdTarget <- CObject
+CWindowDC : CDC <- CObject
+CWnd : CCmdTarget <- CObject
+CWnd::XAccessible : 
+CWnd::XAccessibleServer : 
+CZaFileSetteiDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CZahyouWritRead : CObject
+CZokuseiSelHenkouDialog : CDialog <- CWnd <- CCmdTarget <- CObject
+CZoom : CObject
+CZukei : CObject
+CZukei25D : CZukeiObject <- CZukei <- CObject
+CZukei2Sen : CZukeiObject <- CZukei <- CObject
+CZukeiAuto : CZukeiObject <- CZukei <- CObject
+CZukeiBunkatsu : CZukeiObject <- CZukei <- CObject
+CZukeiChuushinSen : CZukeiObject <- CZukei <- CObject
+CZukeiCorner : CZukeiSentaku <- CZukei <- CObject
+CZukeiEnko : CZukeiObject <- CZukei <- CObject
+CZukeiFukusen : CZukeiSentaku <- CZukei <- CObject
+CZukeiFukusha : CZukeiSentaku <- CZukei <- CObject
+CZukeiGaibuHenkei : CZukeiSentaku <- CZukei <- CObject
+CZukeiGazou : CZukeiSentaku <- CZukei <- CObject
+CZukeiHachi : CZukeiSentaku <- CZukei <- CObject
+CZukeiHenkou : CZukeiSentaku <- CZukei <- CObject
+CZukeiHikage : CZukeiObject <- CZukei <- CObject
+CZukeiHikaku : CZukeiObject <- CZukei <- CObject
+CZukeiHouraku : CZukeiSentaku <- CZukei <- CObject
+CZukeiJwmKeisan : CZukeiSentaku <- CZukei <- CObject
+CZukeiKage1 : CZukei <- CObject
+CZukeiKage2 : CZukei <- CObject
+CZukeiKage3 : CZukei <- CObject
+CZukeiKeisan : CZukeiSentaku <- CZukei <- CObject
+CZukeiKigouHenkei : CZukeiObject <- CZukei <- CObject
+CZukeiKijunten : CZukei <- CObject
+CZukeiKyokuSen : CZukeiObject <- CZukei <- CObject
+CZukeiKyori : CZukeiObject <- CZukei <- CObject
+CZukeiMoji : CZukeiSentaku <- CZukei <- CObject
+CZukeiObject : CZukei <- CObject
+CZukeiParametric : CZukeiSentaku <- CZukei <- CObject
+CZukeiPrintHanni : CZukeiObject <- CZukei <- CObject
+CZukeiRenzokuSen : CZukeiObject <- CZukei <- CObject
+CZukeiRitsumen : CZukeiObject <- CZukei <- CObject
+CZukeiSeiri : CZukeiSentaku <- CZukei <- CObject
+CZukeiSen : CZukeiObject <- CZukei <- CObject
+CZukeiSentaku : CZukei <- CObject
+CZukeiSessen : CZukeiObject <- CZukei <- CObject
+CZukeiSetuDaEn : CZukeiObject <- CZukei <- CObject
+CZukeiSetuEn : CZukeiObject <- CZukei <- CObject
+CZukeiShinshuku : CZukeiSentaku <- CZukei <- CObject
+CZukeiShoukyo : CZukeiSentaku <- CZukei <- CObject
+CZukeiSokutei : CZukeiSentaku <- CZukei <- CObject
+CZukeiSunpo : CZukeiObject <- CZukei <- CObject
+CZukeiTakakukei : CZukeiObject <- CZukei <- CObject
+CZukeiTategu : CZukeiObject <- CZukei <- CObject
+CZukeiTen : CZukeiObject <- CZukei <- CObject
+CZukeiTenkuu : CZukeiObject <- CZukei <- CObject
+CZukeiTourokuZukei : CZukeiSentaku <- CZukei <- CObject
+CZukeiZahyouFile : CZukeiSentaku <- CZukei <- CObject
+CZukeiZukeiToroku : CZukeiSentaku <- CZukei <- CObject
+Gdiplus::Bitmap : Gdiplus::Image <- Gdiplus::GdiplusBase
+Gdiplus::Image : Gdiplus::GdiplusBase
+HABH::?$CArray : CObject
+HH::?$CArray : CObject
+HH::?$CList : CObject
+HH::PAU1::PAUHICON__::?$CMap : CObject
+HH::PAU1::PAUHWND__::?$CMap : CObject
+HHHH::?$CMap : CObject
+HHII::?$CMap : CObject
+IAAI::?$CList : CObject
+II::?$CArray : CObject
+II::?$CList : CObject
+IIHH::?$CMap : CObject
+IIII::?$CMap : CObject
+IIKK::?$CMap : CObject
+JJ::?$CArray : CObject
+KK::?$CArray : CObject
+KK::?$CList : CObject
+NN::?$CArray : CObject
+PAU1::IIPAUHICON__::?$CMap : CObject
+PAU1::IIPAUHWND__::?$CMap : CObject
+PAU1::PAUAFX_DYNAMIC_LAYOUT_ITEM::?$CList : CObject
+PAU1::PAUHINSTANCE__::?$CList : CObject
+PAU1::PAUHWND__::?$CArray : CObject
+PAU1::PAUHWND__::?$CList : CObject
+PAU1::PAU_ITEMIDLIST::?$CList : CObject
+PAV12::CMFCVisualManagerBitmapCache::PAVCMFCVisualManagerBitmapCacheItem::?$CArray : CObject
+PAV1::IIPAVCMFCRibbonStatusBarPane::?$CMap : CObject
+PAV1::IIPAVCPane::?$CMap : CObject
+PAV1::PAVCFrameWnd::?$CList : CObject
+PAV1::PAVCMDIChildWndEx::?$CList : CObject
+PAV1::PAVCMFCButton::?$CList : CObject
+PAV1::PAVCMFCPropertyGridProperty::?$CList : CObject
+PAV1::PAVCMFCRibbonBaseElement::?$CArray : CObject
+PAV1::PAVCMFCRibbonContextCaption::?$CArray : CObject
+PAV1::PAVCMFCRibbonKeyTip::?$CArray : CObject
+PAV1::PAVCMFCRibbonPanel::?$CArray : CObject
+PAV1::PAVCPropertyPage::?$CList : CObject
+PAV2::PAVCImageList::PAV1::PAVCWnd::?$CMap : CObject
+PAV3::PB_WPAVCDocument::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::V?$CStringT::?$CMap : CObject
+PAV3::PB_WPAVCObList::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::V?$CStringT::?$CMap : CObject
+PAVCBitmap::VCObArray::?$CTypedPtrArray : CObArray <- CObject
+PAVCData::VCObList::?$CTypedPtrList : PAVCData::VCObList::?$_CTypedPtrList <- CObList <- CObject
+PAVCData::VCObList::?$_CTypedPtrList : CObList <- CObject
+PAVCDataBlock::VCObList::?$CTypedPtrList : PAVCDataBlock::VCObList::?$_CTypedPtrList <- CObList <- CObject
+PAVCDataBlock::VCObList::?$_CTypedPtrList : CObList <- CObject
+PAVCDataHensuu::VCObList::?$CTypedPtrList : PAVCDataHensuu::VCObList::?$_CTypedPtrList <- CObList <- CObject
+PAVCDataHensuu::VCObList::?$_CTypedPtrList : CObList <- CObject
+PAVCDataList::VCObList::?$CTypedPtrList : PAVCDataList::VCObList::?$_CTypedPtrList <- CObList <- CObject
+PAVCDataList::VCObList::?$_CTypedPtrList : CObList <- CObject
+PAVCMFCCaptionButton::VCObArray::?$CTypedPtrArray : CObArray <- CObject
+PAXAAPAX::AAPAU1::PAUHMENU__::?$CMap : CObject
+PB_W::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::KKV?$CStringT::?$CMap : CObject
+PB_W::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::V?$CStringT::PAV1::PAVCDocument::?$CMap : CObject
+PB_W::PB_WV12::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::V?$CStringT::?$CMap : CObject
+PB_WHH::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::V?$CStringT::?$CMap : CObject
+PB_W_N_N::ATL::ATL::_W::_WV?$ChTraitsCRT::_WV?$StrTraitMFC::V?$CStringT::?$CMap : CObject
+U1::UCMFCRestoredTabInfo::?$CList : CObject
+U1::UtagPOINT::?$CList : CObject
+V1::VCSize::?$CArray : CObject
+_AFX_BASE_MODULE_STATE : AFX_MODULE_STATE <- CNoTrackObject
+_AFX_CHECKLIST_STATE : CNoTrackObject
+_AFX_COLOR_STATE : CNoTrackObject
+_AFX_D2D_STATE : CNoTrackObject
+_AFX_EDIT_STATE : CNoTrackObject
+_AFX_HTMLHELP_STATE : CNoTrackObject
+_AFX_MAIL_STATE : CNoTrackObject
+_AFX_MOUSEANCHORWND : CWnd <- CCmdTarget <- CObject
+_AFX_OLE_STATE : CNoTrackObject
+_AFX_PROPPAGEFONTINFO : CNoTrackObject
+_AFX_RICHEDIT_STATE : _AFX_EDIT_STATE <- CNoTrackObject
+_AFX_THREAD_STATE : CNoTrackObject
+_AFX_WIN_STATE : CNoTrackObject
+std::2::_W::V?$allocator::std::_W::_WU?$char_traits::?$basic_stringbuf : std::std::_W::_WU?$char_traits::?$basic_streambuf
+std::2::_W::V?$allocator::std::_W::_WU?$char_traits::?$basic_stringstream : std::std::_W::_WU?$char_traits::?$basic_iostream <- std::std::_W::_WU?$char_traits::?$basic_istream <- std::std::_W::_WU?$char_traits::?$basic_ios <- std::ios_base <- std::H::?$_Iosb <- std::std::_W::_WU?$char_traits::?$basic_ostream <- std::std::_W::_WU?$char_traits::?$basic_ios <- std::ios_base <- std::H::?$_Iosb
+std::D$00::?$moneypunct : std::D::?$_Mpunct <- std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::D$0A::?$moneypunct : std::D::?$_Mpunct <- std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::D::?$_Mpunct : std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::D::?$collate : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::D::?$ctype : std::ctype_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::D::?$messages : std::messages_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::D::?$numpunct : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::DDU_Mbstatet::?$codecvt : std::codecvt_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G$00::?$moneypunct : std::G::?$_Mpunct <- std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G$0A::?$moneypunct : std::G::?$_Mpunct <- std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G::?$_Mpunct : std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G::?$collate : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G::?$ctype : std::ctype_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G::?$messages : std::messages_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::G::?$numpunct : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::GDU_Mbstatet::?$codecvt : std::codecvt_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_Facet_base : 
+std::_Iostream_error_category2 : std::error_category
+std::_System_error : std::runtime_error <- std::exception
+std::_W$00::?$moneypunct : std::_W::?$_Mpunct <- std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_W$0A::?$moneypunct : std::_W::?$_Mpunct <- std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_W::?$_Mpunct : std::money_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_W::?$collate : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_W::?$ctype : std::ctype_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_W::?$messages : std::messages_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_W::?$numpunct : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::_WDU_Mbstatet::?$codecvt : std::codecvt_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::bad_alloc : std::exception
+std::bad_array_new_length : std::bad_alloc <- std::exception
+std::bad_cast : std::exception
+std::bad_exception : std::exception
+std::ctype_base : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::exception : 
+std::ios_base : std::H::?$_Iosb
+std::ios_base::failure : std::system_error <- std::_System_error <- std::runtime_error <- std::exception
+std::length_error : std::logic_error <- std::exception
+std::locale::_Locimp : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::locale::facet : std::_Facet_base <- std::_Crt_new_delete
+std::logic_error : std::exception
+std::out_of_range : std::logic_error <- std::exception
+std::runtime_error : std::exception
+std::std::_W::_WU?$char_traits::?$basic_ios : std::ios_base <- std::H::?$_Iosb
+std::std::_W::_WU?$char_traits::?$basic_iostream : std::std::_W::_WU?$char_traits::?$basic_istream <- std::std::_W::_WU?$char_traits::?$basic_ios <- std::ios_base <- std::H::?$_Iosb <- std::std::_W::_WU?$char_traits::?$basic_ostream <- std::std::_W::_WU?$char_traits::?$basic_ios <- std::ios_base <- std::H::?$_Iosb
+std::std::_W::_WU?$char_traits::?$basic_istream : std::std::_W::_WU?$char_traits::?$basic_ios <- std::ios_base <- std::H::?$_Iosb
+std::std::_W::_WU?$char_traits::?$basic_ostream : std::std::_W::_WU?$char_traits::?$basic_ios <- std::ios_base <- std::H::?$_Iosb
+std::std::_W::_WU?$char_traits::?$basic_streambuf : 
+std::std::std::D::DU?$char_traits::DV?$istreambuf_iterator::?$money_get : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::D::DU?$char_traits::DV?$istreambuf_iterator::?$num_get : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::D::DU?$char_traits::DV?$istreambuf_iterator::?$time_get : std::time_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::D::DU?$char_traits::DV?$ostreambuf_iterator::?$money_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::D::DU?$char_traits::DV?$ostreambuf_iterator::?$num_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::D::DU?$char_traits::DV?$ostreambuf_iterator::?$time_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::G::GU?$char_traits::GV?$istreambuf_iterator::?$money_get : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::G::GU?$char_traits::GV?$istreambuf_iterator::?$num_get : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::G::GU?$char_traits::GV?$istreambuf_iterator::?$time_get : std::time_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::G::GU?$char_traits::GV?$ostreambuf_iterator::?$money_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::G::GU?$char_traits::GV?$ostreambuf_iterator::?$num_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::G::GU?$char_traits::GV?$ostreambuf_iterator::?$time_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::_W::_WU?$char_traits::_WV?$istreambuf_iterator::?$money_get : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::_W::_WU?$char_traits::_WV?$istreambuf_iterator::?$num_get : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::_W::_WU?$char_traits::_WV?$istreambuf_iterator::?$time_get : std::time_base <- std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::_W::_WU?$char_traits::_WV?$ostreambuf_iterator::?$money_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::_W::_WU?$char_traits::_WV?$ostreambuf_iterator::?$num_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::std::std::_W::_WU?$char_traits::_WV?$ostreambuf_iterator::?$time_put : std::locale::facet <- std::_Facet_base <- std::_Crt_new_delete
+std::system_error : std::_System_error <- std::runtime_error <- std::exception
+type_info : 

@@ -3,11 +3,20 @@
 # in the form it came in (Jw_win.txt, section 3).  So the installer is here
 # exactly as it is downloaded -- jww10036.exe, an unmodified Inno Setup
 # package -- and the expanded tree is not: orig/ is what the installer makes
-# locally, and decomp/ is machine output taken from the program, which is
-# neither unchanged nor the form it came in.  README.md says how to make both.
+# locally.  README.md says how to make it.
 orig/
-decomp/
 install.log
+
+# The decompilation itself is in the repository (2026-09-28): decomp/byclass,
+# decomp/decomp, decomp/rtti and decomp/inventory.csv are Ghidra's output for
+# Jw_win.exe, which is what every line of src/ was written from, so the
+# working can be followed without a Ghidra run of your own.
+#
+# decomp/res is **not**: that is the original's own data taken straight out of
+# it -- its bitmaps, icons, menus and strings -- together with the .jww files
+# the original itself draws for the tests to be scored against.  Those are
+# made locally by tools/gen.sh from your own copy of the installer.
+decomp/res/
 
 tmp/
 __pycache__/

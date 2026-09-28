@@ -1,0 +1,88 @@
+INFO  Using log config file: jar:file:/C:/prog/ghidra/ghidra_12.1.3_PUBLIC/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  
+INFO  Using log file: C:\Users\yomei\AppData\Roaming\ghidra\ghidra_12.1.3_PUBLIC\application.log (LoggingInitialization)  
+INFO  Loading user preferences: C:\Users\yomei\AppData\Roaming\ghidra\ghidra_12.1.3_PUBLIC\preferences (Preferences)  
+INFO  Searching for classes... (ClassSearcher)  
+INFO  Class search complete (1306 ms) (ClassSearcher)  
+INFO  Initializing SSL Context (DefaultSSLContextInitializer)  
+INFO  Initializing Random Number Generator... (SecureRandomFactory)  
+INFO  Random Number Generator initialization complete: SHA1PRNG (SecureRandomFactory)  
+INFO  Trust manager disabled, cacerts have not been set (DefaultTrustManagerFactory)  
+INFO  Headless startup complete (9247 ms) (AnalyzeHeadless)  
+INFO  Class searcher loaded 59 extension points (20 false positives) (ClassSearcher)  
+INFO  HEADLESS Script Paths:
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Debug\Debugger-rmi-trace\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\FileFormats\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\GnuDemangler\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\VersionTracking\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Debug\Debugger\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Processors\8051\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\BSim\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\WildcardAssembler\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\FunctionID\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\SystemEmulation\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Processors\PIC\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\PDB\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\DecompilerDependent\ghidra_scripts
+    C:\prog\jwwin\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\SwiftDemangler\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\MicrosoftCodeAnalyzer\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Processors\DATA\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\Decompiler\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\BytePatterns\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\PyGhidra\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Processors\Atmel\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Features\Base\ghidra_scripts
+    C:\prog\ghidra\ghidra_12.1.3_PUBLIC\Ghidra\Processors\JVM\ghidra_scripts (HeadlessAnalyzer)  
+INFO  HEADLESS: execution starts (HeadlessAnalyzer)  
+INFO  Opening existing project: C:\prog\jwwin\proj9\jwwin (HeadlessAnalyzer)  
+INFO  Opening project: C:\prog\jwwin\proj9\jwwin (HeadlessProject)  
+INFO  REPORT: Processing read-only project file: /Jw_win.exe (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: DecompileRange 'C:\prog\jwwin\out\decomp' '8cbb35' '954000'  (HeadlessAnalyzer)  
+INFO  SCRIPT: C:\prog\jwwin\ghidra_scripts\DecompileRange.java (HeadlessAnalyzer)  
+INFO  DecompileRange.java> [008cbb35] 250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 1000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 1250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 1500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 1750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 2000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 2250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 2500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 2750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 3000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 3250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 3500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 3750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 4000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 4250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 4500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 4750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 5000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 5250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 5500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 5750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 6000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 6250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 6500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 6750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 7000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 7250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 7500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 7750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 8000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 8250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 8500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 8750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 9000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 9250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 9500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 9750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 10000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 10250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 10500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 10750 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 11000 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 11250 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] 11500 done (GhidraScript)  
+INFO  DecompileRange.java> [008cbb35] decompiled 11729, failed 0, skipped 42 (GhidraScript)  
