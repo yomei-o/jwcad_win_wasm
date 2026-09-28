@@ -204,7 +204,22 @@ sh tools/probectl.sh sen1336 0 1336 '500,400;700,500'
   `POINTFIX`（小数部つき）で、`GetPath` が返す `POINT` はその小数部を
   **捨てた**ものだから。線の DDA も `POINTFIX` を受け取ります
 
-**次にやること**は `win32kfull.sys` を既存の一式で逆コンパイルすること
+**逆コンパイルしました（同日夕）。`decomp/gdi/` にあります —— 続きを
+やる人はまず [`decomp/gdi/HANDOVER.md`](decomp/gdi/HANDOVER.md) を。**
+平坦化の本体 `BEZIER32::bNext` はこう始まります:
+
+    *(int *)param_1       = this[0x24] + (this[0x04] + 0x1000 >> 0xd);
+    *(int *)(param_1 + 4) = this[0x28] + (this[0x14] + 0x1000 >> 0xd);
+
+点は**前進差分の累算器**から出ていて、媒介変数 `t` が出てきません
+（`B(k/8)` と合わなかったのはこれ）。累算器は `POINTFIX` より 13 ビット
+細かく、出すときに `+0x1000` して `>>13`、つまり四捨五入。分割の判定も
+`max(|dx|,|dy|)` の整数比較で、弦との距離ではありませんでした。
+
+**残るのは線の引き方**（`DDA_CLIPLINE` はまだ名前で拾えていません）と、
+`BEZIER32::bInit` を C に写すことです。
+
+（元の案）`win32kfull.sys` を既存の一式で逆コンパイルすること
 （`tools/analyze_box.bat`・`tools/decomp_box.ps1` は作業ディレクトリと
 アドレス範囲を引数に取るのでそのまま使えます。PDB を食わせれば名前が
 付くので、Jw_cad のときのような無名関数の海にはなりません）。読むのは
