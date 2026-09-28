@@ -1032,13 +1032,20 @@ static int hfd_flatten(const int *px, const int *py, int *ox, int *oy,
         y1 = (y1 - (u >> count)) >> 1;
         steps <<= 1;
     }
-    x0 <<= 3;
-    x1 <<= 3;
-    y0 <<= 3;
-    y1 <<= 3;
+    /* The move to << 13.  Multiplication, not a left shift: `bInit` shifts
+       and the differences are signed, and shifting a negative value left is
+       undefined in C -- tools/asan.sh's second pass says so, twenty-four
+       times over.  On every machine the port builds for the two come to the
+       same bits. */
+    x0 *= 8;
+    x1 *= 8;
+    y0 *= 8;
+    y1 *= 8;
     s = count - 3;
     if (s < 0) {
-        x2 <<= -s; x3 <<= -s; y2 <<= -s; y3 <<= -s;
+        int m = 1 << -s;
+
+        x2 *= m; x3 *= m; y2 *= m; y3 *= m;
     } else {
         x2 >>= s; x3 >>= s; y2 >>= s; y3 >>= s;
     }
