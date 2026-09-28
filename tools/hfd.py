@@ -166,7 +166,7 @@ def ask_gdi(cases):
 def cases():
     """Whole-quadrant Beziers of the kind Arc makes, at several radii."""
     out = []
-    for rp in (7, 14, 19, 24, 40, 61):
+    for rp in (3, 7, 14, 19, 24, 40, 61, 100, 200, 300):
         k = int(round(4.0 / 3.0 * math.tan(math.pi / 8) * (rp + 0.5)))
         out.append(((rp, 0), (rp, -k), (k, -rp), (0, -rp)))
         out.append(((0, -rp), (-k, -rp), (-rp, -k), (-rp, 0)))
@@ -183,7 +183,8 @@ def main():
         if g is None:
             continue
         fix = [(p[0] * 16, p[1] * 16) for p in c]
-        mine = [(p[0] >> 4, p[1] >> 4) for p in flatten(fix)]
+        mine = [((p[0] + 8) >> 4, (p[1] + 8) >> 4)
+                for p in flatten(fix)]
         # GDI's list starts with the curve's own first point
         mine = [c[0]] + mine
         ok = mine == g
