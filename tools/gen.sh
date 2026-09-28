@@ -46,11 +46,15 @@ python tools/mksunpo.py                      # the dimension settings
 
 say "GDI's own circles, so the port rasterises them the same way"
 # Not from the .exe: this asks the GDI on this machine what Ellipse draws.
+# Name the compiler by its path rather than putting w64devkit on PATH: its
+# bin/ has an sh, a cp and the rest of them in it too, and with those in front
+# tools/refanswers.sh dies on the spot with 0xc00000ff and every answer below
+# is missing.
 if [ -z "$CC" ]; then
-    for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
-        [ -x "$d/gcc.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
-    done
     CC=gcc
+    for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
+        [ -x "$d/gcc.exe" ] && { CC="$d/gcc"; break; }
+    done
 fi
 $CC -O2 -o tmp/gdicirc.exe tools/gdicirc.c -lgdi32
 ./tmp/gdicirc.exe > decomp/res/circles.txt
@@ -77,6 +81,14 @@ powershell -ExecutionPolicy Bypass -File tools/bars.ps1 -Out decomp/res/bars.txt
 # and the bar a few commands put up once a range is settled, which
 # tools/bars.ps1 cannot reach -- one run each, because after the first the
 # command is still holding a copy and the next one's clicks miss
+# tools/bars2.ps1 works in an empty drawing, and the empty drawing is the one
+# the original makes itself -- which refanswers.sh does not get to until much
+# further down.  On a fresh tree that left all three of these bars out of
+# src/gen/bars.h, so draw it here when it is not there yet.
+if [ ! -f decomp/res/new.jww ]; then
+    sh tools/refenv.sh >/dev/null
+    powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1         -Open '' -Clicks 'saveas:decomp/res/new.jww' >/dev/null
+fi
 : > decomp/res/bars2.txt
 for c in 32804 32918 32910; do
     sh tools/refenv.sh >/dev/null
@@ -124,14 +136,7 @@ cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkname.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:32853,docs/ref_blkname.png' >/dev/null
 python tools/mkblkname.py
 
-say 'ブロック編集 dialog, likewise'
-# It needs a drawing with a block in it and a range over it.
-sh tools/refenv.sh >/dev/null
-cp decomp/res/blkmake.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
-python tools/mkblkedit.py
-
-say '属性変更 dialog -- the other half of 属性選択's window'
+say '属性変更 dialog -- the other half of the 属性選択 window'
 sh tools/refenv.sh >/dev/null
 cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokuhen.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1070,docs/ref_zokuhen.png' >/dev/null
@@ -177,6 +182,14 @@ python tools/mkdxf.py
 
 say 'the drawings the original itself makes, which the tests are scored against'
 sh tools/refanswers.sh
+
+say 'ブロック編集 dialog, which needs the block drawing refanswers.sh has just made'
+# It needs a drawing with a block in it and a range over it.
+sh tools/refenv.sh >/dev/null
+cp decomp/res/blkmake.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
+python tools/mkblkedit.py
+
 python tools/mknew.py decomp/res/new.jww src/gen
 # and what the original puts at the top of a JWC, out of the one it has just
 # written (decomp/res/t5.jwc)

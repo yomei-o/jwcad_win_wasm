@@ -2723,6 +2723,39 @@ static int bar_now(const jw_ctl_t **c)
     return (int)(sizeof jw_bar_32771 / sizeof jw_bar_32771[0]);
 }
 
+/* What the original has with this id on that command's bar.
+ *
+ * The bars are CDialogBars in the original and every control on them is a
+ * real control: a checkbox toggles when it is clicked and a combo takes
+ * typing, whatever the command then makes of it.  src/cmd.c keeps that state
+ * for all of them, and asks here what a control is and how it comes up --
+ * both read out of the running original by tools/mkbars.py.
+ *
+ * Answers 'c' for a checkbox, 'b' for a button, 'o' for a combo, 's' for a
+ * label and 0 when that bar has no such control; *checked, if it is given,
+ * is how the original has a checkbox on entering the command.
+ */
+int ui_bar_ctl(unsigned cmd, int id, int *checked)
+{
+    int i, k;
+
+    for (i = 0; i < JW_NBARS; i++) {
+        if (jw_bars[i].cmd != cmd)
+            continue;
+        for (k = 0; k < jw_bars[i].n; k++) {
+            const jw_ctl_t *c = &jw_bars[i].c[k];
+            if (c->id != (unsigned short)id)
+                continue;
+            if (checked)
+                *checked = c->checked;
+            return c->kind == JW_CTL_CHECK ? 'c'
+                 : c->kind == JW_CTL_BUTTON ? 'b'
+                 : c->kind == JW_CTL_COMBO ? 'o' : 's';
+        }
+    }
+    return 0;
+}
+
 /* Whether a control can be pressed.  The captured state is how the original
    has it on entering the command; the few the port drives itself say so. */
 static int ctl_enabled(const jw_drawing *d, const jw_ctl_t *c)
@@ -2738,7 +2771,11 @@ int ui_bar_hit(int x, int y)
     int n = bar_now(&c), i;
 
     for (i = 0; i < n; i++)
-        if ((c[i].kind == JW_CTL_BUTTON || c[i].kind == JW_CTL_COMBO)
+        /* the checkboxes count as well: they are what turns 水平・垂直,
+           ソリッド, 実寸 and the rest on and off, and leaving them out of
+           the hit test left them drawn but dead */
+        if ((c[i].kind == JW_CTL_BUTTON || c[i].kind == JW_CTL_COMBO
+             || c[i].kind == JW_CTL_CHECK)
             && x >= c[i].x && x < c[i].x + c[i].w
             && y >= c[i].y && y < c[i].y + c[i].h)
             return c[i].id;
@@ -2749,7 +2786,7 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
 {
     const jw_ctl_t *c = jw_bar_32771;
     int n = (int)(sizeof jw_bar_32771 / sizeof jw_bar_32771[0]);
-    int cmd = jw_cmd(), i;
+    int i;
     /* the labels are centred in their control the way Windows centres them;
        the port's glyphs are taller than the original's, and without this the
        bottom rows of them fall outside the bar's text area */
@@ -2763,9 +2800,7 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             /* how the original has it on entering the command, read out
                with BM_GETCHECK, and then whatever the port itself changes */
             on = c[i].checked;
-            if (cmd == JW_CMD_SEN && c[i].x == 71)
-                on = jw_cmd_hv();
-            else if (jw_cmd_bar_check(c[i].id) >= 0)
+            if (jw_cmd_bar_check(c[i].id) >= 0)
                 on = jw_cmd_bar_check(c[i].id);
             paint_checkbox(fb, c[i].x, c[i].y, on);
             jw_text_px(fb, c[i].x + CHECK_W + 3, c[i].y + (c[i].h - th) / 2,

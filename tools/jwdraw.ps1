@@ -365,7 +365,55 @@ try {
         Start-Sleep -Milliseconds 200
         $p.Refresh()
     }
-    $frame = $p.MainWindowHandle
+    # The frame is the process's own visible top-level window that is not a
+    # dialog.  MainWindowHandle is no use for it: at startup it often points
+    # at the .jww association dialog instead (Jw_cad asks whenever HKCR names
+    # another copy of itself, and ours runs out of orig\), and once that is
+    # cancelled the handle is dead -- every client rect off it comes back 0x0,
+    # the view is never found, and the run dies with `no control ...` or `the
+    # save dialog did not come up`.  Half of one gen.sh run went that way.
+    # So: cancel anything modal, then find the frame, and wait for it to lay
+    # itself out.
+    function Find-Frame {
+        $best = [IntPtr]::Zero
+        $area = -1
+        foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+            if (-not [Jw]::IsWindowVisible($t)) { continue }
+            if ([Jw]::Cls($t) -eq '#32770') { continue }
+            if ([Jw]::Txt($t) -eq '') { continue }
+            $r = New-Object Jw+RECT
+            [void][Jw]::GetClientRect($t, [ref]$r)
+            if ($r.Right * $r.Bottom -gt $area) {
+                $area = $r.Right * $r.Bottom
+                $best = $t
+            }
+        }
+        return $best
+    }
+    $frame = [IntPtr]::Zero
+    $deadline = (Get-Date).AddSeconds(30)
+    while ($true) {
+        if ((Get-Date) -gt $deadline) { throw 'the frame never laid itself out' }
+        $modal = [IntPtr]::Zero
+        foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+            if ([Jw]::Cls($t) -ne '#32770' -or -not [Jw]::IsWindowVisible($t)) { continue }
+            if ([Jw]::Txt($t) -eq '') { continue }      # the command bar's own
+            $modal = $t
+        }
+        if ($modal -ne [IntPtr]::Zero) {
+            Write-Host ("dismissed a dialog at startup: [{0}]" -f [Jw]::Txt($modal))
+            [void][Jw]::SendMessageW($modal, 0x0111, [IntPtr]2, [IntPtr]::Zero)  # IDCANCEL
+            Start-Sleep -Milliseconds 700
+            continue
+        }
+        $frame = Find-Frame
+        if ($frame -ne [IntPtr]::Zero) {
+            $fr0 = New-Object Jw+RECT
+            [void][Jw]::GetClientRect($frame, [ref]$fr0)
+            if ($fr0.Right -gt 0 -and $fr0.Bottom -gt 0) { break }
+        }
+        Start-Sleep -Milliseconds 300
+    }
     [void][Jw]::ShowWindow($frame, 4)                       # SW_SHOWNOACTIVATE
     # Put it at the size docs/ref_*.png were taken at, the way tools/shot.ps1
     # does.  Jw_cad normally comes up at the WindowPos in HKCU, which
@@ -380,6 +428,12 @@ try {
     # HWND_BOTTOM, no move, no size, no activate
     [void][Jw]::SetWindowPos($frame, [IntPtr]1, 0, 0, 0, 0, 0x0013)
     Start-Sleep -Milliseconds $SettleMs
+
+    # Anything modal that came up on the way in gets キャンセル.  Jw_cad asks
+    # about the .jww association whenever HKCR points at another copy of
+    # itself (ours runs out of orig\, the association says C:\jww\), and
+    # while that dialog is up the frame has not laid itself out -- the view
+    # comes back 264x41 and every click lands somewhere else.
 
     $view = [Jw]::Biggest($frame)
     $fc = New-Object Jw+RECT; [void][Jw]::GetClientRect($frame, [ref]$fc)

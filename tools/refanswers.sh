@@ -39,10 +39,14 @@ TRIES=${TRIES:-5}
 # Nothing of the original left running: it writes HKCU on the way out, and a
 # refenv.sh that lands before that write is undone by it.
 idle() {
-    n=0
+    # idle_n, not n: sh has no locals, and the DXF colour answers below count
+    # with `for n in 1 2` and call this in the middle of it.  While it was `n`
+    # they asked the original to open decomp/res/aci0.dxf, which is not there,
+    # and src/gen/aci.h was never made (found 2026-09-28).
+    idle_n=0
     while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do
-        n=$((n + 1))
-        [ $n -gt 60 ] && { echo "Jw_win.exe will not go away" >&2; exit 1; }
+        idle_n=$((idle_n + 1))
+        [ $idle_n -gt 60 ] && { echo "Jw_win.exe will not go away" >&2; exit 1; }
         sleep 1
     done
 }
@@ -1175,6 +1179,13 @@ cp orig/Test5.jww tmp/rect.jww
 $PS -Open tmp/rect.jww -NoSave     -Clicks 'figin:32862,decomp/res/fig.jws;wait:800;ch:1431,2;wait:400;ch:1412,30;wait:600;400,300;wait:1000;saveas:decomp/res/figin2.jww'     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
+
+# 線・矩形 の 寸法・傾き: the numbers typed into the command bar, which is how
+# a rectangle 1000 mm across is actually drawn.  矩形's 寸法 takes "横,縦";
+# 線 takes a 傾き and a 寸法 of its own.  線 is the command the original comes
+# up in, so it is driven with no command at all -- sending 32771 while 線 is
+# already in force toggles 水平・垂直 instead, and the line comes out level.
+make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
 idle
 sh tools/refenv.sh >/dev/null

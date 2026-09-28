@@ -312,6 +312,18 @@ echo "=== 多角形 —— 原典が描いた八角形との突き合わせ"
 ./tests/poly_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 線・矩形の寸法と傾き —— 打ち込んだ数値で原典が描いたものとの突き合わせ"
+./tests/sized_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 線の性質 —— 長さ・角度・線色・線種を全部載せた 1 本"
+./tests/senprop_test.exe | sed 's/^/    /'
+
+echo
+echo "=== コマンドバー —— どのつまみが効いているかの棚卸し"
+./tests/barprobe_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 

@@ -6,6 +6,7 @@
 
 #include "cmd.h"
 #include "pick.h"
+#include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
 #include "gen/prompts.h"
 #include "gen/sunpo.h"
@@ -291,6 +292,10 @@ static double nisen_x, nisen_y;
 /* The ids are not unique: 1411 is the first combo of nearly every bar, so
    a box belongs to a command as well as to an id. */
 static struct { unsigned short cmd, id; char t[16]; } box[] = {
+    { JW_CMD_SEN, 1411, "" },           /* 線の傾き */
+    { JW_CMD_SEN, 1412, "" },           /* 線の寸法（長さ） */
+    { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
+    { JW_CMD_KUKEI, 1413, "" },         /* 矩形の寸法 "横,縦" */
     { JW_CMD_TAKAKU, 1411, "1000" },    /* 寸法      */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
@@ -313,6 +318,78 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
 };
 static int box_focus;
+
+/* Everything else on the bars.
+ *
+ * A command bar is a CDialogBar in the original and the things on it are
+ * real controls: a checkbox ticks when it is clicked and a combo takes what
+ * is typed into it, whether or not the command reads it afterwards.  The
+ * port answered for the handful it acts on and drew the rest, so most of
+ * them were pictures -- clicking １５度毎 did not even move the tick, which
+ * is the first thing anyone tries.  These hold the state of every control on
+ * every bar instead, keyed by the command and the control id the way the
+ * table above is, and seeded from how the original has it (the `checked`
+ * field src/gen/bars.h carries, read out of the running original).
+ *
+ * What each control *does* is another matter, and gets written command by
+ * command with an answer drawn by the original to score it against.  This is
+ * the state alone, which is what the bar is drawn from.
+ */
+#define JW_NBARSTATE 96
+static struct { unsigned cmd; unsigned short id; unsigned char on; }
+    chk[JW_NBARSTATE];
+static int nchk;
+static struct { unsigned cmd; unsigned short id; char t[16]; }
+    xbox[JW_NBARSTATE];
+static int nxbox;
+
+/* Which bar is up: the command's own, or the one it puts up once a range is
+   settled -- 複写・移動・データ整理 each have a second one, filed under
+   100000 + the command the way tools/bars2.ps1 writes it. */
+static unsigned bar_cmd(void)
+{
+    return sel_step == 3 ? 100000u + (unsigned)current : (unsigned)current;
+}
+
+/* The checkbox with this id on that bar, made the first time it is asked
+   for.  NULL when the original has no checkbox there. */
+static unsigned char *chk_slot(unsigned cmd, int id)
+{
+    int i, on = 0;
+
+    for (i = 0; i < nchk; i++)
+        if (chk[i].cmd == cmd && chk[i].id == (unsigned short)id)
+            return &chk[i].on;
+    if (nchk == JW_NBARSTATE || ui_bar_ctl(cmd, id, &on) != 'c')
+        return 0;
+    chk[nchk].cmd = cmd;
+    chk[nchk].id = (unsigned short)id;
+    chk[nchk].on = (unsigned char)(on != 0);
+    return &chk[nchk++].on;
+}
+
+/* The text of a box on that command's bar: the ones the table above gives a
+   starting value to, and an empty one for every other combo the original
+   has there.  NULL when it has no combo with that id. */
+static char *box_slot(unsigned cmd, int id)
+{
+    int i;
+
+    /* the table above is keyed by the command itself, because a box like
+       複写's 倍率 is the command's whether or not the range is in yet */
+    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++)
+        if (box[i].id == (unsigned short)id && box[i].cmd == current)
+            return box[i].t;
+    for (i = 0; i < nxbox; i++)
+        if (xbox[i].cmd == cmd && xbox[i].id == (unsigned short)id)
+            return xbox[i].t;
+    if (nxbox == JW_NBARSTATE || ui_bar_ctl(cmd, id, 0) != 'o')
+        return 0;
+    xbox[nxbox].cmd = cmd;
+    xbox[nxbox].id = (unsigned short)id;
+    xbox[nxbox].t[0] = 0;
+    return xbox[nxbox++].t;
+}
 
 /* 多角形 (CZukeiTakakukei).  The bar's 中心→頂点指定 is the mode it starts
  * in, and with a 寸法 in the box one click on the centre draws the whole
@@ -403,6 +480,64 @@ static void op_push(int n)
 }
 
 #define PI 3.14159265358979323846
+
+/* A number typed into a command bar box, in paper millimetres.
+ *
+ * The boxes hold real-world lengths, so what goes on the paper is that over
+ * the scale of the layer group being written to: the original, given 1000 in
+ * 矩形's 寸法 on a 1/200 group, drew a square 5 mm across.  Returns 0 when
+ * the box is empty or the drawing is not there, which is what tells the
+ * command to work the free way instead.
+ */
+static double box_mm(const jw_drawing *d, int id)
+{
+    const char *t = jw_cmd_box(id);
+    double v;
+    int i, wg = 0;
+
+    if (!t || !*t || !d)
+        return 0.0;
+    v = atof(t);
+    if (v <= 0.0)
+        return 0.0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (d->group[wg].scale > 0.0)
+        v /= d->group[wg].scale;
+    return v;
+}
+
+/* the second number of a "横,縦" box, or the first again when there is only
+   one -- the original draws a square from 寸法 1000 as readily as from
+   1000,1000 */
+static double box_mm2(const jw_drawing *d, int id)
+{
+    const char *t = jw_cmd_box(id);
+    const char *p = t ? strchr(t, ',') : 0;
+    double v;
+    int i, wg = 0;
+
+    if (!p || !p[1] || !d)
+        return box_mm(d, id);
+    v = atof(p + 1);
+    if (v <= 0.0)
+        return 0.0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (d->group[wg].scale > 0.0)
+        v /= d->group[wg].scale;
+    return v;
+}
+
+/* the 傾き box, in radians */
+static double box_angle(int id)
+{
+    const char *t = jw_cmd_box(id);
+
+    return t && *t ? atof(t) * PI / 180.0 : 0.0;
+}
 
 /* 包絡処理: the first corner of the box, and whether it has been given */
 static int hou_step;
@@ -779,11 +914,33 @@ static void blank(jw_obj *o)
 /* What the point down and the point here make -- one element, or the four of
    a rectangle.  Working it out in one place keeps the provisional figure and
    what gets added identical. */
-static int figure(jw_obj *o, int max, double x, double y)
+static int figure(const jw_drawing *d, jw_obj *o, int max,
+                  double x, double y)
 {
     blank(o);
     switch (current) {
-    case JW_CMD_SEN:
+    case JW_CMD_SEN: {
+        /* 寸法 in the box makes the line that long, at 傾き, running the way
+         * the second click points: the original, given 傾き 30 and 寸法 1000
+         * on a 1/200 group, drew 5 mm at -150 degrees when the second click
+         * was up and to the left, and at 0 degrees with an empty 傾き and a
+         * click down and to the right. */
+        double len = box_mm(d, 1412);
+        if (len > 0.0) {
+            double a = box_angle(1411);
+            double ux = cos(a), uy = sin(a);
+            if ((x - sx) * ux + (y - sy) * uy < 0.0) {
+                ux = -ux;
+                uy = -uy;
+            }
+            o->cls = JW_SEN;
+            o->d[0] = sx;
+            o->d[1] = sy;
+            o->d[2] = sx + ux * len;
+            o->d[3] = sy + uy * len;
+            return 1;
+        }
+    }
         if (hv) {
             /* along the axis or across it, whichever the drag went further
                -- which is flat and upright when 軸角 is nothing */
@@ -813,6 +970,16 @@ static int figure(jw_obj *o, int max, double x, double y)
         o->d[3] = y;
         return 1;
     case JW_CMD_KUKEI: {
+        /* 寸法 in the box makes the rectangle that size: the first click is
+         * one corner and the second says which way it runs.  The original,
+         * given 1000,1000 on a 1/200 group, drew 5 mm by 5 mm down and to
+         * the right of the first click when the second was down-right, and
+         * up and to the left when it was up-left. */
+        double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+        if (wmm > 0.0 && hmm > 0.0) {
+            x = sx + (x < sx ? -wmm : wmm);
+            y = sy + (y < sy ? -hmm : hmm);
+        }
         /* Four lines round the corners, in the order the original writes
          * them.  Drawn one in Jw_cad itself and read the file back: starting
          * at the corner clicked first it goes along x, then y, then back,
@@ -886,7 +1053,7 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
     }
     if (step != 2 || !tracking)
         return 0;
-    return figure(o, max, tx, ty);
+    return figure(d, o, max, tx, ty);
 }
 
 /* Take an element out and remember it, so 元に戻る can put it back.  `o` is
@@ -4247,6 +4414,13 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (current == JW_CMD_SEN || current == JW_CMD_KUKEI
+        || current == JW_CMD_RENZOKU) {
+        if (id == 1332)
+            return current == JW_CMD_KUKEI;
+        if (id == 1333)
+            return hv;
+    }
     if (id == 1334 && range_cmd(current))
         return sel_outside;
     if (id == 1344 && range_cmd(current))
@@ -4257,6 +4431,12 @@ int jw_cmd_bar_check(int id)
         return zh_type;
     if (current == JW_CMD_ZOKUHEN && id == 1353)
         return zh_layer;
+    {   /* every other checkbox: what it was left at, or how the original
+           has it when the command is entered */
+        const unsigned char *on = chk_slot(bar_cmd(), id);
+        if (on)
+            return *on;
+    }
     return -1;
 }
 
@@ -4282,8 +4462,25 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     return -1;                  /* not one this port knows about */
 }
 
-int jw_cmd_bar(jw_drawing *d, int id)
+/* The presses the port acts on.  Every command's own block ends with a
+   `return 0`, so this cannot be where the generic answer goes -- see
+   jw_cmd_bar below. */
+static int bar_press(jw_drawing *d, int id)
 {
+    /* 線 and 矩形 share a bar and a class (CZukeiSen): its 矩形 box is what
+       tells them apart, and 水平・垂直 is the same flag pressing 線 twice
+       flips. */
+    if (current == JW_CMD_SEN || current == JW_CMD_KUKEI
+        || current == JW_CMD_RENZOKU) {
+        if (id == 1332) {
+            jw_cmd_set(current == JW_CMD_KUKEI ? JW_CMD_SEN : JW_CMD_KUKEI);
+            return 1;
+        }
+        if (id == 1333) {
+            hv = !hv;
+            return 1;
+        }
+    }
     if (current == JW_CMD_SEIRI && sel_step == 3) {
         if (id == 1064 || id == 1065)   /* 重複整理, 連結整理 */
             return seiri(d, id == 1065) > 0;
@@ -4446,6 +4643,23 @@ int jw_cmd_bar(jw_drawing *d, int id)
     return 0;
 }
 
+int jw_cmd_bar(jw_drawing *d, int id)
+{
+    unsigned char *on;
+
+    if (bar_press(d, id))
+        return 1;
+    /* Anything the command itself does not act on, and that the original has
+       as a checkbox there: its tick moves whatever the command makes of it,
+       so the port's does too. */
+    on = chk_slot(bar_cmd(), id);
+    if (on) {
+        *on = (unsigned char)!*on;
+        return 1;
+    }
+    return 0;
+}
+
 int jw_cmd_sunpo_angle(void)
 {
     /* the angle comes out of a text box through atof(), so it may be 1e300
@@ -4455,14 +4669,12 @@ int jw_cmd_sunpo_angle(void)
 
 static void box_put(int id, const char *v)
 {
-    int i;
+    char *t = box_slot(bar_cmd(), id);
 
-    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++)
-        if (box[i].id == id && box[i].cmd == current) {
-            strncpy(box[i].t, v, sizeof box[i].t - 1);
-            box[i].t[sizeof box[i].t - 1] = 0;
-            return;
-        }
+    if (t) {
+        strncpy(t, v, sizeof box[0].t - 1);
+        t[sizeof box[0].t - 1] = 0;
+    }
 }
 
 /* Switch the hatch to one of the five modes, swapping the bar's numbers over
@@ -4487,12 +4699,7 @@ static void ht_mode_set(int id)
 
 const char *jw_cmd_box(int id)
 {
-    int i;
-
-    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++)
-        if (box[i].id == id && box[i].cmd == current)
-            return box[i].t;
-    return 0;
+    return box_slot(bar_cmd(), id);
 }
 
 int jw_cmd_box_focus(void)
@@ -4507,17 +4714,10 @@ void jw_cmd_box_click(int id)
 
 int jw_cmd_box_key(int ch)
 {
-    int i;
+    char *t = box_focus ? box_slot(bar_cmd(), box_focus) : 0;
 
-    if (!box_focus)
-        return 0;
-    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++) {
-        char *t;
-        int n;
-        if (box[i].id != box_focus || box[i].cmd != current)
-            continue;
-        t = box[i].t;
-        n = (int)strlen(t);
+    if (t) {
+        int n = (int)strlen(t);
         if (ch == 13 || ch == 27) {         /* Enter, Esc: done */
             box_focus = 0;
             return 1;
@@ -4529,7 +4729,7 @@ int jw_cmd_box_key(int ch)
         }
         /* ２線's box holds two numbers with a comma between them */
         if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ',') {
-            if (n < (int)sizeof box[i].t - 1) {
+            if (n < (int)sizeof box[0].t - 1) {
                 t[n] = (char)ch;
                 t[n + 1] = 0;
             }
@@ -5676,7 +5876,7 @@ placed:
     }
     if (d) {
         jw_obj tmp[JW_CMD_MAXFIG];
-        int n = figure(tmp, JW_CMD_MAXFIG, x, y), k, put = 0;
+        int n = figure(d, tmp, JW_CMD_MAXFIG, x, y), k, put = 0;
         for (k = 0; k < n; k++) {
             jw_obj *o = jw_add(d, tmp[k].cls);
             int i;

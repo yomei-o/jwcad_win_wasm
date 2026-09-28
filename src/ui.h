@@ -102,9 +102,16 @@ int ui_ay(int y, int ch);
 
 int ui_button_state(int k, int saveable, int undoable);
 
+/* What the original has with this id on that command's bar: 'c' a checkbox,
+   'b' a button, 'o' a combo, 's' a label, 0 when there is no such control.
+   *checked, when given, is how a checkbox comes up.  src/cmd.c holds the
+   state of every one of them and this is where it learns what they are. */
+int ui_bar_ctl(unsigned cmd, int id, int *checked);
+
 /* Which control of the command bar is under the point -- its id, as the
-   original numbers them (src/gen/bars.h), or 0.  A disabled one answers 0,
-   the same as empty bar. */
+   original numbers them (src/gen/bars.h), or 0 for the empty parts of the
+   bar.  Whether it can be pressed is a separate question: the painting asks
+   jw_cmd_bar_enabled, and this does not. */
 int ui_bar_hit(int x, int y);
 
 /* Which cell of the layer grids is under the point: 0 for the layer grid,
