@@ -1,22 +1,20 @@
 # Jw_cad itself is Jiro Shimizu & Yoshifumi Tanaka's.  Its licence allows
 # passing it on, on two conditions: do not change the program, and pass it on
-# in the form it came in (Jw_win.txt, section 3).  So the installer is here
-# exactly as it is downloaded -- jww10036.exe, an unmodified Inno Setup
-# package -- and the expanded tree is not: orig/ is what the installer makes
-# locally.  README.md says how to make it.
-orig/
-install.log
-
-# The decompilation itself is in the repository (2026-09-28): decomp/byclass,
-# decomp/decomp, decomp/rtti and decomp/inventory.csv are Ghidra's output for
-# Jw_win.exe, which is what every line of src/ was written from, so the
-# working can be followed without a Ghidra run of your own.
+# in the form it came in (Jw_win.txt, section 3).
 #
-# decomp/res is **not**: that is the original's own data taken straight out of
-# it -- its bitmaps, icons, menus and strings -- together with the .jww files
-# the original itself draws for the tests to be scored against.  Those are
-# made locally by tools/gen.sh from your own copy of the installer.
-decomp/res/
+# By the owner's decision (2026-09-28) this repository carries the lot, so
+# that anyone can follow the work without a copy of the program or a Ghidra
+# run of their own:
+#
+#   jww10036.exe   the installer exactly as it downloads, unchanged
+#   orig/          what that installer expands to -- the program itself
+#   decomp/        Ghidra's output for Jw_win.exe, and decomp/res, which is
+#                  the original's own bitmaps, menus and strings, plus the
+#                  .jww files the original itself draws for the tests
+#
+# orig/ and decomp/ are therefore **not** "the form it came in": that
+# condition is met by jww10036.exe alone.
+install.log
 
 tmp/
 __pycache__/
