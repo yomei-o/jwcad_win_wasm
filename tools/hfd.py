@@ -62,11 +62,11 @@ HALF = 1 << (SHIFT - 1)      # 0x1000, the rounding bias bNext adds
 
 
 class HFD(object):
-    def __init__(self, p0, p1, p2, p3):
-        self.e0 = p0 << SHIFT
-        self.e1 = (p3 - p0) << SHIFT
-        self.e2 = 6 * (p1 - 2 * p2 + p3) << SHIFT
-        self.e3 = 6 * (p0 - 2 * p1 + p2) << SHIFT
+    def __init__(self, e0, e1, e2, e3):
+        self.e0 = e0
+        self.e1 = e1
+        self.e2 = e2
+        self.e3 = e3
 
     def err(self):
         return max(abs(self.e2), abs(self.e3))
@@ -96,23 +96,79 @@ class HFD(object):
 PARENT_LIMIT = LIMIT // 4
 
 
-def flatten(pts, parent_limit=PARENT_LIMIT):
-    """pts: four (x, y) in POINTFIX.  Returns the points bNext hands back."""
+def bez_init(pts):
+    """`BEZIER32::bInit`, to the bit.
+
+    The differences start at a **coarser** scale than the walk runs at --
+    0x400 for e0 and e1, 6 * 0x400 for e2 and e3 -- and the halving that
+    brings the error inside the limit happens there, with e3 left whole and
+    only e2 averaged; the shift to POINTFIX << 13 comes at the end, in one
+    go.  Halving at the fine scale instead, which is what the walk itself
+    does, truncates once per round and costs a bit or two on a curve big
+    enough to need several -- which is every arc over about 300 pixels.
+
+    Returns (x, y, steps), or None for a curve too big for the 32-bit
+    flattener, where GDI falls to `BEZIER64` instead.
+    """
     ox = min(p[0] for p in pts)
     oy = min(p[1] for p in pts)
-    x = HFD(*[p[0] - ox for p in pts])
-    y = HFD(*[p[1] - oy for p in pts])
+    xs = [p[0] - ox for p in pts]
+    ys = [p[1] - oy for p in pts]
+    if any(v & 0xffffc000 for v in xs + ys):
+        return None
+    x0 = xs[0] * 0x400
+    x1 = (xs[3] - xs[0]) * 0x400
+    x2 = (xs[1] - 2 * xs[2] + xs[3]) * 0x1800
+    x3 = (xs[0] - 2 * xs[1] + xs[2]) * 0x1800
+    y0 = ys[0] * 0x400
+    y1 = (ys[3] - ys[0]) * 0x400
+    y2 = (ys[1] - 2 * ys[2] + ys[3]) * 0x1800
+    y3 = (ys[0] - 2 * ys[1] + ys[2]) * 0x1800
     steps = 1
-    while max(x.err(), y.err()) > LIMIT:
-        x.halve()
-        y.halve()
+    count = 0
+    while True:
+        limit = 0xffc0 << count
+        if max(abs(x2), abs(x3)) <= limit and max(abs(y2), abs(y3)) <= limit:
+            break
+        t = (x2 + x3) >> 1
+        u = (y3 + y2) >> 1
+        count += 2
+        x2 = t
+        y2 = u
+        x1 = (x1 - (t >> count)) >> 1
+        y1 = (y1 - (u >> count)) >> 1
         steps <<= 1
+    x0 <<= 3
+    x1 <<= 3
+    y0 <<= 3
+    y1 <<= 3
+    s = count - 3
+    if s < 0:
+        x2 <<= -s
+        x3 <<= -s
+        y2 <<= -s
+        y3 <<= -s
+    else:
+        x2 >>= s
+        x3 >>= s
+        y2 >>= s
+        y3 >>= s
+    x = HFD(x0, x1, x2, x3)
+    y = HFD(y0, y1, y2, y3)
     # bInit ends with one step taken and the count down by one: the curve's
     # own first point is already in the path, so bNext hands back the ones
     # after it.
     x.take()
     y.take()
-    steps -= 1
+    return x, y, steps - 1, ox, oy
+
+
+def flatten(pts, parent_limit=PARENT_LIMIT):
+    """pts: four (x, y) in POINTFIX.  Returns the points bNext hands back."""
+    init = bez_init(pts)
+    if init is None:
+        raise ValueError("too big for BEZIER32")
+    x, y, steps, ox, oy = init
     out = []
     while True:
         out.append((ox + ((x.e0 + HALF) >> SHIFT),
@@ -123,9 +179,7 @@ def flatten(pts, parent_limit=PARENT_LIMIT):
             x.halve()
             y.halve()
             steps <<= 1
-        while (steps & 1) == 0 \
-                and x.parent_err_over_4() <= parent_limit \
-                and y.parent_err_over_4() <= parent_limit:
+        while (steps & 1) == 0                 and x.parent_err_over_4() <= parent_limit                 and y.parent_err_over_4() <= parent_limit:
             x.double()
             y.double()
             steps >>= 1

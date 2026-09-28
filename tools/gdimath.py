@@ -34,6 +34,7 @@ FOUR_THIRDS = T.FOUR_THIRDS
 ALPHA_Q = T.ALPHA_Q
 AXIS_COORD = T.AXIS_COORD
 AXIS_ANGLE = T.AXIS_ANGLE
+PI = struct.unpack('<f', struct.pack('<I', 1078530010))[0]
 
 
 def varctan(x, y):
@@ -228,18 +229,71 @@ def partial_arc(box, a0, q0, a1, q1):
     otherwise a piece from a0 to the next axis, then whole quadrants off
     the corners, then a piece from the last axis to a1.
     """
+    p0, p1 = ends(a0, a1)
     if q0 == q1 and a1 > a0:
-        p0 = vcossin(a0)
-        p1 = vcossin(a1)
         return [[box.xform(p) for p in quadrant_arc(p0, p1, a0, a1)]]
     out = []
     nxt = (q0 + 1) & 3
     out.append([box.xform(p) for p in
-                quadrant_arc(vcossin(a0), axis_point(nxt), a0, AXIS_ANGLE[nxt])])
+                quadrant_arc(p0, axis_point(nxt), a0, AXIS_ANGLE[nxt])])
     q = nxt
     while q != q1:
         out.append(box.whole_quadrant(q))
         q = (q + 1) & 3
     out.append([box.xform(p) for p in
-                quadrant_arc(axis_point(q1), vcossin(a1), AXIS_ANGLE[q1], a1)])
+                quadrant_arc(axis_point(q1), p1, AXIS_ANGLE[q1], a1)])
     return out
+
+
+def vcossin_precise(deg):
+    """`vCosSinPrecise`: the Taylor series to twelve terms, in single
+    precision.  GDI picks this over the table when the two ends of the arc
+    are less than three degrees apart, where the table's 2.8-degree step
+    would put both ends in the same cell."""
+    neg = deg < 0.0
+    a = -deg if neg else deg
+    r = f32(f32(a / 360.0) - int(f32(a / 360.0)))
+    r = f32(r * 360.0)
+    flip_sin = 0
+    if f32(180.0 - r) < 0.0:
+        r = f32(360.0 - r)
+        flip_sin = 1
+    flip_cos = 0
+    if f32(90.0 - r) < 0.0:
+        flip_cos = 1
+        r = f32(180.0 - r)
+    x = f32(f32(PI * r) / 180.0)
+    term = x
+    cos = 1.0
+    sin = x
+    fact = 2.0
+    k = 2.0
+    n = 2
+    while n < 13:
+        term = f32(term * x)
+        t = f32(term / fact)
+        if n & 2:
+            t = -t
+        if (n & 1) == 0:
+            cos = f32(cos + t)
+        else:
+            sin = f32(sin + t)
+        k = f32(k + 1.0)
+        n += 1
+        fact = f32(fact * k)
+    if bool(neg) != bool(flip_sin):
+        sin = -sin
+    if flip_cos:
+        cos = -cos
+    return cos, sin
+
+
+def ends(a0, a1):
+    """Which of the two GDI uses for the arc's ends: the table, or the
+    series when the ends are within three degrees."""
+    d = f32(a1 - a0)
+    if d < 0.0:
+        d = -d
+    if f32(d - 3.0) >= 0.0 or d == 0.0:
+        return vcossin(a0), vcossin(a1)
+    return vcossin_precise(a0), vcossin_precise(a1)
