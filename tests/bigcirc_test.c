@@ -214,6 +214,59 @@ int main(void)
         ck(!quiet, "and every ring small enough to cross it leaves pixels");
     }
 
+    /* A radius past what `BEZIER32` holds, with the middle still on screen.
+     *
+     * GDI's own flattener keeps its control points in fourteen bits of
+     * POINTFIX, so it takes a curve up to 1023 pixels a side and no
+     * further; past that GDI falls to `BEZIER64`, which the port has not
+     * read, and `hfd_flatten` says so by returning nothing.  Without a
+     * guard the arc would simply vanish -- and it is reachable: with the
+     * middle against one edge of the window the far side of a 1,100-pixel
+     * ring is still inside it.  The window has to be bigger than the 640 by 480
+     * above for that to happen at all, which is why this has its own. */
+    {
+        fb_t big;
+
+        if (!fb_init(&big, 1600, 1200)) {
+            printf("BAD  no big framebuffer\n");
+            fails++;
+        } else {
+            jw_drawing d;
+            jw_obj o;
+            jw_view v;
+            unsigned int bg = 0x00ffffffu;
+            double rps[] = { 900, 1023, 1024, 1100, 1400 };
+            size_t k;
+
+            for (k = 0; k < sizeof rps / sizeof rps[0]; k++) {
+                char what[96];
+                long n;
+
+                one_circle(&d, &o, 100.0, 1.0);
+                memset(&v, 0, sizeof v);
+                v.mmpp = 100.0 / rps[k];
+                v.scale = 1.0 / v.mmpp;
+                v.ox = 0.0;
+                v.oy = 0.0;
+                /* the middle just inside the left edge, so that the ring
+                   crosses the window rather than clipping a corner */
+                v.bx = CLIN + 2;
+                v.by = big.h / 2;
+                v.clip.x = CLIN;
+                v.clip.y = CLIN;
+                v.clip.w = big.w - 2 * CLIN;
+                v.clip.h = big.h - 2 * CLIN;
+                fb_fill(&big, 0, 0, big.w, big.h, bg);
+                jw_draw(&big, &v, &d);
+                n = painted(&big, bg);
+                sprintf(what, "arc of 1 rad, radius %g pixels, middle in the"
+                              " left edge: %ld painted", rps[k], n);
+                ck(n > 0, what);
+            }
+            fb_free(&big);
+        }
+    }
+
     fb_free(&fb);
     printf("%s bigcirc\n", fails ? "BAD " : "ok  ");
     return fails ? 1 : 0;

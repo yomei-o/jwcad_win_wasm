@@ -1821,8 +1821,15 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                 const char *t = getenv("JW_ARC_BEZ");
                 bez = !(t && *t == '0');
                 t = getenv("JW_ARC_BEZCIRC");
-                bezcirc = t && *t != '0';
+                bezcirc = !(t && *t == '0');
             }
+            /* `BEZIER32` holds its control points in fourteen bits of
+               POINTFIX, so it takes a curve up to 1023 pixels a side and no
+               further; GDI falls to `BEZIER64` there, which the port has
+               not read.  Zooming far enough into any circle reaches it, so
+               anything bigger keeps the ring walk rather than vanishing. */
+            if (bez && rp > 1023)
+                goto ringwalk;
             if (bez) {
                 /* The box: 2rp+1 across for a part of a circle, 2rp for a
                  * whole one unless something above asked for the other. */
@@ -1867,7 +1874,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                     }
                     gdi_arc(fb, &v->clip, l, t, rr, bb, gx, gy, ex, ey,
                             col, wide);
-                } else if (bezcirc) {
+                } else if (bezcirc) {   /* JW_ARC_BEZCIRC=0 for the ring */
                     /* A whole circle is two Arc calls, (+rp,0) round to
                      * (-rp,0) and back, so that the two halves tile the
                      * ring exactly once -- Arc leaves its far end out, the
