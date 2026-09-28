@@ -3,16 +3,15 @@ u"""The whole chain from control points to pixels, held against GDI.
 
     python tools/arcpipe.py
 
-Three of the four steps are settled and exact:
+**Its `walk` is superseded**: `tools/gdiline.py` has GDI's own `bLines`,
+which is exact where this one's rule of thumb is not.  What is still used
+from here is `gdi()`, the pipe to `tools/gdiarc.exe`, and `pixels()` as a
+record of how far a good guess got (52 of 80 arcs, against 80 of 80 with
+`bLines`).
 
     flatten   tools/hfd.py      352 of 352 arc-shaped curves
-    stroke    tools/fixline.py  10 of 10
+    stroke    tools/gdiline.py  120 of 120
     to POINT  round, not truncate
-
-so anything still wrong is in the fourth -- the control points GDI makes
-for an arc.  This runs the three that work end to end, taking the control
-points from whatever `cp` is given, and says how far the pixels are from
-GDI's.  Feed it a rule for the control points and it grades the rule.
 """
 import math
 import os

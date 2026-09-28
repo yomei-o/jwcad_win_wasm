@@ -13,11 +13,15 @@ sixteenth, and GDI will say what pixels it paints for the same curve
 try a way of walking a line with fractional ends, and see whether the
 pixels come out.
 
-**The answer, measured: 10 of 10 exact.**  Step the longer axis a whole
+**Superseded.**  The rule this file fits -- step the longer axis a whole
 pixel at a time from the rounded start, take the other axis off the line
-through the *unrounded* ends, and round it; leave the far end out, the way
-LineTo does.  Stepping evenly along the line instead misses by 87 pixels,
-and painting the far end costs one a piece.
+through the *unrounded* ends, and leave the far end out -- was 10 of 10 on
+the ten quadrant curves here and **21 of 60** on wild ones.  Ten symmetric
+cases were not enough to tell it from the real thing.  `tools/gdiline.py`
+has the real thing, `bLines` out of win32kfull.sys, at 120 of 120.
+
+Kept because the measurement is still the record of what a rule of thumb
+buys: 10/10 here, and what that was worth in the end.
 """
 import io
 import math
