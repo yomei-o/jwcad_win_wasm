@@ -2215,6 +2215,57 @@ static void line_end_arrow(void)
                    d->obj[before + 1].d[2], d->obj[before + 1].d[3]);
         ck(ok, "  原典と同じ向き・長さ・ペンで");
     }
+    /* the far end takes one too, and the right button draws it with the
+       dimension pen instead of the writing one */
+    {
+        static const struct { const char *file; int far_end; int button; }
+        M[2] = {
+            { "decomp/res/senlt_b.jww", 1, 0 },
+            { "decomp/res/senlt_r.jww", 0, 1 }
+        };
+        int c;
+        for (c = 0; c < 2; c++) {
+            unsigned char *b2;
+            long n2;
+            jw_drawing ref2;
+            const jw_obj *q[3];
+            int ok2 = 1, j;
+
+            b2 = slurp(M[c].file, &n2);
+            if (!b2 || !jw_parse(&ref2, b2, n2)) {
+                printf("BAD  no %s\n", M[c].file);
+                fails++;
+                free(b2);
+                continue;
+            }
+            free(b2);
+            if (!tail_of(&ref2, JW_SEN, q, 3)) {
+                printf("BAD  %s is not the drawing it was\n", M[c].file);
+                fails++;
+                continue;
+            }
+            before = d->ndrawn;
+            jw_cmd_point(d, app_view(),
+                         M[c].far_end ? q[0]->d[2] - 25.0 : q[0]->d[0] + 25.0,
+                         q[0]->d[1], M[c].button);
+            if (d->ndrawn - before != 2) {
+                printf("BAD  %s: %d drawn, not 2\n", M[c].file,
+                       d->ndrawn - before);
+                fails++;
+                continue;
+            }
+            for (i = 0; i < 2; i++) {
+                const jw_obj *a = &d->obj[before + i];
+                for (j = 0; j < 4; j++)
+                    if (!near(a->d[j], q[i + 1]->d[j]))
+                        ok2 = 0;
+                if (a->color != q[i + 1]->color || a->ltype != q[i + 1]->ltype)
+                    ok2 = 0;
+            }
+            ck(ok2, M[c].far_end ? "  遠い端を指せばそちらに付く" : "  右クリックなら寸法設定の線色・線種で");
+            jw_free(&ref2);
+        }
+    }
     jw_cmd_bar(d, 1351);
     jw_free(&ref);
 }
