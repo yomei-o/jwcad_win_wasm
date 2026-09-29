@@ -218,6 +218,49 @@ static void buttons_at_the_wrong_time(void)
     ck(!bad, "  a bar button pressed too early takes nothing away");
 }
 
+/* A dialog is up: nothing behind it hears the keyboard.
+ *
+ * Every one of the port's windows stands for a modal dialog of the
+ * original's, and while one is on the screen the drawing and its command bar
+ * are out of reach.  A press outside was already ignored; a key was not, and
+ * a digit landed in whichever box the bar behind had the caret in. */
+static void keys_under_a_dialog(void)
+{
+    static const struct { int cmd; const char *what; } D[3] = {
+        { 32843, "軸角・目盛・オフセット" },
+        { 32811, "画面倍率・文字表示" },
+        { 32891, "基本設定" }
+    };
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        jw_drawing *d = fresh();
+        int n0;
+        char msg[96];
+
+        jw_cmd_set(JW_CMD_TEN);
+        jw_cmd_set(JW_CMD_SEN);
+        type_box(1412, "");
+        jw_cmd_point(d, app_view(), 100.0, 100.0, 0);
+        n0 = d->ndrawn;
+        if (!app_command(D[i].cmd)) {
+            sprintf(msg, "%s は開かない", D[i].what);
+            ck(0, msg);
+            continue;
+        }
+        app_key('7');
+        app_key('7');
+        sprintf(msg, "%s が出ている間は数字が入力欄へ行かない", D[i].what);
+        ck(!jw_cmd_box(1412) || !*jw_cmd_box(1412), msg);
+        app_key(27);                    /* Esc shuts it */
+        type_box(1412, "7");
+        sprintf(msg, "%s は Esc で閉じ、入力欄が戻る", D[i].what);
+        ck(jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "7"), msg);
+        ck(d->ndrawn == n0, "  その間に何も描かれない");
+        type_box(1412, "");
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -227,6 +270,7 @@ int main(void)
     rubbish_in_the_boxes();
     undo_past_the_start();
     buttons_at_the_wrong_time();
+    keys_under_a_dialog();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

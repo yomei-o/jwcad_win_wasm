@@ -208,9 +208,20 @@ int main(int argc, char **argv)
             app_press(PT[k][0], PT[k][1], 0);
         }
         grew = d->ndrawn != before || hash_of(d) != was;
+        /* and with the right button, which is how a person erases an element
+           or reads a point in Jw_cad -- a left click there picks a part */
+        if (!grew) {
+            for (k = 0; k < np && k < 8; k++) {
+                app_move(PT[k][0], PT[k][1]);
+                app_press(PT[k][0], PT[k][1], 1);
+            }
+            grew = d->ndrawn != before || hash_of(d) != was;
+            if (grew && list)
+                printf("     %s wants the right button\n", CMD[c].name);
+        }
         if (grew)
             drove++;
-        else if (CMD[c].draws && list)
+        else if (list)
             printf("     %s draws nothing from six clicks\n", CMD[c].name);
         if (CMD[c].draws)
             ck(grew, CMD[c].name);

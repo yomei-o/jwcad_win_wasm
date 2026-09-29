@@ -926,12 +926,14 @@ int app_command(int cmd)
         kh_start();
         return 1;
     case 32842:                         /* 軸角・目盛・オフセット */
+    case 32843:                         /* the same, from the status line */
         jk_start();
         return 1;
     case 32925:                         /* 寸法設定 */
         sd_start();
         return 1;
     case 32811:                         /* 画面倍率・文字表示 */
+    case 32844:                         /* the same, from the status line */
         br_start();
         return 1;
     case 32946:                         /* 図形登録 */
@@ -1116,6 +1118,14 @@ int app_press(int x, int y, int button)
             zhen_start();
             return 1;
         }
+        if (id == 2552) {
+            /* 矩形 の ソリッド の横の無名の釦（任意□）.  The original
+               puts the 線属性 dialog up from it -- pressed on the original
+               with ソリッド ticked, that is the window that came up -- so
+               the colour a solid is filled with is picked there. */
+            zoku_ask(0);
+            return 1;
+        }
         if (id == 1069 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
                                              1069) > 0) {
             /* 範囲選択's own button, which only comes alive once a box is
@@ -1199,6 +1209,25 @@ static int moji_key(int c)
     return 0;
 }
 
+/* Whether one of the port's windows is up in front of the drawing.
+ *
+ * Every one of them is a modal dialog in the original: while it is on the
+ * screen nothing behind it hears a click or a key.  The presses were already
+ * confined -- each press_* returns 0 for a point outside it -- but the keys
+ * were not, and Esc or a digit went through to the command bar behind.  Esc
+ * shuts one, the way it shuts any dialog with a cancel button. */
+static int dialog_open(void)
+{
+    return zoku_open || moji_open || zsel_open || blk_open || be_open
+           || jk_open || sd_open || br_open || kh_open || zhen_open;
+}
+
+static void dialog_close(void)
+{
+    zoku_open = moji_open = zsel_open = jk_open = 0;
+    sd_open = br_open = kh_open = zhen_open = 0;
+}
+
 int app_key(int c)
 {
     if (jk_open && jk_key(c)) {
@@ -1215,6 +1244,16 @@ int app_key(int c)
     }
     if (moji_open && moji_focus && moji_key(c)) {
         app_paint();
+        return 1;
+    }
+    if (dialog_open()) {
+        /* modal: the drawing and its command bar hear nothing.  Esc shuts
+           it without applying what was typed, as a cancel button would;
+           the two that name a block keep their own key handlers above. */
+        if (c == 27 && !be_open && !blk_open) {
+            dialog_close();
+            app_paint();
+        }
         return 1;
     }
     if (jw_cmd_box_key(c)) {
