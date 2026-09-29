@@ -56,6 +56,25 @@ static unsigned char *slurp(const char *path, long *n)
     return b;
 }
 
+/* Everything the drawing holds, as one number: a command that moves or
+   erases rather than adds changes this without changing the count. */
+static unsigned long hash_of(const jw_drawing *d)
+{
+    unsigned long h = 1469598103u;
+    int i, k;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        h = h * 16777619u + (unsigned)o->cls;
+        h = h * 16777619u + (unsigned)o->color;
+        h = h * 16777619u + (unsigned)o->ltype;
+        h = h * 16777619u + (unsigned)o->layer;
+        for (k = 0; k < 8; k++)
+            h = h * 16777619u + (unsigned long)(long)(o->d[k] * 1000.0);
+    }
+    return h * 31u + (unsigned)d->ndrawn;
+}
+
 /* the toolbar button for a command, pressed the way a mouse presses it */
 static int press_button(int cmd)
 {
@@ -119,6 +138,7 @@ int main(int argc, char **argv)
     for (c = 0; c < (int)(sizeof CMD / sizeof CMD[0]); c++) {
         jw_drawing *d;
         int before, k, grew, np = 0;
+        unsigned long was;
         int PT[8][2];
 
         b = slurp("orig/Test5.jww", &n);
@@ -182,11 +202,12 @@ int main(int argc, char **argv)
             app_key('B');
         }
         before = d->ndrawn;
+        was = hash_of(d);
         for (k = 0; k < np && k < 8; k++) {
             app_move(PT[k][0], PT[k][1]);
             app_press(PT[k][0], PT[k][1], 0);
         }
-        grew = d->ndrawn != before;
+        grew = d->ndrawn != before || hash_of(d) != was;
         if (grew)
             drove++;
         else if (CMD[c].draws && list)
