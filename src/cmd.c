@@ -1192,6 +1192,21 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
             o->d[2] = sx; o->d[3] = y;
             o->d[4] = x;  o->d[5] = y;
             o->d[6] = x;  o->d[7] = sy;
+            if (jw_cmd_bar_check(1335) > 0) {
+                /* (対角線): the original wrote the two clicked corners with
+                 * the second repeated -- the quadrilateral collapses onto
+                 * the diagonal. */
+                o->d[2] = x; o->d[3] = y;
+                o->d[4] = x; o->d[5] = y;
+                o->d[6] = x; o->d[7] = y;
+            }
+            if (jw_cmd_bar_check(2553) > 0) {
+                /* 任意色: colour 10 is Jw_cad's "any colour" pen and the
+                 * trailing long is the RGB.  The original's own default,
+                 * with nothing picked in the colour button, is 0x808080. */
+                o->color = 10;
+                o->n = 0x808080;
+            }
             return (sx != x && sy != y) ? 1 : 0;
         }
         static const int ix[4][4] = {
@@ -1235,7 +1250,34 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
             for (j = 0; j < 4; j++)
                 o[k].d[j] = c[ix[k][j]];
         }
-        return (sx != x && sy != y) ? 4 : 0;
+        if (sx == x || sy == y)
+            return 0;
+        {   /* 多重 (1417): rectangles inside the one drawn, k/n of its size
+             * about the same middle, outermost first -- the same rule the
+             * circle's 多重円 follows.  The original, given 3, drew three:
+             * 173.178 x 86.589, then 115.452 x 57.726 (two thirds), then a
+             * third of it, all centred on (39.831, -92.650). */
+            const char *t = jw_cmd_box(1417);
+            int rings = t && *t ? atoi(t) : 0, r, made = 4;
+            double mx = (sx + x) / 2.0, my = (sy + y) / 2.0;
+            if (rings > 1) {
+                if (rings * 4 > max)
+                    rings = max / 4;
+                for (r = rings - 1; r >= 1; r--) {
+                    double f = (double)r / (double)rings;
+                    for (k = 0; k < 4; k++, made++) {
+                        blank(&o[made]);
+                        o[made].cls = JW_SEN;
+                        for (j = 0; j < 4; j++) {
+                            double v = c[ix[k][j]];
+                            double m = (j & 1) ? my : mx;
+                            o[made].d[j] = m + (v - m) * f;
+                        }
+                    }
+                }
+            }
+            return made;
+        }
     }
     case JW_CMD_ENKO: {
         /* CZukeiEnko's constructor leaves it a whole circle: the sweep it
@@ -6524,6 +6566,10 @@ placed:
                 o->ltype = tmp[k].ltype;
                 o->width = tmp[k].width;
             }
+            /* 任意色: pen 10 is Jw_cad's "any colour", and the RGB rides in
+               the trailing long, which is copied above */
+            if (tmp[k].color == 10)
+                o->color = 10;
             put++;
         }
         op_push(put);

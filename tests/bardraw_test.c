@@ -1289,9 +1289,137 @@ static void space_turns_hv(void)
     jw_free(&ref);
 }
 
+/* 矩形 の 多重 (1417): rectangles inside the one drawn, k/n of its size. */
+static void rect_rings(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[12];
+    int before, i, ok = 1;
+
+    b = slurp("decomp/res/ku_multi.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/ku_multi.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  ku_multi.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 12)) {
+        printf("BAD  ku_multi.jww has no three rectangles in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "");
+    type_box(1413, "");
+    type_box(1417, "3");
+    if (jw_cmd_bar_check(1334) > 0)
+        jw_cmd_bar(d, 1334);
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[1]->d[2], r[1]->d[3], 0);
+    ck(d->ndrawn == before + 12, "多重 3: two clicks draw three rectangles");
+    if (d->ndrawn == before + 12) {
+        for (i = 0; i < 12; i++) {
+            const jw_obj *a = &d->obj[before + i];
+            if (!(near(a->d[0], r[i]->d[0]) && near(a->d[1], r[i]->d[1])
+                  && near(a->d[2], r[i]->d[2]) && near(a->d[3], r[i]->d[3]))) {
+                ok = 0;
+                printf("     %d ours %.4f,%.4f -> %.4f,%.4f, the original's %.4f,%.4f -> %.4f,%.4f\n",
+                       i, a->d[0], a->d[1], a->d[2], a->d[3],
+                       r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+            }
+        }
+        ck(ok, "  all twelve lines where the original put them");
+    }
+    type_box(1417, "");
+    jw_free(&ref);
+}
+
+/* 矩形 の (対角線) 1335 と 任意色 2553, both on top of ソリッド. */
+static void rect_solid_more(void)
+{
+    static const struct { const char *file; int id; const char *what; } C[2] = {
+        { "decomp/res/ku_diag.jww", 1335, "(対角線)" },
+        { "decomp/res/ku_anycol.jww", 2553, "任意色" }
+    };
+    int c;
+
+    for (c = 0; c < 2; c++) {
+        unsigned char *b;
+        long n;
+        jw_drawing ref, *d;
+        const jw_obj *r[1];
+        int before, i, ok = 1;
+
+        b = slurp(C[c].file, &n);
+        if (!b) {
+            printf("BAD  no %s -- run tools/refanswers.sh\n", C[c].file);
+            fails++;
+            continue;
+        }
+        if (!jw_parse(&ref, b, n)) {
+            printf("BAD  %s: %s\n", C[c].file, ref.error);
+            fails++;
+            free(b);
+            continue;
+        }
+        free(b);
+        if (!tail_of(&ref, JW_SOLID, r, 1)) {
+            printf("BAD  %s has no solid in it\n", C[c].file);
+            fails++;
+            continue;
+        }
+        d = fresh();
+        jw_cmd_set(JW_CMD_TEN);
+        jw_cmd_set(JW_CMD_KUKEI);
+        type_box(1411, "");
+        type_box(1413, "");
+        type_box(1417, "");
+        if (jw_cmd_bar_check(1334) <= 0)
+            jw_cmd_bar(d, 1334);
+        jw_cmd_bar(d, C[c].id);
+        before = d->ndrawn;
+        jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+        jw_cmd_point(d, app_view(), c == 0 ? r[0]->d[2] : r[0]->d[4],
+                     c == 0 ? r[0]->d[3] : r[0]->d[5], 0);
+        ck(d->ndrawn == before + 1, C[c].what);
+        if (d->ndrawn == before + 1) {
+            const jw_obj *a = &d->obj[before];
+            for (i = 0; i < 8; i++)
+                if (!near(a->d[i], r[0]->d[i]))
+                    ok = 0;
+            if (a->color != r[0]->color || a->n != r[0]->n)
+                ok = 0;
+            if (!ok)
+                printf("     ours pen=%d n=%#x %.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f\n"
+                       "     the original's pen=%d n=%#x %.1f,%.1f %.1f,%.1f %.1f,%.1f %.1f,%.1f\n",
+                       a->color, (unsigned)a->n, a->d[0], a->d[1], a->d[2],
+                       a->d[3], a->d[4], a->d[5], a->d[6], a->d[7],
+                       r[0]->color, (unsigned)r[0]->n, r[0]->d[0], r[0]->d[1],
+                       r[0]->d[2], r[0]->d[3], r[0]->d[4], r[0]->d[5],
+                       r[0]->d[6], r[0]->d[7]);
+            ck(ok, "  the original's corners, pen and colour");
+        }
+        jw_cmd_bar(d, C[c].id);
+        jw_cmd_bar(d, 1334);
+        jw_free(&ref);
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    rect_solid_more();
+    rect_rings();
     space_turns_hv();
     escape_drops_the_point();
     dim_radius();

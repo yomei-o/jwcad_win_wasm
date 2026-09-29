@@ -344,6 +344,10 @@ echo "=== 失敗系 —— 何もないところを押す、途中でやめる�
 ./tests/fail_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 手だけで —— ツールバーの釦とクリックだけで各コマンドが動くか"
+./tests/hand_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 
