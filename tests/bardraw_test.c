@@ -661,6 +661,41 @@ static void text_vertical(void)
     }
     d = fresh();
     app_command(0x8026);                        /* 文字 */
+    {   /* 縦字 (1325) first, which is only bit 0x20 on the text */
+        unsigned char *tb;
+        long tn;
+        jw_drawing tref;
+        const jw_obj *tv = 0;
+        int k, was;
+        tb = slurp("decomp/res/mojitate.jww", &tn);
+        if (tb && jw_parse(&tref, tb, tn)) {
+            free(tb);
+            for (k = 0; k < tref.ndrawn; k++) {
+                const char *t = tref.obj[k].cls == JW_MOJI
+                                ? jw_str(&tref, tref.obj[k].text) : 0;
+                if (t && !strcmp(t, "ABC"))
+                    tv = &tref.obj[k];
+            }
+            jw_cmd_bar(d, 1325);
+            was = d->ndrawn;
+            app_key('A');
+            app_key('B');
+            app_key('C');
+            jw_cmd_point(d, app_view(), tv ? tv->d[0] : 0.0,
+                         tv ? tv->d[1] : 0.0, 0);
+            ck(tv && d->ndrawn == was + 1, "文字: 縦字 puts a text down");
+            if (tv && d->ndrawn == was + 1) {
+                const jw_obj *a = &d->obj[was];
+                ck(a->flags == tv->flags && near(a->d[2], tv->d[2])
+                   && near(a->d[3], tv->d[3]),
+                   "  with the original's own flags (0x20) and ends");
+            }
+            jw_cmd_bar(d, 1325);
+            jw_free(&tref);
+        } else {
+            free(tb);
+        }
+    }
     jw_cmd_bar(d, 1324);
     ck(jw_cmd_bar_check(1324) == 1, "文字: 垂直 turns on");
     before = d->ndrawn;

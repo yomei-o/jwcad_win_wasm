@@ -666,6 +666,11 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     o->ltype = 1;
     o->d[0] = x;
     o->d[1] = y;
+    /* 縦字 (1325) is bit 0x20 of the flags and nothing else: the original
+     * wrote the same two ends, running right, with that bit set.  What it
+     * means is stacked characters, which src/text.c already draws. */
+    if (jw_cmd_bar_check(1325) > 0)
+        o->flags = (unsigned short)(o->flags | 0x20u);
     /* 垂直 (1324) turns the baseline a quarter turn: the original wrote the
      * same text running 30 up instead of 30 across, everything else the
      * same. */
