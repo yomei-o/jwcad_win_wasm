@@ -132,7 +132,7 @@ void jw_cmd_undo(jw_drawing *d);
 /* The elements the command is part way through, if any: how many, filled in
    ready to draw (a rectangle is four lines).  They are worked out the same
    way as the ones that get added, so what is shown is what will be made. */
-#define JW_CMD_MAXFIG 4         /* a rectangle, the biggest so far */
+#define JW_CMD_MAXFIG 16        /* 多重円's rings; a rectangle is four */
 int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
 
 /* 範囲選択, and the two commands built on it.

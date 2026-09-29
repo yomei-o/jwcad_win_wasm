@@ -363,10 +363,119 @@ static void line_15(void)
     jw_free(&ref);
 }
 
+/* 多重円 (1417): rings inside the one drawn, at k/n of its radius. */
+static void circle_rings(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[3];
+    int before, i, ok = 1;
+
+    b = slurp("decomp/res/enmulti.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/enmulti.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  enmulti.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_ENKO, r, 3)) {
+        printf("BAD  enmulti.jww has no three circles in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_ENKO);
+    type_box(1411, "");
+    type_box(1417, "3");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[0]->d[0] + r[0]->d[2], r[0]->d[1], 0);
+    ck(d->ndrawn == before + 3, "多重円 3: one drag draws three circles");
+    if (d->ndrawn != before + 3) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < 3; i++) {
+        const jw_obj *a = &d->obj[before + i];
+        if (!(near(a->d[0], r[i]->d[0]) && near(a->d[1], r[i]->d[1])
+              && near(a->d[2], r[i]->d[2]) && a->n == r[i]->n)) {
+            ok = 0;
+            printf("     ours r=%.9f n=%d, the original's r=%.9f n=%d\n",
+                   a->d[2], a->n, r[i]->d[2], r[i]->n);
+        }
+    }
+    ck(ok, "  at the original's radii, outermost first");
+    jw_free(&ref);
+}
+
+/* 扁平率 (1412) と 傾き (1413): an ellipse through the dragged point. */
+static void circle_ellipse(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before;
+
+    b = slurp("decomp/res/enflat.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/enflat.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  enflat.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_ENKO, r, 1)) {
+        printf("BAD  enflat.jww has no ellipse in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_ENKO);
+    type_box(1411, "");
+    type_box(1417, "");
+    type_box(1412, "50");
+    type_box(1413, "20");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    /* the same drag: straight out along the paper, the length the original
+       was given -- its own point on the curve at the parameter it wrote */
+    jw_cmd_point(d, app_view(),
+                 r[0]->d[0] + r[0]->d[2] * cos(r[0]->d[3]) * cos(r[0]->d[5])
+                 - r[0]->d[2] * r[0]->d[6] * sin(r[0]->d[3]) * sin(r[0]->d[5]),
+                 r[0]->d[1] + r[0]->d[2] * cos(r[0]->d[3]) * sin(r[0]->d[5])
+                 + r[0]->d[2] * r[0]->d[6] * sin(r[0]->d[3]) * cos(r[0]->d[5]), 0);
+    ck(d->ndrawn == before + 1, "扁平率と傾き: the drag draws one ellipse");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        int ok = near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3])
+                 && near(a->d[5], r[0]->d[5]) && near(a->d[6], r[0]->d[6]);
+        if (!ok)
+            printf("     ours  a=%.9f t=%.9f tilt=%.9f ratio=%.9f\n"
+                   "     the original's a=%.9f t=%.9f tilt=%.9f ratio=%.9f\n",
+                   a->d[2], a->d[3], a->d[5], a->d[6],
+                   r[0]->d[2], r[0]->d[3], r[0]->d[5], r[0]->d[6]);
+        ck(ok, "  the long radius, the angle, the tilt and the ratio");
+    }
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     line_15();
+    circle_rings();
+    circle_ellipse();
     circle_radius();
     circle_arc();
     rect_tilt();

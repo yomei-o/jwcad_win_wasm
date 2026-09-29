@@ -1070,16 +1070,58 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
          * was 0. */
         double r = box_mm(d, 1411);
         double dx = x - sx, dy = y - sy;
+        /* 扁平率 (1412) and 傾き (1413) make it an ellipse: the ratio is a
+         * percentage and the tilt is where its long axis points.  The drag
+         * still ends on the curve, which fixes the long radius and the
+         * parameter of that point -- the original, given 50 and 20 and a
+         * drag of 86.588921 straight out, wrote a = 100.642007, the angle
+         * -0.629233, the tilt 0.349066 (20 degrees) and the ratio 0.5. */
+        const char *fs = jw_cmd_box(1412);
+        double ratio = fs && *fs ? atof(fs) / 100.0 : 1.0;
+        double tilt = box_angle(1413);
         o->cls = JW_ENKO;
         o->d[0] = sx;
         o->d[1] = sy;
         o->d[2] = r > 0.0 ? r : sqrt(dx * dx + dy * dy);
         o->d[3] = r > 0.0 ? 0.0 : atan2(dy, dx);
+        if (ratio > 0.0 && ratio != 1.0 && r <= 0.0) {
+            double ct = cos(tilt), st = sin(tilt);
+            double u = dx * ct + dy * st, v = (-dx * st + dy * ct) / ratio;
+            o->d[2] = sqrt(u * u + v * v);
+            o->d[3] = atan2(v, u);
+        }
         o->d[4] = 2 * PI;
-        o->d[5] = 0.0;
-        o->d[6] = 1.0;
+        o->d[5] = tilt;
+        o->d[6] = ratio > 0.0 ? ratio : 1.0;
         o->n = 1;
-        return o->d[2] > 0.0;
+        if (o->d[2] <= 0.0)
+            return 0;
+        {   /* 多重円: rings inside the one that was drawn, at k/n of its
+             * radius.  The original, given 3 and a circle of 86.588921,
+             * added 57.725948 and 28.862974 -- two thirds and one third,
+             * written outermost first after the one clicked. */
+            const char *t = jw_cmd_box(1417);
+            int rings = t && *t ? atoi(t) : 0, k, made = 1;
+            if (rings > 1) {
+                if (rings > max)
+                    rings = max;
+                for (k = rings - 1; k >= 1; k--) {
+                    jw_obj *m = &o[made];
+                    blank(m);
+                    m->cls = JW_ENKO;
+                    m->d[0] = o->d[0];
+                    m->d[1] = o->d[1];
+                    m->d[2] = o->d[2] * (double)k / (double)rings;
+                    m->d[3] = o->d[3];
+                    m->d[4] = o->d[4];
+                    m->d[5] = 0.0;
+                    m->d[6] = 1.0;
+                    m->n = 1;
+                    made++;
+                }
+            }
+            return made;
+        }
     }
     }
     return 0;
