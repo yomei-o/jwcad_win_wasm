@@ -332,6 +332,10 @@ echo "=== 展開図 —— 直方体と円錐を、バーに打ち込んで組�
 ./tests/tenkai_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 間取り —— 矩形・複線・中心線・寸法が互いに届くか"
+./tests/plan_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 
