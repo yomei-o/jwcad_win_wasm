@@ -19,6 +19,9 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/gen/layout.h"
+#include "../src/gen/cmds.h"
+#include "../src/gen/bars.h"
 
 static int fails;
 
@@ -49,6 +52,68 @@ static double wscale(const jw_drawing *d)
         if (d->group[i].state == 3)
             wg = i;
     return d->group[wg].scale > 0.0 ? d->group[wg].scale : 1.0;
+}
+
+/* The same thing with nothing but the mouse and the keyboard, which is what
+ * a person has.  Everything above reaches into the command layer; this goes
+ * through app_press and app_key only -- the toolbar button, the box on the
+ * command bar, the clicks in the drawing area. */
+static void by_hand(void)
+{
+    jw_drawing *d;
+    int k, before, bx = -1, by = -1;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+
+    /* 矩形's own button on the toolbar */
+    for (k = 0; k < JW_NBUTTONS; k++)
+        if (jw_btn_cmd[k] == 0x8004) {
+            bx = jw_buttons[k].x + BTN_W / 2;
+            by = jw_buttons[k].y + BTN_H / 2;
+        }
+    ck(bx >= 0, "手だけで: 矩形 has a button on the toolbar");
+    if (bx < 0)
+        return;
+    app_press(bx, by, 0);
+    ck(jw_cmd() == 0x8004, "  pressing it puts 矩形 in force");
+
+    /* its 寸法 box, found where the original has it, then typed into */
+    for (k = 0; k < JW_NBARS; k++)
+        if (jw_bars[k].cmd == 0x8004) {
+            int i;
+            for (i = 0; i < jw_bars[k].n; i++)
+                if (jw_bars[k].c[i].id == 1413) {
+                    bx = jw_bars[k].c[i].x + jw_bars[k].c[i].w / 2;
+                    by = jw_bars[k].c[i].y + jw_bars[k].c[i].h / 2;
+                }
+        }
+    app_press(bx, by, 0);
+    ck(jw_cmd_box_focus() == 1413, "  and its 寸法 box takes the caret");
+    app_key('2');
+    app_key('0');
+    app_key('0');
+    app_key('0');
+    app_key(',');
+    app_key('1');
+    app_key('0');
+    app_key('0');
+    app_key('0');
+    app_key(13);
+    ck(jw_cmd_box(1413) && !strcmp(jw_cmd_box(1413), "2000,1000"),
+       "  what was typed is in it");
+
+    /* and two clicks in the drawing area */
+    before = d->ndrawn;
+    app_press(500, 400, 0);
+    app_press(560, 440, 0);
+    ck(d->ndrawn == before + 4, "  two clicks in the paper draw the rectangle");
+    if (d->ndrawn == before + 4) {
+        const jw_obj *o = &d->obj[before];
+        double w = fabs(o->d[2] - o->d[0]);
+        ck(fabs(w - 2000.0 / wscale(d)) < 1e-9,
+           "  the size that was typed, not the size of the drag");
+    }
 }
 
 int main(int argc, char **argv)
@@ -181,6 +246,7 @@ int main(int argc, char **argv)
                    argv[1], n, d->ndrawn);
         }
     }
+    by_hand();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
