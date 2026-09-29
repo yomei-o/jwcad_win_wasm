@@ -954,6 +954,82 @@ static void blank(jw_obj *o)
     o->color = 2;
 }
 
+static void sunpo_text(char *out, int n, double mm, double scale);
+
+/* 線 の 寸法値 (1350): the line is written as a dimension and its length
+ * goes beside it.
+ *
+ * Read off the original: the line itself picks up the dimension flag, and a
+ * text of its length in real units is laid along it -- centred on its
+ * middle, half a millimetre off to the left, in the 寸法 text style, with
+ * the width word left at 0 (unlike the 寸法 command's own value, which
+ * carries the places there).  A line 193.618714 long on a 1/200 group came
+ * out as 38,723.74.
+ *
+ * Answers 1 when there is nothing to add, 2 when the text went with it. */
+static int sen_value(const jw_drawing *d, jw_obj *o, int max)
+{
+    double dx, dy, len, ux, uy, vx, vy, cw, ch, sp, tw = 0.0;
+    char txt[64];
+    const char *p;
+    int i, wg = 0, nch = 0;
+
+    if (jw_cmd_bar_check(1350) <= 0 || !d || max < 2)
+        return 1;
+    dx = o->d[2] - o->d[0];
+    dy = o->d[3] - o->d[1];
+    len = sqrt(dx * dx + dy * dy);
+    if (len <= 0.0)
+        return 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    i = JW_SUN_MOJINO - 1;
+    if (i < 0 || i >= 10)
+        i = 0;
+    cw = d->style[i].w;
+    ch = d->style[i].h;
+    sp = d->style[i].sp;
+    sunpo_text(txt, (int)sizeof txt, len, d->group[wg].scale);
+    for (p = txt; *p; ) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    if (cw <= 0.0 || ch <= 0.0 || !nch)
+        return 1;
+    ux = dx / len;
+    uy = dy / len;
+    vx = -uy;
+    vy = ux;
+    blank(&o[1]);
+    o[1].cls = JW_MOJI;
+    o[1].color = (unsigned short)d->style[i].color;
+    o[1].ltype = 2;
+    o[1].width = 0;
+    o[1].flags = (unsigned short)(o[1].flags | JW_SUN_TEXT_FLAGS);
+    {
+        double mx = (o->d[0] + o->d[2]) / 2.0 + JW_SUN_HANARE * vx;
+        double my = (o->d[1] + o->d[3]) / 2.0 + JW_SUN_HANARE * vy;
+        o[1].d[0] = mx - tw / 2.0 * ux;
+        o[1].d[1] = my - tw / 2.0 * uy;
+        o[1].d[2] = mx + tw / 2.0 * ux;
+        o[1].d[3] = my + tw / 2.0 * uy;
+    }
+    o[1].d[4] = cw;
+    o[1].d[5] = ch;
+    o[1].d[6] = sp;
+    o[1].d[7] = 0.0;
+    o[1].n = JW_SUN_MOJINO;
+    o[1].text = jw_add_str((jw_drawing *)d, txt);
+    o[1].face = jw_add_str((jw_drawing *)d, JW_MOJI_FACE);
+    return 2;
+}
+
 /* What the point down and the point here make -- one element, or the four of
    a rectangle.  Working it out in one place keeps the provisional figure and
    what gets added identical. */
@@ -1019,7 +1095,7 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
         o->d[1] = sy;
         o->d[2] = x;
         o->d[3] = y;
-        return 1;
+        return sen_value(d, o, max);
     case JW_CMD_RENZOKU:
         o->cls = JW_SEN;
         o->d[0] = sx;
@@ -6224,6 +6300,22 @@ placed:
             for (i = 0; i < 8; i++)
                 o->d[i] = tmp[k].d[i];
             o->n = tmp[k].n;
+            /* jw_add fills in the writing pen and the layer, and that is
+               what a line or a circle wants.  What the figure set on top of
+               it comes over here: the flags always, and the pen only for a
+               text it built itself (線's 寸法値), because blank() gives
+               every figure colour 2 and line type 1 and copying those would
+               throw the writing pen away. */
+            o->flags = (unsigned short)(o->flags | tmp[k].flags);
+            if (tmp[k].text >= 0)
+                o->text = tmp[k].text;
+            if (tmp[k].face >= 0)
+                o->face = tmp[k].face;
+            if (tmp[k].cls == JW_MOJI) {
+                o->color = tmp[k].color;
+                o->ltype = tmp[k].ltype;
+                o->width = tmp[k].width;
+            }
             put++;
         }
         op_push(put);

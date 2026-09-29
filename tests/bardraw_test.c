@@ -907,9 +907,85 @@ static void circle_half(void)
     }
 }
 
+/* 線 の 寸法値 (1350): the line becomes a dimension and its length goes
+ * beside it. */
+static void line_value(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r_sen = 0, *r_txt = 0;
+    int i, before;
+
+    b = slurp("decomp/res/sensun.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/sensun.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  sensun.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_SEN && (o->flags & 0x2000))
+            r_sen = o;
+        else if (o->cls == JW_MOJI && (o->flags & 0x4000))
+            r_txt = o;
+    }
+    if (!r_sen || !r_txt) {
+        printf("BAD  sensun.jww has no measured line in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) > 0)
+        jw_cmd_bar(d, 1333);
+    if (jw_cmd_bar_check(1336) > 0)
+        jw_cmd_bar(d, 1336);
+    jw_cmd_bar(d, 1350);
+    ck(jw_cmd_bar_check(1350) == 1, "線: 寸法値 turns on");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r_sen->d[0], r_sen->d[1], 0);
+    jw_cmd_point(d, app_view(), r_sen->d[2], r_sen->d[3], 0);
+    ck(d->ndrawn == before + 2, "  and the line comes with its length");
+    if (d->ndrawn == before + 2) {
+        const jw_obj *a = &d->obj[before], *t = &d->obj[before + 1];
+        const char *got = jw_str(d, t->text), *want = jw_str(&ref, r_txt->text);
+        ck((a->flags & 0x2000) != 0, "  the line carries the dimension flag");
+        if (!got || !want || strcmp(got, want))
+            printf("     ours [%s], the original's [%s]\n",
+                   got ? got : "(none)", want ? want : "(none)");
+        ck(got && want && !strcmp(got, want), "  the length the original wrote");
+        {
+            int ok = near(t->d[0], r_txt->d[0]) && near(t->d[1], r_txt->d[1])
+                     && near(t->d[2], r_txt->d[2]) && near(t->d[3], r_txt->d[3])
+                     && t->width == r_txt->width && t->n == r_txt->n;
+            if (!ok)
+                printf("     ours %.4f,%.4f -> %.4f,%.4f w=%#x n=%d\n"
+                       "     the original's %.4f,%.4f -> %.4f,%.4f w=%#x n=%d\n",
+                       t->d[0], t->d[1], t->d[2], t->d[3],
+                       (unsigned)t->width, t->n,
+                       r_txt->d[0], r_txt->d[1], r_txt->d[2], r_txt->d[3],
+                       (unsigned)r_txt->width, r_txt->n);
+            ck(ok, "  laid along the line where the original laid it");
+        }
+    }
+    jw_cmd_bar(d, 1350);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    line_value();
     circle_half();
     circle_3pt();
     dim_arrows();
