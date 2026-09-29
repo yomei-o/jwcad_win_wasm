@@ -336,6 +336,10 @@ echo "=== 間取り —— 矩形・複線・中心線・寸法が互いに届�
 ./tests/plan_test.exe | sed 's/^/    /'
 
 echo
+echo "=== Esc —— どのコマンドでも、取った点を捨てて入ったときの問いに戻るか"
+./tests/esc_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 

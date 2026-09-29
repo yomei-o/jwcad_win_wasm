@@ -1163,9 +1163,69 @@ static void dim_radius(void)
     dim_radius_one("decomp/res/sunchokkei.jww", 1066);
 }
 
+/* Esc lets go of the points taken so far.
+ *
+ * The original, given a click, an Esc and then two more clicks, drew the
+ * rectangle across the *last two* -- the first was thrown away. */
+static void escape_drops_the_point(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[4];
+    int before, i, ok = 1;
+
+    b = slurp("decomp/res/kuesc.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/kuesc.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  kuesc.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 4)) {
+        printf("BAD  kuesc.jww has no rectangle in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "");
+    type_box(1413, "");
+    if (jw_cmd_bar_check(1334) > 0)
+        jw_cmd_bar(d, 1334);
+    before = d->ndrawn;
+    /* a point the original threw away: anywhere but its corners */
+    jw_cmd_point(d, app_view(), r[0]->d[0] - 90.0, r[0]->d[1] + 90.0, 0);
+    app_key(27);
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[1]->d[2], r[1]->d[3], 0);
+    ck(d->ndrawn == before + 4, "Esc: the rectangle is drawn from the last two");
+    if (d->ndrawn == before + 4) {
+        for (i = 0; i < 4; i++) {
+            const jw_obj *a = &d->obj[before + i];
+            if (!(near(a->d[0], r[i]->d[0]) && near(a->d[1], r[i]->d[1])
+                  && near(a->d[2], r[i]->d[2]) && near(a->d[3], r[i]->d[3]))) {
+                ok = 0;
+                printf("     ours %.4f,%.4f -> %.4f,%.4f\n"
+                       "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                       a->d[0], a->d[1], a->d[2], a->d[3],
+                       r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+            }
+        }
+        ck(ok, "  exactly where the original drew it, the first point gone");
+    }
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    escape_drops_the_point();
     dim_radius();
     offset_typed();
     line_value();

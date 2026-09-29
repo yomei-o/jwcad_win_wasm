@@ -784,6 +784,40 @@ void jw_cmd_set(int id)
     }
 }
 
+/* Esc: let go of the points a command has taken so far, without leaving the
+ * command.
+ *
+ * The original does this -- the status line says so.  In 矩形, a first click
+ * turns 「始点を指示してください」 into 「◆　　終点を指示してください」,
+ * and Esc turns it back.  (The key has to reach the frame: a driven session
+ * never gives the view the focus, which is why an earlier look said the
+ * original ignored Esc.)  What is already drawn stays; so does the range,
+ * which belongs to the elements rather than to the command.
+ */
+void jw_cmd_escape(void)
+{
+    step = 0;
+    en_step = 0;
+    hou_step = 0;
+    cut_step = 0;
+    corner_step = 0;
+    stretch_step = 0;
+    para_step = 0;
+    tracking = 0;
+    nisen_step = 0;
+    nisen_obj = -1;
+    ses_step = 0;
+    ses_a = -1;
+    sek_step = 0;
+    sek_a = sek_b = -1;
+    chu_step = 0;
+    chu_a = chu_b = -1;
+    cv_n = 0;
+    ht_n = 0;
+    ht_nchain = 0;
+    sun_step = sun_radius ? 2 : 0;
+}
+
 void jw_cmd_reset(void)
 {
     /* 新規 does not enter a command, so nothing here goes through

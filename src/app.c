@@ -1211,6 +1211,11 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (c == 27) {              /* Esc lets go of the points taken so far */
+        jw_cmd_escape();
+        app_paint();
+        return 1;
+    }
     if (jw_cmd() != JW_CMD_MOJI)
         return 0;
     jw_cmd_key(c);

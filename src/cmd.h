@@ -129,6 +129,11 @@ void jw_cmd_track(double x, double y);
 int  jw_cmd_can_undo(void);
 void jw_cmd_undo(jw_drawing *d);
 
+/* Esc: let go of the points the command has taken so far, staying in the
+   command.  The original does this -- its status line goes back from
+   「終点を指示してください」 to 「始点を指示してください」. */
+void jw_cmd_escape(void);
+
 /* The elements the command is part way through, if any: how many, filled in
    ready to draw (a rectangle is four lines).  They are worked out the same
    way as the ones that get added, so what is shown is what will be made. */

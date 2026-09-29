@@ -33,6 +33,8 @@
 #                       layer grid, whose buttons are frame children
 #   cmd:<id>            WM_COMMAND to the frame, mid-way
 #   raw:v,<msg>,<w>,<l> any message to the view (5136 = 選択確定)
+#   raw:f,<msg>,<w>,<l> the same to the frame -- keys have to go here,
+#                       because posted clicks never give the view the focus
 #   chr:<id>,<text>     the same as ch: but with a return at the end, which
 #                       is how a number typed into a bar box is taken
 #   ch:<id>,<text>      real WM_CHARs into a command-bar control, one at a
@@ -581,6 +583,15 @@ try {
 
             '^cmd:(\d+)$' {
                 [void][Jw]::SendMessageW($frame, $WM_COMMAND, [IntPtr][int]$Matches[1], [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs; break
+            }
+
+            '^raw:f,(\d+),(-?\d+),(-?\d+)$' {
+                # the same, to the frame -- a key goes through the frame's
+                # PreTranslateMessage, and the view never has the focus in a
+                # driven session because the clicks are posted, not real
+                [void][Jw]::PostMessage($frame, [uint32]$Matches[1],
+                                        [IntPtr][int]$Matches[2], [IntPtr][int]$Matches[3])
                 Start-Sleep -Milliseconds $StepMs; break
             }
 
