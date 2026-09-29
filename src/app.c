@@ -593,7 +593,7 @@ static void ld_start(void)
     ld_open = 1;
 }
 
-static int press_layerdlg(int x, int y)
+static int press_layerdlg(int x, int y, int button)
 {
     int id = ui_layerdlg_hit(fb.w, fb.h, x, y), i, n = ui_layerdlg_n();
     int lay;
@@ -604,9 +604,53 @@ static int press_layerdlg(int x, int y)
         ld_open = 0;
         return 1;
     }
+    if (id == 2000 || id == 1073 || id == 1141) {
+        /* 全レイヤ編集, 全レイヤ非表示 and 一括, as the original left the
+         * file after pressing each of them:
+         *
+         *   全レイヤ編集    every layer of the group being written to goes
+         *                  to 編集可能, and every other layer group with it
+         *   全レイヤ非表示  the same the other way: every layer and every
+         *                  other group goes out
+         *   一括          the layers walk on one step together, the way a
+         *                  single one does when it is clicked --
+         *                  編集可能 → 非表示 → 表示のみ → 編集可能, which is
+         *                  what three presses in a row drew out of it
+         *
+         * The one being written to stays where it is in all three. */
+        int i, wg = 0;
+        if (!have_drawing)
+            return 1;
+        for (i = 0; i < 16; i++)
+            if (drawing.group[i].state == 3)
+                wg = i;
+        if (id == 1141) {
+            for (i = 0; i < 16; i++) {
+                int *st = &drawing.group[wg].layer[i].state;
+                if (*st != 3)
+                    *st = *st == 2 ? 0 : *st == 0 ? 1 : 2;
+            }
+        } else {
+            /* every group, not only the one being written to: the original
+               left every layer of all sixteen at the new state, each
+               group's own write layer excepted */
+            int g, k;
+            for (g = 0; g < 16; g++) {
+                for (k = 0; k < 16; k++)
+                    if (drawing.group[g].layer[k].state != 3)
+                        drawing.group[g].layer[k].state = id == 2000 ? 2 : 0;
+                if (g != wg)
+                    drawing.group[g].state = id == 2000 ? 2 : 0;
+            }
+        }
+        return 1;
+    }
     lay = ui_layerdlg_layer(id);
     if (lay >= 0)
-        return press_layer(0, lay, 0);
+        /* the same as pressing that layer on the grid beside the drawing:
+           the left button walks its state round, the right makes it the one
+           being written to */
+        return press_layer(0, lay, button);
     for (i = 0; i < n && i < (int)sizeof ld_on; i++)
         if (ui_layerdlg_id(i) == id) {
             ld_on[i] = (unsigned char)!ld_on[i];
@@ -1316,7 +1360,7 @@ int app_press(int x, int y, int button)
     if (sk_open)
         return press_shakudo(x, y);
     if (ld_open)
-        return press_layerdlg(x, y);
+        return press_layerdlg(x, y, button);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);

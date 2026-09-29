@@ -19,6 +19,7 @@
 #include "../src/cmd.h"
 #include "../src/ui.h"
 #include "../src/gen/bars.h"
+#include "../src/gen/layerdlg.h"
 
 static int fails;
 
@@ -318,6 +319,23 @@ static void dim_setup_button(void)
     app_key(27);
 }
 
+/* press a control of the レイヤ設定 dialog where it is drawn */
+static void press_ld(int id)
+{
+    rect_t r;
+    int i;
+
+    ui_layerdlg_rect(1264, 741, &r);
+    for (i = 0; i < JW_NLAYERDLG; i++) {
+        const jw_ld_t *z = &jw_layerdlg[i];
+        if (z->id != id)
+            continue;
+        app_press(r.x + JW_LD_BORDER + z->x + z->w / 2,
+                  r.y + JW_LD_CAPTION + z->y + z->h / 2, 0);
+        return;
+    }
+}
+
 /* レイヤ設定: the status line's third box opens it, and its sixteen
    buttons pick the layer being written to. */
 static void layer_dialog(void)
@@ -335,6 +353,47 @@ static void layer_dialog(void)
        "  出ている間は数字が入力欄へ行かない");
     app_key(27);
     ck(d->group[wg].state == 3, "  Esc で閉じても書込グループはそのまま");
+
+    /* 全レイヤ非表示・全レイヤ編集・一括, against the files the original
+       left after pressing each of them */
+    {
+        static const struct { const char *file; int id; const char *what; }
+        B[5] = {
+            { "decomp/res/lay_all_hide.jww",  1073, "全レイヤ非表示" },
+            { "decomp/res/lay_hide_edit.jww", 2000, "  そのあと全レイヤ編集で戻る" },
+            { "decomp/res/lay_ikkatsu.jww",   1141, "一括 一回" },
+            { "decomp/res/lay_ikk2.jww",      1141, "  二回" },
+            { "decomp/res/lay_ikk3.jww",      1141, "  三回" }
+        };
+        int c;
+        app_command(32808);
+        for (c = 0; c < 5; c++) {
+            unsigned char *b;
+            long n;
+            jw_drawing ref;
+            int i, k, ok = 1;
+
+            b = slurp(B[c].file, &n);
+            if (!b || !jw_parse(&ref, b, n)) {
+                printf("BAD  no %s\n", B[c].file);
+                fails++;
+                free(b);
+                continue;
+            }
+            free(b);
+            press_ld(B[c].id);
+            for (i = 0; i < 16; i++) {
+                if (d->group[i].state != ref.group[i].state)
+                    ok = 0;
+                for (k = 0; k < 16; k++)
+                    if (d->group[i].layer[k].state != ref.group[i].layer[k].state)
+                        ok = 0;
+            }
+            ck(ok, B[c].what);
+            jw_free(&ref);
+        }
+        app_key(27);
+    }
 }
 
 int main(void)
