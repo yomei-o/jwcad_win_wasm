@@ -982,9 +982,73 @@ static void line_value(void)
     jw_free(&ref);
 }
 
+/* 複線 の 複線間隔 (1411): a typed offset, and the click only says which
+ * side.  The original takes it in its second stage -- 「間隔を入力するか、
+ * 複写する位置」 -- and goes straight on to the third. */
+static void offset_typed(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[2];
+    int before;
+    double mx, my;
+
+    b = slurp("decomp/res/fukukan.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/fukukan.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  fukukan.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 2)) {
+        printf("BAD  fukukan.jww has no pair of lines in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    {   /* the line the original drew, put in the same way */
+        jw_obj *o = jw_add(d, JW_SEN);
+        o->d[0] = r[0]->d[0];
+        o->d[1] = r[0]->d[1];
+        o->d[2] = r[0]->d[2];
+        o->d[3] = r[0]->d[3];
+    }
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    type_box(1411, "1000");
+    mx = (r[0]->d[0] + r[0]->d[2]) / 2.0;
+    my = (r[0]->d[1] + r[0]->d[3]) / 2.0;
+    jw_cmd_point(d, app_view(), mx, my, 0);              /* the line */
+    ck(d->ndrawn == before, "複線: picking the line draws nothing");
+    /* one click on the side the original's copy went, and that is all */
+    jw_cmd_point(d, app_view(), mx, my + (r[1]->d[1] - r[0]->d[1]) * 0.3, 0);
+    ck(d->ndrawn == before + 1, "  and with an interval typed, one more draws it");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        int ok = near(a->d[0], r[1]->d[0]) && near(a->d[1], r[1]->d[1])
+                 && near(a->d[2], r[1]->d[2]) && near(a->d[3], r[1]->d[3]);
+        if (!ok)
+            printf("     ours %.6f,%.6f -> %.6f,%.6f\n"
+                   "     the original's %.6f,%.6f -> %.6f,%.6f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   r[1]->d[0], r[1]->d[1], r[1]->d[2], r[1]->d[3]);
+        ck(ok, "  exactly where the original's copy went (5 mm, 1000/200)");
+    }
+    type_box(1411, "");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    offset_typed();
     line_value();
     circle_half();
     circle_3pt();

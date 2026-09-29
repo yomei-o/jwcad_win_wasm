@@ -5699,8 +5699,21 @@ placed:
                 return;
             }
             para_off = ((x - o->d[0]) * -dy + (y - o->d[1]) * dx) / len;
-            para_step = 2;
-            return;
+            {   /* 複線間隔 (1411): with a number in the box the click only
+                 * says which side, and the copy goes exactly that far.  The
+                 * original's own three stages are 「複線にする図形を選択」
+                 * 「間隔を入力するか、複写する位置」「作図する方向を指示」,
+                 * and typing the number there takes it straight to the
+                 * third -- so a typed offset is two clicks, not three.
+                 * 1000 on a 1/200 group put the copy 5 mm out. */
+                double typed = box_mm(d, 1411);
+                if (typed <= 0.0) {
+                    para_step = 2;
+                    return;
+                }
+                para_off = para_off < 0.0 ? -typed : typed;
+            }
+            /* and with one, this click was the direction: fall through */
         }
         para_step = 0;
         if (para_obj >= 0 && para_obj < d->ndrawn

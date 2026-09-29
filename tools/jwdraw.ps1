@@ -33,6 +33,8 @@
 #                       layer grid, whose buttons are frame children
 #   cmd:<id>            WM_COMMAND to the frame, mid-way
 #   raw:v,<msg>,<w>,<l> any message to the view (5136 = 選択確定)
+#   chr:<id>,<text>     the same as ch: but with a return at the end, which
+#                       is how a number typed into a bar box is taken
 #   ch:<id>,<text>      real WM_CHARs into a command-bar control, one at a
 #                       time.  WM_SETTEXT does not work: the command keeps
 #                       using the value it already has.  The text is
@@ -499,14 +501,23 @@ try {
         [void][Jw]::PostMessage($e, $WM_LBUTTONDOWN, [IntPtr]1, $mid)
         [void][Jw]::PostMessage($e, $WM_LBUTTONUP,   [IntPtr]0, $mid)
         Start-Sleep -Milliseconds 120
-        [void][Jw]::SendMessageW($e, $EM_SETSEL, [IntPtr]0, [IntPtr](-1))
-        for ($i = 0; $i -lt 24; $i++) {
-            [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr]8, [IntPtr]1)
-        }
-        Start-Sleep -Milliseconds 80
-        foreach ($c in $s.ToCharArray()) {
-            [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr][int][char]$c, [IntPtr]1)
-            Start-Sleep -Milliseconds 25
+        # Twice.  The *first* text typed into one of these boxes part way
+        # through a command loses its first character -- "20000" arrived as
+        # "0000" in 複線's second stage, and an offset of nothing drew the
+        # copy on top of the line -- while anything typed after that arrives
+        # whole.  Clearing and typing again costs a moment and leaves the
+        # box with exactly what was asked for.
+        for ($pass = 0; $pass -lt 2; $pass++) {
+            [void][Jw]::SendMessageW($e, $EM_SETSEL, [IntPtr]0, [IntPtr](-1))
+            for ($i = 0; $i -lt 24; $i++) {
+                [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr]8, [IntPtr]1)
+            }
+            Start-Sleep -Milliseconds 80
+            foreach ($c in $s.ToCharArray()) {
+                [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr][int][char]$c, [IntPtr]1)
+                Start-Sleep -Milliseconds 25
+            }
+            Start-Sleep -Milliseconds 60
         }
         if ($Enter) { [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr]13, [IntPtr]1) }
         Start-Sleep -Milliseconds 150
@@ -583,6 +594,16 @@ try {
                 $h = Ctl ([int]$Matches[1])
                 if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
                 Chars $h $Matches[2]
+                break
+            }
+
+            '^chr:(\d+),(.*)$' {
+                # the same, then Enter -- 複線's second stage says
+                # 「間隔を入力するか、複写する位置を指示」, and a number typed
+                # there without a return is not taken
+                $h = Ctl ([int]$Matches[1])
+                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                Chars $h $Matches[2] -Enter
                 break
             }
 

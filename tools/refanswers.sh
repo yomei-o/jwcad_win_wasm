@@ -1187,6 +1187,11 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 複線 の 複線間隔 (1411): 二段目で打ち込むと、そのぶんだけ離れた複線が
+# 出ます（クリックは向きを言うだけ）。打ち込みには **確定（Enter）** が
+# 要るので chr: を使います。1000 が 1/200 の群で 5mm でした。
+make bardraw fukukan 0 '300,600;700,600;cmd:32800;500,600;chr:1411,1000;500,500'     || fails=$((fails+1))
+
 # 線 の 寸法値 (1350): 線そのものが寸法要素になり（flags 0x2000）、長さの
 # 文字が線に沿って並びます。中点から左へ 0.5、寸法の文字種、width は 0。
 make bardraw sensun 0 'btn:1350;500,400;700,500'     || fails=$((fails+1))
