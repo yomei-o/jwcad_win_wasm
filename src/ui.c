@@ -878,7 +878,14 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
     jw_text_px(fb, ui_right(panes[1].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
     sprintf(buf, "[%X-%X]", wg, d->group[wg].write_layer & 15);
     jw_text_px(fb, ui_right(panes[2].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
-    jw_text_px(fb, ui_right(panes[3].x0 + 4, fb->w), ty, "\x81\xda 0", C_BTNTEXT);
+    {   /* 軸角: the angle the drawing is being worked at, which the
+           status line's own box and the menu both set.  It was a fixed
+           zero here, so setting it changed nothing on the screen. */
+        double ax = jw_cmd_axis();
+        sprintf(buf, "\x81\xda %g", ax);
+        jw_text_px(fb, ui_right(panes[3].x0 + 4, fb->w), ty, buf,
+                   C_BTNTEXT);
+    }
     /* two decimals, cut not rounded, and a trailing zero dropped: the
        original shows 0.21, 0.3, 0.42 and 0.1 for the four sheet sizes */
     {
