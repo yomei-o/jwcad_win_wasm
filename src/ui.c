@@ -16,6 +16,7 @@
 #include "gen/jikkaku.h"
 #include "gen/shakudo.h"
 #include "gen/layerdlg.h"
+#include "gen/layicon.h"
 #include "gen/sunpodlg.h"
 #include "gen/bairitsu.h"
 #include "gen/pens.h"
@@ -2530,12 +2531,22 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
             fb_edge(fb, x + (z->id == 1) + 1, y + (z->id == 1) + 1,
                     z->w - 2 * (z->id == 1) - 2, z->h - 2 * (z->id == 1) - 2,
                     C_3DLIGHT, C_BTNSHADOW);
-            /* the one being written to is named in red, the way the layer
-               grid beside the drawing names it */
-            if (lay >= 0 && g && (g->write_layer & 15) == lay)
-                col = 0x0000ffu;
-            else if (lay >= 0 && g && g->layer[lay].state == 0)
-                col = C_GRAYTEXT;
+            if (lay >= 0 && g) {
+                /* the original paints a little picture of the layer's state
+                 * on the button rather than its number (the number is the
+                 * static above it).  The four are lifted from pictures of
+                 * its own dialog -- see tools/mklayicon.py -- and sit four
+                 * in and four down from the button's corner. */
+                int st = g->layer[lay].state;
+                int px_, py_;
+                if (st < 0 || st > 3)
+                    st = 0;
+                for (py_ = 0; py_ < JW_LAYICON_H; py_++)
+                    for (px_ = 0; px_ < JW_LAYICON_W; px_++)
+                        px_put(fb, x + 4 + px_, y + 4 + py_,
+                               jw_layicon[st][py_ * JW_LAYICON_W + px_]);
+                break;
+            }
             zs_text(fb, x + (z->w - jw_text_px_w(t)) / 2,
                     y + (z->h - th) / 2, z->w - 4, t, col);
             break;

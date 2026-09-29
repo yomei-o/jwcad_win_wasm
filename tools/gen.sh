@@ -170,6 +170,12 @@ say '縮尺・読取設定のダイアログ'
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/shakudo.txt     -Clicks 'dlg:32944,docs/ref_shakudo.png' >/dev/null
 python tools/mkshakudo.py
 
+say 'レイヤ設定のダイアログと、その釦に載るレイヤ状態の絵'
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/layerdlg.txt     -Clicks 'dlg:32808,docs/ref_layerdlg.png' >/dev/null
+python tools/mklayerdlg.py
+sh tools/probe11.sh >/dev/null 2>&1 || true
+python tools/mklayicon.py
+
 say '基本設定 dialog, all eight tabs'
 # The original does not build a tab's controls until it is shown, so each
 # one is read with a dlgat: -- open the dialog, click that tab, read it.
