@@ -420,6 +420,161 @@ static int jk_key(int c)
 }
 
 /* 寸法設定 -- the picture only */
+/* ---------------------------------------------------- 縮尺・読取 -----
+ * What the menu's 縮尺・読取 (32944) and the status line's first two boxes
+ * (32825 and 32827, sent by FUN_00596e80) put up.  The scale of a layer
+ * group is a numerator over a denominator -- 1/200 -- and the list on the
+ * left says what each of the sixteen is at.  Clicking one picks it; Ok
+ * applies what the two boxes hold, to that group or to every editable one
+ * if 全レイヤグループの縮尺変更 is ticked. */
+static int sk_open, sk_group, sk_caret;
+static char sk_num[16] = "1", sk_den[16] = "100";
+static unsigned char sk_on[64];
+static char sk_list[16][16];
+static const char *sk_listp[16];
+
+static int sk_write_group(void)
+{
+    int g, wg = 0;
+
+    if (!have_drawing)
+        return 0;
+    for (g = 0; g < 16; g++)
+        if (drawing.group[g].state == 3)
+            wg = g;
+    return wg;
+}
+
+static void sk_fill(void)
+{
+    int g;
+
+    for (g = 0; g < 16; g++) {
+        double sc = have_drawing ? drawing.group[g].scale : 100.0;
+        if (sc <= 0.0)
+            sc = 1.0;
+        sprintf(sk_list[g], "1/%g", sc);
+        sk_listp[g] = sk_list[g];
+    }
+}
+
+static void sk_start(void)
+{
+    int i, n = ui_shakudo_n();
+    double sc;
+
+    for (i = 0; i < n && i < (int)sizeof sk_on; i++)
+        sk_on[i] = (unsigned char)ui_shakudo_on(i);
+    sk_group = sk_write_group();
+    sc = have_drawing ? drawing.group[sk_group].scale : 100.0;
+    if (sc <= 0.0)
+        sc = 1.0;
+    strcpy(sk_num, "1");
+    sprintf(sk_den, "%g", sc);
+    sk_caret = 1471;
+    sk_fill();
+    sk_open = 1;
+}
+
+/* Ok: the two boxes become the group's scale.  1/200 is kept as the 200 the
+   file carries, so a numerator of anything but 1 divides into it. */
+static void sk_apply(void)
+{
+    double num = atof(sk_num), den = atof(sk_den);
+    double sc;
+    int g, all = 0, i, n = ui_shakudo_n();
+
+    for (i = 0; i < n && i < (int)sizeof sk_on; i++)
+        if (ui_shakudo_id(i) == 1954)
+            all = sk_on[i];
+    if (!have_drawing || num == 0.0 || den <= 0.0)
+        return;
+    sc = den / num;
+    if (sc <= 0.0)
+        return;
+    if (!all) {
+        drawing.group[sk_group].scale = sc;
+        return;
+    }
+    for (g = 0; g < 16; g++)
+        if (drawing.group[g].state == 1 || drawing.group[g].state == 3)
+            drawing.group[g].scale = sc;
+}
+
+static int press_shakudo(int x, int y)
+{
+    int id = ui_shakudo_hit(fb.w, fb.h, x, y), i, n = ui_shakudo_n();
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1) {                      /* Ok */
+        sk_apply();
+        sk_open = 0;
+        return 1;
+    }
+    if (id == 2) {                      /* キャンセル */
+        sk_open = 0;
+        return 1;
+    }
+    if (id == 1470 || id == 1471) {
+        sk_caret = id;
+        return 1;
+    }
+    if (id >= 1959 && id <= 1974) {     /* a group in the list */
+        double sc;
+        sk_group = id - 1959;
+        sc = have_drawing ? drawing.group[sk_group].scale : 100.0;
+        if (sc <= 0.0)
+            sc = 1.0;
+        strcpy(sk_num, "1");
+        sprintf(sk_den, "%g", sc);
+        return 1;
+    }
+    for (i = 0; i < n && i < (int)sizeof sk_on; i++) {
+        if (ui_shakudo_id(i) != id)
+            continue;
+        if (id == 1704 || id == 1705) { /* 実寸固定 / 図寸固定: one of two */
+            int k;
+            for (k = 0; k < n && k < (int)sizeof sk_on; k++)
+                if (ui_shakudo_id(k) == 1704 || ui_shakudo_id(k) == 1705)
+                    sk_on[k] = (unsigned char)(ui_shakudo_id(k) == id);
+        } else {
+            sk_on[i] = (unsigned char)!sk_on[i];
+        }
+        return 1;
+    }
+    return 1;                           /* on the dialog, on nothing */
+}
+
+static int sk_key(int c)
+{
+    char *t = sk_caret == 1470 ? sk_num : sk_den;
+    size_t n = strlen(t);
+
+    if (c == 8) {
+        if (n)
+            t[n - 1] = 0;
+        return 1;
+    }
+    if (c == 13) {
+        sk_apply();
+        sk_open = 0;
+        return 1;
+    }
+    if (c == 9) {                       /* Tab moves between the two */
+        sk_caret = sk_caret == 1470 ? 1471 : 1470;
+        return 1;
+    }
+    if ((c >= '0' && c <= '9') || c == '.') {
+        if (n + 1 < 16) {
+            t[n] = (char)c;
+            t[n + 1] = 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 static int sd_open;
 static unsigned char sd_on[128];
 
@@ -922,8 +1077,25 @@ int app_command(int cmd)
             return 0;
         jw_paper_set(&drawing, cmd - 32820);
         return 1;
+    case 32899: case 32900: case 32901: case 32902:
+        /* ２Ａ..５Ａ, which the menu carries after Ａ-４ */
+        if (!have_drawing)
+            return 0;
+        jw_paper_set(&drawing, cmd - 32899 + 8);
+        return 1;
+    case 32903: case 32904: case 32905:
+        /* 10ｍ, 50ｍ, 100m -- the sizes the file format numbers 12 to 14 */
+        if (!have_drawing)
+            return 0;
+        jw_paper_set(&drawing, cmd - 32903 + 12);
+        return 1;
     case 32891:                         /* 基本設定 */
         kh_start();
+        return 1;
+    case 32944:                         /* 縮尺・読取 */
+    case 32825:                         /* the status line's 用紙 box */
+    case 32827:                         /* and its 縮尺 box */
+        sk_start();
         return 1;
     case 32842:                         /* 軸角・目盛・オフセット */
     case 32843:                         /* the same, from the status line */
@@ -1097,6 +1269,8 @@ int app_press(int x, int y, int button)
         return press_sunpodlg(x, y);
     if (br_open)
         return press_bairitsu(x, y);
+    if (sk_open)
+        return press_shakudo(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -1219,17 +1393,22 @@ static int moji_key(int c)
 static int dialog_open(void)
 {
     return zoku_open || moji_open || zsel_open || blk_open || be_open
-           || jk_open || sd_open || br_open || kh_open || zhen_open;
+           || jk_open || sd_open || br_open || kh_open || zhen_open
+           || sk_open;
 }
 
 static void dialog_close(void)
 {
     zoku_open = moji_open = zsel_open = jk_open = 0;
-    sd_open = br_open = kh_open = zhen_open = 0;
+    sd_open = br_open = kh_open = zhen_open = sk_open = 0;
 }
 
 int app_key(int c)
 {
+    if (sk_open && sk_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (jk_open && jk_key(c)) {
         app_paint();
         return 1;
@@ -1598,6 +1777,10 @@ void app_paint(void)
         ui_sunpodlg(&fb, sd_on);
     if (br_open)
         ui_bairitsu(&fb, br_zoom, br_on);
+    if (sk_open) {
+        sk_fill();
+        ui_shakudo(&fb, sk_num, sk_den, sk_listp, sk_group, sk_on, sk_caret);
+    }
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

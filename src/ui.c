@@ -14,6 +14,7 @@
 #include "gen/blkedit.h"
 #include "gen/kihon.h"
 #include "gen/jikkaku.h"
+#include "gen/shakudo.h"
 #include "gen/sunpodlg.h"
 #include "gen/bairitsu.h"
 #include "gen/pens.h"
@@ -2399,6 +2400,166 @@ int ui_jikkaku_hit(int cw, int ch, int x, int y)
         const jw_jk_t *z = &jw_jikkaku[i];
 
         if (z->kind == JW_JK_STATIC || z->kind == JW_JK_GROUP)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* ---------------------------------------------------- 縮尺・読取 -----
+ * The scale each layer group is drawn at.  Read out of the running original
+ * with `dlg:32944` -- the id the menu's 縮尺・読取 sends, and the one the
+ * status line's second box sends as well (FUN_00596e80).
+ *
+ * The left half lists the sixteen groups and what each is at; the right half
+ * has the scale in two boxes, 1470 over 1471, and the switches that say what
+ * else moves with it.  The statics 1959..1974 carry the list, so what is
+ * painted in them is the drawing's own scales rather than the text that was
+ * captured. */
+void ui_shakudo_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_SK_W;
+    r->h = JW_SK_H;
+    r->x = (cw - JW_SK_W) / 2;
+    r->y = (ch - 42 - JW_SK_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_shakudo_n(void)
+{
+    return JW_NSHAKUDO;
+}
+
+int ui_shakudo_id(int i)
+{
+    return i >= 0 && i < JW_NSHAKUDO ? jw_shakudo[i].id : 0;
+}
+
+int ui_shakudo_on(int i)
+{
+    return i >= 0 && i < JW_NSHAKUDO ? jw_shakudo[i].on : 0;
+}
+
+void ui_shakudo(fb_t *fb, const char *num, const char *den,
+                const char *const *scales, int write_group,
+                const unsigned char *on, int caret)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_shakudo_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_SK_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_SK_CAPTION - th) / 2, JW_SK_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_SK_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_SK_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_SK_BORDER;
+    cy = r.y + JW_SK_CAPTION;
+    fb_fill(fb, cx, cy, JW_SK_CW, JW_SK_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NSHAKUDO; i++) {
+        const jw_sk_t *z = &jw_shakudo[i];
+        int x = cx + z->x, y = cy + z->y;
+
+        switch (z->kind) {
+        case JW_SK_OK:
+        case JW_SK_PUSH:
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (z->id == 1)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + (z->id == 1), y + (z->id == 1),
+                    z->w - 2 * (z->id == 1), z->h - 2 * (z->id == 1),
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + (z->id == 1) + 1, y + (z->id == 1) + 1,
+                    z->w - 2 * (z->id == 1) - 2, z->h - 2 * (z->id == 1) - 2,
+                    C_3DLIGHT, C_BTNSHADOW);
+            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            break;
+        case JW_SK_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+
+            paint_checkbox(fb, x, by, on ? on[i] : z->on);
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_SK_RADIO:
+            mj_radio(fb, x, y + (z->h - CHECK_W) / 2, on ? on[i] : z->on);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+            break;
+        case JW_SK_GROUP: {
+            int gy = y + th / 2, gh = z->h - th / 2;
+
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_SK_EDIT: {
+            const char *t = z->id == 1470 ? num : den;
+            int tw;
+
+            if (!t)
+                t = "";
+            tw = jw_text_px_w(t);
+            mj_sunken(fb, x, y, z->w, z->h);
+            zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6, t, C_BTNTEXT);
+            if (caret == z->id)
+                fb_fill(fb, x + 3 + tw, y + (z->h - th) / 2, 1, th,
+                        C_BTNTEXT);
+            break;
+        }
+        case JW_SK_STATIC: {
+            const char *t = z->text;
+            unsigned c = C_BTNTEXT;
+
+            if (z->id >= 1959 && z->id <= 1974) {
+                int g = z->id - 1959;
+                if (scales && scales[g])
+                    t = scales[g];
+                if (g == write_group)
+                    c = 0x0000ffu;      /* the one being written to */
+            }
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, t, c);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
+int ui_shakudo_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_shakudo_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_SK_BORDER;
+    y -= r.y + JW_SK_CAPTION;
+    for (i = 0; i < JW_NSHAKUDO; i++) {
+        const jw_sk_t *z = &jw_shakudo[i];
+
+        if (z->kind == JW_SK_GROUP)
+            continue;
+        /* the sixteen scales are statics, and clicking one is how a group
+           is chosen -- so they answer, unlike the labels beside them */
+        if (z->kind == JW_SK_STATIC && !(z->id >= 1959 && z->id <= 1974))
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

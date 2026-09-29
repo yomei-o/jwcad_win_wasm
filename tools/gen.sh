@@ -166,6 +166,10 @@ cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/jikkaku.txt     -Clicks 'dlg:32842,docs/ref_jikkaku.png' >/dev/null
 python tools/mkjikkaku.py
 
+say '縮尺・読取設定のダイアログ'
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/shakudo.txt     -Clicks 'dlg:32944,docs/ref_shakudo.png' >/dev/null
+python tools/mkshakudo.py
+
 say '基本設定 dialog, all eight tabs'
 # The original does not build a tab's controls until it is shown, so each
 # one is read with a dlgat: -- open the dialog, click that tab, read it.

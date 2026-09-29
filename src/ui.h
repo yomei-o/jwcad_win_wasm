@@ -194,6 +194,16 @@ int  ui_jikkaku_n(void);
 int  ui_jikkaku_id(int i);
 int  ui_jikkaku_on(int i);
 
+/* 縮尺・読取設定 (32944, and the status line's second box) */
+void ui_shakudo_rect(int cw, int ch, rect_t *r);
+void ui_shakudo(fb_t *fb, const char *num, const char *den,
+                const char *const *scales, int write_group,
+                const unsigned char *on, int caret);
+int  ui_shakudo_hit(int cw, int ch, int x, int y);
+int  ui_shakudo_n(void);
+int  ui_shakudo_id(int i);
+int  ui_shakudo_on(int i);
+
 /* 寸法設定 -- the dialog 32925 puts up.  The picture only: nothing on it is
    wired up yet.  `on` is one byte per control of src/gen/sunpodlg.h. */
 void ui_sunpodlg_rect(int cw, int ch, rect_t *r);

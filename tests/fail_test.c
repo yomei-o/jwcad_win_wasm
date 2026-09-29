@@ -261,6 +261,35 @@ static void keys_under_a_dialog(void)
     }
 }
 
+/* 縮尺・読取: the box at the right of the status line opens it, the two
+   boxes take a scale and Ok applies it to the group being written to. */
+static void scale_dialog(void)
+{
+    jw_drawing *d = fresh();
+    int g, wg = 0, i;
+
+    for (g = 0; g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    ck(app_command(32827) == 1, "ステータスの縮尺の箱で縮尺・読取が開く");
+    /* while it is up the drawing hears nothing */
+    for (i = 0; i < 8; i++)
+        app_key(8);
+    app_key('5');
+    app_key('0');
+    app_key(13);                        /* Enter is Ok */
+    ck(d->group[wg].scale == 50.0, "  1/50 を打って書込レイヤグループに入る");
+    /* and it is shut: the bar hears the keyboard again */
+    type_box(1412, "7");
+    ck(jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "7"),
+       "  Ok のあとは入力欄が戻る");
+    type_box(1412, "");
+    /* the menu's own item opens the same one, and キャンセル leaves it */
+    ck(app_command(32944) == 1, "メニューの縮尺・読取も同じものを開く");
+    app_key(27);
+    ck(d->group[wg].scale == 50.0, "  Esc では変わらない");
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -271,6 +300,7 @@ int main(void)
     undo_past_the_start();
     buttons_at_the_wrong_time();
     keys_under_a_dialog();
+    scale_dialog();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
