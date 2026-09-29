@@ -186,12 +186,6 @@ static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       
    place the angle lives. */
 static void box_put(int id, const char *v);
 
-/* ０º/９０º (1059): the dimension is laid out upright instead of along the
- * 傾き box.  Asked of the original with the button pressed once and the two
- * ends of a slanted line read, the dimension line came out vertical and the
- * value was the height between them, not the distance along the line. */
-static int sun_vert;
-
 /* 累進 (1070): the dimension is drawn as one of a run measured from a
  * common base -- a 点 at the base end, an arrowhead at the far one, and the
  * value stood on end beside it rather than laid along the line. */
@@ -201,8 +195,6 @@ static double sun_angle(void)
 {
     const char *t = jw_cmd_box(1411);
 
-    if (sun_vert)
-        return 90.0;
     return t ? atof(t) : 0.0;
 }
 
@@ -5079,6 +5071,10 @@ static int bar_press(jw_drawing *d, int id)
         }
         if (id != 1059)
             return 0;
+        /* ０º/９０º: the 傾き box turns over between the two.  Asked of
+           the original with the ends of a slanted line read, the dimension
+           came out standing up and measuring the height between them, and
+           pressing it twice drew exactly what no press drew. */
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
         return 1;
     }
@@ -5188,10 +5184,6 @@ int jw_cmd_bar(jw_drawing *d, int id)
     /* Anything the command itself does not act on, and that the original has
        as a checkbox there: its tick moves whatever the command makes of it,
        so the port's does too. */
-    if (current == JW_CMD_SUNPO && id == 1059) {
-        sun_vert = !sun_vert;
-        return 1;
-    }
     if (current == JW_CMD_SUNPO && id == 1070) {
         sun_prog = !sun_prog;
         return 1;
@@ -5694,8 +5686,15 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         }
     }
 
-    /* 引出線 -- from the dimension line out to where the first click was */
-    for (i = 0; i < 2; i++) {
+    /* 引出線 -- from the dimension line out to where the first click was.
+     *
+     * None is written when it would have no length.  The original, asked to
+     * dimension the height of a rectangle with ０º/９０º on, kept the line
+     * position from the width dimension before it -- both of those clicks
+     * were at the same place across the new direction -- and wrote the
+     * dimension line, the two points and the value with no extensions at
+     * all. */
+    for (i = 0; th != tl + JW_SUN_TSUKIDASHI && i < 2; i++) {
         double s = i ? s1 : s0;
         o = jw_add(d, JW_SEN);
         if (!o)

@@ -1989,6 +1989,87 @@ static void dim_progressive(void)
     jw_free(&ref);
 }
 
+/* A rectangle with its width and its height on it -- what a dimension is
+   actually for.  The original was given a 10000 x 6000 rectangle, then the
+   width under its bottom edge (傾き 0) and the height beside its left one
+   (０º/９０º), the corners read with the right button both times. */
+static void dim_rectangle(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[16];
+    int m = 0, i, before, ok = 1;
+
+    b = slurp("decomp/res/sun6_rect.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sun6_rect.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn && m < 16; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_MOJI && !(o->flags & JW_SUN_TEXT_FLAGS))
+            continue;                   /* the settings texts */
+        r[m++] = o;
+    }
+    if (m != 14) {
+        printf("BAD  sun6_rect.jww holds %d elements, not 14\n", m);
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    before = d->ndrawn;
+    /* the rectangle, from its own corner and 10000 x 6000 */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "");
+    type_box(1417, "");
+    type_box(1413, "10000,6000");
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[0]->d[0] + 1.0, r[0]->d[1] - 1.0, 0);
+    type_box(1413, "");
+    /* the width: the two clicks that place the line, then the bottom corners */
+    jw_cmd_set(JW_CMD_SUNPO);
+    type_box(1411, "0");
+    /* both clicks were at the same place across the drawing -- the x the
+       upright dimension later stands at, which is r[10]'s */
+    jw_cmd_point(d, app_view(), r[10]->d[0], r[7]->d[3], 0);  /* extensions end */
+    jw_cmd_point(d, app_view(), r[10]->d[0], r[4]->d[1], 0);  /* the line */
+    jw_cmd_point(d, app_view(), r[2]->d[2], r[2]->d[3], 1);
+    jw_cmd_point(d, app_view(), r[2]->d[0], r[2]->d[1], 1);
+    /* and the height, upright, off the same pair of clicks */
+    jw_cmd_bar(d, 1059);
+    jw_cmd_point(d, app_view(), r[3]->d[0], r[3]->d[1], 1);
+    jw_cmd_point(d, app_view(), r[3]->d[2], r[3]->d[3], 1);
+    ck(d->ndrawn - before == 14,
+       "四角に幅と高さの寸法が付く");
+    if (d->ndrawn - before == 14) {
+        for (i = 0; i < 14; i++) {
+            const jw_obj *a = &d->obj[before + i];
+            int j, same = a->cls == r[i]->cls && a->flags == r[i]->flags;
+            for (j = 0; j < 4; j++)
+                if (!near(a->d[j], r[i]->d[j]))
+                    same = 0;
+            if (!same) {
+                ok = 0;
+                printf("     %2d ours cls=%d f=%#x %.4f,%.4f -> %.4f,%.4f\n"
+                       "        the original's cls=%d f=%#x %.4f,%.4f -> %.4f,%.4f\n",
+                       i, a->cls, a->flags, a->d[0], a->d[1], a->d[2], a->d[3],
+                       r[i]->cls, r[i]->flags,
+                       r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+            }
+        }
+        ck(ok, "  十四要素すべて原典と同じ");
+    }
+    jw_cmd_bar(d, 1059);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -2000,6 +2081,7 @@ int main(void)
     para_buttons();
     dim_upright();
     dim_progressive();
+    dim_rectangle();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();
