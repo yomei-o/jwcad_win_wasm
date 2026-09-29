@@ -23,8 +23,12 @@ import re
 # cannot reach.  Those come in headed `=== command 1<cmd>` -- the command
 # with a 1 in front -- and go into the same table, so the port looks the
 # second stage up by 100000 + the command.
+# bars4.txt (the bar after each step) is captured but not baked in yet: what
+# it holds is almost all enabled/disabled, which the port answers for itself
+# in jw_cmd_bar_enabled, and putting it in would need a step counter that
+# means the same thing as the capture's.  See docs/notes-commands.md.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
-       'decomp/res/bars3.txt', 'decomp/res/bars4.txt']
+       'decomp/res/bars3.txt']
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar
