@@ -1187,6 +1187,11 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 寸法 の 半径 (1065): 円を 1 回クリックするだけ。中心からクリック点への線、
+# R 付きの値（線の中点の 0.5 上）、両端の点 —— の 4 要素。文字は普通の
+# 寸法値の 0x4010 に対して 0x4110、width は (桁<<12)|0x443 でした。
+make bardraw sunhankei 32773 '500,400;600,400;cmd:32847;btn:1065;600,400'     || fails=$((fails+1))
+
 # 複線 の 複線間隔 (1411): 二段目で打ち込むと、そのぶんだけ離れた複線が
 # 出ます（クリックは向きを言うだけ）。打ち込みには **確定（Enter）** が
 # 要るので chr: を使います。1000 が 1/200 の群で 5mm でした。

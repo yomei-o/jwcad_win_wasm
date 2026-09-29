@@ -1045,9 +1045,86 @@ static void offset_typed(void)
     jw_free(&ref);
 }
 
+/* 寸法 の 半径 (1065): one click on a circle -- a line from its centre, the
+ * value with an R in front, and a point at each end. */
+static void dim_radius(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r_c = 0, *r_sen = 0, *r_txt = 0;
+    int i, before;
+
+    b = slurp("decomp/res/sunhankei.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/sunhankei.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  sunhankei.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_ENKO && !r_c)
+            r_c = o;
+        else if (o->cls == JW_SEN && (o->flags & 0x2000) && !r_sen)
+            r_sen = o;
+        else if (o->cls == JW_MOJI && (o->flags & 0x4000) && !r_txt)
+            r_txt = o;
+    }
+    if (!r_c || !r_sen || !r_txt) {
+        printf("BAD  sunhankei.jww has no radius dimension in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    {   /* the circle the original measured */
+        jw_obj *o = jw_add(d, JW_ENKO);
+        int k;
+        for (k = 0; k < 8; k++)
+            o->d[k] = r_c->d[k];
+        o->n = r_c->n;
+    }
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    ck(jw_cmd_bar(d, 1065) == 1, "寸法: 半径 can be pressed");
+    jw_cmd_point(d, app_view(), r_sen->d[2], r_sen->d[3], 0);
+    ck(d->ndrawn == before + 4, "  and one click on the circle makes four elements");
+    if (d->ndrawn == before + 4) {
+        const jw_obj *a = &d->obj[before], *t = &d->obj[before + 1];
+        const char *got = jw_str(d, t->text), *want = jw_str(&ref, r_txt->text);
+        int ok = near(a->d[0], r_sen->d[0]) && near(a->d[1], r_sen->d[1])
+                 && near(a->d[2], r_sen->d[2]) && near(a->d[3], r_sen->d[3]);
+        ck(ok, "  the line from the centre out, where the original put it");
+        if (!got || !want || strcmp(got, want))
+            printf("     ours [%s], the original's [%s]\n",
+                   got ? got : "(none)", want ? want : "(none)");
+        ck(got && want && !strcmp(got, want), "  the R value it wrote");
+        ok = near(t->d[0], r_txt->d[0]) && near(t->d[1], r_txt->d[1])
+             && near(t->d[2], r_txt->d[2]) && near(t->d[3], r_txt->d[3])
+             && t->width == r_txt->width && t->flags == r_txt->flags;
+        if (!ok)
+            printf("     ours %.4f,%.4f -> %.4f,%.4f w=%#x f=%#x\n"
+                   "     the original's %.4f,%.4f -> %.4f,%.4f w=%#x f=%#x\n",
+                   t->d[0], t->d[1], t->d[2], t->d[3],
+                   (unsigned)t->width, (unsigned)t->flags,
+                   r_txt->d[0], r_txt->d[1], r_txt->d[2], r_txt->d[3],
+                   (unsigned)r_txt->width, (unsigned)r_txt->flags);
+        ck(ok, "  laid where the original laid it, with its own flags");
+    }
+    jw_cmd_bar(d, 1064);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    dim_radius();
     offset_typed();
     line_value();
     circle_half();

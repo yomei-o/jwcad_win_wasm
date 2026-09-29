@@ -200,6 +200,21 @@ int main(int argc, char **argv)
     cone(d);
     dimension(d, ax, ay, bx, by);
 
+    {   /* the base circle's radius, with 寸法's 半径 button */
+        int was = d->ndrawn;
+        const jw_obj *c = 0;
+        int i;
+        for (i = 0; i < d->ndrawn; i++)
+            if (d->obj[i].cls == JW_ENKO && !c)
+                c = &d->obj[i];
+        jw_cmd_set(JW_CMD_SUNPO);
+        ck(jw_cmd_bar(d, 1065) == 1, "寸法: 半径 can be pressed");
+        if (c) {
+            jw_cmd_point(d, app_view(), c->d[0] + c->d[2], c->d[1], 0);
+            ck(d->ndrawn > was, "  and it measures the base circle");
+        }
+    }
+
     ck(d->ndrawn > lines0, "and the drawing has grown");
     ck(app_save(&out, &n) && n > 0, "the whole thing saves");
     if (argc > 1 && n > 0) {

@@ -343,6 +343,10 @@ static int sun_decimals(void)
     return sun_keta < 0 ? JW_SUN_DECIMALS : sun_keta;
 }
 
+/* 寸法 の 半径 (1065): one click on a circle instead of two points on a
+ * line.  0 is the ordinary two-point dimension. */
+static int sun_radius;
+
 /* 寸法 の 端部 (1062): a point at each end of the dimension line, or an
  * arrowhead.  The button turns it over. */
 static int sun_arrow = -1;
@@ -4802,6 +4806,16 @@ static int bar_press(jw_drawing *d, int id)
             sun_arrow = !sun_arrows();
             return 1;
         }
+        if (id == 1065) {       /* 半径 */
+            sun_radius = 1;
+            sun_step = 2;
+            return 1;
+        }
+        if (id == 1064) {       /* リセット: back to the two-point kind */
+            sun_radius = 0;
+            sun_step = 0;
+            return 1;
+        }
         if (id != 1059)
             return 0;
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
@@ -5053,6 +5067,111 @@ static void sunpo_text(char *out, int n, double mm, double scale)
 }
 
 /* Put the six elements of one dimension in the drawing. */
+/* 寸法 の 半径 (1065): one click on a circle.
+ *
+ * Read off the original: a line from the centre out to the point clicked,
+ * the value with an R in front of it half a millimetre above the middle of
+ * that line, and a point at each end -- four elements, in that order.  The
+ * text carries 0x4110 where an ordinary dimension value has 0x4010, and its
+ * width word is (places << 12) | 0x443 where the ordinary one has 0x043.
+ * A circle of 86.588921 on a 1/200 group came out as R17,317.78.
+ */
+static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int i = jw_pick(d, v, x, y, 6), wg = 0, k, si;
+    double cx, cy, r, dx, dy, len, ux, uy, ex, ey;
+    double cw, ch, sp, tw = 0.0;
+    char txt[64], val[64];
+    const char *p;
+    jw_obj *o;
+    int nch = 0;
+
+    if (i < 0 || d->obj[i].cls != JW_ENKO)
+        return;
+    cx = d->obj[i].d[0];
+    cy = d->obj[i].d[1];
+    r = d->obj[i].d[2];
+    if (r <= 0.0)
+        return;
+    dx = x - cx;
+    dy = y - cy;
+    len = sqrt(dx * dx + dy * dy);
+    if (len <= 0.0) {
+        ux = 1.0;
+        uy = 0.0;
+    } else {
+        ux = dx / len;
+        uy = dy / len;
+    }
+    ex = cx + r * ux;
+    ey = cy + r * uy;
+
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return;
+    o->color = JW_SUN_SEN_COLOR;
+    o->ltype = 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+    o->d[0] = cx;
+    o->d[1] = cy;
+    o->d[2] = ex;
+    o->d[3] = ey;
+
+    for (k = 0; k < 16; k++)
+        if (d->group[k].state == 3)
+            wg = k;
+    si = JW_SUN_MOJINO - 1;
+    if (si < 0 || si >= 10)
+        si = 0;
+    cw = d->style[si].w;
+    ch = d->style[si].h;
+    sp = d->style[si].sp;
+    sunpo_text(val, (int)sizeof val, r, d->group[wg].scale);
+    snprintf(txt, sizeof txt, "R%s", val);
+    for (p = txt; *p; ) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    if (cw > 0.0 && ch > 0.0 && nch) {
+        double mx = (cx + ex) / 2.0 - uy * JW_SUN_HANARE;
+        double my = (cy + ey) / 2.0 + ux * JW_SUN_HANARE;
+        o = jw_add(d, JW_MOJI);
+        if (o) {
+            o->color = (unsigned short)d->style[si].color;
+            o->ltype = 2;
+            o->width = (unsigned short)((sun_decimals() << 12) | 0x0443u);
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS | 0x0100u);
+            o->d[0] = mx - tw / 2.0 * ux;
+            o->d[1] = my - tw / 2.0 * uy;
+            o->d[2] = mx + tw / 2.0 * ux;
+            o->d[3] = my + tw / 2.0 * uy;
+            o->d[4] = cw;
+            o->d[5] = ch;
+            o->d[6] = sp;
+            o->d[7] = 0.0;
+            o->n = JW_SUN_MOJINO;
+            o->text = jw_add_str(d, txt);
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+        }
+    }
+    for (k = 0; k < 2; k++) {
+        o = jw_add(d, JW_TEN);
+        if (!o)
+            break;
+        o->color = JW_SUN_TEN_COLOR;
+        o->ltype = 1;
+        o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+        o->d[0] = k ? ex : cx;
+        o->d[1] = k ? ey : cy;
+        o->n = 0;
+    }
+    op_push(4);
+}
+
 static void sunpo_make(jw_drawing *d, double bx, double by)
 {
     double a = sun_angle() * PI / 180.0;
@@ -5504,6 +5623,10 @@ placed:
         double rx, ry;
         if (!d)
             return;
+        if (sun_radius) {
+            sunpo_radius(d, v, x, y);
+            return;
+        }
         if (sun_step < 2) {
             /* (L) is where it was clicked, (R) reads a point */
             if (button != 0 && !jw_read(d, v, x, y, &x, &y))
