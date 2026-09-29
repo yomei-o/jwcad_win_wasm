@@ -186,10 +186,18 @@ static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       
    place the angle lives. */
 static void box_put(int id, const char *v);
 
+/* ０º/９０º (1059): the dimension is laid out upright instead of along the
+ * 傾き box.  Asked of the original with the button pressed once and the two
+ * ends of a slanted line read, the dimension line came out vertical and the
+ * value was the height between them, not the distance along the line. */
+static int sun_vert;
+
 static double sun_angle(void)
 {
     const char *t = jw_cmd_box(1411);
 
+    if (sun_vert)
+        return 90.0;
     return t ? atof(t) : 0.0;
 }
 
@@ -5175,6 +5183,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
     /* Anything the command itself does not act on, and that the original has
        as a checkbox there: its tick moves whatever the command makes of it,
        so the port's does too. */
+    if (current == JW_CMD_SUNPO && id == 1059) {
+        sun_vert = !sun_vert;
+        return 1;
+    }
     /* 複線の 両側複線 (1068)・留線付両側複線 (1069)・連続 (1064).
      *
      * Asked of the original with a line picked and 1000 typed into the

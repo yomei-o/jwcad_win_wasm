@@ -17,6 +17,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/gen/sunpo.h"
 
 static int fails;
 
@@ -1839,6 +1840,74 @@ static void para_buttons(void)
     }
 }
 
+/* 寸法 の ０º/９０º (1059): the dimension stands upright and measures
+   the height between the two points instead of the distance along them. */
+static void dim_upright(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[2];
+    const jw_obj *t[2];
+    const jw_obj *all[4096];
+    int m, i, before, ok = 1, at = -1;
+
+    b = slurp("decomp/res/sun2_0_90.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sun2_0_90.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    /* the slanted line the original measured, and the dimension it drew */
+    m = of_class(&ref, JW_SEN, all, 4096);
+    for (i = 0; i < m; i++)
+        /* the plain line is the one without the dimension flag on it */
+        if (!(all[i]->flags & JW_SUN_LINE_FLAGS)) {
+            at = i;
+            break;
+        }
+    if (at < 0 || !tail_of(&ref, JW_SEN, r, 2) || !tail_of(&ref, JW_TEN, t, 2)) {
+        printf("BAD  sun2_0_90.jww is not the drawing it was\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    jw_cmd_point(d, app_view(), all[at]->d[0], all[at]->d[1], 0);
+    jw_cmd_point(d, app_view(), all[at]->d[2], all[at]->d[3], 0);
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    type_box(1411, "0");
+    jw_cmd_bar(d, 1059);                /* ０º/９０º */
+    /* both clicks on the line the dimension stands on, then the two ends
+       read off the slanted line */
+    jw_cmd_point(d, app_view(), t[0]->d[0], all[at]->d[1] - 30.0, 0);
+    jw_cmd_point(d, app_view(), t[0]->d[0], all[at]->d[1] - 20.0, 0);
+    jw_cmd_point(d, app_view(), all[at]->d[0], all[at]->d[1], 1);
+    jw_cmd_point(d, app_view(), all[at]->d[2], all[at]->d[3], 1);
+    ck(d->ndrawn > before, "０º/９０º: 寸法が出る");
+    if (d->ndrawn > before) {
+        const jw_obj *line = &d->obj[before];
+        ok = near(line->d[0], line->d[2])       /* upright */
+             && near(line->d[1], r[1]->d[1])
+             && near(line->d[3], r[1]->d[3]);
+        if (!ok)
+            printf("     ours %.4f,%.4f -> %.4f,%.4f\n"
+                   "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                   line->d[0], line->d[1], line->d[2], line->d[3],
+                   r[1]->d[0], r[1]->d[1], r[1]->d[2], r[1]->d[3]);
+        ck(ok, "  立っていて、二点の高さを測る");
+    }
+    jw_cmd_bar(d, 1059);                /* twice puts it back */
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -1848,6 +1917,7 @@ int main(void)
     line_more();
     rect_band();
     para_buttons();
+    dim_upright();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();
