@@ -343,6 +343,15 @@ static int sun_decimals(void)
     return sun_keta < 0 ? JW_SUN_DECIMALS : sun_keta;
 }
 
+/* 寸法 の 端部 (1062): a point at each end of the dimension line, or an
+ * arrowhead.  The button turns it over. */
+static int sun_arrow = -1;
+
+static int sun_arrows(void)
+{
+    return sun_arrow < 0 ? JW_SUN_ARROW : sun_arrow;
+}
+
 
 /* Everything else on the bars.
  *
@@ -4713,6 +4722,10 @@ static int bar_press(jw_drawing *d, int id)
             sun_keta = (sun_decimals() + 1) & 3;
             return 1;
         }
+        if (id == 1062) {       /* 端部: a point or an arrowhead */
+            sun_arrow = !sun_arrows();
+            return 1;
+        }
         if (id != 1059)
             return 0;
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
@@ -4997,8 +5010,13 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
     o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
     made++;
 
-    /* 端部 -- a point at each end while Arrow is 0 */
-    if (!JW_SUN_ARROW)
+    /* 端部 (1062) -- a point at each end, or an arrowhead.
+     *
+     * The original, with the button pressed once, put two lines at each tip
+     * instead of the point: 3 long at 15 degrees either side of the line,
+     * pointing inwards, written +15 then -15 at each end.  Those are the
+     * ARROW_LEN and ARROW_ANG the settings carry. */
+    if (!sun_arrows()) {
         for (i = 0; i < 2; i++) {
             o = jw_add(d, JW_TEN);
             if (!o)
@@ -5011,6 +5029,33 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             o->n = 0;
             made++;
         }
+    } else {
+        double alen = JW_SUN_ARROW_LEN;
+        double aang = JW_SUN_ARROW_ANG * PI / 180.0;
+        for (i = 0; i < 2; i++) {
+            double tipx = i ? x1 : x0, tipy = i ? y1 : y0;
+            double wx = (i ? x0 - x1 : x1 - x0);
+            double wy = (i ? y0 - y1 : y1 - y0);
+            double wl = sqrt(wx * wx + wy * wy), k;
+            if (wl <= 0.0)
+                break;
+            wx /= wl;
+            wy /= wl;
+            for (k = 1.0; k >= -1.0; k -= 2.0) {
+                double ca = cos(k * aang), sa = sin(k * aang);
+                o = jw_add(d, JW_SEN);
+                if (!o)
+                    break;
+                o->ltype = 1;
+                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+                o->d[0] = tipx;
+                o->d[1] = tipy;
+                o->d[2] = tipx + alen * (wx * ca - wy * sa);
+                o->d[3] = tipy + alen * (wx * sa + wy * ca);
+                made++;
+            }
+        }
+    }
 
     /* 引出線 -- from the dimension line out to where the first click was */
     for (i = 0; i < 2; i++) {

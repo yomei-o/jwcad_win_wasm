@@ -683,9 +683,102 @@ static void text_vertical(void)
     jw_free(&ref);
 }
 
+/* 寸法 の 端部 (1062): a point at each end, or an arrowhead.  Scored on
+ * every element the original wrote, in its order. */
+static void dim_arrows(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r_line = 0, *r_dim = 0, *r_ext = 0;
+    int i, nb, before, ok = 1, nref = 0;
+
+    b = slurp("decomp/res/suntan.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/suntan.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  suntan.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    d = fresh();
+    nb = d->ndrawn;
+    for (i = nb; i < ref.ndrawn; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_SEN && o->flags == 0 && o->color == 2 && !r_line)
+            r_line = o;
+        else if (o->cls == JW_SEN && (o->flags & 0x2000)) {
+            nref++;
+            if (!r_dim)
+                r_dim = o;     /* the 寸法線 comes first */
+            r_ext = o;         /* and the 引出線 last, after the arrows */
+        }
+    }
+    if (!r_line || !r_dim || !r_ext) {
+        printf("BAD  suntan.jww has no dimension in it\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    ck(nref == 7, "端部: the original's arrowed dimension has seven lines");
+    {
+        jw_obj *o = jw_add(d, JW_SEN);
+        o->d[0] = r_line->d[0];
+        o->d[1] = r_line->d[1];
+        o->d[2] = r_line->d[2];
+        o->d[3] = r_line->d[3];
+    }
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_bar(d, 1062);
+    type_box(1411, "0");
+    jw_cmd_point(d, app_view(), r_ext->d[2], r_ext->d[3], 0);
+    jw_cmd_point(d, app_view(), r_dim->d[0], r_dim->d[1], 0);
+    jw_cmd_point(d, app_view(), r_line->d[0], r_line->d[1], 0);
+    jw_cmd_point(d, app_view(), r_line->d[2], r_line->d[3], 0);
+    {   /* every dimension line the port made, against the original's */
+        int mine = 0, k = 0;
+        for (i = before; i < d->ndrawn; i++)
+            if (d->obj[i].cls == JW_SEN && (d->obj[i].flags & 0x2000))
+                mine++;
+        ck(mine == nref, "  and so does the port's");
+        for (i = nb; i < ref.ndrawn && k < d->ndrawn - before; i++) {
+            const jw_obj *o = &ref.obj[i];
+            const jw_obj *a;
+            if (!(o->cls == JW_SEN && (o->flags & 0x2000)))
+                continue;
+            while (before + k < d->ndrawn
+                   && !(d->obj[before + k].cls == JW_SEN
+                        && (d->obj[before + k].flags & 0x2000)))
+                k++;
+            if (before + k >= d->ndrawn)
+                break;
+            a = &d->obj[before + k];
+            if (!(near(a->d[0], o->d[0]) && near(a->d[1], o->d[1])
+                  && near(a->d[2], o->d[2]) && near(a->d[3], o->d[3]))) {
+                ok = 0;
+                printf("     ours %.4f,%.4f -> %.4f,%.4f\n"
+                       "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                       a->d[0], a->d[1], a->d[2], a->d[3],
+                       o->d[0], o->d[1], o->d[2], o->d[3]);
+            }
+            k++;
+        }
+        ck(ok, "  every one of them where the original put it");
+    }
+    jw_cmd_bar(d, 1062);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    dim_arrows();
     text_vertical();
     dim_decimals();
     line_15();

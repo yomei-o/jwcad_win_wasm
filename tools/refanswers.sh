@@ -1187,6 +1187,10 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 寸法 の 端部 (1062): 端の点が矢印に変わります。矢寸法は長さ 3・±15 度、
+# 内向き、各端で +15 → -15 の順。要素の順は 寸法線 → 矢 4 本 → 引出線 2 本。
+make bardraw suntan 0 '300,600;700,600;cmd:32847;btn:1062;ch:1411,0;400,500;400,450;r300,600;r700,600'     || fails=$((fails+1))
+
 # 文字 の 垂直 (1324): 基線が四分の一回ります。原典は同じ文字を
 # 横に 30 ではなく上に 30 走らせました。
 make bardraw mojivert 32806 'btn:1324;type:ABC;500,400'     || fails=$((fails+1))
