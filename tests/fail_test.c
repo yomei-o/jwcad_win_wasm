@@ -405,6 +405,43 @@ static void layer_dialog(void)
     }
 }
 
+/* 一文字コマンド: each letter enters the command the original enters.
+   Asked of it by sending the key to its frame and reading the command bar
+   that came up (tools/keysweep.sh). */
+static void one_letter_commands(void)
+{
+    static const struct { char k; int cmd; const char *what; } T[19] = {
+        { 'a', 0x8026, "文字" }, { 'b', 0x8004, "矩形" },
+        { 'c', 0x8024, "図形複写" }, { 'd', 0x801a, "消去" },
+        { 'e', 0x8005, "円弧" }, { 'f', 0x8020, "複線" },
+        { 'h', 0x8003, "線" }, { 'k', 0x808c, "曲線" },
+        { 'l', 0x8073, "連続線" }, { 'm', 0x8096, "図形移動" },
+        { 'o', 0x8066, "接線" }, { 'q', 0x804e, "包絡処理" },
+        { 'r', 0x805b, "面取" }, { 's', 0x804f, "寸法" },
+        { 't', 0x8017, "伸縮" }, { 'v', 0x8012, "コーナー処理" },
+        { 'w', 0x807c, "２線" }, { 'x', 0x806a, "ハッチ" },
+        { 'y', 0x8013, "範囲選択" }
+    };
+    int i, bad = 0;
+
+    fresh();
+    for (i = 0; i < 19; i++) {
+        jw_cmd_set(0x8003);
+        app_key(T[i].k);
+        if (jw_cmd() != T[i].cmd) {
+            printf("     %c went to %#x, not %#x (%s)\n", T[i].k, jw_cmd(),
+                   T[i].cmd, T[i].what);
+            bad++;
+        }
+    }
+    ck(!bad, "一文字コマンドが十九とも原典と同じコマンドに入る");
+    /* and a letter is text while 文字 is in force, not a command */
+    jw_cmd_set(0x8026);
+    app_key('b');
+    ck(jw_cmd() == 0x8026, "  文字の中では文字のまま");
+    jw_cmd_set(0x8003);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -418,6 +455,7 @@ int main(void)
     scale_dialog();
     dim_setup_button();
     layer_dialog();
+    one_letter_commands();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

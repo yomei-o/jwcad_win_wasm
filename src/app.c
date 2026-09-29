@@ -1543,6 +1543,54 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    /* 一文字コマンド.
+     *
+     * The original keeps the assignment in its own settings
+     * (HKCU\Software\Jw_cad\jw_win\KeyCom) as a number per key, and the
+     * number is looked up in a table that has not been found in the binary.
+     * So the letters were asked of the original instead: each one was sent
+     * to its frame with the command put back to 線 first, and the command
+     * bar that came up says which command it entered (tools/keysweep.sh).
+     * Eighteen of them answered with a bar that matches one of the
+     * commands the port already has.
+     *
+     * Not while 文字 is in force -- there a letter is what is being
+     * written -- and not while a box on the bar has the caret, which the
+     * line above has already taken care of. */
+    if (jw_cmd() != JW_CMD_MOJI) {
+        static const struct { char key; unsigned short cmd; } KEY[18] = {
+            { 'a', 0x8026 },        /* 文字     */
+            { 'b', 0x8004 },        /* 矩形     */
+            { 'c', 0x8024 },        /* 図形複写 */
+            { 'd', 0x801a },        /* 消去     */
+            { 'e', 0x8005 },        /* 円弧     */
+            { 'f', 0x8020 },        /* 複線     */
+            { 'h', 0x8003 },        /* 線       */
+            { 'k', 0x808c },        /* 曲線     */
+            { 'l', 0x8073 },        /* 連続線   */
+            { 'm', 0x8096 },        /* 図形移動 */
+            { 'o', 0x8066 },        /* 接線     */
+            { 'q', 0x804e },        /* 包絡処理 */
+            { 'r', 0x805b },        /* 面取     */
+            { 's', 0x804f },        /* 寸法     */
+            { 't', 0x8017 },        /* 伸縮     */
+            { 'v', 0x8012 },        /* コーナー処理 */
+            { 'w', 0x807c },        /* ２線     */
+            { 'x', 0x806a }         /* ハッチ   */
+        };
+        int i;
+        for (i = 0; i < 18; i++)
+            if (KEY[i].key == c) {
+                app_command(KEY[i].cmd);
+                app_paint();
+                return 1;
+            }
+        if (c == 'y') {                 /* 範囲選択 */
+            app_command(0x8013);
+            app_paint();
+            return 1;
+        }
+    }
     if (c == 27) {              /* Esc lets go of the points taken so far */
         jw_cmd_escape();
         app_paint();
