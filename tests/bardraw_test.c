@@ -1540,11 +1540,81 @@ static void line_marks(void)
     jw_free(&ref);
 }
 
+/* 線 の 傾き (1411) on its own: the angle is fixed and the drag only
+   says how far along it to go. */
+static void line_slope(void)
+{
+    static const struct { const char *file; } C[2] = {
+        { "decomp/res/sen_kata30.jww" },
+        { "decomp/res/sen_kata_m.jww" }
+    };
+    int c;
+
+    for (c = 0; c < 2; c++) {
+        unsigned char *b;
+        long n;
+        jw_drawing ref, *d;
+        const jw_obj *r[1];
+        int before, ok;
+
+        b = slurp(C[c].file, &n);
+        if (!b) {
+            printf("BAD  no %s -- run tools/refanswers.sh\n", C[c].file);
+            fails++;
+            continue;
+        }
+        if (!jw_parse(&ref, b, n)) {
+            printf("BAD  %s: %s\n", C[c].file, ref.error);
+            fails++;
+            free(b);
+            continue;
+        }
+        free(b);
+        if (!tail_of(&ref, JW_SEN, r, 1)) {
+            printf("BAD  %s has no line in it\n", C[c].file);
+            fails++;
+            continue;
+        }
+        d = fresh();
+        jw_cmd_set(JW_CMD_TEN);
+        jw_cmd_set(JW_CMD_SEN);
+        type_box(1412, "");
+        type_box(1411, "30");
+        if (jw_cmd_bar_check(1333) > 0)
+            app_key(32);
+        before = d->ndrawn;
+        jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+        /* the second click: the end of the original's own line pushed 50
+           sideways.  A drag read off six printed decimals is already 1e-4
+           out, and the projection has to throw the sideways part away, so
+           this says the same thing exactly. */
+        jw_cmd_point(d, app_view(),
+                     r[0]->d[2] + 50.0 * -sin(30.0 * 3.14159265358979323846 / 180.0),
+                     r[0]->d[3] + 50.0 * cos(30.0 * 3.14159265358979323846 / 180.0), 0);
+        ck(d->ndrawn == before + 1, c ? "傾き 30, the drag the other way"
+                                      : "傾き 30 on its own: one line");
+        if (d->ndrawn == before + 1) {
+            const jw_obj *a = &d->obj[before];
+            ok = near(a->d[0], r[0]->d[0]) && near(a->d[1], r[0]->d[1])
+                 && near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3]);
+            if (!ok)
+                printf("     ours %.4f,%.4f -> %.4f,%.4f\n"
+                       "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                       a->d[0], a->d[1], a->d[2], a->d[3],
+                       r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3]);
+            ck(ok, "  the drag projected onto 30 degrees, as the original drew");
+        }
+        type_box(1411, "");
+        jw_free(&ref);
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     rect_solid_more();
     line_marks();
+    line_slope();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();

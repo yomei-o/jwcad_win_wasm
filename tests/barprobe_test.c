@@ -38,7 +38,9 @@ static int fails;
 static const struct { unsigned short cmd, id; const char *what; } MUST[] = {
     { 0x8003, 1332, "線の 矩形" },
     { 0x8003, 1333, "線の 水平・垂直" },
-    { 0x8003, 1411, "線の 傾き" },
+    /* 線の 傾き (1411) is not here: the bar comes up with 水平・垂直 ticked
+       and the original ignores 傾き while it is -- asked with both, it drew
+       the flat line.  bardraw_test drives it with the box cleared. */
     { 0x8003, 1412, "線の 寸法" },
     { 0x8004, 1332, "矩形の 矩形" },
     { 0x8004, 1413, "矩形の 寸法" },

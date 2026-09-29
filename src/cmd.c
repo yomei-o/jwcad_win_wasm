@@ -1209,6 +1209,29 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
             x = sx + u * ca - v * sa;
             y = sy + u * sa + v * ca;
         }
+        {
+            /* 傾き alone: the line lies at that angle
+             * and is as long as the drag projected onto it, sign and all.
+             * The original, given 傾き 30 and a drag of 173.178 across and
+             * 86.589 down, drew 106.68 long up at 30 degrees -- which is
+             * exactly that dot product -- and the same length the other way
+             * when the drag went up and to the left.
+             * 水平・垂直 and １５度毎 both beat it: with either of them on and
+             * 傾き 30 typed, the original drew the line their way and left
+             * the box alone, so this only runs when neither did. */
+            const char *t = jw_cmd_box(1411);
+            if (t && *t && !hv && jw_cmd_bar_check(1336) <= 0) {
+                double a = box_angle(1411);
+                double ux = cos(a), uy = sin(a);
+                double p = (x - sx) * ux + (y - sy) * uy;
+                o->cls = JW_SEN;
+                o->d[0] = sx;
+                o->d[1] = sy;
+                o->d[2] = sx + p * ux;
+                o->d[3] = sy + p * uy;
+                return sen_marks(d, o, max, sen_value(d, o, max));
+            }
+        }
         o->cls = JW_SEN;
         o->d[0] = sx;
         o->d[1] = sy;
