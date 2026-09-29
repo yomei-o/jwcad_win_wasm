@@ -358,21 +358,30 @@ static void layer_dialog(void)
        left after pressing each of them */
     {
         static const struct { const char *file; int id; const char *what; }
-        B[5] = {
+        B[8] = {
             { "decomp/res/lay_all_hide.jww",  1073, "全レイヤ非表示" },
             { "decomp/res/lay_hide_edit.jww", 2000, "  そのあと全レイヤ編集で戻る" },
             { "decomp/res/lay_ikkatsu.jww",   1141, "一括 一回" },
             { "decomp/res/lay_ikk2.jww",      1141, "  二回" },
-            { "decomp/res/lay_ikk3.jww",      1141, "  三回" }
+            { "decomp/res/lay_ikk3.jww",      1141, "  三回" },
+            { "decomp/res/lay_btn_l.jww",     1063, "レイヤの釦を一つ押すとそのレイヤだけ回る" },
+            /* the checkbox first, then the button it changes */
+            { 0,                              1524, 0 },
+            { "decomp/res/lay_1524_hide.jww", 1073,
+              "表示のみにするチェックを入れると全レイヤ非表示が表示のみになる" }
         };
         int c;
         app_command(32808);
-        for (c = 0; c < 5; c++) {
+        for (c = 0; c < 8; c++) {
             unsigned char *b;
             long n;
             jw_drawing ref;
             int i, k, ok = 1;
 
+            if (!B[c].file) {           /* just press it, nothing to compare */
+                press_ld(B[c].id);
+                continue;
+            }
             b = slurp(B[c].file, &n);
             if (!b || !jw_parse(&ref, b, n)) {
                 printf("BAD  no %s\n", B[c].file);

@@ -618,9 +618,16 @@ static int press_layerdlg(int x, int y, int button)
          *                  what three presses in a row drew out of it
          *
          * The one being written to stays where it is in all three. */
-        int i, wg = 0;
+        int i, wg = 0, out = 0;
         if (!have_drawing)
             return 1;
+        /* 「[全レイヤ非表示]を[全レイヤ表示のみ] にする」 (1524): with it
+           ticked the original put everything at 表示のみ instead of out
+           altogether -- pressed with the box on, the file came back with
+           every layer and every group at 1 rather than 0 */
+        for (i = 0; i < n && i < (int)sizeof ld_on; i++)
+            if (ui_layerdlg_id(i) == 1524 && ld_on[i])
+                out = 1;
         for (i = 0; i < 16; i++)
             if (drawing.group[i].state == 3)
                 wg = i;
@@ -638,9 +645,10 @@ static int press_layerdlg(int x, int y, int button)
             for (g = 0; g < 16; g++) {
                 for (k = 0; k < 16; k++)
                     if (drawing.group[g].layer[k].state != 3)
-                        drawing.group[g].layer[k].state = id == 2000 ? 2 : 0;
+                        drawing.group[g].layer[k].state
+                            = id == 2000 ? 2 : out;
                 if (g != wg)
-                    drawing.group[g].state = id == 2000 ? 2 : 0;
+                    drawing.group[g].state = id == 2000 ? 2 : out;
             }
         }
         return 1;
