@@ -1292,6 +1292,12 @@ int app_press(int x, int y, int button)
             zhen_start();
             return 1;
         }
+        if (id == 1071 && jw_cmd() == JW_CMD_SUNPO) {
+            /* 寸法 の 設定: the original put its 寸法設定 dialog up from it,
+               which is the same window the menu's 寸法設定 opens */
+            sd_start();
+            return 1;
+        }
         if (id == 2552) {
             /* 矩形 の ソリッド の横の無名の釦（任意□）.  The original
                puts the 線属性 dialog up from it -- pressed on the original

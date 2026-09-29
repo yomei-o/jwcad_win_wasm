@@ -805,10 +805,17 @@ static const struct { short x, y; } samples[2] = {
 #define SAMPLE_W 33
 #define SAMPLE_H 19
 
-static void paint_samples(fb_t *fb)
+static void paint_samples(fb_t *fb, const jw_drawing *d)
 {
+    /* the pen being written with, which is what the 矩形 bar's colour
+       button shows as well -- the two are the same setting */
+    int pen = d && d->write_ltype ? d->write_color : 2;
+    unsigned rgb;
     int k;
 
+    if (pen < 1 || pen > 9)
+        pen = 2;
+    rgb = d ? d->pen_rgb[pen] : jw_default_pen_rgb[pen];
     for (k = 0; k < 2; k++) {
         int x = ui_ax(samples[k].x, fb->w), y = samples[k].y;
 
@@ -817,8 +824,10 @@ static void paint_samples(fb_t *fb)
         /* the black shadow is an L, not a box: right edge and underside */
         fb_vline(fb, x + SAMPLE_W, y - 1, SAMPLE_H + 2, C_BTNTEXT);
         fb_hline(fb, x - 1, y + SAMPLE_H, SAMPLE_W + 2, C_BTNTEXT);
-        /* the current line type, drawn across the middle */
-        fb_hline(fb, x + 1, y + 9, SAMPLE_W - 2, C_BTNTEXT);
+        /* the current line type, drawn across the middle, in the pen being
+           written with -- black until the pen is changed, which is why it
+           looked fixed */
+        fb_hline(fb, x + 1, y + 9, SAMPLE_W - 2, rgb);
     }
 }
 
@@ -3005,8 +3014,28 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             break;
         case JW_CTL_BUTTON:
             paint_barbutton(fb, c[i].x, c[i].y, c[i].w, c[i].h);
-            jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
-                       c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
+            if (c[i].id == 2552) {
+                /* 矩形 の 任意□: the original owner-draws this one
+                 * (its style carries BS_OWNERDRAW) and the capture has no
+                 * text for it at all.  What it paints is the writing pen:
+                 * the number, and a block of that pen's colour beside it.
+                 * Measured off the original's own window -- the block is
+                 * ten across and twelve down, 27 in from the button's left
+                 * edge and 6 down from its top, and the number sits 9 in. */
+                char num[8];
+                unsigned rgb;
+                int pen = d && d->write_ltype ? d->write_color : 2;
+                if (pen < 1 || pen > 9)
+                    pen = 2;
+                rgb = d ? d->pen_rgb[pen] : jw_default_pen_rgb[pen];
+                sprintf(num, "%d", pen);
+                jw_text_px(fb, c[i].x + 9, c[i].y + (c[i].h - th) / 2,
+                           num, en ? C_BTNTEXT : C_GRAYTEXT);
+                fb_fill(fb, c[i].x + 27, c[i].y + 6, 10, 12, rgb);
+            } else {
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
+            }
             break;
         case JW_CTL_STATIC:
             jw_text_px(fb, c[i].x, c[i].y + (c[i].h - th) / 2, c[i].text,
@@ -3093,7 +3122,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
 
     paint_bar(fb, d);
     paint_layer_grids(fb, d);
-    paint_samples(fb);
+    paint_samples(fb, d);
     paint_status(fb);
     status_text(fb, d, zoom);
     paint_buttons(fb, saveable, undoable);

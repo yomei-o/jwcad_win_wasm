@@ -18,6 +18,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/gen/bars.h"
 
 static int fails;
 
@@ -290,6 +291,33 @@ static void scale_dialog(void)
     ck(d->group[wg].scale == 50.0, "  Esc では変わらない");
 }
 
+/* 寸法 の 設定 (1071) opens the 寸法設定 dialog -- pressed on the
+   original, that is the window that came up. */
+static void dim_setup_button(void)
+{
+    jw_drawing *d = fresh();
+    int i, k, pressed = 0;
+
+    (void)d;
+    jw_cmd_set(0x804f);
+    for (i = 0; i < JW_NBARS && !pressed; i++) {
+        if (jw_bars[i].cmd != 0x804fu)
+            continue;
+        for (k = 0; k < jw_bars[i].n; k++) {
+            const jw_ctl_t *c = &jw_bars[i].c[k];
+            int x = c->x + c->w / 2, y = c->y + c->h / 2;
+            if (c->id != 1071 || ui_bar_hit(x, y) != 1071)
+                continue;
+            app_press(x, y, 0);
+            pressed = 1;
+            break;
+        }
+    }
+    ck(pressed, "寸法バーの 設定 釦が押せる");
+    ck(app_sunpodlg_open(), "  寸法設定が開く");
+    app_key(27);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -301,6 +329,7 @@ int main(void)
     buttons_at_the_wrong_time();
     keys_under_a_dialog();
     scale_dialog();
+    dim_setup_button();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
