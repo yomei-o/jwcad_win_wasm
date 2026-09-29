@@ -17,4 +17,7 @@ void jw_draw_sel(fb_t *fb, const jw_view *v, const jw_drawing *d,
 void jw_draw_box(fb_t *fb, const jw_view *v,
                  double x0, double y0, double x1, double y1);
 
+/* one bit of a line type's pattern, for drawing a sample of it */
+int jw_ltype_bit(int ltype, int i);
+
 #endif

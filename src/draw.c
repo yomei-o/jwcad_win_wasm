@@ -79,6 +79,18 @@ static const struct { unsigned int bits; int unit; } LTYPE[10] = {
  * worse over the fifteen samples (28,088 and 27,838 against 27,544), so the
  * last one it is.
  */
+/* One bit of a line type, for whoever wants to draw a sample of it: the
+   command bars and the two boxes beside the toolbars show the line being
+   written with, and they draw it with these same bits. */
+int jw_ltype_bit(int ltype, int i)
+{
+    if (ltype < 0 || ltype > 9)
+        ltype = 1;
+    if (i < 0)
+        i = 0;
+    return (LTYPE[ltype].bits & (1u << (i % LTYPE[ltype].unit))) != 0;
+}
+
 static int bits_set(int ltype, double step, double ppb)
 {
     int i = (int)ceil((step + 1.0) / ppb) - 1;

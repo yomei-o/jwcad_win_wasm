@@ -22,6 +22,7 @@
 #include "gen/jwicon.h"
 #include "gen/cmds.h"
 #include "cmd.h"
+#include "draw.h"
 #include "text.h"
 
 #include <stdio.h>
@@ -810,11 +811,14 @@ static void paint_samples(fb_t *fb, const jw_drawing *d)
     /* the pen being written with, which is what the 矩形 bar's colour
        button shows as well -- the two are the same setting */
     int pen = d && d->write_ltype ? d->write_color : 2;
+    int lt = d && d->write_ltype ? d->write_ltype : 1;
     unsigned rgb;
     int k;
 
     if (pen < 1 || pen > 9)
         pen = 2;
+    if (lt < 1 || lt > 9)
+        lt = 1;
     rgb = d ? d->pen_rgb[pen] : jw_default_pen_rgb[pen];
     for (k = 0; k < 2; k++) {
         int x = ui_ax(samples[k].x, fb->w), y = samples[k].y;
@@ -825,9 +829,16 @@ static void paint_samples(fb_t *fb, const jw_drawing *d)
         fb_vline(fb, x + SAMPLE_W, y - 1, SAMPLE_H + 2, C_BTNTEXT);
         fb_hline(fb, x - 1, y + SAMPLE_H, SAMPLE_W + 2, C_BTNTEXT);
         /* the current line type, drawn across the middle, in the pen being
-           written with -- black until the pen is changed, which is why it
-           looked fixed */
-        fb_hline(fb, x + 1, y + 9, SAMPLE_W - 2, rgb);
+         * written with -- black until the pen is changed, which is why it
+         * looked fixed.  The dashes are the same bits the drawing itself is
+         * drawn with (src/draw.c's LTYPE), one bit to a pixel, started at
+         * the left edge of the box. */
+        {
+            int i;
+            for (i = 0; i < SAMPLE_W - 2; i++)
+                if (jw_ltype_bit(lt, i))
+                    px_put(fb, x + 1 + i, y + 9, rgb);
+        }
     }
 }
 
