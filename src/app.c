@@ -1216,6 +1216,11 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (c == 32 && jw_cmd() != JW_CMD_MOJI) {
+        jw_cmd_space();         /* Space turns 水平・垂直 over */
+        app_paint();
+        return 1;
+    }
     if (jw_cmd() != JW_CMD_MOJI)
         return 0;
     jw_cmd_key(c);

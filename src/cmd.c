@@ -818,6 +818,19 @@ void jw_cmd_escape(void)
     sun_step = sun_radius ? 2 : 0;
 }
 
+/* Space: turn 水平・垂直 over.
+ *
+ * The original does this while a line is being drawn -- with the start down
+ * and the cursor up and to the right, its readout went from [45.000°] to
+ * [90.000°] and back again on the next press, and the line it drew after one
+ * press came out straight up (decomp/res/senspace.jww).  That is the same
+ * flag the bar's 水平・垂直 box carries, so this is the same switch.
+ */
+void jw_cmd_space(void)
+{
+    hv = !hv;
+}
+
 void jw_cmd_reset(void)
 {
     /* 新規 does not enter a command, so nothing here goes through

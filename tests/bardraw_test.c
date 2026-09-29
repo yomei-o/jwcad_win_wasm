@@ -1222,9 +1222,77 @@ static void escape_drops_the_point(void)
     jw_free(&ref);
 }
 
+/* Space turns 水平・垂直 over, which is what the original does with it. */
+static void space_turns_hv(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before, was;
+
+    b = slurp("decomp/res/senspace.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/senspace.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  senspace.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 1)) {
+        printf("BAD  senspace.jww has no line in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) > 0)
+        jw_cmd_bar(d, 1333);
+    if (jw_cmd_bar_check(1336) > 0)
+        jw_cmd_bar(d, 1336);
+    was = jw_cmd_bar_check(1333);
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    app_key(32);
+    ck(jw_cmd_bar_check(1333) != was, "Space: 水平・垂直 turns over");
+    app_key(32);
+    ck(jw_cmd_bar_check(1333) == was, "  and back again on the next press");
+    app_key(32);
+    /* the same second click the original was given: up and to the right */
+    {   /* the same drag: up and to the right by the height it ended at.
+           Taken from the answer rather than typed, because a value read off
+           six printed decimals is already 1e-8 out. */
+        double up = r[0]->d[3] - r[0]->d[1];
+        jw_cmd_point(d, app_view(), r[0]->d[0] + up, r[0]->d[1] + up, 0);
+    }
+    ck(d->ndrawn == before + 1, "  and the line is drawn");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        int ok = near(a->d[0], r[0]->d[0]) && near(a->d[1], r[0]->d[1])
+                 && near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3]);
+        if (!ok)
+            printf("     ours %.6f,%.6f -> %.6f,%.6f\n"
+                   "     the original's %.6f,%.6f -> %.6f,%.6f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3]);
+        ck(ok, "  straight up, where the original drew it");
+    }
+    if (jw_cmd_bar_check(1333) != was)
+        app_key(32);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    space_turns_hv();
     escape_drops_the_point();
     dim_radius();
     offset_typed();

@@ -35,7 +35,12 @@ WM = {0x0111: 'COMMAND', 0x0112: 'SYSCOMMAND', 0x0113: 'TIMER',
       0x00a1: 'NCLBUTTONDOWN', 0x0082: 'NCDESTROY', 0x0281: 'IME_SETCONTEXT',
       0x0282: 'IME_NOTIFY', 0x010f: 'IME_COMPOSITION', 0x010d: 'IME_STARTCOMPOSITION',
       0x010e: 'IME_ENDCOMPOSITION', 0x02a3: 'MOUSELEAVE', 0x0231: 'ENTERSIZEMOVE',
-      0x0232: 'EXITSIZEMOVE'}
+      0x0232: 'EXITSIZEMOVE',
+      # Jw_cad's own: CJw_winApp::PreTranslateMessage turns a key into a
+      # number at +0x44a4 and sends one of these to the main window.  They
+      # are not Windows messages, so without them here the scan stops at the
+      # entry that carries one and the handler never shows up.
+      0x1500: 'JW_ENTER', 0x1505: 'JW_KEY'}
 # 0 is the "command/update" pseudo message MFC uses for ON_COMMAND
 SPECIAL = {0: 'COMMAND-RANGE-or-END'}
 

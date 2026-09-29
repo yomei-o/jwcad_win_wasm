@@ -134,6 +134,9 @@ void jw_cmd_undo(jw_drawing *d);
    「終点を指示してください」 to 「始点を指示してください」. */
 void jw_cmd_escape(void);
 
+/* Space: turn 水平・垂直 over, which is what the original does with it. */
+void jw_cmd_space(void);
+
 /* The elements the command is part way through, if any: how many, filled in
    ready to draw (a rectangle is four lines).  They are worked out the same
    way as the ones that get added, so what is shown is what will be made. */
