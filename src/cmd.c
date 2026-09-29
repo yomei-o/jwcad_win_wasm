@@ -1013,6 +1013,19 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
          * each line carrying on from where the last one ended.  There is no
          * rectangle in the file format -- only 線・円弧・点・文字・ソリッド --
          * so four lines is what it has to be. */
+        if (jw_cmd_bar_check(1334) > 0) {
+            /* ソリッド: one filled quadrilateral instead of four lines.
+             * The original wrote its corners going the other way round --
+             * the clicked corner, then down the same edge, across, and back
+             * up (read off its own drawing). */
+            blank(o);
+            o->cls = JW_SOLID;
+            o->d[0] = sx; o->d[1] = sy;
+            o->d[2] = sx; o->d[3] = y;
+            o->d[4] = x;  o->d[5] = y;
+            o->d[6] = x;  o->d[7] = sy;
+            return (sx != x && sy != y) ? 1 : 0;
+        }
         static const int ix[4][4] = {
             {0, 1, 2, 1}, {2, 1, 2, 3}, {2, 3, 0, 3}, {0, 3, 0, 1}
         };

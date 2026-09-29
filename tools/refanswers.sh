@@ -1187,6 +1187,10 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 矩形 の ソリッド (1334): 4 本の線ではなく塗りつぶしの四角形 1 つ。
+# 隅の順は、線のときと逆回り（押した隅 → 下 → 横 → 戻る）でした。
+make bardraw kusolid 32772 'btn:1334;500,400;700,500'     || fails=$((fails+1))
+
 # 円 の 多重円 (1417) と 扁平率 (1412)・傾き (1413)
 # 多重円 3 は、引いた円の内側に 2/3・1/3 の環を外から順に足します。
 # 扁平率 50・傾き 20 は楕円で、引いた点が曲線上に残るように長半径と

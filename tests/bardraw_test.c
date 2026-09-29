@@ -470,10 +470,66 @@ static void circle_ellipse(void)
     jw_free(&ref);
 }
 
+/* 矩形 の ソリッド (1334): one filled quadrilateral, not four lines. */
+static void rect_solid(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before, i, ok = 1;
+
+    b = slurp("decomp/res/kusolid.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/kusolid.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  kusolid.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SOLID, r, 1)) {
+        printf("BAD  kusolid.jww has no solid in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "");
+    type_box(1413, "");
+    ck(jw_cmd_bar_check(1334) == 0, "矩形 comes up with ソリッド off");
+    jw_cmd_bar(d, 1334);
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[0]->d[4], r[0]->d[5], 0);
+    ck(d->ndrawn == before + 1, "  and with it on, two clicks draw one solid");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        ck(a->cls == JW_SOLID, "  which is a ソリッド, not four lines");
+        for (i = 0; i < 8; i++)
+            if (!near(a->d[i], r[0]->d[i]))
+                ok = 0;
+        if (!ok)
+            printf("     ours  %.4f,%.4f %.4f,%.4f %.4f,%.4f %.4f,%.4f\n"
+                   "     the original's %.4f,%.4f %.4f,%.4f %.4f,%.4f %.4f,%.4f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   a->d[4], a->d[5], a->d[6], a->d[7],
+                   r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3],
+                   r[0]->d[4], r[0]->d[5], r[0]->d[6], r[0]->d[7]);
+        ck(ok, "  with its four corners in the original's order");
+    }
+    jw_cmd_bar(d, 1334);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     line_15();
+    rect_solid();
     circle_rings();
     circle_ellipse();
     circle_radius();
