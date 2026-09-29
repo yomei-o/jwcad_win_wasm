@@ -340,6 +340,10 @@ echo "=== Esc —— どのコマンドでも、取った点を捨てて入っ�
 ./tests/esc_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 失敗系 —— 何もないところを押す、途中でやめる、箱に文字を打つ"
+./tests/fail_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 
