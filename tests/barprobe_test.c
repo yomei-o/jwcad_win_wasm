@@ -85,6 +85,26 @@ static unsigned long drawn_by_clicks(void)
     return h * 31u + (unsigned)(d->ndrawn - before);
 }
 
+/* What a command's box held the first time the command was entered.  The
+   slot comes up holding a 1, which is not a state a box can be in. */
+static char *box_was(unsigned cmd, int id)
+{
+    static struct { unsigned cmd; int id; char t[16]; } was[256];
+    static int n;
+    int i;
+
+    for (i = 0; i < n; i++)
+        if (was[i].cmd == cmd && was[i].id == id)
+            return was[i].t;
+    if (n >= (int)(sizeof was / sizeof was[0]))
+        return 0;
+    was[n].cmd = cmd;
+    was[n].id = id;
+    was[n].t[0] = 1;
+    was[n].t[1] = 0;
+    return was[n++].t;
+}
+
 /* The command's own bar, as a press on the control would find it.
  *
  * By way of 点 first: asking for 線 while 線 is already in force is how the
@@ -111,6 +131,43 @@ static void enter(unsigned short cmd, unsigned short on)
                 continue;
             if (jw_cmd_bar_check(c->id) != (c->checked != 0))
                 jw_cmd_bar((jw_drawing *)app_drawing(), c->id);
+        }
+    }
+    /* and put the boxes back as the command found them.  What the combo pass
+       types into 傾き or 寸法 stays there otherwise, and a line of a fixed
+       length and angle no longer moves when the next checkbox is pressed,
+       which reads as a checkbox that does nothing.  Emptying them would be
+       just as wrong -- 多角形 comes up with 3 in its 角数 and draws nothing
+       without it -- so what is restored is what the box held the first time
+       the command was entered. */
+    for (i = 0; i < JW_NBARS; i++) {
+        if (jw_bars[i].cmd != cmd || jw_bars[i].on)
+            continue;
+        for (k = 0; k < jw_bars[i].n; k++) {
+            const jw_ctl_t *c = &jw_bars[i].c[k];
+            const char *now;
+            char *want;
+            int j;
+            if (c->kind != JW_CTL_COMBO)
+                continue;
+            want = box_was(cmd, c->id);
+            now = jw_cmd_box(c->id);
+            if (!want)
+                continue;
+            if (*want == 1) {           /* not seen yet: this is the state */
+                want[0] = 0;
+                if (now)
+                    strncpy(want, now, 15);
+                continue;
+            }
+            if (now && !strcmp(now, want))
+                continue;
+            jw_cmd_box_click(c->id);
+            for (j = 0; j < 24; j++)
+                jw_cmd_box_key(8);
+            for (j = 0; want[j]; j++)
+                jw_cmd_box_key((unsigned char)want[j]);
+            jw_cmd_box_key(13);
         }
     }
     /* a variant bar is only up while its own box is ticked, so tick it --
@@ -169,17 +226,21 @@ int main(int argc, char **argv)
                 jw_cmd_box_click(c->id);
                 for (j = 0; j < 24; j++)
                     jw_cmd_box_key(8);
-                jw_cmd_box_key('3');
+                jw_cmd_box_key('7');   /* not 3: 多角形 comes up with 3 sides */
                 jw_cmd_box_key(13);
                 moved = moved || (jw_cmd_box(c->id)
                                   && strcmp(jw_cmd_box(c->id), keep));
             }
             pressed = drawn_by_clicks();
+            if (getenv("JWDBG") && b->cmd == 32771 && !b->on)
+                printf("dbg %d chk=%d plain=%lu pressed=%lu\n", c->id,
+                       jw_cmd_bar_check(c->id), plain, pressed);
             drew = pressed != plain;
             live += moved;
             draws += drew;
             if (list && !drew)
-                printf("     %5d %5d %-6s %-5s %s\n", b->cmd, c->id,
+                printf("     %5d%c%-5d %5d %-6s %-5s %s\n", b->cmd,
+                       b->on ? '/' : ' ', b->on, c->id,
                        c->kind == JW_CTL_CHECK ? "check"
                        : c->kind == JW_CTL_COMBO ? "combo" : "button",
                        moved ? "held" : "dead", c->text);

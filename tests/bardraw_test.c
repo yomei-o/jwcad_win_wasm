@@ -1415,10 +1415,136 @@ static void rect_solid_more(void)
     }
 }
 
+/* 線 の ●─── (1348) と ＜─── (1349): a mark on the point clicked first. */
+static void line_marks(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[3];
+    const jw_obj *t[1];
+    int before, i, ok = 1;
+
+    /* ＜───: the line, then two legs off its start */
+    b = slurp("decomp/res/sen_a_fwd.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/sen_a_fwd.jww -- run tools/refanswers.sh\n");
+        fails++;
+    } else if (!jw_parse(&ref, b, n)) {
+        printf("BAD  sen_a_fwd.jww: %s\n", ref.error);
+        fails++;
+        free(b);
+    } else {
+        free(b);
+        if (!tail_of(&ref, JW_SEN, r, 3)) {
+            printf("BAD  sen_a_fwd.jww has no line and two legs in it\n");
+            fails++;
+        } else {
+            d = fresh();
+            jw_cmd_set(JW_CMD_TEN);
+            jw_cmd_set(JW_CMD_SEN);
+            type_box(1411, "");
+            type_box(1412, "");
+            if (jw_cmd_bar_check(1333) > 0)
+                app_key(32);            /* 水平・垂直 off */
+            if (jw_cmd_bar_check(1349) <= 0)
+                jw_cmd_bar(d, 1349);
+            before = d->ndrawn;
+            jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+            jw_cmd_point(d, app_view(), r[0]->d[2], r[0]->d[3], 0);
+            ck(d->ndrawn == before + 3, "＜───: the line and two legs");
+            if (d->ndrawn == before + 3) {
+                for (i = 0; i < 3; i++) {
+                    const jw_obj *a = &d->obj[before + i];
+                    if (!(near(a->d[0], r[i]->d[0]) && near(a->d[1], r[i]->d[1])
+                          && near(a->d[2], r[i]->d[2])
+                          && near(a->d[3], r[i]->d[3]))) {
+                        ok = 0;
+                        printf("     %d ours %.4f,%.4f -> %.4f,%.4f, the original's %.4f,%.4f -> %.4f,%.4f\n",
+                               i, a->d[0], a->d[1], a->d[2], a->d[3],
+                               r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+                    }
+                }
+                ck(ok, "  3 long at plus then minus 15 degrees, as the original drew");
+            }
+            jw_cmd_bar(d, 1349);
+        }
+        jw_free(&ref);
+    }
+
+    /* ●───: the line and a 点 on its start */
+    b = slurp("decomp/res/sen_p_fwd.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/sen_p_fwd.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  sen_p_fwd.jww: %s\n", ref.error);
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    /* the drawn line is not the last one in the file -- find the one that
+       starts where the mark is */
+    if (tail_of(&ref, JW_TEN, t, 1)) {
+        const jw_obj *all[4096];
+        int m = of_class(&ref, JW_SEN, all, 4096), j;
+        r[0] = 0;
+        for (j = m - 1; j >= 0; j--)
+            if (near(all[j]->d[0], t[0]->d[0]) && near(all[j]->d[1], t[0]->d[1])) {
+                r[0] = all[j];
+                break;
+            }
+    } else {
+        r[0] = 0;
+    }
+    if (!r[0]) {
+        printf("BAD  sen_p_fwd.jww has no line with a point on it\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    if (jw_cmd_bar_check(1348) <= 0)
+        jw_cmd_bar(d, 1348);
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[0]->d[2], r[0]->d[3], 0);
+    ck(d->ndrawn == before + 2, "●───: the line and a point");
+    if (d->ndrawn == before + 2) {
+        const jw_obj *a = &d->obj[before + 1];
+        /* the original wrote the point with pen 1 and line type 1 while the
+           line came out pen 2 -- the mark does not take the writing pen, and
+           the test says so both ways round. */
+        ok = a->cls == JW_TEN && near(a->d[0], t[0]->d[0])
+             && near(a->d[1], t[0]->d[1]) && a->ltype == t[0]->ltype
+             && a->color == t[0]->color && t[0]->color != r[0]->color;
+        if (!ok)
+            printf("     ours cls=%d pen=%d type=%d %.4f,%.4f\n"
+                   "     the original's pen=%d type=%d %.4f,%.4f\n",
+                   a->cls, a->color, a->ltype, a->d[0], a->d[1],
+                   t[0]->color, t[0]->ltype, t[0]->d[0], t[0]->d[1]),
+            printf("     our line pen=%d, the original's line pen=%d\n",
+                   d->obj[before].color, r[0]->color);
+        ck(ok, "  on the point clicked first, pen and type as the original wrote them");
+    }
+    jw_cmd_bar(d, 1348);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     rect_solid_more();
+    line_marks();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();

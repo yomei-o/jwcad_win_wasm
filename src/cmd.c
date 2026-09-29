@@ -1091,6 +1091,64 @@ static int sen_value(const jw_drawing *d, jw_obj *o, int max)
     return 2;
 }
 
+/* 線の ●─── (1348) と ＜─── (1349): a mark on the end the line
+ * started from.  The original was asked and drew, at the first clicked point,
+ * either one 点 (●) or two lines 3 long at plus and minus 15 degrees off
+ * the way the line runs (＜), the plus one first -- the same length and angle
+ * the dimension arrowheads use.  Drawn backwards, the mark stayed on the
+ * point clicked first, so it is the start, not an end of the segment.
+ * The two boxes turn each other off in the original (FUN_005be280), so at
+ * most one of them is ever on. */
+static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
+{
+    double dx, dy, len, ux, uy, k;
+    int dot = jw_cmd_bar_check(1348) > 0;
+    int arr = jw_cmd_bar_check(1349) > 0;
+
+    (void)d;
+    if ((!dot && !arr) || n < 1)
+        return n;
+    dx = o[0].d[2] - o[0].d[0];
+    dy = o[0].d[3] - o[0].d[1];
+    len = sqrt(dx * dx + dy * dy);
+    if (len <= 0.0)
+        return n;
+    ux = dx / len;
+    uy = dy / len;
+    if (dot) {
+        if (n >= max)
+            return n;
+        blank(&o[n]);
+        o[n].cls = JW_TEN;
+        /* the original wrote the ● with line type 1 and pen 1 while the
+           line it sits on came out pen 2, so the mark is not drawn with the
+           writing pen.  Pen 1 is also what the dimension settings give a
+           端部 point, and the two cannot be told apart here. */
+        o[n].ltype = 1;
+        o[n].color = 1;
+        o[n].d[0] = o[0].d[0];
+        o[n].d[1] = o[0].d[1];
+        o[n].n = 0;
+        return n + 1;
+    }
+    for (k = 1.0; k >= -1.0; k -= 2.0) {
+        double a = k * JW_SUN_ARROW_ANG * PI / 180.0;
+        double ca = cos(a), sa = sin(a);
+        if (n >= max)
+            break;
+        blank(&o[n]);
+        o[n].cls = JW_SEN;
+        o[n].ltype = o[0].ltype;
+        o[n].color = o[0].color;
+        o[n].d[0] = o[0].d[0];
+        o[n].d[1] = o[0].d[1];
+        o[n].d[2] = o[0].d[0] + JW_SUN_ARROW_LEN * (ux * ca - uy * sa);
+        o[n].d[3] = o[0].d[1] + JW_SUN_ARROW_LEN * (ux * sa + uy * ca);
+        n++;
+    }
+    return n;
+}
+
 /* What the point down and the point here make -- one element, or the four of
    a rectangle.  Working it out in one place keeps the provisional figure and
    what gets added identical. */
@@ -1118,7 +1176,7 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
             o->d[1] = sy;
             o->d[2] = sx + ux * len;
             o->d[3] = sy + uy * len;
-            return 1;
+            return sen_marks(d, o, max, sen_value(d, o, max));
         }
     }
         if (jw_cmd_bar_check(1336) > 0) {
@@ -1156,7 +1214,7 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
         o->d[1] = sy;
         o->d[2] = x;
         o->d[3] = y;
-        return sen_value(d, o, max);
+        return sen_marks(d, o, max, sen_value(d, o, max));
     case JW_CMD_RENZOKU:
         o->cls = JW_SEN;
         o->d[0] = sx;
@@ -4993,6 +5051,35 @@ static int bar_press(jw_drawing *d, int id)
     return 0;
 }
 
+/* Boxes that turn each other off.  線's four right-hand ones do: ticking
+ * ●─── (1348) clears ＜─── (1349) and ＜ (1351), ticking ＜ clears the
+ * other three, and 寸法値 (1350) clears ＜ -- FUN_005be280, FUN_005be320,
+ * FUN_005bdf80 and FUN_005be220 each zero the others' members before they
+ * put the bar back up. */
+static void bar_exclude(int id)
+{
+    static const struct { int cmd, id, off[3]; } X[] = {
+        { JW_CMD_SEN, 1348, { 1349, 1351, 0 } },
+        { JW_CMD_SEN, 1349, { 1348, 1351, 0 } },
+        { JW_CMD_SEN, 1350, { 1351, 0, 0 } },
+        { JW_CMD_SEN, 1351, { 1348, 1349, 1350 } }
+    };
+    int i, k;
+
+    for (i = 0; i < (int)(sizeof X / sizeof X[0]); i++) {
+        if (X[i].cmd != current || X[i].id != id)
+            continue;
+        for (k = 0; k < 3; k++) {
+            unsigned char *o;
+            if (!X[i].off[k])
+                break;
+            o = chk_slot(bar_cmd(), X[i].off[k]);
+            if (o)
+                *o = 0;
+        }
+    }
+}
+
 int jw_cmd_bar(jw_drawing *d, int id)
 {
     unsigned char *on;
@@ -5005,6 +5092,8 @@ int jw_cmd_bar(jw_drawing *d, int id)
     on = chk_slot(bar_cmd(), id);
     if (on) {
         *on = (unsigned char)!*on;
+        if (*on)
+            bar_exclude(id);
         return 1;
     }
     return 0;
@@ -6565,6 +6654,13 @@ placed:
                 o->color = tmp[k].color;
                 o->ltype = tmp[k].ltype;
                 o->width = tmp[k].width;
+            }
+            /* the ● of 線's 1348 is written with line type 1, whatever
+               the writing pen is set to -- read off the original's own file,
+               where the line came out type 2 and the point type 1 */
+            if (tmp[k].cls == JW_TEN) {
+                o->ltype = tmp[k].ltype;
+                o->color = tmp[k].color;
             }
             /* 任意色: pen 10 is Jw_cad's "any colour", and the RGB rides in
                the trailing long, which is copied above */
