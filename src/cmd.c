@@ -653,8 +653,16 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     o->ltype = 1;
     o->d[0] = x;
     o->d[1] = y;
-    o->d[2] = x + len;
-    o->d[3] = y;
+    /* 垂直 (1324) turns the baseline a quarter turn: the original wrote the
+     * same text running 30 up instead of 30 across, everything else the
+     * same. */
+    if (jw_cmd_bar_check(1324) > 0) {
+        o->d[2] = x;
+        o->d[3] = y + len;
+    } else {
+        o->d[2] = x + len;
+        o->d[3] = y;
+    }
     o->d[4] = cw;
     o->d[5] = ch;
     o->d[6] = sp;

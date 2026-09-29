@@ -622,9 +622,71 @@ static void dim_decimals(void)
     }
 }
 
+/* 文字 の 垂直 (1324): the baseline turns a quarter turn. */
+static void text_vertical(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before;
+
+    b = slurp("decomp/res/mojivert.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/mojivert.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  mojivert.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    {   /* not the last text: the original keeps its own settings
+           records as texts at (0,-1000).  The one wanted says ABC. */
+        int i;
+        r[0] = 0;
+        for (i = 0; i < ref.ndrawn; i++) {
+            const char *t = ref.obj[i].cls == JW_MOJI
+                            ? jw_str(&ref, ref.obj[i].text) : 0;
+            if (t && !strcmp(t, "ABC"))
+                r[0] = &ref.obj[i];
+        }
+        if (!r[0]) {
+            printf("BAD  mojivert.jww has no ABC in it\n");
+            fails++;
+            return;
+        }
+    }
+    d = fresh();
+    app_command(0x8026);                        /* 文字 */
+    jw_cmd_bar(d, 1324);
+    ck(jw_cmd_bar_check(1324) == 1, "文字: 垂直 turns on");
+    before = d->ndrawn;
+    app_key('A');
+    app_key('B');
+    app_key('C');
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    ck(d->ndrawn == before + 1, "  and a click puts the text down");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        int ok = near(a->d[0], r[0]->d[0]) && near(a->d[1], r[0]->d[1])
+                 && near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3]);
+        if (!ok)
+            printf("     ours %.4f,%.4f -> %.4f,%.4f, the original's %.4f,%.4f -> %.4f,%.4f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3]);
+        ck(ok, "  running the way the original ran it -- upward");
+    }
+    jw_cmd_bar(d, 1324);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    text_vertical();
     dim_decimals();
     line_15();
     rect_solid();
