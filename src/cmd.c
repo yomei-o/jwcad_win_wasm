@@ -301,6 +301,7 @@ static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
 static double nisen_a, nisen_b;
+static int nisen_flip;          /* 間隔反転 (1064) */
 static int nisen_obj = -1, nisen_step;
 static double nisen_x, nisen_y;
 
@@ -1959,8 +1960,14 @@ static void nisen(jw_drawing *d, double x, double y)
     t0 = (o->d[0]) * 0.0;       /* the line itself is the zero of the offset */
     (void)t0;
     for (k = 0; k < 2; k++) {
+        /* 間隔反転 (1064) turns the pair over: the original left the two
+           numbers in the box alone when it was pressed, so what it reverses
+           is which side each of them goes */
         double off = k ? nisen_b : -nisen_a;
-        jw_obj *n = jw_add(d, JW_SEN);
+        jw_obj *n;
+        if (nisen_flip)
+            off = -off;
+        n = jw_add(d, JW_SEN);
         if (!n)
             break;
         n->d[0] = o->d[0] + ux * s0 + vx * off;
@@ -5236,6 +5243,39 @@ int jw_cmd_bar(jw_drawing *d, int id)
      *   連続            after a copy is made, one more the same distance
      *                   on from it
      * None of them needs the third click: the button is the direction. */
+    if (current == JW_CMD_NISEN
+        && (id == 1064 || id == 1065 || id == 1066)) {
+        /* ２線 の 間隔反転 (1064)・1/2 間隔 (1065)・２倍間隔 (1066).
+         *
+         * Asked of the original with 2000,1000 in the box: 間隔反転 left the
+         * text alone (it turns which side is which, not the numbers), 1/2
+         * 間隔 wrote back 「1000 , 500」 and ２倍間隔 「4000 , 2000」 --
+         * halved and doubled, with a space either side of the comma. */
+        const char *t = jw_cmd_box(1412);
+        double a, b;
+        const char *p;
+        char buf[64];
+
+        if (id == 1064) {
+            nisen_flip = !nisen_flip;
+            return 1;
+        }
+        if (!t || !*t)
+            return 1;
+        a = atof(t);
+        p = strchr(t, ',');
+        b = p ? atof(p + 1) : a;
+        if (id == 1065) {
+            a /= 2.0;
+            b /= 2.0;
+        } else {
+            a *= 2.0;
+            b *= 2.0;
+        }
+        sprintf(buf, "%g , %g", a, b);
+        box_put(1412, buf);
+        return 1;
+    }
     if (current == JW_CMD_FUKUSEN
         && (id == 1064 || id == 1068 || id == 1069)) {
         double gap = box_mm(d, 1411);

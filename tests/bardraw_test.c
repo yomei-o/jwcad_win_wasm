@@ -2326,6 +2326,30 @@ static void line_fifteen_wins(void)
     jw_free(&ref);
 }
 
+/* ２線 の 間隔の釦: 1/2 間隔 and ２倍間隔 rewrite the box, 間隔反転
+   leaves it alone.  Read off the original's own bar after pressing each. */
+static void nisen_gap_buttons(void)
+{
+    jw_drawing *d = fresh();
+
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(0x807c);                 /* ２線 */
+    type_box(1412, "2000,1000");
+    jw_cmd_bar(d, 1064);                /* 間隔反転 */
+    ck(jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "2000,1000"),
+       "間隔反転 は入力欄を変えない");
+    jw_cmd_bar(d, 1064);                /* back */
+    type_box(1412, "2000,1000");
+    jw_cmd_bar(d, 1065);
+    ck(jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "1000 , 500"),
+       "1/2 間隔 で 「1000 , 500」");
+    type_box(1412, "2000,1000");
+    jw_cmd_bar(d, 1066);
+    ck(jw_cmd_box(1412) && !strcmp(jw_cmd_box(1412), "4000 , 2000"),
+       "２倍間隔 で 「4000 , 2000」");
+    type_box(1412, "");
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -2337,6 +2361,7 @@ int main(void)
     line_fifteen_wins();
     rect_band();
     para_buttons();
+    nisen_gap_buttons();
     dim_upright();
     dim_progressive();
     dim_rectangle();
