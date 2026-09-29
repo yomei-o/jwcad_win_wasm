@@ -2270,6 +2270,62 @@ static void line_end_arrow(void)
     jw_free(&ref);
 }
 
+/* １５度毎 beats 水平・垂直: ticked together, with the bar as it comes up,
+   the original rounded the drag to thirty degrees and kept its length
+   instead of laying the line along the axis. */
+static void line_fifteen_wins(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before, ok;
+
+    b = slurp("decomp/res/sen_hv15.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sen_hv15.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 1)) {
+        printf("BAD  sen_hv15.jww has no line in it\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) <= 0)
+        app_key(32);                    /* 水平・垂直 on, as it comes up */
+    if (jw_cmd_bar_check(1336) <= 0)
+        jw_cmd_bar(d, 1336);            /* １５度毎 as well */
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    /* the drag the original was given: 200 across and 100 down in pixels */
+    jw_cmd_point(d, app_view(), r[0]->d[0] + 122.4490, r[0]->d[1] - 61.2245, 0);
+    ck(d->ndrawn - before == 1, "１５度毎と水平・垂直を両方点けると一本引ける");
+    if (d->ndrawn - before == 1) {
+        const jw_obj *a = &d->obj[before];
+        ok = near(a->d[0], r[0]->d[0]) && near(a->d[1], r[0]->d[1])
+             && fabs(a->d[2] - r[0]->d[2]) < 1e-3
+             && fabs(a->d[3] - r[0]->d[3]) < 1e-3;
+        if (!ok)
+            printf("     ours %.4f,%.4f -> %.4f,%.4f\n"
+                   "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3]);
+        ck(ok, "  １５度毎のほうが勝ち、30度に丸めて長さはそのまま");
+    }
+    jw_cmd_bar(d, 1336);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -2278,6 +2334,7 @@ int main(void)
     line_slope();
     line_more();
     line_end_arrow();
+    line_fifteen_wins();
     rect_band();
     para_buttons();
     dim_upright();

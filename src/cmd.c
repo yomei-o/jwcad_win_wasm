@@ -1220,10 +1220,13 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
          * every pair of the four knobs on and answered plainly.
          *
          * The direction, in the order they beat each other:
+         *   １５度毎    the drag's own angle rounded to the nearest fifteen
          *   水平・垂直  along the axis or across it, whichever the drag
          *              went further (the axis being 軸角)
-         *   １５度毎    the drag's own angle rounded to the nearest fifteen
          *   傾き      the angle typed, however the drag runs
+         * -- １５度毎 beats 水平・垂直 as well: ticked together, with the bar
+         * as it comes up, the original drew the drag rounded to 30 degrees
+         * and kept its length instead of going along the axis.
          * 傾き 30 with either of the other two on drew the line their way,
          * so the box is only read when neither is -- unless a 寸法 is typed
          * too, and then 傾き comes first: with 水平・垂直 ticked, 傾き 30
@@ -1252,6 +1255,14 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
             ux = cos(a);
             uy = sin(a);
             run = dx * ux + dy * uy;
+        } else if (jw_cmd_bar_check(1336) > 0) {
+            double l = sqrt(dx * dx + dy * dy);
+            double step = PI / 12.0;
+            double a = atan2(dy, dx) / step;
+            a = (a < 0.0 ? -floor(-a + 0.5) : floor(a + 0.5)) * step;
+            ux = cos(a);
+            uy = sin(a);
+            run = l;
         } else if (hv) {
             double a = axis_deg * PI / 180.0;
             double ca = cos(a), sa = sin(a);
@@ -1266,14 +1277,6 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
                 uy = ca;
                 run = v;
             }
-        } else if (jw_cmd_bar_check(1336) > 0) {
-            double l = sqrt(dx * dx + dy * dy);
-            double step = PI / 12.0;
-            double a = atan2(dy, dx) / step;
-            a = (a < 0.0 ? -floor(-a + 0.5) : floor(a + 0.5)) * step;
-            ux = cos(a);
-            uy = sin(a);
-            run = l;
         } else if ((kata && *kata) || len > 0.0) {
             double a = box_angle(1411);         /* an empty box is flat */
             ux = cos(a);
