@@ -229,11 +229,147 @@ static void circle_arc(void)
     jw_free(&ref);
 }
 
+/* 矩形 の 傾き (1411): the two clicks are opposite corners still, but of a
+ * rectangle whose sides run at that angle. */
+static void rect_tilt(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[4];
+    int before, i, ok = 1;
+
+    b = slurp("decomp/res/kutilt.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/kutilt.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  kutilt.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 4)) {
+        printf("BAD  kutilt.jww has no rectangle in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "30");
+    type_box(1413, "");
+    before = d->ndrawn;
+    /* the corner the original started at, and the opposite corner it was
+       given -- which is the far end of its second side */
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[1]->d[2], r[1]->d[3], 0);
+    ck(d->ndrawn == before + 4, "矩形の傾き: two clicks draw four lines");
+    if (d->ndrawn != before + 4) {
+        jw_free(&ref);
+        return;
+    }
+    for (i = 0; i < 4; i++) {
+        const jw_obj *a = &d->obj[before + i];
+        if (!(near(a->d[0], r[i]->d[0]) && near(a->d[1], r[i]->d[1])
+              && near(a->d[2], r[i]->d[2]) && near(a->d[3], r[i]->d[3]))) {
+            ok = 0;
+            printf("     ours %.6f,%.6f -> %.6f,%.6f\n"
+                   "     the original's %.6f,%.6f -> %.6f,%.6f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+        }
+    }
+    ck(ok, "  all four exactly where the original put them");
+    jw_free(&ref);
+}
+
+/* 線 の １５度毎 (1336): the angle rounds to the nearest fifteen degrees and
+ * the length is kept. */
+static void line_15(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before;
+    double deg;
+
+    b = slurp("decomp/res/sen15.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/sen15.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  sen15.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 1)) {
+        printf("BAD  sen15.jww has no line in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    /* by way of 点: asking for 線 while 線 is already in force is how the
+       original flips 水平・垂直, and that would hold the line flat */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) > 0)
+        jw_cmd_bar(d, 1333);
+    ck(jw_cmd_bar_check(1333) == 0, "水平・垂直 is off");
+    ck(jw_cmd_bar_check(1336) == 0, "線 comes up with １５度毎 off");
+    jw_cmd_bar(d, 1336);
+    ck(jw_cmd_bar_check(1336) == 1, "  and pressing it turns it on");
+    before = d->ndrawn;
+    /* the same two points the original was given: its start, and the free
+       end it would have had -- 14.036 degrees, which rounds to 15 */
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    {   /* the free end the same two clicks give without the box ticked --
+           taken from the original's own drawing of it, because a value read
+           off six printed decimals is already 1e-8 out */
+        unsigned char *fb;
+        long fn;
+        jw_drawing free_ref;
+        const jw_obj *f[1];
+        fb = slurp("decomp/res/sen15free.jww", &fn);
+        if (!fb || !jw_parse(&free_ref, fb, fn) || !tail_of(&free_ref, JW_SEN, f, 1)) {
+            printf("BAD  no decomp/res/sen15free.jww\n");
+            fails++;
+            free(fb);
+            jw_free(&ref);
+            return;
+        }
+        free(fb);
+        jw_cmd_point(d, app_view(), f[0]->d[2], f[0]->d[3], 0);
+        jw_free(&free_ref);
+    }
+    ck(d->ndrawn == before + 1, "  two clicks draw one line");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        if (!(near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3])))
+            printf("     ours ends %.6f,%.6f, the original's %.6f,%.6f\n",
+                   a->d[2], a->d[3], r[0]->d[2], r[0]->d[3]);
+        ck(near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3]),
+           "  ending exactly where the original ended");
+        deg = atan2(a->d[3] - a->d[1], a->d[2] - a->d[0]) * 180.0 / 3.14159265358979323846;
+        ck(fabs(deg + 15.0) < 1e-9, "  which is a whole fifteen degrees");
+    }
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    line_15();
     circle_radius();
     circle_arc();
+    rect_tilt();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

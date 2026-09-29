@@ -953,6 +953,21 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
             return 1;
         }
     }
+        if (jw_cmd_bar_check(1336) > 0) {
+            /* １５度毎: the angle is rounded to the nearest fifteen degrees
+             * and the length kept.  The original, given a drag 173.178
+             * across and 43.294 down (14.036 degrees), drew 178.508 long at
+             * exactly 15 -- the same length to six places. */
+            double dx = x - sx, dy = y - sy;
+            double len = sqrt(dx * dx + dy * dy);
+            if (len > 0.0) {
+                double step = PI / 12.0;
+                double a = atan2(dy, dx) / step;
+                a = (a < 0.0 ? -floor(-a + 0.5) : floor(a + 0.5)) * step;
+                x = sx + len * cos(a);
+                y = sy + len * sin(a);
+            }
+        }
         if (hv) {
             /* along the axis or across it, whichever the drag went further
                -- which is flat and upright when 軸角 is nothing */
@@ -1005,6 +1020,33 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
         int k, j;
         if (max < 4)
             return 0;
+        {   /* 傾き turns the whole thing: the two clicks are still opposite
+             * corners, but of a rectangle whose sides run at that angle.
+             * The original, given 30 and two clicks 173.178 apart across and
+             * 86.589 down, drew sides of 106.68 at 30 degrees and 161.58 at
+             * -60 -- which is the diagonal measured in the turned frame,
+             * u = dx cos a + dy sin a and v = -dx sin a + dy cos a. */
+            double a = box_angle(1411);
+            if (a != 0.0) {
+                double ca = cos(a), sa = sin(a);
+                double dx = x - sx, dy = y - sy;
+                double u = dx * ca + dy * sa, v = -dx * sa + dy * ca;
+                double px[4], py[4];
+                px[0] = sx;                py[0] = sy;
+                px[1] = sx + u * ca;       py[1] = sy + u * sa;
+                px[2] = px[1] - v * sa;    py[2] = py[1] + v * ca;
+                px[3] = sx - v * sa;       py[3] = sy + v * ca;
+                for (k = 0; k < 4; k++) {
+                    blank(&o[k]);
+                    o[k].cls = JW_SEN;
+                    o[k].d[0] = px[k];
+                    o[k].d[1] = py[k];
+                    o[k].d[2] = px[(k + 1) & 3];
+                    o[k].d[3] = py[(k + 1) & 3];
+                }
+                return (u != 0.0 && v != 0.0) ? 4 : 0;
+            }
+        }
         c[0] = sx; c[1] = sy; c[2] = x; c[3] = y;
         for (k = 0; k < 4; k++) {
             blank(&o[k]);
