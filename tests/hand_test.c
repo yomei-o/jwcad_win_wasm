@@ -76,6 +76,13 @@ static unsigned long hash_of(const jw_drawing *d)
     return h * 31u + (unsigned)d->ndrawn;
 }
 
+/* the drawing is not reopened between the passes: a range command that has
+   already picked something keeps it, which is what a person would see */
+static void app_open_again(jw_drawing *d)
+{
+    (void)d;
+}
+
 /* the toolbar button for a command, pressed the way a mouse presses it */
 static int press_button(int cmd)
 {
@@ -214,29 +221,34 @@ int main(int argc, char **argv)
             app_press(PT[k][0], PT[k][1], 0);
         }
         grew = d->ndrawn != before || hash_of(d) != was;
-        /* a range command wants 選択確定 pressed once the box is in, and
-           then a point to put the copy down at -- without it a person sees
-           nothing happen at all */
-        if (!grew) {
-            int id;
-            for (id = 0; id < JW_NBARS; id++) {
-                int j;
-                if (jw_bars[id].cmd != (unsigned)jw_cmd())
+        /* A range command is driven differently: a box round something,
+           選択確定, and then where it goes.  Six clicks in a row only keep
+           starting a new box, so those four get their own gesture. */
+        if (!grew && (CMD[c].cmd == 0x8013 || CMD[c].cmd == 0x8024
+                      || CMD[c].cmd == 0x8096 || CMD[c].cmd == 0x808e)) {
+            int i2, j;
+            app_open_again(d);
+            app_press(PT[0][0] - 40, PT[0][1] - 40, 0);
+            app_press(PT[0][0] + 40, PT[0][1] + 40, 0);
+            for (i2 = 0; i2 < JW_NBARS; i2++) {
+                if (jw_bars[i2].cmd != (unsigned)jw_cmd())
                     continue;
-                for (j = 0; j < jw_bars[id].n; j++) {
-                    const jw_ctl_t *c = &jw_bars[id].c[j];
-                    int bx = c->x + c->w / 2, by = c->y + c->h / 2;
-                    if (c->id != 1120 || ui_bar_hit(bx, by) != 1120)
+                for (j = 0; j < jw_bars[i2].n; j++) {
+                    const jw_ctl_t *cc = &jw_bars[i2].c[j];
+                    int bx = cc->x + cc->w / 2, by = cc->y + cc->h / 2;
+                    if (cc->id != 1120 || ui_bar_hit(bx, by) != 1120)
                         continue;
                     app_press(bx, by, 0);
-                    app_move(PT[0][0], PT[0][1]);
-                    app_press(PT[0][0], PT[0][1], 0);
+                    j = jw_bars[i2].n;
+                    i2 = JW_NBARS;
                     break;
                 }
             }
+            app_move(PT[1][0], PT[1][1]);
+            app_press(PT[1][0], PT[1][1], 0);
             grew = d->ndrawn != before || hash_of(d) != was;
             if (grew && list)
-                printf("     %s wants 選択確定\n", CMD[c].name);
+                printf("     %s wants a box and 選択確定\n", CMD[c].name);
         }
         /* and with the right button, which is how a person erases an element
            or reads a point in Jw_cad -- a left click there picks a part */
