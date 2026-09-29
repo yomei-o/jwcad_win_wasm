@@ -2350,6 +2350,59 @@ static void nisen_gap_buttons(void)
     type_box(1412, "");
 }
 
+/* 消去 の 部分消し: a left click picks the line, then two points say
+   which piece goes.  The original left the line as two. */
+static void erase_part(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[2];
+    int i, ok = 1;
+
+    b = slurp("decomp/res/del_part.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/del_part.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 2)) {
+        printf("BAD  del_part.jww has no two pieces in it\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    /* the whole line the original started from */
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[1]->d[2], r[1]->d[3], 0);
+    jw_cmd_set(0x801a);                 /* 消去 */
+    jw_cmd_point(d, app_view(), 0.0, r[0]->d[1], 0);        /* pick it */
+    jw_cmd_point(d, app_view(), r[0]->d[2], r[0]->d[3], 0); /* one end */
+    jw_cmd_point(d, app_view(), r[1]->d[0], r[1]->d[1], 0); /* the other */
+    ck(d->ndrawn == 2, "部分消しで線が二本になる");
+    if (d->ndrawn == 2) {
+        for (i = 0; i < 2; i++) {
+            const jw_obj *a = &d->obj[i];
+            int j;
+            for (j = 0; j < 4; j++)
+                if (!near(a->d[j], r[i]->d[j]))
+                    ok = 0;
+        }
+        ck(ok, "  原典と同じところで切れる");
+    }
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -2358,6 +2411,7 @@ int main(void)
     line_slope();
     line_more();
     line_end_arrow();
+    erase_part();
     line_fifteen_wins();
     rect_band();
     para_buttons();
