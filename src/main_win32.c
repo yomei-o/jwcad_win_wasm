@@ -513,7 +513,9 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
      * stores -- so nothing has to be converted.  A kanji conversion comes in
      * one piece as the IME's result string, in the same code page. */
     case WM_CHAR:
-        if (wp >= 0x20 || wp == 8) {
+        /* 0x1b as well: Esc lets go of the points the command has taken, and
+           it was being dropped here along with the other control codes. */
+        if (wp >= 0x20 || wp == 8 || wp == 27) {
             if (app_key((int)wp)) {
                 app_paint();
                 InvalidateRect(wnd, NULL, FALSE);

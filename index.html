@@ -225,9 +225,20 @@
     if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Process' || e.key === 'Unidentified') return;
     if (composing) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    /* Esc and Space belong to the command whatever is in force -- Esc lets
+       go of the points taken so far and Space turns 水平・垂直 over, which
+       is what the original does with them.  They were going nowhere: the
+       line below only let a key through while the 文字 command was on or a
+       number box had the caret. */
+    if (e.key === 'Escape') { if (key(27)) present(); e.preventDefault(); return; }
+    if (e.key === ' ' && cmdid() !== 0x8026 && !boxfocus()) {
+      if (key(32)) present();
+      e.preventDefault();
+      return;
+    }
     /* the command bar's number boxes take typing too */
     if (cmdid() !== 0x8026 && !boxfocus()) return;
-    if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === 'Backspace') {
       if (key(8)) present();
       e.preventDefault();
