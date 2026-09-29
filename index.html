@@ -237,8 +237,20 @@
       e.preventDefault();
       return;
     }
-    /* the command bar's number boxes take typing too */
-    if (cmdid() !== 0x8026 && !boxfocus()) return;
+    /* A letter on its own is a command of its own -- a に文字, b に矩形 and
+       the rest of the nineteen the original answered to.  The port decides:
+       while 文字 is on or a number box has the caret it is typing, and
+       otherwise it is looked up in that table.  Before this, everything but
+       Esc and Space was dropped here unless one of those two was true, so
+       the letters never arrived. */
+    if (cmdid() !== 0x8026 && !boxfocus()) {
+      if (e.key.length === 1 && e.key.charCodeAt(0) >= 0x20
+          && e.key.charCodeAt(0) < 0x80) {
+        if (key(e.key.charCodeAt(0))) present();
+        e.preventDefault();
+      }
+      return;
+    }
     if (e.key === 'Backspace') {
       if (key(8)) present();
       e.preventDefault();
