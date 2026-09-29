@@ -186,6 +186,13 @@ static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       
    place the angle lives. */
 static void box_put(int id, const char *v);
 
+/* 角度 (1068): the angle between two directions taken about an origin.
+ * The original's own status line spells the order out -- 「● 原点を指示して
+ * ください」 first, then the two the linear dimension asks for, then the
+ * two points measured. */
+static int sun_kaku;
+static double sun_ox, sun_oy;
+
 /* 累進 (1070): the dimension is drawn as one of a run measured from a
  * common base -- a 点 at the base end, an arrowhead at the far one, and the
  * value stood on end beside it rather than laid along the line. */
@@ -379,7 +386,11 @@ static int sun_arrows(void)
  * command with an answer drawn by the original to score it against.  This is
  * the state alone, which is what the bar is drawn from.
  */
-#define JW_NBARSTATE 96
+/* One slot per (command, control) for the ticks and the boxes.  The bars
+   hold 94 checkboxes between them and a command can be in two states (the
+   plain bar and the one a settled range puts up), so 96 was close enough to
+   full that a box could quietly stop answering. */
+#define JW_NBARSTATE 384
 static struct { unsigned cmd; unsigned short id; unsigned char on; }
     chk[JW_NBARSTATE];
 static int nchk;
@@ -5064,8 +5075,15 @@ static int bar_press(jw_drawing *d, int id)
             sun_step = 2;
             return 1;
         }
+        if (id == 1068) {       /* 角度 */
+            sun_kaku = 1;
+            sun_radius = 0;
+            sun_step = 4;   /* the origin comes first */
+            return 1;
+        }
         if (id == 1064) {       /* リセット: back to the two-point kind */
             sun_radius = 0;
+            sun_kaku = 0;
             sun_step = 0;
             return 1;
         }
@@ -5569,6 +5587,140 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         o->n = 0;
     }
     op_push(4);
+}
+
+/* 角度 (1068): the angle between two directions about an origin.
+ *
+ * Read off the original's own drawing.  Given the origin, a point for the
+ * extension lines to start at, a point on the arc, and then the two
+ * directions read off a rectangle's corners, it wrote, in this order:
+ *
+ *   the value, D°MM'SS" with a half width 0xdf for the degree sign,
+ *              centred on the middle of the sweep at the arc's radius plus
+ *              はなれ, its baseline along the tangent there
+ *   the arc,   about the origin, from the first direction round to the
+ *              second the long way -- 0 to 270, not 90 back
+ *   a 点 at each end of it, as 端部 asks
+ *   an 引出線 along each direction, from the radius the first click gave
+ *              in to the arc
+ */
+static void sunpo_angle(jw_drawing *d, double bx, double by)
+{
+    double r1 = sqrt((sun_hx - sun_ox) * (sun_hx - sun_ox)
+                     + (sun_hy - sun_oy) * (sun_hy - sun_oy));
+    double r2 = sqrt((sun_lx - sun_ox) * (sun_lx - sun_ox)
+                     + (sun_ly - sun_oy) * (sun_ly - sun_oy));
+    double a0 = atan2(sun_sy - sun_oy, sun_sx - sun_ox);
+    double a1 = atan2(by - sun_oy, bx - sun_ox);
+    double sweep = a1 - a0;
+    double cw, ch, sp, tw = 0.0, mid, deg;
+    char txt[64];
+    const char *p;
+    int nch = 0, i, made = 0, sec;
+    jw_obj *o;
+
+    if (r2 <= 0.0)
+        return;
+    while (sweep < 0.0)
+        sweep += 2.0 * PI;
+    while (sweep >= 2.0 * PI)
+        sweep -= 2.0 * PI;
+    if (sweep <= 0.0)
+        return;
+
+    /* the value, in degrees, minutes and seconds */
+    deg = sweep * 180.0 / PI;
+    sec = (int)(deg * 3600.0 + 0.5);
+    sprintf(txt, "%d\xdf%02d'%02d\"", sec / 3600, (sec / 60) % 60, sec % 60);
+
+    i = JW_SUN_MOJINO - 1;
+    if (i < 0 || i > 9)
+        i = 0;
+    cw = d->style[i].w;
+    ch = d->style[i].h;
+    sp = d->style[i].sp;
+    for (p = txt; *p; ) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    mid = a0 + sweep / 2.0;
+    if (cw > 0.0 && ch > 0.0 && nch) {
+        double px = sun_ox + (r2 + JW_SUN_HANARE) * cos(mid);
+        double py = sun_oy + (r2 + JW_SUN_HANARE) * sin(mid);
+        double tx = cos(mid - PI / 2.0), ty = sin(mid - PI / 2.0);
+        o = jw_add(d, JW_MOJI);
+        if (o) {
+            o->color = (unsigned short)d->style[i].color;
+            o->ltype = 2;
+            o->width = 0;
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS | 0x0400u);
+            o->d[0] = px - tw / 2.0 * tx;
+            o->d[1] = py - tw / 2.0 * ty;
+            o->d[2] = px + tw / 2.0 * tx;
+            o->d[3] = py + tw / 2.0 * ty;
+            o->d[4] = cw;
+            o->d[5] = ch;
+            o->d[6] = sp;
+            o->d[7] = 0.0;
+            o->n = JW_SUN_MOJINO;
+            o->text = jw_add_str(d, txt);
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            made++;
+        }
+    }
+
+    /* the arc */
+    o = jw_add(d, JW_ENKO);
+    if (!o)
+        return;
+    o->color = JW_SUN_SEN_COLOR;
+    o->ltype = 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+    o->d[0] = sun_ox;
+    o->d[1] = sun_oy;
+    o->d[2] = r2;
+    o->d[3] = a0 < 0.0 ? a0 + 2.0 * PI : a0;
+    o->d[4] = sweep;
+    o->d[5] = 0.0;
+    o->d[6] = 1.0;
+    o->n = 0;
+    made++;
+
+    /* 端部 at each end of it */
+    for (i = 0; i < 2; i++) {
+        double a = i ? a0 + sweep : a0;
+        o = jw_add(d, JW_TEN);
+        if (!o)
+            break;
+        o->color = JW_SUN_TEN_COLOR;
+        o->ltype = 1;
+        o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+        o->d[0] = sun_ox + r2 * cos(a);
+        o->d[1] = sun_oy + r2 * sin(a);
+        o->n = 0;
+        made++;
+    }
+
+    /* an 引出線 along each direction, from r1 in to the arc */
+    for (i = 0; i < 2; i++) {
+        double a = i ? a0 + sweep : a0;
+        o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->color = JW_SUN_HIKI_COLOR;
+        o->ltype = 1;
+        o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+        o->d[0] = sun_ox + r1 * cos(a);
+        o->d[1] = sun_oy + r1 * sin(a);
+        o->d[2] = sun_ox + r2 * cos(a);
+        o->d[3] = sun_oy + r2 * sin(a);
+        made++;
+    }
+    op_push(made);
 }
 
 static void sunpo_make(jw_drawing *d, double bx, double by)
@@ -6084,6 +6236,15 @@ placed:
             sunpo_radius(d, v, x, y);
             return;
         }
+        if (sun_step == 4) {
+            /* 角度 asks for the origin before anything else */
+            if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+                return;
+            sun_ox = x;
+            sun_oy = y;
+            sun_step = 0;
+            return;
+        }
         if (sun_step < 2) {
             /* (L) is where it was clicked, (R) reads a point */
             if (button != 0 && !jw_read(d, v, x, y, &x, &y))
@@ -6107,7 +6268,10 @@ placed:
             sun_step = 3;
             return;
         }
-        sunpo_make(d, rx, ry);
+        if (sun_kaku)
+            sunpo_angle(d, rx, ry);
+        else
+            sunpo_make(d, rx, ry);
         sun_step = 2;           /* ready for the next one */
         return;
     }

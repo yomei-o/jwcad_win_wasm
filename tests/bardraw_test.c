@@ -2070,6 +2070,93 @@ static void dim_rectangle(void)
     jw_free(&ref);
 }
 
+/* 寸法 の 角度 (1068): an angle about an origin.  The original was given
+   the top left corner of a rectangle as the origin and its two neighbours as
+   the directions, and drew the value, the arc, a point at each end of it and
+   an extension line along each direction. */
+static void dim_angle(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[6];
+    int m = 0, i, before, ok = 1;
+    double r1;
+
+    b = slurp("decomp/res/sun10_kaku.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sun10_kaku.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn && m < 6; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_SEN && !(o->flags & JW_SUN_LINE_FLAGS))
+            continue;                   /* the rectangle */
+        if (o->cls == JW_MOJI && !(o->flags & JW_SUN_TEXT_FLAGS))
+            continue;                   /* the settings texts */
+        r[m++] = o;
+    }
+    if (m != 6 || r[1]->cls != JW_ENKO) {
+        printf("BAD  sun10_kaku.jww is not the drawing it was (%d)\n", m);
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    r1 = sqrt((r[4]->d[0] - r[1]->d[0]) * (r[4]->d[0] - r[1]->d[0])
+              + (r[4]->d[1] - r[1]->d[1]) * (r[4]->d[1] - r[1]->d[1]));
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    /* the rectangle the corners are read off: the origin is its top left */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "");
+    type_box(1417, "");
+    type_box(1413, "10000,6000");
+    jw_cmd_point(d, app_view(), r[1]->d[0], r[1]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[1]->d[0] + 1.0, r[1]->d[1] - 1.0, 0);
+    type_box(1413, "");
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_bar(d, 1068);                /* 角度 */
+    /* the origin, a point at the radius the extensions start from, a point
+       on the arc, and then the two corners the directions run to */
+    jw_cmd_point(d, app_view(), r[1]->d[0], r[1]->d[1], 1);
+    jw_cmd_point(d, app_view(), r[4]->d[0], r[4]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[2]->d[0], r[2]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[1]->d[0] + 100.0, r[1]->d[1], 1);
+    jw_cmd_point(d, app_view(), r[1]->d[0], r[1]->d[1] - 60.0, 1);
+    ck(d->ndrawn - before == 6, "角度: 値・弧・端の点二つ・引出線二本");
+    if (d->ndrawn - before == 6) {
+        for (i = 0; i < 6; i++) {
+            const jw_obj *a = &d->obj[before + i];
+            int j, same = a->cls == r[i]->cls && a->flags == r[i]->flags;
+            for (j = 0; j < (a->cls == JW_ENKO ? 5 : 4); j++)
+                if (!near(a->d[j], r[i]->d[j]))
+                    same = 0;
+            if (a->cls == JW_MOJI) {
+                const char *t1 = jw_str(d, a->text), *t2 = jw_str(&ref, r[i]->text);
+                if (!t1 || !t2 || strcmp(t1, t2))
+                    same = 0;
+            }
+            if (!same) {
+                ok = 0;
+                printf("     %d ours cls=%d f=%#x %.4f,%.4f %.4f %.4f %.4f\n"
+                       "       the original's cls=%d f=%#x %.4f,%.4f %.4f %.4f %.4f\n",
+                       i, a->cls, a->flags, a->d[0], a->d[1], a->d[2], a->d[3],
+                       a->d[4], r[i]->cls, r[i]->flags, r[i]->d[0], r[i]->d[1],
+                       r[i]->d[2], r[i]->d[3], r[i]->d[4]);
+            }
+        }
+        ck(ok, "  原典と同じ順で同じ形");
+    }
+    jw_cmd_bar(d, 1064);                /* リセット: back to the plain kind */
+    jw_free(&ref);
+    (void)r1;
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -2082,6 +2169,7 @@ int main(void)
     dim_upright();
     dim_progressive();
     dim_rectangle();
+    dim_angle();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();
