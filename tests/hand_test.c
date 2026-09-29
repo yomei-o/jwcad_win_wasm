@@ -26,6 +26,7 @@
 #include "../src/ui.h"
 #include "../src/gen/layout.h"
 #include "../src/gen/cmds.h"
+#include "../src/gen/bars.h"
 #include "../src/view.h"
 
 static int fails;
@@ -213,6 +214,30 @@ int main(int argc, char **argv)
             app_press(PT[k][0], PT[k][1], 0);
         }
         grew = d->ndrawn != before || hash_of(d) != was;
+        /* a range command wants 選択確定 pressed once the box is in, and
+           then a point to put the copy down at -- without it a person sees
+           nothing happen at all */
+        if (!grew) {
+            int id;
+            for (id = 0; id < JW_NBARS; id++) {
+                int j;
+                if (jw_bars[id].cmd != (unsigned)jw_cmd())
+                    continue;
+                for (j = 0; j < jw_bars[id].n; j++) {
+                    const jw_ctl_t *c = &jw_bars[id].c[j];
+                    int bx = c->x + c->w / 2, by = c->y + c->h / 2;
+                    if (c->id != 1120 || ui_bar_hit(bx, by) != 1120)
+                        continue;
+                    app_press(bx, by, 0);
+                    app_move(PT[0][0], PT[0][1]);
+                    app_press(PT[0][0], PT[0][1], 0);
+                    break;
+                }
+            }
+            grew = d->ndrawn != before || hash_of(d) != was;
+            if (grew && list)
+                printf("     %s wants 選択確定\n", CMD[c].name);
+        }
         /* and with the right button, which is how a person erases an element
            or reads a point in Jw_cad -- a left click there picks a part */
         if (!grew) {
