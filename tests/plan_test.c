@@ -16,6 +16,8 @@
 #include <string.h>
 #include <math.h>
 
+#define PI 3.14159265358979323846
+
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
@@ -114,6 +116,50 @@ static void by_hand(void)
         ck(fabs(w - 2000.0 / wscale(d)) < 1e-9,
            "  the size that was typed, not the size of the drag");
     }
+
+    /* 傾き, typed into its own box the same way */
+    for (k = 0; k < JW_NBARS; k++)
+        if (jw_bars[k].cmd == 0x8004) {
+            int i;
+            for (i = 0; i < jw_bars[k].n; i++)
+                if (jw_bars[k].c[i].id == 1411) {
+                    bx = jw_bars[k].c[i].x + jw_bars[k].c[i].w / 2;
+                    by = jw_bars[k].c[i].y + jw_bars[k].c[i].h / 2;
+                }
+        }
+    app_press(bx, by, 0);
+    ck(jw_cmd_box_focus() == 1411, "  the 傾き box takes the caret too");
+    app_key('3');
+    app_key('0');
+    app_key(13);
+    before = d->ndrawn;
+    app_press(500, 400, 0);
+    app_press(560, 440, 0);
+    ck(d->ndrawn == before + 4, "  and two more clicks draw another rectangle");
+    if (d->ndrawn == before + 4) {
+        const jw_obj *o = &d->obj[before];
+        double deg = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
+        ck(fabs(deg - 30.0) < 1e-6, "  turned by the 30 that was typed");
+    }
+
+    /* ソリッド, which is a checkbox on the same bar */
+    for (k = 0; k < JW_NBARS; k++)
+        if (jw_bars[k].cmd == 0x8004) {
+            int i;
+            for (i = 0; i < jw_bars[k].n; i++)
+                if (jw_bars[k].c[i].id == 1334) {
+                    bx = jw_bars[k].c[i].x + jw_bars[k].c[i].w / 2;
+                    by = jw_bars[k].c[i].y + jw_bars[k].c[i].h / 2;
+                }
+        }
+    ck(ui_bar_hit(bx, by) == 1334, "  ソリッド is where the original draws it");
+    app_press(bx, by, 0);
+    ck(jw_cmd_bar_check(1334) == 1, "  and pressing it ticks the box");
+    before = d->ndrawn;
+    app_press(500, 400, 0);
+    app_press(560, 440, 0);
+    ck(d->ndrawn == before + 1 && d->obj[before].cls == JW_SOLID,
+       "  so the next two clicks make a ソリッド, not four lines");
 }
 
 int main(int argc, char **argv)
