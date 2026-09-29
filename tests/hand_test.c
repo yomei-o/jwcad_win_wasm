@@ -194,6 +194,22 @@ int main(int argc, char **argv)
         if (CMD[c].draws)
             ck(grew, CMD[c].name);
     }
+    /* the five boxes at the right of the status line.  The original sends
+       a command from each on the release (FUN_00596e80), so a press has to
+       land on one and be taken. */
+    {
+        static const struct { int x; const char *what; } SB[5] = {
+            {  999, "用紙サイズ" }, { 1050, "縮尺" },
+            { 1118, "レイヤ" }, { 1170, "軸角" },
+            { 1216, "画面倍率" }
+        };
+        int i;
+        for (i = 0; i < 5; i++) {
+            char msg[64];
+            sprintf(msg, "ステータスの %s の箱が押せる", SB[i].what);
+            ck(ui_status_hit(SB[i].x, 730, 1264, 741) == i, msg);
+        }
+    }
     printf("ok   %d of %d commands take their button, %d of them draw\n",
            could, (int)(sizeof CMD / sizeof CMD[0]), drove);
     printf(fails ? "%d failed\n" : "all passed\n", fails);

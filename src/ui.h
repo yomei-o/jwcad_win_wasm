@@ -113,6 +113,8 @@ int ui_bar_ctl(unsigned cmd, int id, int *checked);
    bar.  Whether it can be pressed is a separate question: the painting asks
    jw_cmd_bar_enabled, and this does not. */
 int ui_bar_hit(int x, int y);
+/* which of the five boxes at the right of the status line, or -1 */
+int ui_status_hit(int x, int y, int cw, int ch);
 
 /* Which cell of the layer grids is under the point: 0 for the layer grid,
    1 for the layer group grid, -1 for neither, and *n is which of the

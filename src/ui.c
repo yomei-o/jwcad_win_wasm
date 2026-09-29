@@ -823,7 +823,10 @@ static void paint_samples(fb_t *fb)
 
 /* The status line: a face-coloured bar with a row of panes and a size grip. */
 static const struct { short x0, x1; } panes[5] = {
-    {  987, 1022 }, { 1025, 1086 }, { 1089, 1153 },
+    /* Read off the original's own window: the highlight down each box's left
+       edge and the shadow down its right, in the capture at 1264x741.  The
+       first three were five pixels right of these. */
+    {  982, 1017 }, { 1020, 1081 }, { 1084, 1153 },
     { 1156, 1185 }, { 1188, 1244 },
 };
 #define PANE_T 724
@@ -870,6 +873,26 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
         sprintf(buf, "\x81\x7e %g", (double)(long)z / 100.0);
     }
     jw_text_px(fb, ui_right(panes[4].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
+}
+
+/* Which of the five boxes at the right of the status line a point is in.
+ *
+ * The original hit-tests them itself -- they are status bar parts, not
+ * windows -- and on the release sends the frame a command: FUN_00596e80
+ * walks parts 1 to 5, and for the one the press went down in sends WM_COMMAND
+ * 0x8039, 0x803b, 0x803d, 0x804b, 0x804c.  Those are the ids the resource
+ * calls 用紙サイズ, scale, Layer, 軸角 and 画面表示倍率, so a box is a
+ * menu command with a number painted on it. */
+int ui_status_hit(int x, int y, int cw, int ch)
+{
+    int k;
+
+    if (y < ui_bottom(PANE_T, ch) || y > ch - 1)
+        return -1;
+    for (k = 0; k < 5; k++)
+        if (x >= ui_right(panes[k].x0, cw) && x <= ui_right(panes[k].x1, cw))
+            return k;
+    return -1;
 }
 
 static void paint_status(fb_t *fb)

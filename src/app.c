@@ -1099,6 +1099,16 @@ int app_press(int x, int y, int button)
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
 
+    /* the five boxes at the right of the status line.  The original sends
+       the frame a command from each (FUN_00596e80), so the port runs the
+       same one. */
+    if (button == 0) {
+        static const int STATUS_CMD[5] = { 32825, 32827, 32829, 32843, 32844 };
+        int k = ui_status_hit(x, y, fb.w, fb.h);
+        if (k >= 0)
+            return app_command(STATUS_CMD[k]) | 1;
+    }
+
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
         if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
                                              1069) > 0) {
