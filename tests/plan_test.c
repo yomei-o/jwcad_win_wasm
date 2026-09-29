@@ -90,17 +90,22 @@ int main(int argc, char **argv)
             double mx = (o->d[0] + o->d[2]) / 2.0;
             double my = (o->d[1] + o->d[3]) / 2.0;
             double ix = x0 + W / 2.0, iy = y0 - H / 2.0;
-            /* three clicks, which is what the original asks for as well:
-               「複線にする図形を選択」「間隔を入力するか、複写する位置」
-               「作図する方向を指示」 */
+            /* With the interval typed it is two clicks -- the line, then
+               which side -- which is how a wall is actually drawn.  Without
+               one it is three: the line, how far, and which way. */
             jw_cmd_point(d, app_view(), mx, my, 0);          /* the line */
             jw_cmd_point(d, app_view(), mx + (ix - mx) * 0.1,
-                         my + (iy - my) * 0.1, 0);           /* how far     */
-            jw_cmd_point(d, app_view(), mx + (ix - mx) * 0.2,
-                         my + (iy - my) * 0.2, 0);           /* which way   */
+                         my + (iy - my) * 0.1, 0);           /* which side */
         }
     }
     ck(d->ndrawn == walls + 4, "  and 複線 150 gives it an inner face");
+    {   /* the inner face really is 150 in, not wherever the click landed */
+        const jw_obj *o = &d->obj[walls];
+        double want = 150.0 / s;
+        double off = fabs(o->d[1] - d->obj[before].d[1]);
+        ck(fabs(off - want) < 1e-9, "  exactly 150 in, because it was typed");
+    }
+    type_box(1411, "");
 
     /* a centre line down the room, between two of the walls */
     {
