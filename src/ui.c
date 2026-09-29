@@ -3043,6 +3043,25 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                 jw_text_px(fb, c[i].x + 9, c[i].y + (c[i].h - th) / 2,
                            num, en ? C_BTNTEXT : C_GRAYTEXT);
                 fb_fill(fb, c[i].x + 27, c[i].y + 6, 10, 12, rgb);
+            } else if (c[i].id == 1843 && d) {
+                /* 文字 の書込文字種: the capture baked in whatever the
+                 * original happened to be writing with -- 「[10]  W=10 H=10
+                 * D=1 (5)」 -- and the port drew that for ever.  It is the
+                 * drawing's own: the number of the 文字種 whose width,
+                 * height and spacing match, then those three and its pen. */
+                char t[64];
+                int k, no = 0;
+                for (k = 0; k < 10; k++)
+                    if (d->style[k].w == d->cur_style.w
+                        && d->style[k].h == d->cur_style.h
+                        && d->style[k].sp == d->cur_style.sp) {
+                        no = k + 1;
+                        break;
+                    }
+                sprintf(t, "[%d]  W=%g H=%g D=%g (%d)", no, d->cur_style.w,
+                        d->cur_style.h, d->cur_style.sp, d->cur_style.color);
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else {
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
