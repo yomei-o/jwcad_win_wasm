@@ -192,6 +192,11 @@ static void box_put(int id, const char *v);
  * value was the height between them, not the distance along the line. */
 static int sun_vert;
 
+/* 累進 (1070): the dimension is drawn as one of a run measured from a
+ * common base -- a 点 at the base end, an arrowhead at the far one, and the
+ * value stood on end beside it rather than laid along the line. */
+static int sun_prog;
+
 static double sun_angle(void)
 {
     const char *t = jw_cmd_box(1411);
@@ -5187,6 +5192,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
         sun_vert = !sun_vert;
         return 1;
     }
+    if (current == JW_CMD_SUNPO && id == 1070) {
+        sun_prog = !sun_prog;
+        return 1;
+    }
     /* 複線の 両側複線 (1068)・留線付両側複線 (1069)・連続 (1064).
      *
      * Asked of the original with a line picked and 1000 typed into the
@@ -5609,7 +5618,42 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
      * instead of the point: 3 long at 15 degrees either side of the line,
      * pointing inwards, written +15 then -15 at each end.  Those are the
      * ARROW_LEN and ARROW_ANG the settings carry. */
-    if (!sun_arrows()) {
+    if (sun_prog) {
+        /* 累進: the original put a 点 on the base end and an arrowhead on
+           the far one, whatever 端部 is set to -- read off its own drawing */
+        o = jw_add(d, JW_TEN);
+        if (o) {
+            o->color = JW_SUN_TEN_COLOR;
+            o->ltype = 1;
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+            o->d[0] = x0;
+            o->d[1] = y0;
+            o->n = 0;
+            made++;
+        }
+        {
+            double wx = x0 - x1, wy = y0 - y1;
+            double wl = sqrt(wx * wx + wy * wy), k;
+            if (wl > 0.0) {
+                wx /= wl;
+                wy /= wl;
+                for (k = 1.0; k >= -1.0; k -= 2.0) {
+                    double aa = k * JW_SUN_ARROW_ANG * PI / 180.0;
+                    double ca = cos(aa), sa = sin(aa);
+                    o = jw_add(d, JW_SEN);
+                    if (!o)
+                        break;
+                    o->ltype = 1;
+                    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+                    o->d[0] = x1;
+                    o->d[1] = y1;
+                    o->d[2] = x1 + JW_SUN_ARROW_LEN * (wx * ca - wy * sa);
+                    o->d[3] = y1 + JW_SUN_ARROW_LEN * (wx * sa + wy * ca);
+                    made++;
+                }
+            }
+        }
+    } else if (!sun_arrows()) {
         for (i = 0; i < 2; i++) {
             o = jw_add(d, JW_TEN);
             if (!o)
@@ -5693,10 +5737,26 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             o->width = (unsigned short)((sun_decimals() << 12)
                                        | (JW_SUN_TEXT_WIDTH & 0x0fffu));
             o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS);
+            if (sun_prog) {
+                /* 累進: stood on end at the far tip.  The original wrote
+                   it half a millimetre back along the line from that tip and
+                   half a millimetre off it, running across rather than
+                   along, with an ordinary text's 1 at +0x28 and the upright
+                   bit in the flags. */
+                double px = (s1 - JW_SUN_HANARE) * ux + t * vx;
+                double py = (s1 - JW_SUN_HANARE) * uy + t * vy;
+                o->ltype = 1;
+                o->flags = (unsigned short)(o->flags | 0x1000u);
+                o->d[0] = px;
+                o->d[1] = py;
+                o->d[2] = px + tw * vx;
+                o->d[3] = py + tw * vy;
+            } else {
             o->d[0] = (mid - tw / 2.0) * ux + t * vx;
             o->d[1] = (mid - tw / 2.0) * uy + t * vy;
             o->d[2] = (mid + tw / 2.0) * ux + t * vx;
             o->d[3] = (mid + tw / 2.0) * uy + t * vy;
+            }
             o->d[4] = cw;
             o->d[5] = ch;
             o->d[6] = sp;

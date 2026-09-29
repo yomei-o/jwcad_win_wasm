@@ -1908,6 +1908,87 @@ static void dim_upright(void)
     jw_free(&ref);
 }
 
+/* 寸法 の 累進 (1070): a 点 on the base end, an arrowhead on the far one,
+   and the value stood on end beside it. */
+static void dim_progressive(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *all[4096];
+    const jw_obj *plain = 0, *r[7];
+    int m, i, k = 0, before, ok = 1;
+
+    b = slurp("decomp/res/sun2_rui.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sun2_rui.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    /* the plain line, then the seven the dimension is made of, in the
+       order the original wrote them */
+    m = ref.ndrawn;
+    for (i = 0; i < m; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_MOJI && !(o->flags & JW_SUN_TEXT_FLAGS))
+            continue;                   /* the settings texts at the end */
+        if (!plain && o->cls == JW_SEN && !(o->flags & JW_SUN_LINE_FLAGS)) {
+            plain = o;
+            continue;
+        }
+        if (plain && k < 7)
+            r[k++] = o;
+    }
+    if (!plain || k != 7) {
+        printf("BAD  sun2_rui.jww is not the drawing it was (%d)\n", k);
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    jw_cmd_point(d, app_view(), plain->d[0], plain->d[1], 0);
+    jw_cmd_point(d, app_view(), plain->d[2], plain->d[3], 0);
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    type_box(1411, "0");
+    jw_cmd_bar(d, 1070);                /* 累進 */
+    /* the two clicks: where the extensions end, then the dimension line */
+    jw_cmd_point(d, app_view(), 0.0, r[4]->d[3], 0);
+    jw_cmd_point(d, app_view(), 0.0, r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), plain->d[0], plain->d[1], 1);
+    jw_cmd_point(d, app_view(), plain->d[2], plain->d[3], 1);
+    ck(d->ndrawn - before == 7, "累進: 寸法線・点・矢羽根二本・引出線二本・値");
+    if (d->ndrawn - before == 7) {
+        for (i = 0; i < 7; i++) {
+            const jw_obj *a = &d->obj[before + i];
+            int j, same = a->cls == r[i]->cls && a->ltype == r[i]->ltype
+                          && a->flags == r[i]->flags;
+            for (j = 0; j < 4; j++)
+                if (!near(a->d[j], r[i]->d[j]))
+                    same = 0;
+            if (!same) {
+                ok = 0;
+                printf("     %d ours cls=%d t=%d f=%#x %.4f,%.4f -> %.4f,%.4f\n"
+                       "       the original's cls=%d t=%d f=%#x %.4f,%.4f -> %.4f,%.4f\n",
+                       i, a->cls, a->ltype, a->flags,
+                       a->d[0], a->d[1], a->d[2], a->d[3],
+                       r[i]->cls, r[i]->ltype, r[i]->flags,
+                       r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+            }
+        }
+        ck(ok, "  原典と同じ順で同じ場所に");
+    }
+    jw_cmd_bar(d, 1070);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -1918,6 +1999,7 @@ int main(void)
     rect_band();
     para_buttons();
     dim_upright();
+    dim_progressive();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();
