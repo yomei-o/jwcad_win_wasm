@@ -185,8 +185,13 @@ int main(int argc, char **argv)
                         x = o->d[0];
                         y = o->d[1];
                     }
+                    /* jw_sx/jw_sy give window pixels already: adding the
+                       chrome height put every click 51 pixels -- about 31
+                       paper millimetres -- below what it was aiming at, and
+                       every command that has to pick something read as dead
+                       when it was only being missed. */
                     PT[np][0] = jw_sx(v, x);
-                    PT[np][1] = jw_sy(v, y) + ch;
+                    PT[np][1] = jw_sy(v, y);
                     if (PT[np][0] > 80 && PT[np][0] < 1100
                         && PT[np][1] > ch && PT[np][1] < 700)
                         np++;

@@ -1457,6 +1457,8 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
 
 int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 {
+    int n;
+
     if (current == JW_CMD_MOJI)
         return tracking ? moji(d, o, tx, ty) : 0;
     if (current == JW_CMD_RENZOKU) {
@@ -1485,7 +1487,43 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
     }
     if (step != 2 || !tracking)
         return 0;
-    return figure(d, o, max, tx, ty);
+    n = figure(d, o, max, tx, ty);
+    /* 矩形 の ソリッド: what hangs off the mouse is the frame, not the
+     * fill.  Caught on the original's own screen with the second corner
+     * under the cursor -- ソリッド alone draws the four sides in the band
+     * colour and nothing inside, and with (対角線) as well the diagonal
+     * from the first corner to the second is drawn across it.  The fill and
+     * the collapsed corners only turn up in what is committed. */
+    if (current == JW_CMD_KUKEI && n == 1 && o[0].cls == JW_SOLID) {
+        double x0 = sx, y0 = sy, x1 = tx, y1 = ty;
+        double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+        int k;
+        static const int ix[4][4] = { {0,1,2,1}, {2,1,2,3}, {2,3,0,3}, {0,3,0,1} };
+        double c[4];
+        if (wmm > 0.0 && hmm > 0.0) {
+            x1 = x0 + (x1 < x0 ? -wmm : wmm);
+            y1 = y0 + (y1 < y0 ? -hmm : hmm);
+        }
+        c[0] = x0; c[1] = y0; c[2] = x1; c[3] = y1;
+        n = 0;
+        for (k = 0; k < 4 && n < max; k++, n++) {
+            int j;
+            blank(&o[n]);
+            o[n].cls = JW_SEN;
+            for (j = 0; j < 4; j++)
+                o[n].d[j] = c[ix[k][j]];
+        }
+        if (jw_cmd_bar_check(1335) > 0 && n < max) {
+            blank(&o[n]);
+            o[n].cls = JW_SEN;
+            o[n].d[0] = x0;
+            o[n].d[1] = y0;
+            o[n].d[2] = x1;
+            o[n].d[3] = y1;
+            n++;
+        }
+    }
+    return n;
 }
 
 /* Take an element out and remember it, so 元に戻る can put it back.  `o` is

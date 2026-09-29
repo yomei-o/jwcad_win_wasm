@@ -1724,6 +1724,49 @@ static void line_more(void)
     jw_free(&ref);
 }
 
+/* 矩形 の仮線: the frame, and the diagonal across it with (対角線).
+   Caught on the original's own screen with the second corner under the
+   cursor -- ソリッド hangs four sides off the mouse and nothing inside. */
+static void rect_band(void)
+{
+    jw_drawing *d = fresh();
+    jw_obj t[16];
+    int n, i, solid;
+
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_KUKEI);
+    type_box(1411, "");
+    type_box(1413, "");
+    type_box(1417, "");
+    if (jw_cmd_bar_check(1334) > 0)
+        jw_cmd_bar(d, 1334);
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+    jw_cmd_track(80.0, 50.0);
+    n = jw_cmd_pending(d, t, 16);
+    solid = 0;
+    for (i = 0; i < n; i++)
+        if (t[i].cls == JW_SOLID)
+            solid = 1;
+    ck(n == 4 && !solid, "矩形の仮線は四辺");
+    jw_cmd_bar(d, 1334);                /* ソリッド */
+    n = jw_cmd_pending(d, t, 16);
+    solid = 0;
+    for (i = 0; i < n; i++)
+        if (t[i].cls == JW_SOLID)
+            solid = 1;
+    ck(n == 4 && !solid, "ソリッドでも仮線は四辺だけで塗らない");
+    jw_cmd_bar(d, 1335);                /* (対角線) */
+    n = jw_cmd_pending(d, t, 16);
+    ck(n == 5, "(対角線) で対角線が一本加わる");
+    if (n == 5)
+        ck(near(t[4].d[0], 0.0) && near(t[4].d[1], 0.0)
+           && near(t[4].d[2], 80.0) && near(t[4].d[3], 50.0),
+           "  一点目からカーソルまで");
+    jw_cmd_bar(d, 1335);
+    jw_cmd_bar(d, 1334);
+    jw_cmd_escape();
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -1731,6 +1774,7 @@ int main(void)
     line_marks();
     line_slope();
     line_more();
+    rect_band();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();
