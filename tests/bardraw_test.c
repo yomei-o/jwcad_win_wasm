@@ -525,9 +525,107 @@ static void rect_solid(void)
     jw_free(&ref);
 }
 
+/* 寸法 の 小数桁 (1061): the button cycles 2 -> 3 -> 0 -> 1 -> 2.
+ *
+ * Each case drives the port the way the original was driven -- the same
+ * line, the same clicks, that many presses -- and scores the value written
+ * and the width word that carries the places (places << 12 | 0x43). */
+static void dim_decimals(void)
+{
+    static const char *FILE_OF[4] = {
+        "decomp/res/sunpo.jww", "decomp/res/sunketa.jww",
+        "decomp/res/sunketa2.jww", "decomp/res/sunketa3.jww"
+    };
+    int c;
+
+    for (c = 0; c < 4; c++) {
+        unsigned char *b;
+        long n;
+        jw_drawing ref, *d;
+        const jw_obj *r_line = 0, *r_dim = 0, *r_ext = 0, *r_txt = 0;
+        const char *want, *got;
+        int i, nb, before, k;
+
+        b = slurp(FILE_OF[c], &n);
+        if (!b) {
+            printf("BAD  no %s -- run tools/refanswers.sh\n", FILE_OF[c]);
+            fails++;
+            continue;
+        }
+        if (!jw_parse(&ref, b, n)) {
+            printf("BAD  %s: %s\n", FILE_OF[c], ref.error);
+            fails++;
+            free(b);
+            continue;
+        }
+        free(b);
+        d = fresh();
+        nb = d->ndrawn;
+        for (i = nb; i < ref.ndrawn; i++) {
+            const jw_obj *o = &ref.obj[i];
+            if (o->cls == JW_SEN && o->flags == 0 && o->color == 2 && !r_line)
+                r_line = o;
+            else if (o->cls == JW_SEN && (o->flags & 0x2000)) {
+                if (!r_dim)
+                    r_dim = o;
+                else if (!r_ext)
+                    r_ext = o;
+            } else if (o->cls == JW_MOJI && (o->flags & 0x4000))
+                r_txt = o;
+        }
+        if (!r_line || !r_dim || !r_ext || !r_txt) {
+            printf("BAD  %s has no dimension in it\n", FILE_OF[c]);
+            fails++;
+            jw_free(&ref);
+            continue;
+        }
+        want = jw_str(&ref, r_txt->text);
+        {   /* the line the original drew first */
+            jw_obj *o = jw_add(d, JW_SEN);
+            o->d[0] = r_line->d[0];
+            o->d[1] = r_line->d[1];
+            o->d[2] = r_line->d[2];
+            o->d[3] = r_line->d[3];
+        }
+        app_fit();
+        before = d->ndrawn;
+        jw_cmd_set(JW_CMD_SUNPO);
+        for (k = 0; k < c; k++)
+            jw_cmd_bar(d, 1061);
+        type_box(1411, "0");
+        jw_cmd_point(d, app_view(), r_ext->d[2], r_ext->d[3], 0);
+        jw_cmd_point(d, app_view(), r_dim->d[0], r_dim->d[1], 0);
+        jw_cmd_point(d, app_view(), r_line->d[0], r_line->d[1], 0);
+        jw_cmd_point(d, app_view(), r_line->d[2], r_line->d[3], 0);
+        if (d->ndrawn != before + 6) {
+            printf("BAD  %s: the port drew %d elements, not six\n",
+                   FILE_OF[c], d->ndrawn - before);
+            fails++;
+            jw_free(&ref);
+            continue;
+        }
+        got = jw_str(d, d->obj[d->ndrawn - 1].text);
+        if (!got || !want || strcmp(got, want)
+            || d->obj[d->ndrawn - 1].width != r_txt->width)
+            printf("     %d presses: ours [%s] width %#x, the original's [%s] %#x\n",
+                   c, got ? got : "(none)",
+                   (unsigned)d->obj[d->ndrawn - 1].width,
+                   want ? want : "(none)", (unsigned)r_txt->width);
+        ck(got && want && !strcmp(got, want)
+           && d->obj[d->ndrawn - 1].width == r_txt->width,
+           c == 0 ? "小数桁: no press writes the original's two places"
+                  : "  and another press writes what the original's does");
+        /* back to where it started for the next case */
+        for (k = c; k < 4; k++)
+            jw_cmd_bar(d, 1061);
+        jw_free(&ref);
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    dim_decimals();
     line_15();
     rect_solid();
     circle_rings();

@@ -330,6 +330,20 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
 };
 static int box_focus;
 
+/* 寸法 の 小数桁 (1061): how many places the value is written to.  The
+ * button cycles them, and the original's own drawings say the cycle is
+ * 2 -> 3 -> 0 -> 1 -> 2 (the settings start at 2, which is what
+ * JW_SUN_DECIMALS carries).  The text's width word carries it as well:
+ * 0x2043 for two places, 0x3043 for three, 0x0043 for none, 0x1043 for one
+ * -- (places << 12) | 0x43. */
+static int sun_keta = -1;
+
+static int sun_decimals(void)
+{
+    return sun_keta < 0 ? JW_SUN_DECIMALS : sun_keta;
+}
+
+
 /* Everything else on the bars.
  *
  * A command bar is a CDialogBar in the original and the things on it are
@@ -4687,6 +4701,10 @@ static int bar_press(jw_drawing *d, int id)
         return 0;
     }
     if (current == JW_CMD_SUNPO) {
+        if (id == 1061) {       /* 小数桁: 2 -> 3 -> 0 -> 1 -> 2 */
+            sun_keta = (sun_decimals() + 1) & 3;
+            return 1;
+        }
         if (id != 1059)
             return 0;
         box_put(1411, sun_angle() == 0.0 ? "90" : "0");
@@ -4912,8 +4930,8 @@ static void sunpo_text(char *out, int n, double mm, double scale)
         v = -v;
     /* mm and scale both come from the drawing, so v can be enormous and
        "%f" spells it out in full */
-    snprintf(buf, sizeof buf, "%.*f", JW_SUN_DECIMALS, v);
-    if (JW_SUN_DECIMALS > 0 && !JW_SUN_ZERO) {
+    snprintf(buf, sizeof buf, "%.*f", sun_decimals(), v);
+    if (sun_decimals() > 0 && !JW_SUN_ZERO) {
         char *dot = strchr(buf, '.');
         if (dot) {
             char *e = buf + strlen(buf);
@@ -5026,7 +5044,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             /* an ordinary text has 1 here; the dimension value the original
                wrote has 2, and 0x2043 in the word at +0x2c */
             o->ltype = 2;
-            o->width = JW_SUN_TEXT_WIDTH;
+            o->width = (unsigned short)((sun_decimals() << 12)
+                                       | (JW_SUN_TEXT_WIDTH & 0x0fffu));
             o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS);
             o->d[0] = (mid - tw / 2.0) * ux + t * vx;
             o->d[1] = (mid - tw / 2.0) * uy + t * vy;

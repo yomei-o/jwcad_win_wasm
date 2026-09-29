@@ -1187,6 +1187,10 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 寸法 の 小数桁 (1061): 押すたびに 2 → 3 → 0 → 1 → 2 と回ります。
+# 文字の width にも入っていて (桁 << 12) | 0x43 でした。
+make bardraw sunketa  0 '300,600;700,600;cmd:32847;btn:1061;ch:1411,0;400,500;400,450;r300,600;r700,600'              sunketa2 0 '300,600;700,600;cmd:32847;btn:1061;btn:1061;ch:1411,0;400,500;400,450;r300,600;r700,600'              sunketa3 0 '300,600;700,600;cmd:32847;btn:1061;btn:1061;btn:1061;ch:1411,0;400,500;400,450;r300,600;r700,600'     || fails=$((fails+1))
+
 # 矩形 の ソリッド (1334): 4 本の線ではなく塗りつぶしの四角形 1 つ。
 # 隅の順は、線のときと逆回り（押した隅 → 下 → 横 → 戻る）でした。
 make bardraw kusolid 32772 'btn:1334;500,400;700,500'     || fails=$((fails+1))
