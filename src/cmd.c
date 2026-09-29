@@ -6055,6 +6055,53 @@ placed:
         ty = y;
         return;
     }
+    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1320) > 0) {
+        /* 半円: two clicks give the ends of the diameter and the third says
+         * which side it bulges.  The original wrote the centre at their
+         * middle, the radius at half their distance, the start at 0, the
+         * tilt at the angle of the first click from the centre, and the
+         * sweep at +pi or -pi -- the sign following which side the third
+         * click was on. */
+        if (en_step == 0) {
+            sx = x;
+            sy = y;
+            tx = x;
+            ty = y;
+            en_step = 1;
+            return;
+        }
+        if (en_step == 1) {
+            en_r = x;
+            en_a0 = y;
+            tx = x;
+            ty = y;
+            en_step = 2;
+            return;
+        }
+        if (d) {
+            double cx = (sx + en_r) / 2.0, cy = (sy + en_a0) / 2.0;
+            double ux = sx - cx, uy = sy - cy;
+            double r = sqrt(ux * ux + uy * uy);
+            double cross = ux * (y - cy) - uy * (x - cx);
+            if (r > 0.0) {
+                jw_obj *o = jw_add(d, JW_ENKO);
+                if (o) {
+                    o->d[0] = cx;
+                    o->d[1] = cy;
+                    o->d[2] = r;
+                    o->d[3] = 0.0;
+                    o->d[4] = cross >= 0.0 ? PI : -PI;
+                    o->d[5] = atan2(uy, ux);
+                    o->d[6] = 1.0;
+                    o->n = 0;
+                    op_push(1);
+                }
+            }
+        }
+        en_step = 0;
+        tracking = 0;
+        return;
+    }
     if (current == JW_CMD_ENKO && jw_cmd_bar_check(1321) > 0) {
         /* ３点指示: the circle through three clicked points.  The original,
          * given three, wrote the circle round them -- centre 54.262391,

@@ -836,9 +836,81 @@ static void circle_3pt(void)
     jw_free(&ref);
 }
 
+/* 円 の 半円 (1320): the diameter's two ends, then the side it bulges. */
+static void circle_half(void)
+{
+    static const char *FILE_OF[2] = {
+        "decomp/res/enhalf.jww", "decomp/res/enhalf2.jww"
+    };
+    int c;
+
+    for (c = 0; c < 2; c++) {
+        unsigned char *b;
+        long n;
+        jw_drawing ref, *d;
+        const jw_obj *r[1];
+        int before;
+        double p1x, p1y, p2x, p2y, midx, midy;
+
+        b = slurp(FILE_OF[c], &n);
+        if (!b) {
+            printf("BAD  no %s -- run tools/refanswers.sh\n", FILE_OF[c]);
+            fails++;
+            continue;
+        }
+        if (!jw_parse(&ref, b, n)) {
+            printf("BAD  %s: %s\n", FILE_OF[c], ref.error);
+            fails++;
+            free(b);
+            continue;
+        }
+        free(b);
+        if (!tail_of(&ref, JW_ENKO, r, 1)) {
+            printf("BAD  %s has no half circle in it\n", FILE_OF[c]);
+            fails++;
+            continue;
+        }
+        d = fresh();
+        jw_cmd_set(JW_CMD_ENKO);
+        type_box(1411, "");
+        type_box(1417, "");
+        jw_cmd_bar(d, 1320);
+        before = d->ndrawn;
+        /* the two ends of its diameter, and a point on the side it bulges */
+        p1x = r[0]->d[0] + r[0]->d[2] * cos(r[0]->d[5]);
+        p1y = r[0]->d[1] + r[0]->d[2] * sin(r[0]->d[5]);
+        p2x = r[0]->d[0] - r[0]->d[2] * cos(r[0]->d[5]);
+        p2y = r[0]->d[1] - r[0]->d[2] * sin(r[0]->d[5]);
+        midx = r[0]->d[0] + r[0]->d[2] * cos(r[0]->d[5] + r[0]->d[4] / 2.0);
+        midy = r[0]->d[1] + r[0]->d[2] * sin(r[0]->d[5] + r[0]->d[4] / 2.0);
+        jw_cmd_point(d, app_view(), p1x, p1y, 0);
+        jw_cmd_point(d, app_view(), p2x, p2y, 0);
+        jw_cmd_point(d, app_view(), midx, midy, 0);
+        ck(d->ndrawn == before + 1,
+           c == 0 ? "半円: three clicks draw one" : "  and the other side too");
+        if (d->ndrawn == before + 1) {
+            const jw_obj *a = &d->obj[before];
+            int ok = near(a->d[0], r[0]->d[0]) && near(a->d[1], r[0]->d[1])
+                     && near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3])
+                     && near(a->d[4], r[0]->d[4]) && near(a->d[5], r[0]->d[5])
+                     && a->n == r[0]->n;
+            if (!ok)
+                printf("     ours c=(%.4f,%.4f) r=%.4f a=%.4f sweep=%.6f tilt=%.6f\n"
+                       "     the original's c=(%.4f,%.4f) r=%.4f a=%.4f sweep=%.6f tilt=%.6f\n",
+                       a->d[0], a->d[1], a->d[2], a->d[3], a->d[4], a->d[5],
+                       r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3],
+                       r[0]->d[4], r[0]->d[5]);
+            ck(ok, "  the original's centre, radius, tilt and sweep");
+        }
+        jw_cmd_bar(d, 1320);
+        jw_free(&ref);
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    circle_half();
     circle_3pt();
     dim_arrows();
     text_vertical();

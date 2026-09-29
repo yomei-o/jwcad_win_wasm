@@ -1187,6 +1187,10 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 円 の 半円 (1320): 直径の両端 → 膨らむ側 の 3 点。中心は両端の中点、
+# 傾きは中心から第一点の角、掃引は第三点の側に応じて ±pi、末尾 0。
+make bardraw enhalf  32773 'btn:1320;500,400;600,400;550,350'              enhalf2 32773 'btn:1320;500,400;600,400;550,450'     || fails=$((fails+1))
+
 # 円 の ３点指示 (1321): 3 点を通る円。始角 0、まるごと一周、末尾 1。
 make bardraw en3pt 32773 'btn:1321;500,400;700,500;600,300'     || fails=$((fails+1))
 
