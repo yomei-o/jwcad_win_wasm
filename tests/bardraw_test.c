@@ -775,9 +775,71 @@ static void dim_arrows(void)
     jw_free(&ref);
 }
 
+/* 円 の ３点指示 (1321): the circle through three clicked points. */
+static void circle_3pt(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[1];
+    int before;
+    double a0 = 0.0, a1 = 2.0943951023931953, a2 = 4.1887902047863905;
+
+    b = slurp("decomp/res/en3pt.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/en3pt.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  en3pt.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_ENKO, r, 1)) {
+        printf("BAD  en3pt.jww has no circle in it\n");
+        fails++;
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_ENKO);
+    type_box(1411, "");
+    type_box(1412, "");
+    type_box(1413, "");
+    type_box(1417, "");
+    jw_cmd_bar(d, 1321);
+    ck(jw_cmd_bar_check(1321) == 1, "円: ３点指示 turns on");
+    before = d->ndrawn;
+    /* three points on the circle the original drew -- any three do */
+    jw_cmd_point(d, app_view(), r[0]->d[0] + r[0]->d[2] * cos(a0),
+                                r[0]->d[1] + r[0]->d[2] * sin(a0), 0);
+    jw_cmd_point(d, app_view(), r[0]->d[0] + r[0]->d[2] * cos(a1),
+                                r[0]->d[1] + r[0]->d[2] * sin(a1), 0);
+    ck(d->ndrawn == before, "  the first two clicks draw nothing");
+    jw_cmd_point(d, app_view(), r[0]->d[0] + r[0]->d[2] * cos(a2),
+                                r[0]->d[1] + r[0]->d[2] * sin(a2), 0);
+    ck(d->ndrawn == before + 1, "  the third draws the circle");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        int ok = fabs(a->d[0] - r[0]->d[0]) < 1e-6
+                 && fabs(a->d[1] - r[0]->d[1]) < 1e-6
+                 && fabs(a->d[2] - r[0]->d[2]) < 1e-6
+                 && near(a->d[3], r[0]->d[3]) && a->n == r[0]->n;
+        if (!ok)
+            printf("     ours c=(%.6f,%.6f) r=%.6f, the original's c=(%.6f,%.6f) r=%.6f\n",
+                   a->d[0], a->d[1], a->d[2],
+                   r[0]->d[0], r[0]->d[1], r[0]->d[2]);
+        ck(ok, "  round the original's centre, at its radius");
+    }
+    jw_cmd_bar(d, 1321);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
+    circle_3pt();
     dim_arrows();
     text_vertical();
     dim_decimals();

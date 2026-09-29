@@ -6055,6 +6055,54 @@ placed:
         ty = y;
         return;
     }
+    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1321) > 0) {
+        /* ３点指示: the circle through three clicked points.  The original,
+         * given three, wrote the circle round them -- centre 54.262391,
+         * -63.787172 and radius 102.046022 for the three this was read
+         * from -- with the start at 0 and a whole turn, like any circle. */
+        if (en_step == 0) {
+            sx = x;
+            sy = y;
+            tx = x;
+            ty = y;
+            en_step = 1;
+            return;
+        }
+        if (en_step == 1) {
+            en_r = x;           /* the second point, kept until the third */
+            en_a0 = y;
+            tx = x;
+            ty = y;
+            en_step = 2;
+            return;
+        }
+        if (d) {
+            double bx = en_r, by = en_a0;
+            double ax = sx, ay = sy;
+            double d1 = 2.0 * (ax * (by - y) + bx * (y - ay) + x * (ay - by));
+            if (d1 != 0.0) {
+                double a2 = ax * ax + ay * ay, b2 = bx * bx + by * by;
+                double c2 = x * x + y * y;
+                double cx = (a2 * (by - y) + b2 * (y - ay) + c2 * (ay - by)) / d1;
+                double cy = (a2 * (x - bx) + b2 * (ax - x) + c2 * (bx - ax)) / d1;
+                jw_obj *o = jw_add(d, JW_ENKO);
+                if (o) {
+                    o->d[0] = cx;
+                    o->d[1] = cy;
+                    o->d[2] = sqrt((ax - cx) * (ax - cx) + (ay - cy) * (ay - cy));
+                    o->d[3] = 0.0;
+                    o->d[4] = 2 * PI;
+                    o->d[5] = 0.0;
+                    o->d[6] = 1.0;
+                    o->n = 1;
+                    op_push(1);
+                }
+            }
+        }
+        en_step = 0;
+        tracking = 0;
+        return;
+    }
     if (current == JW_CMD_ENKO && jw_cmd_bar_check(1318) > 0) {
         /* 円弧: centre, then radius and start, then the end */
         if (en_step == 0) {
