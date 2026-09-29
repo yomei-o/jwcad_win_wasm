@@ -148,6 +148,29 @@ int main(int argc, char **argv)
         jw_cmd_bar(d, 1061);
     }
 
+    /* hatch the room: pick its boundary with the right button, then 実行 */
+    {
+        int was = d->ndrawn;
+        const jw_obj *o = &d->obj[before];
+        jw_cmd_set(JW_CMD_HATCH);
+        jw_cmd_point(d, app_view(), (o->d[0] + o->d[2]) / 2.0,
+                     (o->d[1] + o->d[3]) / 2.0, 1);
+        ck(d->ndrawn == was, "  picking the boundary draws nothing yet");
+        jw_cmd_bar(d, 1148);                    /* 実行 */
+        ck(d->ndrawn > was, "  ハッチ fills the room");
+    }
+
+    /* and a label, which is what makes it a plan rather than a shape */
+    {
+        int was = d->ndrawn;
+        app_command(0x8026);                    /* 文字 */
+        app_key('L');
+        app_key('D');
+        app_key('K');
+        jw_cmd_point(d, app_view(), x0 + W / 4.0, y0 - H / 2.0, 0);
+        ck(d->ndrawn == was + 1, "  文字 puts the room's name in it");
+    }
+
     ck(app_save(&out, &n) && n > 0, "the plan saves");
     if (argc > 1 && n > 0) {
         FILE *f = fopen(argv[1], "wb");
