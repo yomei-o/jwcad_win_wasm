@@ -3085,8 +3085,17 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                         no = k + 1;
                         break;
                     }
-                sprintf(t, "[%d]  W=%g H=%g D=%g (%d)", no, d->cur_style.w,
-                        d->cur_style.h, d->cur_style.sp, d->cur_style.color);
+                /* and 「Free」 when it is none of the ten -- read off the
+                   original's own bar after typing a size into the dialog:
+                   「Free  W=30 H=40 D=2 (2)」 */
+                if (no)
+                    sprintf(t, "[%d]  W=%g H=%g D=%g (%d)", no, d->cur_style.w,
+                            d->cur_style.h, d->cur_style.sp,
+                            d->cur_style.color);
+                else
+                    sprintf(t, "Free  W=%g H=%g D=%g (%d)", d->cur_style.w,
+                            d->cur_style.h, d->cur_style.sp,
+                            d->cur_style.color);
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else {
