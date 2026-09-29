@@ -1091,19 +1091,35 @@ static int sen_value(const jw_drawing *d, jw_obj *o, int max)
     return 2;
 }
 
-/* 線の ●─── (1348) と ＜─── (1349): a mark on the end the line
- * started from.  The original was asked and drew, at the first clicked point,
- * either one 点 (●) or two lines 3 long at plus and minus 15 degrees off
- * the way the line runs (＜), the plus one first -- the same length and angle
- * the dimension arrowheads use.  Drawn backwards, the mark stayed on the
- * point clicked first, so it is the start, not an end of the segment.
- * The two boxes turn each other off in the original (FUN_005be280), so at
- * most one of them is ever on. */
+/* 線の ●─── (1348) と ＜─── (1349): a mark on the end of the line.
+ *
+ * The original was asked and drew, at the point clicked first, either one
+ * 点 (●) or two lines 3 long at plus and minus 15 degrees off the way the
+ * line runs (＜), the plus one first -- the same length and angle the
+ * dimension arrowheads use.  Drawn backwards, the mark stayed on the point
+ * clicked first, so it is the start and not an end of the segment.
+ *
+ * The button beside each box says which end.  Pressing it once moved the
+ * mark to the far end, twice put one on both ends, three times brought it
+ * back to the start, so it runs round three states.  The mark at the far end
+ * is the same shape turned about: the legs go back along the line, which is
+ * the arrowhead's own rule of pointing from the tip towards the other end.
+ *
+ * The ● came out with pen 1 and line type 1 while the line it sits on came
+ * out pen 2, so the mark is not drawn with the writing pen.  Pen 1 is also
+ * what the dimension settings give a 端部 point, and the two cannot be told
+ * apart here.
+ *
+ * The four boxes on that side of the bar turn each other off in the original
+ * (FUN_005be280 and the three beside it), so at most one is ever on. */
+static unsigned char mark_side[2];      /* 0 start, 1 far end, 2 both */
+
 static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
 {
-    double dx, dy, len, ux, uy, k;
+    double dx, dy, len, ux, uy;
     int dot = jw_cmd_bar_check(1348) > 0;
     int arr = jw_cmd_bar_check(1349) > 0;
+    int side, e;
 
     (void)d;
     if ((!dot && !arr) || n < 1)
@@ -1115,36 +1131,44 @@ static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
         return n;
     ux = dx / len;
     uy = dy / len;
-    if (dot) {
-        if (n >= max)
-            return n;
-        blank(&o[n]);
-        o[n].cls = JW_TEN;
-        /* the original wrote the ● with line type 1 and pen 1 while the
-           line it sits on came out pen 2, so the mark is not drawn with the
-           writing pen.  Pen 1 is also what the dimension settings give a
-           端部 point, and the two cannot be told apart here. */
-        o[n].ltype = 1;
-        o[n].color = 1;
-        o[n].d[0] = o[0].d[0];
-        o[n].d[1] = o[0].d[1];
-        o[n].n = 0;
-        return n + 1;
-    }
-    for (k = 1.0; k >= -1.0; k -= 2.0) {
-        double a = k * JW_SUN_ARROW_ANG * PI / 180.0;
-        double ca = cos(a), sa = sin(a);
-        if (n >= max)
-            break;
-        blank(&o[n]);
-        o[n].cls = JW_SEN;
-        o[n].ltype = o[0].ltype;
-        o[n].color = o[0].color;
-        o[n].d[0] = o[0].d[0];
-        o[n].d[1] = o[0].d[1];
-        o[n].d[2] = o[0].d[0] + JW_SUN_ARROW_LEN * (ux * ca - uy * sa);
-        o[n].d[3] = o[0].d[1] + JW_SUN_ARROW_LEN * (ux * sa + uy * ca);
-        n++;
+    side = mark_side[dot ? 0 : 1];
+    for (e = 0; e < 2; e++) {
+        /* e = 0 is the point clicked first, e = 1 the other one */
+        double px = e ? o[0].d[2] : o[0].d[0];
+        double py = e ? o[0].d[3] : o[0].d[1];
+        double wx = e ? -ux : ux, wy = e ? -uy : uy;
+        double k;
+
+        if (side != 2 && side != e)
+            continue;
+        if (dot) {
+            if (n >= max)
+                break;
+            blank(&o[n]);
+            o[n].cls = JW_TEN;
+            o[n].ltype = 1;
+            o[n].color = 1;
+            o[n].d[0] = px;
+            o[n].d[1] = py;
+            o[n].n = 0;
+            n++;
+            continue;
+        }
+        for (k = 1.0; k >= -1.0; k -= 2.0) {
+            double a = k * JW_SUN_ARROW_ANG * PI / 180.0;
+            double ca = cos(a), sa = sin(a);
+            if (n >= max)
+                break;
+            blank(&o[n]);
+            o[n].cls = JW_SEN;
+            o[n].ltype = o[0].ltype;
+            o[n].color = o[0].color;
+            o[n].d[0] = px;
+            o[n].d[1] = py;
+            o[n].d[2] = px + JW_SUN_ARROW_LEN * (wx * ca - wy * sa);
+            o[n].d[3] = py + JW_SUN_ARROW_LEN * (wx * sa + wy * ca);
+            n++;
+        }
     }
     return n;
 }
@@ -1158,79 +1182,78 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
     blank(o);
     switch (current) {
     case JW_CMD_SEN: {
-        /* 寸法 in the box makes the line that long, at 傾き, running the way
-         * the second click points: the original, given 傾き 30 and 寸法 1000
-         * on a 1/200 group, drew 5 mm at -150 degrees when the second click
-         * was up and to the left, and at 0 degrees with an empty 傾き and a
-         * click down and to the right. */
+        /* Where the line goes is settled in two halves: which way it points
+         * and how far along that way it runs.  The original was asked with
+         * every pair of the four knobs on and answered plainly.
+         *
+         * The direction, in the order they beat each other:
+         *   水平・垂直  along the axis or across it, whichever the drag
+         *              went further (the axis being 軸角)
+         *   １５度毎    the drag's own angle rounded to the nearest fifteen
+         *   傾き      the angle typed, however the drag runs
+         * 傾き 30 with either of the other two on drew the line their way,
+         * so the box is only read when neither is -- unless a 寸法 is typed
+         * too, and then 傾き comes first: with 水平・垂直 ticked, 傾き 30
+         * and 寸法 1000 the original drew 5 long at 30 degrees, not along
+         * the axis, while the same 寸法 with an empty 傾き went up the axis.
+         *
+         * The run, signed along that direction:
+         *   寸法 typed   that length, going the way the drag pointed --
+         *                50000 on a 1/200 group with 水平・垂直 and a drag
+         *                upwards drew 250 straight up
+         *   otherwise   as far as the drag goes along it: its component on
+         *               the axis for 水平・垂直, its whole length for １５度毎
+         *               (the angle already carries the direction), and the
+         *               drag projected onto 傾き for 傾き -- 173.178 across
+         *               and 86.589 down at 30 degrees came out 106.68 long,
+         *               which is exactly that dot product.
+         */
         double len = box_mm(d, 1412);
-        if (len > 0.0) {
+        double dx = x - sx, dy = y - sy;
+        const char *kata = jw_cmd_box(1411);
+        double ux = 0.0, uy = 0.0, run = 0.0;
+        int along = 1;
+
+        if (len > 0.0 && kata && *kata) {
             double a = box_angle(1411);
-            double ux = cos(a), uy = sin(a);
-            if ((x - sx) * ux + (y - sy) * uy < 0.0) {
-                ux = -ux;
-                uy = -uy;
-            }
-            o->cls = JW_SEN;
-            o->d[0] = sx;
-            o->d[1] = sy;
-            o->d[2] = sx + ux * len;
-            o->d[3] = sy + uy * len;
-            return sen_marks(d, o, max, sen_value(d, o, max));
-        }
-    }
-        if (jw_cmd_bar_check(1336) > 0) {
-            /* １５度毎: the angle is rounded to the nearest fifteen degrees
-             * and the length kept.  The original, given a drag 173.178
-             * across and 43.294 down (14.036 degrees), drew 178.508 long at
-             * exactly 15 -- the same length to six places. */
-            double dx = x - sx, dy = y - sy;
-            double len = sqrt(dx * dx + dy * dy);
-            if (len > 0.0) {
-                double step = PI / 12.0;
-                double a = atan2(dy, dx) / step;
-                a = (a < 0.0 ? -floor(-a + 0.5) : floor(a + 0.5)) * step;
-                x = sx + len * cos(a);
-                y = sy + len * sin(a);
-            }
-        }
-        if (hv) {
-            /* along the axis or across it, whichever the drag went further
-               -- which is flat and upright when 軸角 is nothing */
+            ux = cos(a);
+            uy = sin(a);
+            run = dx * ux + dy * uy;
+        } else if (hv) {
             double a = axis_deg * PI / 180.0;
             double ca = cos(a), sa = sin(a);
-            double dx = x - sx, dy = y - sy;
             double u = dx * ca + dy * sa, v = -dx * sa + dy * ca;
 
-            if (fabs(u) > fabs(v))
-                v = 0.0;
-            else
-                u = 0.0;
-            x = sx + u * ca - v * sa;
-            y = sy + u * sa + v * ca;
-        }
-        {
-            /* 傾き alone: the line lies at that angle
-             * and is as long as the drag projected onto it, sign and all.
-             * The original, given 傾き 30 and a drag of 173.178 across and
-             * 86.589 down, drew 106.68 long up at 30 degrees -- which is
-             * exactly that dot product -- and the same length the other way
-             * when the drag went up and to the left.
-             * 水平・垂直 and １５度毎 both beat it: with either of them on and
-             * 傾き 30 typed, the original drew the line their way and left
-             * the box alone, so this only runs when neither did. */
-            const char *t = jw_cmd_box(1411);
-            if (t && *t && !hv && jw_cmd_bar_check(1336) <= 0) {
-                double a = box_angle(1411);
-                double ux = cos(a), uy = sin(a);
-                double p = (x - sx) * ux + (y - sy) * uy;
-                o->cls = JW_SEN;
-                o->d[0] = sx;
-                o->d[1] = sy;
-                o->d[2] = sx + p * ux;
-                o->d[3] = sy + p * uy;
-                return sen_marks(d, o, max, sen_value(d, o, max));
+            if (fabs(u) > fabs(v)) {
+                ux = ca;
+                uy = sa;
+                run = u;
+            } else {
+                ux = -sa;
+                uy = ca;
+                run = v;
             }
+        } else if (jw_cmd_bar_check(1336) > 0) {
+            double l = sqrt(dx * dx + dy * dy);
+            double step = PI / 12.0;
+            double a = atan2(dy, dx) / step;
+            a = (a < 0.0 ? -floor(-a + 0.5) : floor(a + 0.5)) * step;
+            ux = cos(a);
+            uy = sin(a);
+            run = l;
+        } else if ((kata && *kata) || len > 0.0) {
+            double a = box_angle(1411);         /* an empty box is flat */
+            ux = cos(a);
+            uy = sin(a);
+            run = dx * ux + dy * uy;
+        } else {
+            along = 0;
+        }
+        if (along) {
+            if (len > 0.0)
+                run = run < 0.0 ? -len : len;
+            x = sx + run * ux;
+            y = sy + run * uy;
         }
         o->cls = JW_SEN;
         o->d[0] = sx;
@@ -1238,6 +1261,7 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
         o->d[2] = x;
         o->d[3] = y;
         return sen_marks(d, o, max, sen_value(d, o, max));
+    }
     case JW_CMD_RENZOKU:
         o->cls = JW_SEN;
         o->d[0] = sx;
@@ -5112,6 +5136,15 @@ int jw_cmd_bar(jw_drawing *d, int id)
     /* Anything the command itself does not act on, and that the original has
        as a checkbox there: its tick moves whatever the command makes of it,
        so the port's does too. */
+    /* the two buttons beside ●─── and ＜─── walk the mark round its
+       three ends.  The original leaves them dead while their own box is
+       clear, and pressing one then drew nothing different. */
+    if ((id == 1836 || id == 1837) && current == JW_CMD_SEN) {
+        int k = id == 1836 ? 0 : 1;
+        if (jw_cmd_bar_check(id == 1836 ? 1348 : 1349) > 0)
+            mark_side[k] = (unsigned char)((mark_side[k] + 1) % 3);
+        return 1;
+    }
     on = chk_slot(bar_cmd(), id);
     if (on) {
         *on = (unsigned char)!*on;

@@ -1609,12 +1609,128 @@ static void line_slope(void)
     }
 }
 
+/* 線: the marks on the far end, and 寸法 with 水平・垂直 or １５度毎. */
+static void line_more(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[4];
+    int before, i, ok;
+
+    /* ＜─── with the button pressed twice: legs on both ends, the ones
+       at the start first */
+    b = slurp("decomp/res/sen_1837x2.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sen_1837x2.jww\n");
+        fails++;
+        free(b);
+    } else {
+        free(b);
+        if (!tail_of(&ref, JW_SEN, r, 4)) {
+            printf("BAD  sen_1837x2.jww has no four legs in it\n");
+            fails++;
+        } else {
+            /* the line itself comes before the four: find it by its start */
+            const jw_obj *all[4096];
+            int m = of_class(&ref, JW_SEN, all, 4096), j, at = -1;
+            for (j = m - 5; j >= 0; j--)
+                if (near(all[j]->d[0], r[0]->d[0])
+                    && near(all[j]->d[1], r[0]->d[1])) {
+                    at = j;
+                    break;
+                }
+            if (at < 0) {
+                printf("BAD  sen_1837x2.jww has no line under its legs\n");
+                fails++;
+            } else {
+                const jw_obj *line = all[at];
+                d = fresh();
+                jw_cmd_set(JW_CMD_TEN);
+                jw_cmd_set(JW_CMD_SEN);
+                type_box(1411, "");
+                type_box(1412, "");
+                if (jw_cmd_bar_check(1349) <= 0)
+                    jw_cmd_bar(d, 1349);
+                jw_cmd_bar(d, 1837);
+                jw_cmd_bar(d, 1837);
+                before = d->ndrawn;
+                jw_cmd_point(d, app_view(), line->d[0], line->d[1], 0);
+                jw_cmd_point(d, app_view(), line->d[2], line->d[3], 0);
+                ck(d->ndrawn == before + 5,
+                   "＜─── with the button twice: the line and four legs");
+                ok = 1;
+                if (d->ndrawn == before + 5)
+                    for (i = 0; i < 4; i++) {
+                        const jw_obj *a = &d->obj[before + 1 + i];
+                        if (!(near(a->d[0], r[i]->d[0])
+                              && near(a->d[1], r[i]->d[1])
+                              && near(a->d[2], r[i]->d[2])
+                              && near(a->d[3], r[i]->d[3]))) {
+                            ok = 0;
+                            printf("     %d ours %.4f,%.4f -> %.4f,%.4f, the original's %.4f,%.4f -> %.4f,%.4f\n",
+                                   i, a->d[0], a->d[1], a->d[2], a->d[3],
+                                   r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+                        }
+                    }
+                ck(ok, "  both ends, the start's pair written first");
+                jw_cmd_bar(d, 1837);    /* back to the start */
+                jw_cmd_bar(d, 1349);
+            }
+        }
+        jw_free(&ref);
+    }
+
+    /* 寸法 with 水平・垂直: straight up the axis the drag leans to */
+    b = slurp("decomp/res/sen_sunhv_v.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/sen_sunhv_v.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 1)) {
+        printf("BAD  sen_sunhv_v.jww has no line in it\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    d = fresh();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "50000");
+    if (jw_cmd_bar_check(1333) <= 0)
+        app_key(32);
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    /* the drag: a little to the right and a long way up, so the upright
+       axis is the one it leans to */
+    jw_cmd_point(d, app_view(), r[0]->d[0] + 17.0, r[0]->d[1] + 216.0, 0);
+    ck(d->ndrawn == before + 1, "寸法 with 水平・垂直: one line");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        ok = near(a->d[0], r[0]->d[0]) && near(a->d[1], r[0]->d[1])
+             && near(a->d[2], r[0]->d[2]) && near(a->d[3], r[0]->d[3]);
+        if (!ok)
+            printf("     ours %.4f,%.4f -> %.4f,%.4f\n"
+                   "     the original's %.4f,%.4f -> %.4f,%.4f\n",
+                   a->d[0], a->d[1], a->d[2], a->d[3],
+                   r[0]->d[0], r[0]->d[1], r[0]->d[2], r[0]->d[3]);
+        ck(ok, "  250 straight up, where the original drew it");
+    }
+    type_box(1412, "");
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     rect_solid_more();
     line_marks();
     line_slope();
+    line_more();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();

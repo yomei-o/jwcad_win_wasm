@@ -162,6 +162,7 @@ public static class Jw {
     [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageStr(IntPtr h, uint m, IntPtr w, string l);
     [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageSb(IntPtr h, uint m, IntPtr w, StringBuilder l);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")] public static extern IntPtr SendMessageRect(IntPtr h, uint m, IntPtr w, ref RECT r);
 
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
@@ -627,6 +628,59 @@ try {
                 }
                 if ($sb -eq [IntPtr]::Zero) { Write-Host 'no status bar'; break }
                 Emit ('=== status [{0}]' -f [Jw]::TxtMsg($sb))
+                break
+            }
+
+            '^tops$' {
+                # every top-level window the original has up: a dialog or a
+                # pop-up menu shows here, which is how a status-line pane says
+                # what it opened
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if (-not [Jw]::IsWindowVisible($t)) { continue }
+                    Write-Host ('top {0} [{1}] [{2}]' -f $t, [Jw]::Cls($t), [Jw]::Txt($t))
+                }
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    foreach ($k in [Jw]::Kids($t)) {
+                        if (-not [Jw]::IsWindowVisible($k)) { continue }
+                        Write-Host ('  kid {0} id={1} [{2}] [{3}]' -f $k,
+                                    [Jw]::GetDlgCtrlID($k), [Jw]::Cls($k), [Jw]::Txt($k))
+                    }
+                }
+                break
+            }
+
+            '^sb$' {
+                # every pane of the status line, as the original fills it
+                $sb = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($frame)) {
+                    if ([Jw]::Cls($k) -eq 'msctls_statusbar32') { $sb = $k; break }
+                }
+                if ($sb -eq [IntPtr]::Zero) { Write-Host 'no status bar'; break }
+                $n = [int][Jw]::SendMessageW($sb, 0x0406, [IntPtr]0, [IntPtr]0)
+                for ($i = 0; $i -lt $n; $i++) {
+                    $t = New-Object System.Text.StringBuilder 512
+                    [void][Jw]::SendMessageSb($sb, 0x040D, [IntPtr]$i, $t)
+                    Write-Host ('sb {0}: [{1}]' -f $i, $t.ToString())
+                }
+                break
+            }
+
+            '^sb:(-?\d+),(-?\d+)$' {
+                # press the status line where it is told, the way a mouse
+                # does.  The panes are not windows -- CMyStatusBar hit-tests
+                # the click against the pane rectangles itself
+                # (FUN_00596cf0) and acts on the release (FUN_005973b0).
+                $sx = [int]$Matches[1]
+                $sy = [int]$Matches[2]
+                $sb = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($frame)) {
+                    if ([Jw]::Cls($k) -eq 'msctls_statusbar32') { $sb = $k; break }
+                }
+                if ($sb -eq [IntPtr]::Zero) { throw 'no status bar' }
+                [void][Jw]::PostMessage($sb, 0x0201, [IntPtr]1, (LParam $sx $sy))
+                Start-Sleep -Milliseconds $StepMs
+                [void][Jw]::PostMessage($sb, 0x0202, [IntPtr]0, (LParam $sx $sy))
+                Start-Sleep -Milliseconds $StepMs
                 break
             }
 
