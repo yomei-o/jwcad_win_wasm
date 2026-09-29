@@ -10,7 +10,7 @@
  *
  *   answers   pressing it moved something -- the tick, the caret, the
  *             command in force, the drawing
- *   draws     with it pressed, the same two clicks in the drawing area come
+ *   draws     with it pressed, the same three clicks in the drawing area come
  *             out different
  *
  * The second is the one that matters: a checkbox that only ticks is a
@@ -58,9 +58,11 @@ static int state_of(const jw_drawing *d, int id)
            + (d ? d->ndrawn : 0);
 }
 
-/* Two clicks in the middle of the paper, and what they left behind: the
-   objects added, as one number that changes when any of them does. */
-static unsigned long drawn_by_two_clicks(void)
+/* Three clicks in the middle of the paper, and what they left behind: the
+   objects added, as one number that changes when any of them does.
+   Three, not two: 円弧・半円・３点指示 all want a third point, and with two
+   they draw nothing at all and look dead. */
+static unsigned long drawn_by_clicks(void)
 {
     jw_drawing *d = (jw_drawing *)app_drawing();
     unsigned long h = 1469598103u;
@@ -68,6 +70,7 @@ static unsigned long drawn_by_two_clicks(void)
 
     jw_cmd_point(d, app_view(), 100.0, 100.0, 0);
     jw_cmd_point(d, app_view(), 160.0, 140.0, 0);
+    jw_cmd_point(d, app_view(), 130.0, 60.0, 0);
     for (i = before; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
         h = h * 16777619u + (unsigned)o->cls;
@@ -122,7 +125,7 @@ int main(int argc, char **argv)
 
             /* what the two clicks draw with the bar as it comes up */
             enter(b->cmd);
-            plain = drawn_by_two_clicks();
+            plain = drawn_by_clicks();
 
             /* and with this one control pressed */
             enter(b->cmd);
@@ -149,7 +152,7 @@ int main(int argc, char **argv)
                 moved = moved || (jw_cmd_box(c->id)
                                   && strcmp(jw_cmd_box(c->id), keep));
             }
-            pressed = drawn_by_two_clicks();
+            pressed = drawn_by_clicks();
             drew = pressed != plain;
             live += moved;
             draws += drew;
@@ -169,7 +172,7 @@ int main(int argc, char **argv)
         }
     }
     printf("ok   %d of %d controls answer to a press\n", live, n);
-    printf("ok   %d of %d change what two clicks draw\n", draws, n);
+    printf("ok   %d of %d change what three clicks draw\n", draws, n);
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
