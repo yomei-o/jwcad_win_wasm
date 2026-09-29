@@ -4941,7 +4941,10 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             o->d[7] = 0.0;
             o->n = JW_SUN_MOJINO;
             o->text = jw_add_str(d, txt);
-            o->face = -1;
+            /* the original's own dimension value carries the font name like
+               any other text (decomp/res/sunpo.jww); leaving it out made a
+               drawing the original quietly filled in on the next save */
+            o->face = jw_add_str(d, JW_MOJI_FACE);
             made++;
         }
     }

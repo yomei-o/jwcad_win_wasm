@@ -324,6 +324,14 @@ echo "=== コマンドバー —— どのつまみが効いているかの棚�
 ./tests/barprobe_test.exe | sed 's/^/    /'
 
 echo
+echo "=== コマンドバーの数値 —— 原典が描いたものとの突き合わせ"
+./tests/bardraw_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 展開図 —— 直方体と円錐を、バーに打ち込んで組み立てられるか"
+./tests/tenkai_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 寸法 —— 原典が描いた寸法との突き合わせ"
 ./tests/sunpo_test.exe | sed 's/^/    /'
 
