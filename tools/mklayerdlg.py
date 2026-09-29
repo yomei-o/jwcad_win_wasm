@@ -7,13 +7,14 @@ EnumChildWindows and writes down each control's class, id, style, text and
 rectangle in the dialog's own client coordinates (decomp/res/layerdlg.txt).
 It also paints the dialog into a PNG, which is docs/ref_layerdlg.png.
 
-One group box on the left holding the sixteen layer groups and the scale
-each is drawn at (the statics 1959..1974), and on the right the scale itself
-in two edit boxes (1470 over 1471), 実寸固定 / 図寸固定, 全レイヤグループの
-縮尺変更 and the two 読取 checkboxes, with Ok and キャンセル.
+The sixteen layers of the group being written to: a button for each (1063..
+1072, 1115..1119, 1142) with the layer's number on it and a static beside it
+(1975..1990) for its name, the group's own state and name at the top, and
+全レイヤ編集 / 全レイヤ非表示 / 戻す below.  It is a tabbed dialog
+(SysTabControl32 1773), which nothing else here has.
 
 Read out of the running original with `dlg:32808`, which is what the menu's
-縮尺・読取 sends and what the status line's second box sends as well.
+レイヤ sends and what the status line's third box sends as well.
 """
 import io
 import os
@@ -29,8 +30,8 @@ MASK = 'docs/layerdlg_textareas.txt'
 WS_VISIBLE = 0x10000000
 BORDER = 8
 CAPTION = 31
-W, H, CW, CH = 504, 227, 488, 188
-TITLE = '縮尺・読取　設定'
+W, H, CW, CH = 294, 410, 278, 371
+TITLE = 'レイヤ設定'
 
 
 def kind_of(cid, cls, style):
