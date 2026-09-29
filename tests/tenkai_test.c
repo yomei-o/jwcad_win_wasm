@@ -153,6 +153,11 @@ static void dimension(jw_drawing *d, double ax, double ay, double bx, double by)
     int before = d->ndrawn;
 
     jw_cmd_set(JW_CMD_SUNPO);
+    /* the way a drawing is usually dimensioned: arrowheads rather than dots,
+       and no decimals on a whole-millimetre size */
+    jw_cmd_bar(d, 1062);                        /* 端部 -> arrows */
+    jw_cmd_bar(d, 1061);
+    jw_cmd_bar(d, 1061);                        /* 小数桁 2 -> 3 -> 0 */
     type_box(1411, "0");
     /* the first click is the far end of an extension line and the second a
        point on the dimension line itself -- the same point for both makes
@@ -162,8 +167,15 @@ static void dimension(jw_drawing *d, double ax, double ay, double bx, double by)
     jw_cmd_point(d, app_view(), ax, ay - 10.0, 0);
     jw_cmd_point(d, app_view(), ax, ay, 0);
     jw_cmd_point(d, app_view(), bx, by, 0);
-    ck(d->ndrawn == before + 6,
-       "寸法: the six elements a dimension is made of");
+    ck(d->ndrawn == before + 8,
+       "寸法: the dimension line, four arrow lines, two extensions and the value");
+    {   /* the value, with the places the button was left at */
+        const char *t = jw_str(d, d->obj[d->ndrawn - 1].text);
+        ck(t && !strchr(t, '.'), "  the value written to no decimal places");
+    }
+    jw_cmd_bar(d, 1062);
+    jw_cmd_bar(d, 1061);
+    jw_cmd_bar(d, 1061);
 }
 
 int main(int argc, char **argv)
