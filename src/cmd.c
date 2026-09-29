@@ -345,7 +345,7 @@ static int sun_decimals(void)
 
 /* 寸法 の 半径 (1065): one click on a circle instead of two points on a
  * line.  0 is the ordinary two-point dimension. */
-static int sun_radius;
+static int sun_radius;          /* 1 = 半径, 2 = 直径 */
 
 /* 寸法 の 端部 (1062): a point at each end of the dimension line, or an
  * arrowhead.  The button turns it over. */
@@ -4811,6 +4811,11 @@ static int bar_press(jw_drawing *d, int id)
             sun_step = 2;
             return 1;
         }
+        if (id == 1066) {       /* 直径 */
+            sun_radius = 2;
+            sun_step = 2;
+            return 1;
+        }
         if (id == 1064) {       /* リセット: back to the two-point kind */
             sun_radius = 0;
             sun_step = 0;
@@ -5105,6 +5110,11 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     }
     ex = cx + r * ux;
     ey = cy + r * uy;
+    /* 直径 runs right across, from the far side to the point clicked */
+    if (sun_radius == 2) {
+        cx -= r * ux;
+        cy -= r * uy;
+    }
 
     o = jw_add(d, JW_SEN);
     if (!o)
@@ -5126,8 +5136,11 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     cw = d->style[si].w;
     ch = d->style[si].h;
     sp = d->style[si].sp;
-    sunpo_text(val, (int)sizeof val, r, d->group[wg].scale);
-    snprintf(txt, sizeof txt, "R%s", val);
+    sunpo_text(val, (int)sizeof val, sun_radius == 2 ? r * 2.0 : r,
+               d->group[wg].scale);
+    /* the mark in front: R, or the CP932 phi the original writes (83 d3) */
+    snprintf(txt, sizeof txt, "%s%s",
+             sun_radius == 2 ? "\x83\xd3" : "R", val);
     for (p = txt; *p; ) {
         int wide = jw_is_lead((unsigned char)p[0]) && p[1];
         if (nch)
@@ -5139,12 +5152,14 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     if (cw > 0.0 && ch > 0.0 && nch) {
         double mx = (cx + ex) / 2.0 - uy * JW_SUN_HANARE;
         double my = (cy + ey) / 2.0 + ux * JW_SUN_HANARE;
+        /* cx,cy is the line's far end by now, so this is its middle */
         o = jw_add(d, JW_MOJI);
         if (o) {
             o->color = (unsigned short)d->style[si].color;
             o->ltype = 2;
             o->width = (unsigned short)((sun_decimals() << 12) | 0x0443u);
-            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS | 0x0100u);
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS
+                                       | (sun_radius == 2 ? 0x0200u : 0x0100u));
             o->d[0] = mx - tw / 2.0 * ux;
             o->d[1] = my - tw / 2.0 * uy;
             o->d[2] = mx + tw / 2.0 * ux;

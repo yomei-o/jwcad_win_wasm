@@ -1047,7 +1047,7 @@ static void offset_typed(void)
 
 /* 寸法 の 半径 (1065): one click on a circle -- a line from its centre, the
  * value with an R in front, and a point at each end. */
-static void dim_radius(void)
+static void dim_radius_one(const char *file, int button)
 {
     unsigned char *b;
     long n;
@@ -1055,14 +1055,14 @@ static void dim_radius(void)
     const jw_obj *r_c = 0, *r_sen = 0, *r_txt = 0;
     int i, before;
 
-    b = slurp("decomp/res/sunhankei.jww", &n);
+    b = slurp(file, &n);
     if (!b) {
-        printf("BAD  no decomp/res/sunhankei.jww -- run tools/refanswers.sh\n");
+        printf("BAD  no %s -- run tools/refanswers.sh\n", file);
         fails++;
         return;
     }
     if (!jw_parse(&ref, b, n)) {
-        printf("BAD  sunhankei.jww: %s\n", ref.error);
+        printf("BAD  %s: %s\n", file, ref.error);
         fails++;
         return;
     }
@@ -1077,7 +1077,7 @@ static void dim_radius(void)
             r_txt = o;
     }
     if (!r_c || !r_sen || !r_txt) {
-        printf("BAD  sunhankei.jww has no radius dimension in it\n");
+        printf("BAD  %s has no radius dimension in it\n", file);
         fails++;
         return;
     }
@@ -1092,7 +1092,8 @@ static void dim_radius(void)
     app_fit();
     before = d->ndrawn;
     jw_cmd_set(JW_CMD_SUNPO);
-    ck(jw_cmd_bar(d, 1065) == 1, "寸法: 半径 can be pressed");
+    ck(jw_cmd_bar(d, button) == 1,
+       button == 1065 ? "寸法: 半径 can be pressed" : "寸法: 直径 can be pressed");
     jw_cmd_point(d, app_view(), r_sen->d[2], r_sen->d[3], 0);
     ck(d->ndrawn == before + 4, "  and one click on the circle makes four elements");
     if (d->ndrawn == before + 4) {
@@ -1119,6 +1120,12 @@ static void dim_radius(void)
     }
     jw_cmd_bar(d, 1064);
     jw_free(&ref);
+}
+
+static void dim_radius(void)
+{
+    dim_radius_one("decomp/res/sunhankei.jww", 1065);
+    dim_radius_one("decomp/res/sunchokkei.jww", 1066);
 }
 
 int main(void)
