@@ -100,6 +100,8 @@ void jw_cmd_compose_key(int c);
  * reached.
  */
 double jw_cmd_axis(void);
+/* 寸法の小数桁, for the button that shows it */
+int jw_cmd_sunpo_decimals(void);
 void   jw_cmd_set_axis(double deg);
 
 /* Whether 線's 水平・垂直 is on.  Pressing 線 while already in 線 flips it,

@@ -351,9 +351,17 @@ static int box_focus;
  * -- (places << 12) | 0x43. */
 static int sun_keta = -1;
 
+/* how many places the value is written to, for whoever draws the button */
+int jw_cmd_sunpo_decimals(void);
+
 static int sun_decimals(void)
 {
     return sun_keta < 0 ? JW_SUN_DECIMALS : sun_keta;
+}
+
+int jw_cmd_sunpo_decimals(void)
+{
+    return sun_decimals();
 }
 
 /* 寸法 の 半径 (1065): one click on a circle instead of two points on a

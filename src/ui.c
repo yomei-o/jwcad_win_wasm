@@ -3050,6 +3050,16 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                 jw_text_px(fb, c[i].x + 9, c[i].y + (c[i].h - th) / 2,
                            num, en ? C_BTNTEXT : C_GRAYTEXT);
                 fb_fill(fb, c[i].x + 27, c[i].y + 6, 10, 12, rgb);
+            } else if (c[i].id == 1061 && jw_cmd() == 0x804f) {
+                /* 寸法 の 小数桁: the label carries the number, and the
+                   capture baked in the 2 the original happened to be at.
+                   Pressing it cycles 2 -> 3 -> 0 -> 1, so the label has
+                   to follow or the button looks dead. */
+                char t[32];
+                sprintf(t, "\x8f\xac\x90\x94\x8c\x85 %d",
+                        jw_cmd_sunpo_decimals());
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1843 && d) {
                 /* 文字 の書込文字種: the capture baked in whatever the
                  * original happened to be writing with -- 「[10]  W=10 H=10
