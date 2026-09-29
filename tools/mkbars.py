@@ -23,7 +23,8 @@ import re
 # cannot reach.  Those come in headed `=== command 1<cmd>` -- the command
 # with a 1 in front -- and go into the same table, so the port looks the
 # second stage up by 100000 + the command.
-SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt']
+SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
+       'decomp/res/bars3.txt']
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar
@@ -69,9 +70,18 @@ def read():
             lines += list(open(p, encoding='utf-8'))
     for line in lines:
         line = line.rstrip('\n')
+        # `=== command <n>` is a command's own bar; `=== command 2<n>_<id>`
+        # is the same bar with checkbox <id> ticked, which is a different set
+        # of controls -- 矩形's ソリッド takes 多重 away and brings
+        # (対角線)・任意色・the colour button.
+        m = re.match(r'=== command (\d+)_(\d+)$', line)
+        if m:
+            cur = (int(m.group(1)[1:]), int(m.group(2)), [])
+            bars.append(cur)
+            continue
         m = re.match(r'=== command (\d+)$', line)
         if m:
-            cur = (int(m.group(1)), [])
+            cur = (int(m.group(1)), 0, [])
             bars.append(cur)
             continue
         if cur is None or '|' not in line:
@@ -82,7 +92,7 @@ def read():
         k = kind_of(cls, int(style, 16))
         if k is None:
             continue
-        cur[1].append((k, int(x), int(y), int(w), int(h),
+        cur[2].append((k, int(x), int(y), int(w), int(h),
                        (int(style, 16) & 0x0f) if cls == 'Static' else 0,
                        int(chk), int(en), int(cid), text))
     return bars
@@ -109,8 +119,9 @@ def main():
                 '    unsigned char enabled;\n'
                 '    const char *text;      /* CP932 */\n'
                 '} jw_ctl_t;\n\n')
-        for cmd, ctls in bars:
-            f.write('static const jw_ctl_t jw_bar_%d[] = {\n' % cmd)
+        for cmd, on, ctls in bars:
+            f.write('static const jw_ctl_t jw_bar_%d%s[] = {\n'
+                    % (cmd, '_%d' % on if on else ''))
             for k, x, y, w, h, al, chk, en, cid, text in ctls:
                 f.write('    { %4d, %3d, %4d, %3d, %5d, JW_CTL_%-6s,'
                         ' %d, %d, %d, "%s" },\n'
@@ -121,16 +132,21 @@ def main():
                 '    unsigned int cmd;      /* 100000 + it for the bar the\n'
                 '                              command puts up once a range\n'
                 '                              is settled */\n'
+                '    unsigned short on;     /* 0, or the checkbox that\n'
+                '                              has to be ticked for this\n'
+                '                              to be the bar -- a command\n'
+                '                              bar is not one fixed row */\n'
                 '    unsigned short n;\n'
                 '    const jw_ctl_t *c;\n'
                 '} jw_bar_t;\n\n')
         f.write('static const jw_bar_t jw_bars[] = {\n')
-        for cmd, ctls in bars:
-            f.write('    { %6d, %2d, jw_bar_%d },\n' % (cmd, len(ctls), cmd))
+        for cmd, on, ctls in bars:
+            f.write('    { %6d, %4d, %2d, jw_bar_%d%s },\n'
+                    % (cmd, on, len(ctls), cmd, '_%d' % on if on else ''))
         f.write('};\n#define JW_NBARS %d\n\n' % len(bars))
         f.write('#endif\n')
     print('%s: %d bars, %d controls'
-          % (OUT, len(bars), sum(len(c) for _, c in bars)))
+          % (OUT, len(bars), sum(len(c) for _, _, c in bars)))
 
 
 KIND_NAME = {'check': 'CHECK', 'button': 'BUTTON', 'static': 'STATIC',

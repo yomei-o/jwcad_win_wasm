@@ -96,6 +96,12 @@ for c in 32804 32918 32910; do
         -Cmd $c -Out tmp/bar2_$c.txt >/dev/null
     cat tmp/bar2_$c.txt >> decomp/res/bars2.txt
 done
+# and the bars again with one box ticked -- a command bar is not one fixed
+# row of controls: 矩形's ソリッド takes 多重 away and brings (対角線)・
+# 任意色・the colour button.  Without these the port draws the bar it was
+# captured in and the rest of the command cannot be reached.
+sh tools/refenv.sh >/dev/null
+powershell -ExecutionPolicy Bypass -File tools/bars3.ps1     -Pairs '32772:1334' -Out decomp/res/bars3.txt >/dev/null
 python tools/mkbars.py
 
 say '線属性 dialog, likewise'

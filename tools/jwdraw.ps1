@@ -713,10 +713,10 @@ try {
                 break
             }
 
-            '^bar:(\d+)$' {
+            '^bar:([\d_]+)$' {
                 # the same as `bar`, but headed the way tools/mkbars.py reads
                 # it -- for the bars a command only puts up part way through
-                Emit ('=== command {0}' -f [int]$Matches[1])
+                Emit ('=== command {0}' -f $Matches[1])
                 DumpIn (CmdBar) $frame
                 break
             }

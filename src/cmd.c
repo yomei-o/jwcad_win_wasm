@@ -914,10 +914,15 @@ const char *jw_cmd_prompt(void)
 {
     switch (current) {
     case JW_CMD_SEN:
+    case JW_CMD_KUKEI:
     case JW_CMD_RENZOKU:
         /* CZukeiRenzokuSen shows the same two: 0x14c8 while its own step is
            0 or 1, 0x14c9 once it is 3.  (Its step 2 asks for an arc's middle
-           point, which belongs to the 連続円弧 half of the command.) */
+           point, which belongs to the 連続円弧 half of the command.)
+           矩形 shows the same pair -- the running original answers
+           「始点を指示してください」 and then 「◆　　終点を指示して
+           ください  (L)free  (R)Read     W=0.000    H=0.000」, which is
+           this string with the size added to it live. */
         return step == 0 ? JW_STR_5320 : JW_STR_5321;
     case JW_CMD_TEN:
         return JW_STR_5376;

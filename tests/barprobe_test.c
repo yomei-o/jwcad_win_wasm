@@ -91,11 +91,33 @@ static unsigned long drawn_by_clicks(void)
  * original flips 水平・垂直 (jw_cmd_set), so going straight there would turn
  * it over once on the way in -- and then the pass that presses the checkbox
  * turns it back and draws exactly what the other one did. */
-static void enter(unsigned short cmd)
+static void enter(unsigned short cmd, unsigned short on)
 {
+    int i, k;
+
     app_new();
     jw_cmd_set(JW_CMD_TEN);
     jw_cmd_set(cmd);
+    /* and put every checkbox back the way the original has it.  They keep
+       what they were left at, which is right for the port and wrong for a
+       measurement: one press of ソリッド would otherwise colour every later
+       reading on that bar. */
+    for (i = 0; i < JW_NBARS; i++) {
+        if (jw_bars[i].cmd != cmd || jw_bars[i].on)
+            continue;           /* the plain bar's own starting state */
+        for (k = 0; k < jw_bars[i].n; k++) {
+            const jw_ctl_t *c = &jw_bars[i].c[k];
+            if (c->kind != JW_CTL_CHECK)
+                continue;
+            if (jw_cmd_bar_check(c->id) != (c->checked != 0))
+                jw_cmd_bar((jw_drawing *)app_drawing(), c->id);
+        }
+    }
+    /* a variant bar is only up while its own box is ticked, so tick it --
+       otherwise its controls are not on the bar at all and every one of
+       them reads as dead */
+    if (on && jw_cmd_bar_check(on) <= 0)
+        jw_cmd_bar((jw_drawing *)app_drawing(), on);
 }
 
 int main(int argc, char **argv)
@@ -124,11 +146,11 @@ int main(int argc, char **argv)
             y = c->y + c->h / 2;
 
             /* what the two clicks draw with the bar as it comes up */
-            enter(b->cmd);
+            enter(b->cmd, b->on);
             plain = drawn_by_clicks();
 
             /* and with this one control pressed */
-            enter(b->cmd);
+            enter(b->cmd, b->on);
             d = app_drawing();
             before = state_of(d, c->id);
             app_press(x, y, 0);
@@ -163,7 +185,10 @@ int main(int argc, char **argv)
                        moved ? "held" : "dead", c->text);
             if (drew)
                 continue;
-            for (j = 0; j < (int)(sizeof MUST / sizeof MUST[0]); j++)
+            /* MUST says what a command's own bar does; a variant is the
+               bar with one box already ticked, where the same control may
+               rightly do something else (寸法 does not resize a ソリッド). */
+            for (j = 0; !b->on && j < (int)(sizeof MUST / sizeof MUST[0]); j++)
                 if (MUST[j].cmd == b->cmd && MUST[j].id == c->id) {
                     printf("BAD  %s no longer changes what is drawn\n",
                            MUST[j].what);

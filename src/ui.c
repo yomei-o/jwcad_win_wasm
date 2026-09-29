@@ -2710,12 +2710,23 @@ static int bar_now(const jw_ctl_t **c)
        has none, so it keeps the one it started with. */
     if (jw_cmd_sel_stage() == 3)
         for (i = 0; i < JW_NBARS; i++)
-            if (jw_bars[i].cmd == 100000u + (unsigned)cmd) {
+            if (jw_bars[i].cmd == 100000u + (unsigned)cmd && !jw_bars[i].on) {
                 *c = jw_bars[i].c;
                 return jw_bars[i].n;
             }
+    /* A command bar is not one fixed row of controls: ticking a box can take
+       some away and bring others.  矩形's ソリッド is the plain case -- with
+       it on, 多重 goes and (対角線)・任意色・the colour button arrive.  Those
+       are captured as variants (tools/bars3.ps1), each carrying the checkbox
+       that has to be ticked for it to be the bar. */
     for (i = 0; i < JW_NBARS; i++)
-        if (jw_bars[i].cmd == (unsigned)cmd) {
+        if (jw_bars[i].cmd == (unsigned)cmd && jw_bars[i].on
+            && jw_cmd_bar_check(jw_bars[i].on) > 0) {
+            *c = jw_bars[i].c;
+            return jw_bars[i].n;
+        }
+    for (i = 0; i < JW_NBARS; i++)
+        if (jw_bars[i].cmd == (unsigned)cmd && !jw_bars[i].on) {
             *c = jw_bars[i].c;
             return jw_bars[i].n;
         }
@@ -2739,6 +2750,8 @@ int ui_bar_ctl(unsigned cmd, int id, int *checked)
 {
     int i, k;
 
+    /* every variant of that command's bar, so a control that only appears
+       on one of them still has a kind and a starting state */
     for (i = 0; i < JW_NBARS; i++) {
         if (jw_bars[i].cmd != cmd)
             continue;
