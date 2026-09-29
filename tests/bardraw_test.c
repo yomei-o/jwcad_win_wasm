@@ -2157,6 +2157,68 @@ static void dim_angle(void)
     (void)r1;
 }
 
+/* 線 の ＜ (1351): an arrowhead on the end of a line that is already
+   there.  The original says 「線・弧の端部を指示してください」 while it is
+   ticked, and a click near one end put two legs on it. */
+static void line_end_arrow(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *r[3];
+    int before, i, ok = 1;
+
+    b = slurp("decomp/res/senlt_a.jww", &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  no decomp/res/senlt_a.jww\n");
+        fails++;
+        free(b);
+        return;
+    }
+    free(b);
+    if (!tail_of(&ref, JW_SEN, r, 3)) {
+        printf("BAD  senlt_a.jww has no line with an arrow on it\n");
+        fails++;
+        jw_free(&ref);
+        return;
+    }
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "");
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+    jw_cmd_point(d, app_view(), r[0]->d[2], r[0]->d[3], 0);
+    before = d->ndrawn;
+    jw_cmd_bar(d, 1351);
+    /* a click a little along the line from the end the arrow went on */
+    jw_cmd_point(d, app_view(), r[0]->d[0] + 25.0, r[0]->d[1], 0);
+    ck(d->ndrawn - before == 2, "＜: 既にある線の端に矢羽根が二本");
+    if (d->ndrawn - before == 2) {
+        for (i = 0; i < 2; i++) {
+            const jw_obj *a = &d->obj[before + i];
+            int j;
+            for (j = 0; j < 4; j++)
+                if (!near(a->d[j], r[i + 1]->d[j]))
+                    ok = 0;
+            if (a->color != r[i + 1]->color || a->ltype != r[i + 1]->ltype)
+                ok = 0;
+        }
+        if (!ok)
+            printf("     ours %.4f,%.4f -> %.4f,%.4f and %.4f,%.4f -> %.4f,%.4f\n",
+                   d->obj[before].d[0], d->obj[before].d[1],
+                   d->obj[before].d[2], d->obj[before].d[3],
+                   d->obj[before + 1].d[0], d->obj[before + 1].d[1],
+                   d->obj[before + 1].d[2], d->obj[before + 1].d[3]);
+        ck(ok, "  原典と同じ向き・長さ・ペンで");
+    }
+    jw_cmd_bar(d, 1351);
+    jw_free(&ref);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -2164,6 +2226,7 @@ int main(void)
     line_marks();
     line_slope();
     line_more();
+    line_end_arrow();
     rect_band();
     para_buttons();
     dim_upright();

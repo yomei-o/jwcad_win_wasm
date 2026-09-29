@@ -364,6 +364,7 @@ int jw_cmd_sunpo_decimals(void)
     return sun_decimals();
 }
 
+
 /* 寸法 の 半径 (1065): one click on a circle instead of two points on a
  * line.  0 is the ordinary two-point dimension. */
 static int sun_radius;          /* 1 = 半径, 2 = 直径 */
@@ -375,6 +376,13 @@ static int sun_arrow = -1;
 static int sun_arrows(void)
 {
     return sun_arrow < 0 ? JW_SUN_ARROW : sun_arrow;
+}
+
+/* whether 端部 is arrowheads rather than points, for the button that
+   says so on the bar */
+int jw_cmd_sunpo_arrows(void)
+{
+    return sun_arrows();
 }
 
 
@@ -7037,6 +7045,54 @@ placed:
         }
         en_step = 0;
         tracking = 0;
+        return;
+    }
+    if (current == JW_CMD_SEN && jw_cmd_bar_check(1351) > 0) {
+        /* 線の ＜ (1351): not a way of drawing a line at all.  Ticking it
+         * makes the original say 「線・弧の端部を指示してください。
+         * (L)書込線色・線種  (R)寸法設定線色・線種」 (string 5518,
+         * which FUN_004efbb0 is handed when the box goes on), so a click
+         * picks a line that is already there and puts an arrowhead on the
+         * end nearer to it -- 3 long at plus and minus 15 degrees, the same
+         * as every other arrow here. */
+        int i = d ? jw_pick(d, v, x, y, 3) : -1;
+        const jw_obj *o;
+        double ax, ay, bx, by, wx, wy, wl, k;
+
+        if (i < 0 || d->obj[i].cls != JW_SEN)
+            return;
+        o = &d->obj[i];
+        if ((x - o->d[0]) * (x - o->d[0]) + (y - o->d[1]) * (y - o->d[1])
+            <= (x - o->d[2]) * (x - o->d[2]) + (y - o->d[3]) * (y - o->d[3])) {
+            ax = o->d[0]; ay = o->d[1]; bx = o->d[2]; by = o->d[3];
+        } else {
+            ax = o->d[2]; ay = o->d[3]; bx = o->d[0]; by = o->d[1];
+        }
+        /* the legs run from the tip towards the other end, the way every
+           arrowhead here does -- read off the original's own drawing */
+        wx = bx - ax;
+        wy = by - ay;
+        wl = sqrt(wx * wx + wy * wy);
+        if (wl <= 0.0)
+            return;
+        wx /= wl;
+        wy /= wl;
+        for (k = 1.0; k >= -1.0; k -= 2.0) {
+            double a = k * JW_SUN_ARROW_ANG * PI / 180.0;
+            double ca = cos(a), sa = sin(a);
+            jw_obj *n = jw_add(d, JW_SEN);
+            if (!n)
+                break;
+            if (button != 0) {          /* (R) uses the dimension pen */
+                n->color = JW_SUN_SEN_COLOR;
+                n->ltype = 1;
+            }
+            n->d[0] = ax;
+            n->d[1] = ay;
+            n->d[2] = ax + JW_SUN_ARROW_LEN * (wx * ca - wy * sa);
+            n->d[3] = ay + JW_SUN_ARROW_LEN * (wx * sa + wy * ca);
+        }
+        op_push(2);
         return;
     }
     if (current != JW_CMD_SEN && current != JW_CMD_ENKO

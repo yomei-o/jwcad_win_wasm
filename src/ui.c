@@ -3060,6 +3060,16 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                         jw_cmd_sunpo_decimals());
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
+            } else if (c[i].id == 1062 && jw_cmd() == 0x804f) {
+                /* 寸法 の 端部: the label says which it is, and the
+                   original writes the arrow as the two characters ->
+                   rather than a glyph (read off its own bar after a
+                   press: 「端部 ->」). */
+                char t[32];
+                sprintf(t, "\x92[\x95\x94 %s",
+                        jw_cmd_sunpo_arrows() ? "->" : "\x81\x9c");
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1843 && d) {
                 /* 文字 の書込文字種: the capture baked in whatever the
                  * original happened to be writing with -- 「[10]  W=10 H=10
