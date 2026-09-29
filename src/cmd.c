@@ -192,6 +192,17 @@ static double sun_angle(void)
     return t ? atof(t) : 0.0;
 }
 
+/* 円弧 (the 円 bar's 1318): the radius and the start angle taken at the
+ * second of its three clicks.  The original asks for the centre, then a
+ * point that gives both the radius and where the arc starts, then a point
+ * that gives where it ends -- read off its own drawing: a centre, a click
+ * to the right of it and a third click up and to the left came out as
+ * centre, radius 86.588921, start 0 and sweep 1.107149, which is exactly
+ * the angle of that third click.  A whole circle carries a trailing 1; an
+ * arc carries 0. */
+static double en_r, en_a0;
+static int en_step;
+
 /* 中心線: the two lines it runs between, and the first of its two points */
 static int chu_a = -1, chu_b = -1, chu_step;
 /* 接線: the circle picked first, and where it was picked -- which of the
@@ -676,6 +687,7 @@ void jw_cmd_set(int id)
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
     step = 0;
+    en_step = 0;
     hou_step = 0;
     sel_outside = 0;
     sel_cut = 0;
@@ -1006,13 +1018,21 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
         /* CZukeiEnko's constructor leaves it a whole circle: the sweep it
          * starts with is 2 pi (0x401921fb54442d18 at +0x34), the flattening
          * is 1 (+0x3c) and the 円弧 flag is off (+0xe8 = 1).  Every whole
-         * circle in the sample drawings carries the trailing 1 as well. */
+         * circle in the sample drawings carries the trailing 1 as well.
+         *
+         * 半径 in the bar makes every click a circle of that radius, which
+         * is how a drawing gets a circle of a size rather than of a drag:
+         * the original, given 100 on a 1/200 group and two clicks, drew two
+         * circles of 0.5 mm -- one at each click -- instead of one circle
+         * from the first click out to the second.  The start angle it wrote
+         * was 0. */
+        double r = box_mm(d, 1411);
         double dx = x - sx, dy = y - sy;
         o->cls = JW_ENKO;
         o->d[0] = sx;
         o->d[1] = sy;
-        o->d[2] = sqrt(dx * dx + dy * dy);
-        o->d[3] = atan2(dy, dx);
+        o->d[2] = r > 0.0 ? r : sqrt(dx * dx + dy * dy);
+        o->d[3] = r > 0.0 ? 0.0 : atan2(dy, dx);
         o->d[4] = 2 * PI;
         o->d[5] = 0.0;
         o->d[6] = 1.0;
@@ -5863,16 +5883,68 @@ placed:
         ty = y;
         return;
     }
+    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1318) > 0) {
+        /* 円弧: centre, then radius and start, then the end */
+        if (en_step == 0) {
+            sx = x;
+            sy = y;
+            tx = x;
+            ty = y;
+            en_step = 1;
+            return;
+        }
+        if (en_step == 1) {
+            double dx = x - sx, dy = y - sy;
+            en_r = sqrt(dx * dx + dy * dy);
+            en_a0 = atan2(dy, dx);
+            tx = x;
+            ty = y;
+            if (en_r > 0.0) {
+                en_step = 2;
+                return;
+            }
+            en_step = 0;
+            return;
+        }
+        if (d) {
+            double a = atan2(y - sy, x - sx) - en_a0;
+            jw_obj *o;
+            while (a <= -PI)
+                a += 2 * PI;
+            while (a > PI)
+                a -= 2 * PI;
+            o = jw_add(d, JW_ENKO);
+            if (o) {
+                o->d[0] = sx;
+                o->d[1] = sy;
+                o->d[2] = en_r;
+                o->d[3] = en_a0;
+                o->d[4] = a;
+                o->d[5] = 0.0;
+                o->d[6] = 1.0;
+                o->n = 0;
+                op_push(1);
+            }
+        }
+        en_step = 0;
+        tracking = 0;
+        return;
+    }
     if (current != JW_CMD_SEN && current != JW_CMD_ENKO
         && current != JW_CMD_KUKEI)
         return;
     if (step == 0) {
         sx = x;
         sy = y;
-        step = 2;
         tx = x;
         ty = y;
-        return;
+        /* One click is a whole circle when its radius is already known, so
+           this one falls through to the drawing below instead of waiting
+           for a second point. */
+        if (!(current == JW_CMD_ENKO && box_mm(d, 1411) > 0.0)) {
+            step = 2;
+            return;
+        }
     }
     if (d) {
         jw_obj tmp[JW_CMD_MAXFIG];

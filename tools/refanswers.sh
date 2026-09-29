@@ -1187,6 +1187,16 @@ sh tools/refenv.sh >/dev/null
 # already in force toggles 水平・垂直 instead, and the line comes out level.
 make sized kukeisize 32772 'ch:1413,1000,1000;500,400;700,500'            sensize   0     'ch:1411,30;ch:1412,1000;500,400;300,300'     || fails=$((fails+1))
 
+# 円弧 (1318): 中心 → 半径と始角 → 終角 の 3 点。全円は末尾が 1、弧は 0。
+# 向きは原典に状態が残るらしく、同じクリックで +1.107149 と -5.176037
+# （同じ終点の長いほう）の両方が出ました。試験は終点で見ています。
+make bardraw enarc 32773 'btn:1318;500,400;600,400;550,300'     || fails=$((fails+1))
+
+# 円 の 半径: 打ち込んでおくと、クリックごとにその半径の円が 1 つ出ます
+# （二点目は要りません）。原典は 100 を 1/200 の群で 0.5mm の円 2 つにし、
+# 始角は 0 でした。
+make bardraw enradius 32773 'ch:1411,100;500,400;600,400'     || fails=$((fails+1))
+
 idle
 sh tools/refenv.sh >/dev/null
 echo

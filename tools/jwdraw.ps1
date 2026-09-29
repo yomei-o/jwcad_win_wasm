@@ -421,10 +421,18 @@ try {
     # up 1440x745 instead, and the view being a different size moves every
     # paper coordinate the clicks land on.  Setting the size it should already
     # have costs nothing when it is right and fixes it when it is not.
+    #
+    # It goes in the **bottom right** of the working area, not the top left:
+    # whoever is at this machine is working in the top left, and a window
+    # that keeps appearing there is in the way.  Nothing here depends on
+    # where it sits -- the clicks are posted in client coordinates and the
+    # two steps that move the real cursor go through ClientToScreen -- so
+    # this is only about staying out of the way.
     $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-    [void][Jw]::MoveWindow($frame, $wa.X, $wa.Y,
-                           [math]::Min($Width, $wa.Width),
-                           [math]::Min($Height, $wa.Height), $true)
+    $w = [math]::Min($Width, $wa.Width)
+    $h = [math]::Min($Height, $wa.Height)
+    [void][Jw]::MoveWindow($frame, $wa.Right - $w, $wa.Bottom - $h,
+                           $w, $h, $true)
     # HWND_BOTTOM, no move, no size, no activate
     [void][Jw]::SetWindowPos($frame, [IntPtr]1, 0, 0, 0, 0, 0x0013)
     Start-Sleep -Milliseconds $SettleMs
