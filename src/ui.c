@@ -15,6 +15,7 @@
 #include "gen/kihon.h"
 #include "gen/jikkaku.h"
 #include "gen/shakudo.h"
+#include "gen/layerdlg.h"
 #include "gen/sunpodlg.h"
 #include "gen/bairitsu.h"
 #include "gen/pens.h"
@@ -2432,6 +2433,175 @@ int ui_jikkaku_hit(int cw, int ch, int x, int y)
             return z->id;
     }
     return 0;                           /* on the dialog, on nothing */
+}
+
+/* -------------------------------------------------------- レイヤ設定 -----
+ * The sixteen layers of the group being written to.  Read out of the running
+ * original with `dlg:32808` -- the id the menu's レイヤ sends, and the one
+ * the status line's third box sends as well (FUN_00596e80).
+ *
+ * A button per layer with its number on it (1063..1072, 1115..1119, 1142) and
+ * a static beside it for its name (1975..1990); above them the group's own
+ * number and scale; below, 全レイヤ編集 and its neighbours.  The whole top
+ * of it is a tab control in the original, which nothing else here has, so
+ * what the port draws is its frame and the one page that is up.
+ */
+void ui_layerdlg_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_LD_W;
+    r->h = JW_LD_H;
+    r->x = (cw - JW_LD_W) / 2;
+    r->y = (ch - 42 - JW_LD_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_layerdlg_n(void)
+{
+    return JW_NLAYERDLG;
+}
+
+int ui_layerdlg_id(int i)
+{
+    return i >= 0 && i < JW_NLAYERDLG ? jw_layerdlg[i].id : 0;
+}
+
+int ui_layerdlg_on(int i)
+{
+    return i >= 0 && i < JW_NLAYERDLG ? jw_layerdlg[i].on : 0;
+}
+
+/* which layer a button stands for, or -1 */
+int ui_layerdlg_layer(int id)
+{
+    static const short B[16] = { 1063, 1064, 1065, 1066, 1067, 1068, 1069,
+                                 1070, 1071, 1072, 1115, 1116, 1117, 1118,
+                                 1119, 1142 };
+    int i;
+
+    for (i = 0; i < 16; i++)
+        if (B[i] == id)
+            return i;
+    return -1;
+}
+
+void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height(), wg = 0;
+    const jw_group *g;
+
+    ui_layerdlg_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_LD_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_LD_CAPTION - th) / 2, JW_LD_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {
+        fb_fill(fb, r.x + JW_LD_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_LD_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_LD_BORDER;
+    cy = r.y + JW_LD_CAPTION;
+    fb_fill(fb, cx, cy, JW_LD_CW, JW_LD_CH, C_BTNFACE);
+    if (d)
+        for (i = 0; i < 16; i++)
+            if (d->group[i].state == 3)
+                wg = i;
+    g = d ? &d->group[wg] : 0;
+
+    for (i = 0; i < JW_NLAYERDLG; i++) {
+        const jw_ld_t *z = &jw_layerdlg[i];
+        int x = cx + z->x, y = cy + z->y;
+        int lay = ui_layerdlg_layer(z->id);
+
+        switch (z->kind) {
+        case JW_LD_OK:
+        case JW_LD_PUSH: {
+            const char *t = z->text;
+            unsigned col = C_BTNTEXT;
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (z->id == 1)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + (z->id == 1), y + (z->id == 1),
+                    z->w - 2 * (z->id == 1), z->h - 2 * (z->id == 1),
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + (z->id == 1) + 1, y + (z->id == 1) + 1,
+                    z->w - 2 * (z->id == 1) - 2, z->h - 2 * (z->id == 1) - 2,
+                    C_3DLIGHT, C_BTNSHADOW);
+            /* the one being written to is named in red, the way the layer
+               grid beside the drawing names it */
+            if (lay >= 0 && g && (g->write_layer & 15) == lay)
+                col = 0x0000ffu;
+            else if (lay >= 0 && g && g->layer[lay].state == 0)
+                col = C_GRAYTEXT;
+            zs_text(fb, x + (z->w - jw_text_px_w(t)) / 2,
+                    y + (z->h - th) / 2, z->w - 4, t, col);
+            break;
+        }
+        case JW_LD_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+            paint_checkbox(fb, x, by, on ? on[i] : z->on);
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_LD_GROUP: {
+            int gy = y + th / 2, gh = z->h - th / 2;
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_LD_COMBO:
+            mj_sunken(fb, x, y, z->w, z->h);
+            mj_combo_button(fb, x, y, z->w, z->h);
+            break;
+        case JW_LD_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            break;
+        case JW_LD_STATIC: {
+            /* the name each layer is given, out of the drawing */
+            const char *t = z->text;
+            if (z->id >= 1975 && z->id <= 1990 && d) {
+                const char *nm = jw_str((jw_drawing *)d,
+                                        d->group[wg].layer_name[z->id - 1975]);
+                if (nm && *nm)
+                    t = nm;
+            }
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, t, C_BTNTEXT);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
+int ui_layerdlg_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_layerdlg_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;
+    x -= r.x + JW_LD_BORDER;
+    y -= r.y + JW_LD_CAPTION;
+    for (i = 0; i < JW_NLAYERDLG; i++) {
+        const jw_ld_t *z = &jw_layerdlg[i];
+
+        if (z->kind == JW_LD_GROUP || z->kind == JW_LD_STATIC)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;
 }
 
 /* ---------------------------------------------------- 縮尺・読取 -----

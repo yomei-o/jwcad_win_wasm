@@ -318,6 +318,25 @@ static void dim_setup_button(void)
     app_key(27);
 }
 
+/* レイヤ設定: the status line's third box opens it, and its sixteen
+   buttons pick the layer being written to. */
+static void layer_dialog(void)
+{
+    jw_drawing *d = fresh();
+    int g, wg = 0;
+
+    for (g = 0; g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    ck(app_command(32829) == 1, "ステータスのレイヤの箱でレイヤ設定が開く");
+    /* it is modal: a digit does not reach the bar behind */
+    app_key('7');
+    ck(!jw_cmd_box(1412) || !*jw_cmd_box(1412),
+       "  出ている間は数字が入力欄へ行かない");
+    app_key(27);
+    ck(d->group[wg].state == 3, "  Esc で閉じても書込グループはそのまま");
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -330,6 +349,7 @@ int main(void)
     keys_under_a_dialog();
     scale_dialog();
     dim_setup_button();
+    layer_dialog();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

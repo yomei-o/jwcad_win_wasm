@@ -204,6 +204,15 @@ int  ui_shakudo_n(void);
 int  ui_shakudo_id(int i);
 int  ui_shakudo_on(int i);
 
+/* レイヤ設定 (32808, and the status line's third box) */
+void ui_layerdlg_rect(int cw, int ch, rect_t *r);
+void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on);
+int  ui_layerdlg_hit(int cw, int ch, int x, int y);
+int  ui_layerdlg_n(void);
+int  ui_layerdlg_id(int i);
+int  ui_layerdlg_on(int i);
+int  ui_layerdlg_layer(int id);
+
 /* 寸法設定 -- the dialog 32925 puts up.  The picture only: nothing on it is
    wired up yet.  `on` is one byte per control of src/gen/sunpodlg.h. */
 void ui_sunpodlg_rect(int cw, int ch, rect_t *r);

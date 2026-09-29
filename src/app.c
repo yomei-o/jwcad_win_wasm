@@ -575,6 +575,46 @@ static int sk_key(int c)
     return 0;
 }
 
+/* -------------------------------------------------------- レイヤ設定 -----
+ * What the menu's レイヤ (32808) and the status line's third box (32829,
+ * sent by FUN_00596e80) put up: the sixteen layers of the group being
+ * written to.  Pressing one of the sixteen buttons does what pressing the
+ * same layer on the grid beside the drawing does -- the left button walks
+ * its state round, the right makes it the one being written to. */
+static int ld_open;
+static unsigned char ld_on[64];
+
+static void ld_start(void)
+{
+    int i, n = ui_layerdlg_n();
+
+    for (i = 0; i < n && i < (int)sizeof ld_on; i++)
+        ld_on[i] = (unsigned char)ui_layerdlg_on(i);
+    ld_open = 1;
+}
+
+static int press_layerdlg(int x, int y)
+{
+    int id = ui_layerdlg_hit(fb.w, fb.h, x, y), i, n = ui_layerdlg_n();
+    int lay;
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1) {                      /* OK */
+        ld_open = 0;
+        return 1;
+    }
+    lay = ui_layerdlg_layer(id);
+    if (lay >= 0)
+        return press_layer(0, lay, 0);
+    for (i = 0; i < n && i < (int)sizeof ld_on; i++)
+        if (ui_layerdlg_id(i) == id) {
+            ld_on[i] = (unsigned char)!ld_on[i];
+            return 1;
+        }
+    return 1;                           /* on the dialog, on nothing */
+}
+
 static int sd_open;
 static unsigned char sd_on[128];
 
@@ -1092,6 +1132,10 @@ int app_command(int cmd)
     case 32891:                         /* 基本設定 */
         kh_start();
         return 1;
+    case 32808:                         /* レイヤ */
+    case 32829:                         /* the status line's レイヤ box */
+        ld_start();
+        return 1;
     case 32944:                         /* 縮尺・読取 */
     case 32825:                         /* the status line's 用紙 box */
     case 32827:                         /* and its 縮尺 box */
@@ -1271,6 +1315,8 @@ int app_press(int x, int y, int button)
         return press_bairitsu(x, y);
     if (sk_open)
         return press_shakudo(x, y);
+    if (ld_open)
+        return press_layerdlg(x, y);
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -1400,13 +1446,13 @@ static int dialog_open(void)
 {
     return zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
-           || sk_open;
+           || sk_open || ld_open;
 }
 
 static void dialog_close(void)
 {
     zoku_open = moji_open = zsel_open = jk_open = 0;
-    sd_open = br_open = kh_open = zhen_open = sk_open = 0;
+    sd_open = br_open = kh_open = zhen_open = sk_open = ld_open = 0;
 }
 
 int app_key(int c)
@@ -1787,6 +1833,8 @@ void app_paint(void)
         sk_fill();
         ui_shakudo(&fb, sk_num, sk_den, sk_listp, sk_group, sk_on, sk_caret);
     }
+    if (ld_open)
+        ui_layerdlg(&fb, have_drawing ? &drawing : 0, ld_on);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {
