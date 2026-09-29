@@ -1767,6 +1767,78 @@ static void rect_band(void)
     jw_cmd_escape();
 }
 
+/* 複線 の 両側複線 (1068)・留線付両側複線 (1069)・連続 (1064).
+   Each of the three was asked of the original with one line picked and 1000
+   in the spacing on a 1/100 sheet. */
+static void para_buttons(void)
+{
+    static const struct { const char *file; int id; int n; const char *what; }
+    C[3] = {
+        { "decomp/res/fuku_both.jww", 1068, 3, "両側複線" },
+        { "decomp/res/fuku_cap.jww",  1069, 5, "留線付両側複線" },
+        { "decomp/res/fuku_cont.jww", 1064, 3, "連続" }
+    };
+    int c;
+
+    for (c = 0; c < 3; c++) {
+        unsigned char *b;
+        long n;
+        jw_drawing ref, *d;
+        const jw_obj *r[5];
+        int i, ok = 1, before;
+
+        b = slurp(C[c].file, &n);
+        if (!b || !jw_parse(&ref, b, n)) {
+            printf("BAD  no %s\n", C[c].file);
+            fails++;
+            free(b);
+            continue;
+        }
+        free(b);
+        if (!tail_of(&ref, JW_SEN, r, C[c].n)) {
+            printf("BAD  %s has no %d lines in it\n", C[c].file, C[c].n);
+            fails++;
+            continue;
+        }
+        /* the answers were drawn on a new sheet, which is 1/100 -- Test5's
+           write group is 1/200 and 1000 would come out five */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        jw_cmd_set(JW_CMD_TEN);
+        jw_cmd_set(JW_CMD_SEN);
+        if (jw_cmd_bar_check(1333) > 0)
+            app_key(32);
+        before = d->ndrawn;
+        jw_cmd_point(d, app_view(), r[0]->d[0], r[0]->d[1], 0);
+        jw_cmd_point(d, app_view(), r[0]->d[2], r[0]->d[3], 0);
+        jw_cmd_set(JW_CMD_FUKUSEN);
+        jw_cmd_point(d, app_view(), (r[0]->d[0] + r[0]->d[2]) / 2.0,
+                     (r[0]->d[1] + r[0]->d[3]) / 2.0, 0);
+        type_box(1411, "1000");
+        if (C[c].id == 1064)            /* 連続 carries on from a copy */
+            jw_cmd_point(d, app_view(), (r[0]->d[0] + r[0]->d[2]) / 2.0,
+                         r[0]->d[1] + 5.0, 0);
+        jw_cmd_bar(d, C[c].id);
+        ck(d->ndrawn - before == C[c].n, C[c].what);
+        if (d->ndrawn - before == C[c].n) {
+            for (i = 0; i < C[c].n; i++) {
+                const jw_obj *a = &d->obj[before + i];
+                if (!(near(a->d[0], r[i]->d[0]) && near(a->d[1], r[i]->d[1])
+                      && near(a->d[2], r[i]->d[2])
+                      && near(a->d[3], r[i]->d[3]))) {
+                    ok = 0;
+                    printf("     %d ours %.3f,%.3f -> %.3f,%.3f, the original's %.3f,%.3f -> %.3f,%.3f\n",
+                           i, a->d[0], a->d[1], a->d[2], a->d[3],
+                           r[i]->d[0], r[i]->d[1], r[i]->d[2], r[i]->d[3]);
+                }
+            }
+            ck(ok, "  the original's own lines, in its own order");
+        }
+        type_box(1411, "");
+        jw_free(&ref);
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -1775,6 +1847,7 @@ int main(void)
     line_slope();
     line_more();
     rect_band();
+    para_buttons();
     rect_rings();
     space_turns_hv();
     escape_drops_the_point();

@@ -101,6 +101,7 @@ static int comp_n;
 static int para_step;
 static int para_obj;
 static double para_off;
+static int para_last = -1;      /* the copy 連続 carries on from */
 static double tx, ty;           /* where the mouse is now */
 static int tracking;
 
@@ -5174,6 +5175,94 @@ int jw_cmd_bar(jw_drawing *d, int id)
     /* Anything the command itself does not act on, and that the original has
        as a checkbox there: its tick moves whatever the command makes of it,
        so the port's does too. */
+    /* 複線の 両側複線 (1068)・留線付両側複線 (1069)・連続 (1064).
+     *
+     * Asked of the original with a line picked and 1000 typed into the
+     * spacing on a 1/100 sheet:
+     *   両側複線        two copies, ten out either side, the near one
+     *                   written first -- and no click to say which side
+     *   留線付両側複線  the same two, with a line across each end joining
+     *                   them, and those two caps written first
+     *   連続            after a copy is made, one more the same distance
+     *                   on from it
+     * None of them needs the third click: the button is the direction. */
+    if (current == JW_CMD_FUKUSEN
+        && (id == 1064 || id == 1068 || id == 1069)) {
+        double gap = box_mm(d, 1411);
+        const jw_obj *src;
+        double dx, dy, len, nx, ny;
+        int base = id == 1064 ? para_last : para_obj;
+        int k;
+
+        if (!d || base < 0 || base >= d->ndrawn
+            || d->obj[base].cls != JW_SEN)
+            return 1;
+        if (id == 1064) {
+            if (para_off == 0.0)
+                return 1;
+            gap = para_off < 0.0 ? -para_off : para_off;
+        }
+        if (gap <= 0.0)
+            return 1;
+        src = &d->obj[base];
+        dx = src->d[2] - src->d[0];
+        dy = src->d[3] - src->d[1];
+        len = sqrt(dx * dx + dy * dy);
+        if (len < 1e-09)
+            return 1;
+        nx = -dy / len;
+        ny = dx / len;
+        if (id == 1064) {
+            /* on the same side again, from the copy that was just made */
+            jw_obj *o = jw_add(d, JW_SEN);
+            double f = para_off < 0.0 ? -gap : gap;
+            if (!o)
+                return 1;
+            o->d[0] = src->d[0] + nx * f;
+            o->d[1] = src->d[1] + ny * f;
+            o->d[2] = src->d[2] + nx * f;
+            o->d[3] = src->d[3] + ny * f;
+            para_last = (int)(o - d->obj);
+            op_push(1);
+            return 1;
+        }
+        {
+            double ax = src->d[0], ay = src->d[1];
+            double bx = src->d[2], by = src->d[3];
+            int made = 0;
+            if (id == 1069) {
+                /* the two caps first, each from one side to the other */
+                for (k = 0; k < 2; k++) {
+                    jw_obj *o = jw_add(d, JW_SEN);
+                    double px = k ? bx : ax, py = k ? by : ay;
+                    if (!o)
+                        break;
+                    o->d[0] = px + nx * gap;
+                    o->d[1] = py + ny * gap;
+                    o->d[2] = px - nx * gap;
+                    o->d[3] = py - ny * gap;
+                    made++;
+                }
+            }
+            for (k = 0; k < 2; k++) {
+                jw_obj *o = jw_add(d, JW_SEN);
+                double f = k ? -gap : gap;
+                if (!o)
+                    break;
+                o->d[0] = ax + nx * f;
+                o->d[1] = ay + ny * f;
+                o->d[2] = bx + nx * f;
+                o->d[3] = by + ny * f;
+                if (!k)
+                    para_last = (int)(o - d->obj);
+                made++;
+            }
+            para_off = gap;
+            op_push(made);
+        }
+        para_step = 0;
+        return 1;
+    }
     /* the two buttons beside ●─── and ＜─── walk the mark round its
        three ends.  The original leaves them dead while their own box is
        clear, and pressing one then drew nothing different. */
@@ -6151,6 +6240,7 @@ placed:
             o->d[1] = src.d[1] + dx / len * para_off;
             o->d[2] = src.d[2] + -dy / len * para_off;
             o->d[3] = src.d[3] + dx / len * para_off;
+            para_last = (int)(o - d->obj);
             op_push(1);
         }
         return;
