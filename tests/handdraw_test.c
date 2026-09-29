@@ -103,6 +103,16 @@ static void click(double x, double y)
     app_press(sx, sy, 0);
 }
 
+/* the same with the right button, which is how a point is read */
+static void click_r(double x, double y)
+{
+    const jw_view *v = app_view();
+    int sx = jw_sx(v, x), sy = jw_sy(v, y);
+
+    app_move(sx, sy);
+    app_press(sx, sy, 1);
+}
+
 static int count_of(const jw_drawing *d, int cls, int from)
 {
     int i, n = 0;
@@ -184,10 +194,13 @@ static void cone_development(jw_drawing *d, double cx, double cy)
 }
 
 /* ------------------------------------------------------------- 寸法 ------
- * Across the bottom of the box: the 寸法 command takes the line the value
- * is measured along, then the two points.
+ * On the box, not on thin air: the first face is 1000 wide and 600 high, so
+ * the width goes under its bottom edge and the height beside its left one.
+ * Both are measured by reading the corners with the right button, which is
+ * how the original takes them -- a left click on an empty spot gives it
+ * nothing to measure.
  */
-static void dimension(jw_drawing *d, double x0, double x1, double y)
+static void dimension(jw_drawing *d, double x0, double y0, double w, double h)
 {
     int before = d->ndrawn;
 
@@ -195,14 +208,38 @@ static void dimension(jw_drawing *d, double x0, double x1, double y)
     ck(bar_press(1062), "  端部 を矢印にする");
     ck(bar_press(1061) && bar_press(1061), "  小数桁を 0 にする");
     ck(bar_type(1411, "0"), "  傾きに 0 を打つ");
-    /* four clicks: the far end of an extension line, a point on the
-       dimension line, then the two points being measured */
-    click(x0, y - 12.0);
-    click(x0, y - 10.0);
-    click(x0, y);
-    click(x1, y);
-    ck(count_of(d, JW_MOJI, before) == 1, "  寸法値が一つ書かれる");
+
+    /* the width, under the bottom edge */
+    click(x0, y0 - 12.0);               /* where the extension lines end */
+    click(x0, y0 - 10.0);               /* the dimension line itself */
+    click_r(x0, y0);                    /* the two corners, read */
+    click_r(x0 + w, y0);
+    ck(count_of(d, JW_MOJI, before) == 1, "  幅の寸法値が一つ");
     ck(count_of(d, JW_SEN, before) >= 3, "  寸法線と引出線も引ける");
+
+    /* and the height, standing up beside the left edge */
+    before = d->ndrawn;
+    ck(bar_press(1059), "  ０º/９０º を押す");
+    click(x0 - 12.0, y0);
+    click(x0 - 10.0, y0);
+    click_r(x0, y0);
+    click_r(x0, y0 + h);
+    ck(count_of(d, JW_MOJI, before) == 1, "  高さの寸法値が一つ");
+    if (count_of(d, JW_SEN, before) >= 1) {
+        const jw_obj *line = 0;
+        int i;
+        for (i = before; i < d->ndrawn; i++)
+            if (d->obj[i].cls == JW_SEN) {
+                line = &d->obj[i];
+                break;
+            }
+        ck(line && fabs(line->d[0] - line->d[2]) < 1e-9
+           && fabs(fabs(line->d[3] - line->d[1]) - h) < 1e-6,
+           "  その寸法線は立っていて高さを測っている");
+    } else {
+        ck(0, "  高さの寸法線が引ける");
+    }
+    bar_press(1059);                    /* put it back */
 }
 
 int main(int argc, char **argv)
@@ -221,7 +258,7 @@ int main(int argc, char **argv)
     n0 = d->ndrawn;
     cone_development(d, 40.0, -30.0);
     ck(d->ndrawn > n0, "円錐側も伸びた");
-    dimension(d, -60.0, -50.0, 40.0);
+    dimension(d, -60.0, 40.0, 10.0, 6.0);
 
     ck(d->ndrawn >= 24 + 4 + 6, "図面全体が手だけで組み上がる");
 
