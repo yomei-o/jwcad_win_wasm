@@ -309,6 +309,86 @@ int main(void)
         }
     }
 
+    /* 下線作図 (1327)・上線作図 (1328)・左右縦線 (1329): the lines the
+       dialog rules round a text (tools/probe71.sh).  下線 runs along the
+       baseline end to end, 上線 the character height across from it, and
+       左右縦線 is two up from the ends -- and with all three on they come
+       out 下・上・左・右 and then the text, on the writing pen. */
+    {
+        static const struct {
+            const char *answer, *what;
+            int a, b2, c;
+        } R[] = {
+            { "decomp/res/moji_under.jww", "下線作図", 1, 0, 0 },
+            { "decomp/res/moji_over.jww",  "上線作図", 0, 1, 0 },
+            { "decomp/res/moji_side.jww",  "左右縦線", 0, 0, 1 },
+            { "decomp/res/moji_rule3.jww", "三つとも", 1, 1, 1 },
+        };
+        int k;
+
+        for (k = 0; k < (int)(sizeof R / sizeof R[0]); k++) {
+            jw_drawing *ours;
+            const jw_obj *la[4], *lc[4];
+            int i, na = 0, nc = 0;
+
+            printf("-- %s\n", R[k].what);
+            b = slurp(R[k].answer, &n);
+            if (!b) {
+                printf("BAD  %s が読めない\n", R[k].answer);
+                fails++;
+                continue;
+            }
+            memset(&theirs, 0, sizeof theirs);
+            if (!jw_parse(&theirs, b, n)) {
+                printf("BAD  %s が開けない\n", R[k].answer);
+                fails++;
+                free(b);
+                continue;
+            }
+            free(b);
+            app_new();
+            ours = (jw_drawing *)app_drawing();
+            app_command(JW_CMD_MOJI);
+            jw_cmd_moji_base(2);
+            jw_cmd_moji_zure(0);
+            type_box(1411, "");
+            type_box(1418, "");
+            jw_cmd_moji_rule(1327, R[k].a);
+            jw_cmd_moji_rule(1328, R[k].b2);
+            jw_cmd_moji_rule(1329, R[k].c);
+            app_key('A');
+            app_key('B');
+            app_key('C');
+            app_press(port_x(sheet_x(400)), port_y(sheet_y(400)), 0);
+            jw_cmd_moji_rule(1327, 0);
+            jw_cmd_moji_rule(1328, 0);
+            jw_cmd_moji_rule(1329, 0);
+            for (i = 0; i < theirs.ndrawn && na < 4; i++)
+                if (theirs.obj[i].cls == JW_SEN)
+                    la[na++] = &theirs.obj[i];
+            for (i = 0; i < ours->ndrawn && nc < 4; i++)
+                if (ours->obj[i].cls == JW_SEN)
+                    lc[nc++] = &ours->obj[i];
+            ck(na == nc, "  線の数が同じ");
+            for (i = 0; i < na && i < nc; i++) {
+                char msg[160];
+                int ok = fabs(la[i]->d[0] - lc[i]->d[0]) < 1e-6
+                         && fabs(la[i]->d[1] - lc[i]->d[1]) < 1e-6
+                         && fabs(la[i]->d[2] - lc[i]->d[2]) < 1e-6
+                         && fabs(la[i]->d[3] - lc[i]->d[3]) < 1e-6
+                         && la[i]->color == lc[i]->color;
+
+                sprintf(msg, "  %d 本目 (%.4f,%.4f)-(%.4f,%.4f)", i,
+                        la[i]->d[0], la[i]->d[1], la[i]->d[2], la[i]->d[3]);
+                ck(ok, msg);
+                if (!ok)
+                    printf("     移植は (%.4f,%.4f)-(%.4f,%.4f)\n",
+                           lc[i]->d[0], lc[i]->d[1], lc[i]->d[2], lc[i]->d[3]);
+            }
+            jw_free(&theirs);
+        }
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

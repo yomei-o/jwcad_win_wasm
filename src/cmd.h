@@ -275,6 +275,10 @@ void jw_cmd_moji_zure(int on);
 int  jw_cmd_moji_zure_now(void);
 void jw_cmd_moji_zure_at(int across, int n, double v);
 double jw_cmd_moji_zure_get(int across, int n);
+/* 下線作図 (1327)・上線作図 (1328)・左右縦線 (1329) on the
+   same dialog: the lines ruled round a text as it is placed. */
+void jw_cmd_moji_rule(int which, int on);
+int  jw_cmd_moji_rule_now(int which);
 
 int  jw_cmd_clip_copy(jw_drawing *d, int cut);
 int  jw_cmd_clip_has(void);

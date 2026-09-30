@@ -823,6 +823,10 @@ static int press_mojikijun(int x, int y)
         jw_cmd_moji_zure(!jw_cmd_moji_zure_now());
         return 1;
     }
+    if (id == 1327 || id == 1328 || id == 1329) {
+        jw_cmd_moji_rule(id, !jw_cmd_moji_rule_now(id));
+        return 1;
+    }
     if (id == 1 || id == 2) {           /* OK */
         mk_open = 0;
         return 1;

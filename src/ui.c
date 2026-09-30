@@ -3289,7 +3289,9 @@ void ui_mojikijun(fb_t *fb, int base)
             break;
         case JW_MK_CHECK: {
             int by = y + (z->h - CHECK_W) / 2;
-            int lit = z->id == 1323 ? jw_cmd_moji_zure_now() : z->on;
+            int lit = z->id == 1323 ? jw_cmd_moji_zure_now()
+                    : z->id >= 1327 && z->id <= 1329
+                      ? jw_cmd_moji_rule_now(z->id) : z->on;
 
             paint_checkbox(fb, x, by, lit);
             if (!z->enabled) {

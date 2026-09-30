@@ -74,6 +74,8 @@
 #                       32809 JWC -- through the same common dialog
 #   import:b<id>,<path> the same, opened by pressing a bar button instead of
 #                       sending a command (座標ファイル's ファイル名設定)
+#   figin:b<id>,<path>  the same, opened by pressing a bar button instead
+#                       of sending a command (the hatch bar's 図形 1693)
 #   figin:<cmd>,<path>  the same for Jw_cad's own 「ファイル選択」 window --
 #                       the one 図形読込 (32862)・図形登録 (32946)・
 #                       線記号変形 (32869)・建具 (32848/32866/32865) and the
@@ -340,7 +342,7 @@ if ($Clicks -match 'figout:') {
                      -Name 'ZUKEI' -Value $figPen
 }
 
-if ($Clicks -match 'figin:\d+,([^;]+)') {
+if ($Clicks -match 'figin:b?\d+,([^;]+)') {
     # Jw_cad's own 「ファイル選択」 window opens at the folder HKCU keeps in
     # Folder\ZUKEI, and it reads that **at start-up** -- writing it once the
     # process is up does nothing.  So the figure is copied into a folder of
@@ -1074,7 +1076,7 @@ try {
                 break
             }
 
-            '^figin:(\d+),(.+)$' {
+            '^figin:(b?)(\d+),(.+)$' {
                 # Jw_cad's own file window, not a common dialog: 1110x640,
                 # a folder tree on the left and the figures drawn into the
                 # right by the window itself.  Nothing there answers a
@@ -1086,9 +1088,19 @@ try {
                 # nothing there answers a posted click -- but 「リスト表示」
                 # (1323) turns that pane into a plain SysListView32, and a
                 # standard control does answer one.  One row, so row 0.
-                $cmdid = [int]$Matches[1]
+                # A leading b means the id is a bar button to press
+                # rather than a command to send -- the hatch bar's 図形
+                # (1693) is one of those.
+                $byButton = $Matches[1] -eq 'b'
+                $cmdid = [int]$Matches[2]
                 $before = [Jw]::Tops([uint32]$p.Id)
-                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                if ($byButton) {
+                    $h = Ctl $cmdid
+                    if ($h -eq [IntPtr]::Zero) { throw "no button $cmdid" }
+                    [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                } else {
+                    [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                }
                 NewDialog $before 10000
                 $dlg = $script:dlg
                 if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'the file window did not come up' }

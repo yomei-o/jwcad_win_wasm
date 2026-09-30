@@ -1147,6 +1147,24 @@ static int moji_kijun = 2;              /* 左下 */
  */
 static int moji_zure;
 static double moji_zx[3], moji_zy[3];   /* 左中右 across, 上中下 down */
+static int moji_under, moji_over, moji_side;   /* 1327, 1328, 1329 */
+
+void jw_cmd_moji_rule(int which, int on)
+{
+    if (which == 1327)
+        moji_under = on ? 1 : 0;
+    else if (which == 1328)
+        moji_over = on ? 1 : 0;
+    else if (which == 1329)
+        moji_side = on ? 1 : 0;
+}
+
+int jw_cmd_moji_rule_now(int which)
+{
+    return which == 1327 ? moji_under
+         : which == 1328 ? moji_over
+         : which == 1329 ? moji_side : 0;
+}
 
 void jw_cmd_moji_base(int n)
 {
@@ -1184,6 +1202,58 @@ double jw_cmd_moji_zure_get(int across, int n)
 int jw_cmd_moji_base_now(void)
 {
     return moji_kijun;
+}
+
+/* 下線作図 (1327)・上線作図 (1328)・左右縦線 (1329) on the 基点 dialog:
+ * the lines the original rules round a text.  All three were asked of it
+ * with ABC at the usual place, whose run is (-94.2857,-34.898) to
+ * (-78.2857,-34.898) and whose characters are 10 tall (tools/probe71.sh):
+ *
+ *   下線作図   one line **along the baseline**, end to end
+ *   上線作図   the same, the character height across from it
+ *   左右縦線   two, up from each end by that height
+ *
+ * and with all three on they came out 下・上・左・右 and then the text.
+ * They carry the writing pen, not the text's own colour.
+ */
+static int moji_rule(jw_drawing *d, const jw_obj *t)
+{
+    double dx = t->d[2] - t->d[0], dy = t->d[3] - t->d[1];
+    double l = sqrt(dx * dx + dy * dy);
+    double ux = l > 0.0 ? dx / l : 1.0, uy = l > 0.0 ? dy / l : 0.0;
+    double vx = -uy * t->d[5], vy = ux * t->d[5];
+    double e[4][4];
+    int n = 0, i, made = 0;
+
+    if (moji_under) {
+        e[n][0] = t->d[0];      e[n][1] = t->d[1];
+        e[n][2] = t->d[2];      e[n][3] = t->d[3];
+        n++;
+    }
+    if (moji_over) {
+        e[n][0] = t->d[0] + vx; e[n][1] = t->d[1] + vy;
+        e[n][2] = t->d[2] + vx; e[n][3] = t->d[3] + vy;
+        n++;
+    }
+    if (moji_side) {
+        e[n][0] = t->d[0];      e[n][1] = t->d[1];
+        e[n][2] = t->d[0] + vx; e[n][3] = t->d[1] + vy;
+        n++;
+        e[n][0] = t->d[2];      e[n][1] = t->d[3];
+        e[n][2] = t->d[2] + vx; e[n][3] = t->d[3] + vy;
+        n++;
+    }
+    for (i = 0; i < n; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->d[0] = e[i][0];
+        o->d[1] = e[i][1];
+        o->d[2] = e[i][2];
+        o->d[3] = e[i][3];
+        made++;
+    }
+    return made;
 }
 
 static int moji(jw_drawing *d, jw_obj *o, double x, double y)
@@ -7920,6 +7990,7 @@ placed:
                 continue;
             if (!moji(d, &tmp, x - k * pitch * vx, y - k * pitch * vy))
                 continue;
+            made += moji_rule(d, &tmp);
             o = jw_add(d, JW_MOJI);
             if (!o)
                 break;
@@ -7975,14 +8046,18 @@ placed:
             return;
         if (!moji(d, &tmp, x, y))
             return;
-        o = jw_add(d, JW_MOJI);
-        if (!o)
-            return;
-        tmp.layer = o->layer;
-        tmp.lgroup = o->lgroup;
-        *o = tmp;
-        o->face = jw_add_str(d, JW_MOJI_FACE);
-        op_push(1);
+        {
+            int made = moji_rule(d, &tmp);
+
+            o = jw_add(d, JW_MOJI);
+            if (!o)
+                return;
+            tmp.layer = o->layer;
+            tmp.lgroup = o->lgroup;
+            *o = tmp;
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            op_push(made + 1);
+        }
         line_n = 0;
         line_gen++;
         return;
