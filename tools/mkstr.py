@@ -49,6 +49,9 @@ WANT = [
     (6158, 'and the name of the one, the circumference'),
     (6157, 'and of the other, the angle'),
     (5576, 'the dimension-value button: its start point, and what R and RR do'),
+    (5391, 'the first line the batch mode takes'),
+    (5392, 'the last one'),
+    (5393, 'the ones to add or drop, and what confirms'),
     (5327, 'the first corner of the box the weld works in'),
     (5328, 'the second one, and what the two buttons do there'),
 ]

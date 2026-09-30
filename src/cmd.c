@@ -177,6 +177,8 @@ static int sel_n;
  * are in src/gen/sunpo.h, and every one of them showed up in the dimension
  * the original drew for us. */
 static int sun_step;
+static int ika_step;            /* 一括処理: 0 idle, 1 始線, 2 終線, 3 (R) */
+static int ika_live;            /* a dimension is in, so its button is up */
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
@@ -923,6 +925,8 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
+        /* 一括処理 is dead again until a dimension has been drawn */
+        ika_step = ika_live = 0;
     }
     tail_kind = 0;              /* and the status line's readout with it */
     /* leaving a command drops whatever 角度取得 or 長さ取得 had given --
@@ -1210,6 +1214,9 @@ const char *jw_cmd_prompt(void)
         static char tail[128];
         const char *p;
 
+        if (ika_step)
+            return ika_step == 1 ? JW_STR_5391
+                 : ika_step == 2 ? JW_STR_5392 : JW_STR_5393;
         if (sun_chi)
             return sun_step == 6 ? JW_STR_5332
                  : sun_chi_done ? JW_STR_5333 : JW_STR_5576;
@@ -5234,6 +5241,13 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return sel_step == 2;
     case 1151:                  /* 任意方向, only once the range is settled */
         return sel_step == 3;
+    case 1072:
+        /* 寸法の一括処理 comes up dead and one drawn dimension wakes
+           it (tools/probe37.sh).  Elsewhere 1072 is 範囲選択, which is
+           not this port's business here. */
+        if (current == JW_CMD_SUNPO)
+            return ika_live;
+        return -1;
     }
     return -1;                  /* not one this port knows about */
 }
@@ -5387,6 +5401,12 @@ static int bar_press(jw_drawing *d, int id)
             sun_kaku = 0;
             sun_enshu = 0;
             sun_step = 5;
+            return 1;
+        }
+        if (id == 1072) {       /* 一括処理 */
+            if (!ika_live)
+                return 0;
+            ika_step = 1;
             return 1;
         }
         if (id == 1064) {       /* リセット: back to the two-point kind */
@@ -6336,7 +6356,256 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             made++;
         }
     }
+    ika_live = 1;               /* 一括処理 wakes up once one dimension is in */
     op_push(made);
+}
+
+/* 寸法の一括処理 (1072) -- a row of lines dimensioned in one press.
+ *
+ * Measured, not invented: tools/probe38.sh .. probe42.sh, with the
+ * answers in decomp/res/sunikkatsu.jww, sunikkatsu2.jww and the two runs
+ * of tools/mkikkatsu.c's band drawing.
+ *
+ *   what wakes it up   only a dimension already drawn.  Pressing every
+ *                      other button on the bar left it dead; drawing one
+ *                      dimension brought it to life (its style went from
+ *                      58010f00 to 50010f00).  実行 (1120) never woke at
+ *                      all, so what that one is for is still not known.
+ *   what it asks for   5391 the 始線, 5392 the 終線, 5393 the ones to add
+ *                      or drop -- and (R) at that third prompt draws.
+ *   which lines        **the ones the segment between the two clicks
+ *                      crosses.**  Five verticals whose tops stood at 20,
+ *                      19, 15, 10 and 0 were offered to it twice: with
+ *                      the two clicks at sheet y=14.08 the first three
+ *                      came out, and with them at y=7.96 the first four
+ *                      did.  The wall they all stand on, which the
+ *                      segment runs along and so never crosses, came out
+ *                      neither time.
+ *   which point of it  **the end nearer the dimension line**, and not
+ *                      where the segment crossed: a diagonal from
+ *                      (0,-20) to (20,20), crossed at x=17.04, came out
+ *                      dimensioned at x=20.
+ *   what it writes     per gap, in this order -- the 寸法線, then at the
+ *                      gap's **far** end a 点 and an 引出線, then the
+ *                      value.  Those two are left out where one is there
+ *                      already, which is what happened at both ends of
+ *                      the dimension that had been drawn by hand.
+ *   where              that dimension's line position and extension
+ *                      length, so the row carries straight on from it.
+ *
+ * The 追加・除外 clicks of the third prompt are not done: nothing was
+ * measured about them.
+ */
+#define IKA_MAX 512
+
+static double ika_s0, ika_s1;   /* the 始線 and 終線 along the dimension  */
+static double ika_ax, ika_ay;   /* where the 始線 was clicked           */
+static double ika_bx, ika_by;   /* and the 終線                        */
+
+/* Where the segment a-b crosses o, if it does: the answer is o's own end
+ * nearer the dimension line, which is the one the original measures. */
+static int ika_hit(const jw_obj *o, double ax, double ay,
+                   double bx, double by, double vx, double vy, double tl,
+                   double *px, double *py)
+{
+    double x1 = o->d[0], y1 = o->d[1], x2 = o->d[2], y2 = o->d[3];
+    double rx = bx - ax, ry = by - ay;
+    double sx = x2 - x1, sy = y2 - y1;
+    double den = rx * sy - ry * sx, t, u, e1, e2;
+
+    if (den == 0.0)
+        return 0;
+    t = ((x1 - ax) * sy - (y1 - ay) * sx) / den;
+    u = ((x1 - ax) * ry - (y1 - ay) * rx) / den;
+    if (t < 0.0 || t > 1.0 || u < 0.0 || u > 1.0)
+        return 0;
+    e1 = x1 * vx + y1 * vy - tl;
+    e2 = x2 * vx + y2 * vy - tl;
+    if (e1 < 0.0)
+        e1 = -e1;
+    if (e2 < 0.0)
+        e2 = -e2;
+    *px = e1 <= e2 ? x1 : x2;
+    *py = e1 <= e2 ? y1 : y2;
+    return 1;
+}
+
+/* Only the editable layers, which is what src/pick.c picks from. */
+static int ika_editable(const jw_drawing *d, const jw_obj *o)
+{
+    int g = o->lgroup & 15, l = o->layer & 15;
+    int gs = d->group[g].state, ls = d->group[g].layer[l].state;
+
+    gs = gs == 0 ? 0 : gs == 1 ? 1 : 3;
+    ls = ls == 0 ? 0 : ls == 1 ? 1 : 3;
+    return (gs & ls) == 3 && !(o->flags & 1);
+}
+
+/* Is one of the original's dimension 点 already sitting here? */
+static int ika_dotted(const jw_drawing *d, double x, double y)
+{
+    int i;
+
+    /* only the drawing itself: the block definitions after it are not
+       drawn, so nothing there can be standing on the paper */
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        double dx, dy;
+
+        if (o->cls != JW_TEN || !(o->flags & JW_SUN_TEN_FLAGS))
+            continue;
+        dx = o->d[0] - x;
+        dy = o->d[1] - y;
+        if (dx * dx + dy * dy < 1e-12)
+            return 1;
+    }
+    return 0;
+}
+
+/* One gap of the row: s0 to s1 along the dimension's own direction. */
+static int ika_gap(jw_drawing *d, double s0, double s1,
+                   double ux, double uy, double vx, double vy,
+                   double tl, double th)
+{
+    double x0 = s0 * ux + tl * vx, y0 = s0 * uy + tl * vy;
+    double x1 = s1 * ux + tl * vx, y1 = s1 * uy + tl * vy;
+    double len = s1 > s0 ? s1 - s0 : s0 - s1;
+    double cw, ch, sp, tw = 0.0, mid, t;
+    char txt[64];
+    const char *p;
+    int nch = 0, i, wg = 0, made = 0;
+    jw_obj *o;
+
+    if (len <= 0.0)
+        return 0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return 0;
+    o->color = JW_SUN_SEN_COLOR;
+    o->ltype = 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+    o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
+    made++;
+
+    if (!ika_dotted(d, x1, y1)) {
+        o = jw_add(d, JW_TEN);
+        if (o) {
+            o->color = JW_SUN_TEN_COLOR;
+            o->ltype = 1;
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+            o->d[0] = x1;
+            o->d[1] = y1;
+            o->n = 0;
+            made++;
+        }
+        if (th != tl + JW_SUN_TSUKIDASHI) {
+            o = jw_add(d, JW_SEN);
+            if (o) {
+                o->color = JW_SUN_HIKI_COLOR;
+                o->ltype = 1;
+                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+                o->d[0] = s1 * ux + (tl + JW_SUN_TSUKIDASHI) * vx;
+                o->d[1] = s1 * uy + (tl + JW_SUN_TSUKIDASHI) * vy;
+                o->d[2] = s1 * ux + th * vx;
+                o->d[3] = s1 * uy + th * vy;
+                made++;
+            }
+        }
+    }
+
+    i = JW_SUN_MOJINO - 1;
+    if (i < 0 || i > 9)
+        i = 0;
+    cw = d->style[i].w;
+    ch = d->style[i].h;
+    sp = d->style[i].sp;
+    sunpo_text(txt, (int)sizeof txt, len, d->group[wg].scale);
+    for (p = txt; *p; ) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    if (cw <= 0.0 || ch <= 0.0 || !nch)
+        return made;
+    mid = (s0 + s1) / 2.0;
+    t = tl + JW_SUN_HANARE;
+    o = jw_add(d, JW_MOJI);
+    if (!o)
+        return made;
+    o->color = (unsigned short)d->style[i].color;
+    o->ltype = 2;
+    o->width = (unsigned short)((sun_decimals() << 12)
+                                | (JW_SUN_TEXT_WIDTH & 0x0fffu));
+    o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS);
+    o->d[0] = (mid - tw / 2.0) * ux + t * vx;
+    o->d[1] = (mid - tw / 2.0) * uy + t * vy;
+    o->d[2] = (mid + tw / 2.0) * ux + t * vx;
+    o->d[3] = (mid + tw / 2.0) * uy + t * vy;
+    o->d[4] = cw;
+    o->d[5] = ch;
+    o->d[6] = sp;
+    o->d[7] = 0.0;
+    o->n = JW_SUN_MOJINO;
+    o->text = jw_add_str(d, txt);
+    o->face = jw_add_str(d, JW_MOJI_FACE);
+    made++;
+    return made;
+}
+
+/* (R) at the third prompt: draw the lot.
+ *
+ * The two ends of the row are the lines that were indicated, so they are
+ * in whether the clicks landed quite on them or a tenth of a millimetre
+ * to one side; the ones in between are the ones the segment between
+ * those two clicks crosses.
+ */
+static void ika_run(jw_drawing *d)
+{
+    double a = sun_angle() * PI / 180.0;
+    double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
+    double tl = sun_lx * vx + sun_ly * vy;
+    double th = sun_hx * vx + sun_hy * vy;
+    double lo = ika_s0 < ika_s1 ? ika_s0 : ika_s1;
+    double hi = ika_s0 < ika_s1 ? ika_s1 : ika_s0;
+    double s[IKA_MAX];
+    int n = 0, i, j, made = 0;
+
+    s[n++] = ika_s0;
+    s[n++] = ika_s1;
+    for (i = 0; i < d->ndrawn && n < IKA_MAX; i++) {
+        const jw_obj *o = &d->obj[i];
+        double px, py, ss;
+
+        if (o->cls != JW_SEN || !ika_editable(d, o))
+            continue;
+        if (!ika_hit(o, ika_ax, ika_ay, ika_bx, ika_by, vx, vy, tl, &px, &py))
+            continue;
+        ss = px * ux + py * uy;
+        if (ss < lo - 1e-9 || ss > hi + 1e-9)
+            continue;
+        for (j = 0; j < n; j++)
+            if (s[j] - ss < 1e-9 && ss - s[j] < 1e-9)
+                break;
+        if (j == n)
+            s[n++] = ss;
+    }
+    for (i = 1; i < n; i++) {   /* along the dimension, left to right */
+        double k = s[i];
+        for (j = i; j > 0 && s[j - 1] > k; j--)
+            s[j] = s[j - 1];
+        s[j] = k;
+    }
+    for (i = 0; i + 1 < n; i++)
+        made += ika_gap(d, s[i], s[i + 1], ux, uy, vx, vy, tl, th);
+    if (made)
+        op_push(made);
 }
 
 /* 包絡処理 (0x804e): the first click is one corner of the box, the second
@@ -6758,6 +7027,53 @@ placed:
         double rx, ry;
         if (!d)
             return;
+        if (ika_step) {
+            double a = sun_angle() * PI / 180.0;
+            double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
+            double tl = sun_lx * vx + sun_ly * vy;
+            double px, py;
+            int k;
+
+            if (ika_step == 3) {
+                /* (R) draws; an (L) here is 追加・除外, which is not
+                   done -- nothing about it was measured. */
+                if (button == 0)
+                    return;
+                ika_run(d);
+                ika_step = 0;
+                return;
+            }
+            if (button != 0) {  /* (R) is 同一線種選択, which is not done */
+                ika_step = 0;
+                return;
+            }
+            k = jw_pick(d, v, x, y, 3);
+            if (k < 0 || d->obj[k].cls != JW_SEN)
+                return;
+            {
+                const jw_obj *o = &d->obj[k];
+                double e1 = o->d[0] * vx + o->d[1] * vy - tl;
+                double e2 = o->d[2] * vx + o->d[3] * vy - tl;
+                if (e1 < 0.0)
+                    e1 = -e1;
+                if (e2 < 0.0)
+                    e2 = -e2;
+                px = e1 <= e2 ? o->d[0] : o->d[2];
+                py = e1 <= e2 ? o->d[1] : o->d[3];
+            }
+            if (ika_step == 1) {
+                ika_s0 = px * ux + py * uy;
+                ika_ax = x;
+                ika_ay = y;
+                ika_step = 2;
+            } else {
+                ika_s1 = px * ux + py * uy;
+                ika_bx = x;
+                ika_by = y;
+                ika_step = 3;
+            }
+            return;
+        }
         if (sun_radius) {
             sunpo_radius(d, v, x, y);
             return;
