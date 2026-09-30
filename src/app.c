@@ -1590,6 +1590,32 @@ int app_key(int c)
             app_paint();
             return 1;
         }
+        /* Shift つきは別の割り付け (the settings keep it as S_A..S_Z).
+           Asked of the original the same way, with the command put back to
+           矩形 first so an unchanged bar means the key does nothing. */
+        {
+            static const struct { char key; unsigned short cmd; } SKEY[13] = {
+                { 'B', 0x8003 },    /* 線       */
+                { 'D', 0x8005 },    /* 円弧     */
+                { 'F', 0x8011 },    /* 点       */
+                { 'G', 0x804f },    /* 寸法     */
+                { 'M', 0x8017 },    /* 伸縮     */
+                { 'N', 0x805b },    /* 面取     */
+                { 'O', 0x801a },    /* 消去     */
+                { 'Q', 0x8096 },    /* 図形移動 */
+                { 'R', 0x8066 },    /* 接線     */
+                { 'S', 0x8068 },    /* 接円     */
+                { 'W', 0x807e },    /* 多角形   */
+                { 'X', 0x808c },    /* 曲線     */
+                { 'Y', 0x804e }     /* 包絡処理 */
+            };
+            for (i = 0; i < 13; i++)
+                if (SKEY[i].key == c) {
+                    app_command(SKEY[i].cmd);
+                    app_paint();
+                    return 1;
+                }
+        }
     }
     if (c == 27) {              /* Esc lets go of the points taken so far */
         jw_cmd_escape();

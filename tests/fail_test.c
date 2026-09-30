@@ -435,6 +435,26 @@ static void one_letter_commands(void)
         }
     }
     ck(!bad, "一文字コマンドが十九とも原典と同じコマンドに入る");
+    /* Shift つきは別の割り付け */
+    {
+        static const struct { char k; int cmd; } S[13] = {
+            { 'B', 0x8003 }, { 'D', 0x8005 }, { 'F', 0x8011 }, { 'G', 0x804f },
+            { 'M', 0x8017 }, { 'N', 0x805b }, { 'O', 0x801a }, { 'Q', 0x8096 },
+            { 'R', 0x8066 }, { 'S', 0x8068 }, { 'W', 0x807e }, { 'X', 0x808c },
+            { 'Y', 0x804e }
+        };
+        int k, wrong = 0;
+        for (k = 0; k < 13; k++) {
+            jw_cmd_set(0x8004);
+            app_key(S[k].k);
+            if (jw_cmd() != S[k].cmd) {
+                printf("     %c went to %#x, not %#x\n", S[k].k, jw_cmd(),
+                       S[k].cmd);
+                wrong++;
+            }
+        }
+        ck(!wrong, "Shift つきの十三も原典と同じコマンドに入る");
+    }
     /* and a letter is text while 文字 is in force, not a command */
     jw_cmd_set(0x8026);
     app_key('b');
