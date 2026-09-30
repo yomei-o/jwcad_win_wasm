@@ -6,10 +6,15 @@
 # `-Dstatic=` opens src/draw.c up so the harness can reach gdi_arc; the
 # other sources are compiled as usual, so nothing else changes.
 cd "$(dirname "$0")/.."
-case ":$PATH:" in
-    *:/c/prog/tools/w64devkit/bin:*) ;;
-    *) PATH="$PATH:/c/prog/tools/w64devkit/bin" ;;
-esac
+# w64devkit sits in one of two places depending on the machine, and gcc
+# cannot find `as` without its bin on PATH.  Only put one on if gcc is not
+# already there.
+if ! command -v gcc >/dev/null 2>&1; then
+    for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
+        [ -x "$d/gcc.exe" ] && { PATH="$PATH:$d"; break; }
+    done
+fi
+export PATH
 mkdir -p tmp
 gcc -O1 -w -std=c99 -Isrc -Dstatic= -c -o tmp/draw_open.o src/draw.c || exit 1
 gcc -O1 -w -std=c99 -Isrc -o tmp/arccheck.exe tools/arccheck.c tmp/draw_open.o \

@@ -1225,6 +1225,13 @@ int app_command(int cmd)
     case 33028:                         /* 円周1/4点取得 */
         jw_cmd_read_mode(cmd);
         return 1;
+    case 32932:                         /* 設定 > 角度取得 > 線角度 */
+    case 32933:                         /* 同           X軸角度 */
+    case 32935:                         /* 同           線鉛直角度 */
+    case 32939:                         /* 設定 > 長さ取得 > 線長 */
+    case 32940:                         /* 同           ２点間長 */
+        jw_cmd_get_mode(cmd);
+        return 1;
     case 32862:                         /* 図形読込 */
         /* The original puts up a file window of its own here.  The port has
            none: the front end reads the .jws and calls app_figure, which is

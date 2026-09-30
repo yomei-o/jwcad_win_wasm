@@ -870,7 +870,7 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
     int wg = 0, i, ty = ui_bottom(726, fb->h);
 
     /* The prompt is the command's own, out of the string table. */
-    jw_text_px(fb, 8, ty, jw_cmd_prompt(), C_BTNTEXT);
+    jw_text_px(fb, 8, ty, jw_cmd_status(d), C_BTNTEXT);
     if (!d)
         return;
     for (i = 0; i < 16; i++)

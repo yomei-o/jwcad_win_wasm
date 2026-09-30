@@ -43,6 +43,8 @@ WANT = [
     (5332, 'the second'),
     (5333, 'and again, once one dimension is in'),
     (5367, 'the circle the circumference mode wants indicated first'),
+    (5345, 'the line the angle and length grabs want pointed at'),
+    (10119, 'the far end of the two-point length grab'),
     (6159, 'the tail those two modes put on: anticlockwise'),
     (6158, 'and the name of the one, the circumference'),
     (6157, 'and of the other, the angle'),

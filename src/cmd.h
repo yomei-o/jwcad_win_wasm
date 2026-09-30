@@ -115,6 +115,11 @@ int  jw_cmd_hv(void);
    own prompt there as it goes (FUN_004efbb0 with a string id). */
 const char *jw_cmd_prompt(void);
 
+/* the same with the original's own readout on the end: the angle and
+   length of the line, the W and H of the rectangle, the radius of the
+   circle -- see the note by tail_set in src/cmd.c */
+const char *jw_cmd_status(const jw_drawing *d);
+
 /* A click in the drawing area, in paper millimetres.  `button` is 0 for the
    left and 1 for the right. */
 /* A click in the drawing area.  `button` is 0 for the left and 1 for the
@@ -267,6 +272,14 @@ int  jw_cmd_figure_base(double *x, double *y);
  */
 void jw_cmd_read_mode(int mode);
 int  jw_cmd_read_mode_now(void);
+
+/* 設定 > 角度取得 and 設定 > 長さ取得: the next click or two gives a
+   number that then stands in for the 傾き or the 寸法 box until the
+   command is left. */
+void jw_cmd_get_mode(int mode);
+int  jw_cmd_get_mode_now(void);
+int  jw_cmd_get_kata(double *deg);
+int  jw_cmd_get_naga(double *mm);
 
 /* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
    range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The

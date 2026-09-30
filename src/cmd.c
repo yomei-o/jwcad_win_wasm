@@ -638,12 +638,116 @@ static double box_mm2(const jw_drawing *d, int id)
     return v;
 }
 
+/* The readout the original hangs off the end of the status line while a
+ * command is drawing.  Asked of it (tools/probe26.sh), with a 1/100 sheet:
+ *
+ *   線    始点を指示してください  (L)free  (R)Read   [ -26.565°]   27,380.424
+ *   矩形  始点を指示してください  (L)free  (R)Read     W=24,489.795    H=12,244.897
+ *   円    中心点を指示してください  (L)free  (R)Read      r = 6,122.448
+ *
+ * -- the angle and length of the line just drawn, the width and height of
+ * the rectangle, the radius of the circle, all in real units to three
+ * places with a comma every three digits.  Before anything is drawn there
+ * is no tail at all, while the first point is down it reads 0.000 until
+ * the mouse moves, and leaving the command takes it away again. */
+static int tail_kind;           /* 0 none, 1 線, 2 矩形, 3 円 */
+static double tail_a, tail_b;   /* in paper millimetres, or degrees */
+
+static void tail_set(int kind, double a, double b)
+{
+    tail_kind = kind;
+    tail_a = a;
+    tail_b = b;
+}
+
+/* a real-world length, three places, with a comma every three digits */
+static void num3(char *out, int n, const jw_drawing *d, double mm)
+{
+    char buf[64];
+    int i, len, whole, k = 0, neg;
+    double v = mm;
+    int g, wg = 0;
+
+    for (g = 0; d && g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    if (d && d->group[wg].scale > 0.0)
+        v *= d->group[wg].scale;
+    neg = v < 0.0;
+    if (neg)
+        v = -v;
+    snprintf(buf, sizeof buf, "%.3f", v);
+    len = (int)strlen(buf);
+    whole = (int)(strchr(buf, '.') ? strchr(buf, '.') - buf : len);
+    if (neg && k < n - 1)
+        out[k++] = '-';
+    for (i = 0; i < len && k < n - 1; i++) {
+        if (i && i < whole && (whole - i) % 3 == 0)
+            out[k++] = ',';
+        if (k < n - 1)
+            out[k++] = buf[i];
+    }
+    out[k] = 0;
+}
+
 /* the 傾き box, in radians */
 static double box_angle(int id)
 {
     const char *t = jw_cmd_box(id);
 
     return t && *t ? atof(t) * PI / 180.0 : 0.0;
+}
+
+/* 設定 > 角度取得 and 設定 > 長さ取得: a number taken off something
+ * already drawn instead of typed into the command bar.
+ *
+ * What the original does with it was asked the only way it could be --
+ * the value goes nowhere the port can see (the two combo boxes stay
+ * empty and the status line goes back to what it was), so the same line
+ * was drawn twice, once with the value taken and once without
+ * (tools/probe20.sh .. probe22.sh).  With a reference line at -26.565
+ * degrees and 273.804 long:
+ *
+ *   線角度 (32932)  the lines drawn after it come out at -26.565 and
+ *                   their length is the click projected on to that way
+ *                   -- which is exactly what the 傾き box does
+ *   線長   (32939)  they keep the way they were clicked and come out
+ *                   273.804 long -- exactly what the 寸法 box does
+ *
+ * and three rules besides: it holds for the line after that as well,
+ * leaving the command clears it, and a number typed into the box beats
+ * it.  So it is a second place to keep what the box keeps, and `kata_*`
+ * and `naga_*` below read whichever is set.
+ */
+static int    get_mode;         /* the 取得 command running, or 0 */
+static int    get_step;
+static double get_ax, get_ay;   /* the first point of a two-point one */
+static int    have_kata;        /* 角度取得 has given one */
+static double get_kata;         /* in radians */
+static int    have_naga;        /* 長さ取得 has given one */
+static double get_naga;         /* in millimetres on the paper */
+
+static int kata_set(void)
+{
+    const char *t = jw_cmd_box(1411);
+
+    return (t && *t) || have_kata;
+}
+
+static double kata_rad(void)
+{
+    const char *t = jw_cmd_box(1411);
+
+    if (t && *t)
+        return box_angle(1411);
+    return have_kata ? get_kata : 0.0;
+}
+
+static double naga_mm(const jw_drawing *d)
+{
+    double v = box_mm(d, 1412);
+
+    return v > 0.0 ? v : (have_naga ? get_naga : 0.0);
 }
 
 /* 包絡処理: the first corner of the box, and whether it has been given */
@@ -820,6 +924,12 @@ void jw_cmd_set(int id)
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
     }
+    tail_kind = 0;              /* and the status line's readout with it */
+    /* leaving a command drops whatever 角度取得 or 長さ取得 had given --
+       asked of the original: 線, 線角度, then 円 and back to 線, and the
+       next line came out plain (tools/probe21.sh) */
+    get_mode = 0;
+    have_kata = have_naga = 0;
     if (id == JW_CMD_NISEN) {
         nisen_step = 0;
         nisen_obj = -1;
@@ -981,8 +1091,49 @@ void jw_cmd_undo(jw_drawing *d)
     tracking = 0;
 }
 
+/* The prompt with the original's own readout on the end of it.  What the
+   readout says, and when, is in the note by tail_set. */
+const char *jw_cmd_status(const jw_drawing *d)
+{
+    static char buf[256];
+    const char *p = jw_cmd_prompt();
+    char a[64], b[64];
+    int kind = tail_kind;
+    double va = tail_a, vb = tail_b;
+
+    if (step == 2 && !tracking) {
+        /* the first point is down and the mouse has not moved into the
+           view yet: the original reads out zero */
+        kind = current == JW_CMD_SEN ? 1
+             : current == JW_CMD_KUKEI ? 2
+             : current == JW_CMD_ENKO ? 3 : kind;
+        if (kind == 1 || kind == 2 || kind == 3)
+            va = vb = 0.0;
+    }
+    switch (kind) {
+    case 1:
+        num3(b, (int)sizeof b, d, vb);
+        snprintf(buf, sizeof buf, "%s   [ %.3f��]   %s", p, va, b);
+        return buf;
+    case 2:
+        num3(a, (int)sizeof a, d, va);
+        num3(b, (int)sizeof b, d, vb);
+        snprintf(buf, sizeof buf, "%s     W=%s    H=%s", p, a, b);
+        return buf;
+    case 3:
+        num3(a, (int)sizeof a, d, va);
+        snprintf(buf, sizeof buf, "%s      r = %s", p, a);
+        return buf;
+    }
+    return p;
+}
+
 const char *jw_cmd_prompt(void)
 {
+    /* a 取得 takes the status line over while it is on */
+    if (get_mode)
+        return get_mode == 32940
+             ? (get_step ? JW_STR_10119 : JW_STR_5345) : JW_STR_5345;
     switch (current) {
     case JW_CMD_SEN:
     case JW_CMD_KUKEI:
@@ -1266,8 +1417,8 @@ static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
 /* What the point down and the point here make -- one element, or the four of
    a rectangle.  Working it out in one place keeps the provisional figure and
    what gets added identical. */
-static int figure(const jw_drawing *d, jw_obj *o, int max,
-                  double x, double y)
+static int figure_(const jw_drawing *d, jw_obj *o, int max,
+                   double x, double y)
 {
     blank(o);
     switch (current) {
@@ -1301,14 +1452,14 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
          *               and 86.589 down at 30 degrees came out 106.68 long,
          *               which is exactly that dot product.
          */
-        double len = box_mm(d, 1412);
+        double len = naga_mm(d);
         double dx = x - sx, dy = y - sy;
-        const char *kata = jw_cmd_box(1411);
+        int kata = kata_set();
         double ux = 0.0, uy = 0.0, run = 0.0;
         int along = 1;
 
-        if (len > 0.0 && kata && *kata) {
-            double a = box_angle(1411);
+        if (len > 0.0 && kata) {
+            double a = kata_rad();
             ux = cos(a);
             uy = sin(a);
             run = dx * ux + dy * uy;
@@ -1334,11 +1485,26 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
                 uy = ca;
                 run = v;
             }
-        } else if ((kata && *kata) || len > 0.0) {
-            double a = box_angle(1411);         /* an empty box is flat */
+        } else if (kata) {
+            double a = kata_rad();
             ux = cos(a);
             uy = sin(a);
             run = dx * ux + dy * uy;
+        } else if (len > 0.0) {
+            /* 寸法 with nothing in 傾き keeps the way it was clicked and
+               only sets how far it goes -- asked of the original with
+               寸法 50 on a 1/100 sheet and a click up and to the right:
+               the line came out along that way, 0.5 long, and clicking
+               the other way gave the other way round
+               (tools/probe23.sh).  This used to come out flat. */
+            double l = sqrt(dx * dx + dy * dy);
+            if (l <= 0.0) {
+                along = 0;
+            } else {
+                ux = dx / l;
+                uy = dy / l;
+                run = l;
+            }
         } else {
             along = 0;
         }
@@ -1546,6 +1712,47 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
     }
     }
     return 0;
+}
+
+/* The same, and the status line's readout with it: whatever is built here
+   is either hanging off the mouse or about to be committed, and either way
+   it is what the original is reading out (tools/probe26.sh). */
+static int figure(const jw_drawing *d, jw_obj *o, int max,
+                  double x, double y)
+{
+    int n = figure_(d, o, max, x, y);
+
+    if (n > 0 && current == JW_CMD_SEN && o[0].cls == JW_SEN) {
+        double dx = o[0].d[2] - o[0].d[0], dy = o[0].d[3] - o[0].d[1];
+        tail_set(1, atan2(dy, dx) * 180.0 / PI, sqrt(dx * dx + dy * dy));
+    } else if (n > 0 && current == JW_CMD_KUKEI) {
+        /* four sides or one fill: the box round the lot is the W and H */
+        double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
+        int i, k, first = 1;
+        for (i = 0; i < n; i++)
+            for (k = 0; k < 8; k += 2) {
+                double px = o[i].d[k], py = o[i].d[k + 1];
+                if (o[i].cls != JW_SEN && o[i].cls != JW_SOLID)
+                    continue;
+                if (o[i].cls == JW_SEN && k > 2)
+                    continue;
+                if (first) {
+                    x0 = x1 = px;
+                    y0 = y1 = py;
+                    first = 0;
+                } else {
+                    if (px < x0) x0 = px;
+                    if (px > x1) x1 = px;
+                    if (py < y0) y0 = py;
+                    if (py > y1) y1 = py;
+                }
+            }
+        if (!first)
+            tail_set(2, x1 - x0, y1 - y0);
+    } else if (n > 0 && current == JW_CMD_ENKO && o[0].cls == JW_ENKO) {
+        tail_set(3, o[0].d[2], 0.0);
+    }
+    return n;
 }
 
 int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
@@ -6252,6 +6459,115 @@ void jw_cmd_read_mode(int mode)
     read_pick = -1;
 }
 
+/* 角度取得 (32932 線角度 / 32935 線鉛直角度 / 32933 X軸角度 /
+ * 32934 ２点間角度) and 長さ取得 (32939 線長 / 32940 ２点間長), the
+ * 設定 menu's two little families.  They take over the next click or two
+ * and leave a number behind; see kata_set/naga_mm above for what the
+ * number then does.  The status line says what each wants:
+ *
+ *   32932 / 32939  「基準線を指示してください。」   one line, picked
+ *   32934 / 32940  「２点間角度 ▼基準点指示▲」 then 「●角度点 指示」,
+ *                  and for the length 「２点間長さ　▲終点指示▼」
+ *
+ * Five of them are settled, each by drawing the same line with the value
+ * taken and without: 線角度 (32932) gives the picked line's angle,
+ * 線鉛直角度 (32935) that angle plus a right angle, X軸角度 (32933) the
+ * angle between two points read, 線長 (32939) the picked line's length,
+ * ２点間長 (32940) the distance between the two points read.
+ *
+ * ２点間角度 (32934) is **not** done.  Its two prompts are the same two
+ * 32933 shows and it takes the same two clicks, but no run has yet caught
+ * what it leaves behind, and 32933 already covers「二点の間の角」-- so
+ * what the second one is for is still unanswered.  Guessing is not
+ * allowed. */
+void jw_cmd_get_mode(int mode)
+{
+    get_mode = mode;
+    get_step = 0;
+}
+
+int jw_cmd_get_mode_now(void)
+{
+    return get_mode;
+}
+
+/* what the two families leave behind, for whoever draws the status line */
+int jw_cmd_get_kata(double *out)
+{
+    if (out && have_kata)
+        *out = get_kata * 180.0 / PI;
+    return have_kata;
+}
+
+int jw_cmd_get_naga(double *out)
+{
+    if (out && have_naga)
+        *out = get_naga;
+    return have_naga;
+}
+
+static void get_take_angle(double a)
+{
+    while (a > PI)
+        a -= 2.0 * PI;
+    while (a <= -PI)
+        a += 2.0 * PI;
+    get_kata = a;
+    have_kata = 1;
+    get_mode = 0;
+}
+
+static void get_take_length(double l)
+{
+    if (l <= 0.0)
+        return;
+    get_naga = l;
+    have_naga = 1;
+    get_mode = 0;
+}
+
+/* one click while a 取得 is on; 1 if it was swallowed */
+static int get_click(jw_drawing *d, const jw_view *v,
+                     double x, double y, int button)
+{
+    int two = get_mode == 32940 || get_mode == 32933;
+    int i;
+
+    if (!d)
+        return 1;
+    if (two) {
+        if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+            return 1;
+        if (get_step == 0) {
+            get_ax = x;
+            get_ay = y;
+            get_step = 1;
+            return 1;
+        }
+        if (get_mode == 32940)
+            get_take_length(sqrt((x - get_ax) * (x - get_ax)
+                                 + (y - get_ay) * (y - get_ay)));
+        else
+            get_take_angle(atan2(y - get_ay, x - get_ax));
+        return 1;
+    }
+    /* the one-pick ones want a line */
+    i = jw_pick(d, v, x, y, 6);
+    if (i < 0 || d->obj[i].cls != JW_SEN)
+        return 1;
+    {
+        const jw_obj *o = &d->obj[i];
+        double a = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]);
+
+        if (get_mode == 32939)
+            get_take_length(sqrt((o->d[2] - o->d[0]) * (o->d[2] - o->d[0])
+                                 + (o->d[3] - o->d[1]) * (o->d[3] - o->d[1])));
+        else
+            get_take_angle(get_mode == 32935 ? a + PI / 2.0 : a);
+    }
+    return 1;
+}
+
 int jw_cmd_read_mode_now(void)
 {
     return read_mode;
@@ -6306,6 +6622,8 @@ static int obj_middle(const jw_obj *o, double *mx, double *my)
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (get_mode && get_click(d, v, x, y, button))
+        return;
     if (read_mode == 33028 && d) {
         /* 円周1/4点取得: the nearest of the picked circle's four quarter
            points.  Driving the original bears it out -- a read near 0 gave

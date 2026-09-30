@@ -185,6 +185,14 @@ echo "=== メニューの総ざらい —— どの項目が応えるか"
 ./tests/menusweep_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 角度取得・長さ取得 —— 原典が二度描いた線との突き合わせ"
+./tests/getang_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 状態行の尻尾 —— 原典が出す角・長さ・W H・r"
+./tests/status_test.exe | sed 's/^/    /'
+
+echo
 echo "=== レイヤ設定 —— 原典が描いた五通りのダイアログとの突き合わせ"
 ./tests/layerdlg_test.exe tests/out/layerdlg | sed 's/^/    /'
 for t in '' _hidden _shown _emptywrite _emptygroup; do
