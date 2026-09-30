@@ -173,6 +173,19 @@ echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合�
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== レイヤ設定 —— 原典が描いた五通りのダイアログとの突き合わせ"
+./tests/layerdlg_test.exe tests/out/layerdlg | sed 's/^/    /'
+for t in '' _hidden _shown _emptywrite _emptygroup; do
+    printf '    %-12s ' "${t:-plain}"
+    python tools/cmp.py docs/ref_layerdlg$t.png tests/out/layerdlg$t.png         -i docs/layerdlg_textareas.txt -d tests/out/layerdlg$t.diff.png | sed -n 2p
+done
+
+echo
+echo "=== 縮尺・読取設定 —— 原典が描いたダイアログとの突き合わせ"
+./tests/shakudo_test.exe tests/out/shakudo.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_shakudo.png tests/out/shakudo.png     -i docs/shakudo_textareas.txt -d tests/out/shakudo.diff.png     | head -2 | sed 's/^/    /'
+
+echo
 echo "=== 座標ファイル —— 原典が書いた座標ファイルとのバイト突き合わせ"
 ./tests/coord_test.exe | sed 's/^/    /'
 

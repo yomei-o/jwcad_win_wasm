@@ -63,11 +63,25 @@ def main():
         cls, cid, x, y, w, h, style, chk, en, text = line.split('|', 9)
         if not (int(style, 16) & WS_VISIBLE):
             continue
+        # 1839 is painted two rows taller than its window rect
+        # says -- the frame round レイヤ名 runs y=271..290 in
+        # docs/ref_layerdlg.png, twenty rows, where 1838's runs
+        # eighteen.  The rect is what EnumChildWindows handed
+        # over; this is what the original actually draws.
+        if int(cid) == 1839:
+            h = str(int(h) + 2)
         k = kind_of(int(cid), cls, int(style, 16))
         if k is None:
             continue
+        # 0x1000 on a static is SS_SUNKEN -- the thin a0a0a0/ffffff frame
+        # the original draws round every label in this dialog.  `en` is
+        # what IsWindowEnabled said: 戻す (2001) comes up greyed.
+        sunk = 1 if (k == 'STATIC' and (int(style, 16) & 0x1000)) else 0
+        # BS_DEFPUSHBUTTON: the original rings those in 646464 and
+        # a0a0a0 and leaves the 3D edges off -- only 1087 here
+        dflt = 1 if (cls == 'Button' and (int(style, 16) & 0xf) == 1) else 0
         rows.append((int(x), int(y), int(w), int(h), int(cid), k, int(chk),
-                     text))
+                     int(en), sunk, dflt, text))
 
     if not os.path.isdir('src/gen'):
         os.makedirs('src/gen')
@@ -89,12 +103,16 @@ def main():
             '    short id;\n'
             '    unsigned char kind;\n'
             '    unsigned char on;\n'
+            '    unsigned char en;      /* 0 if the original greys it */\n'
+            '    unsigned char sunk;    /* SS_SUNKEN: etched frame */\n'
+            '    unsigned char dflt;    /* BS_DEFPUSHBUTTON */\n'
             '    const char *text;      /* CP932 */\n'
             '} jw_ld_t;\n\n')
     f.write('static const jw_ld_t jw_layerdlg[] = {\n')
-    for x, y, ww, hh, cid, k, chk, text in rows:
-        f.write('    { %4d, %4d, %4d, %3d, %5d, JW_LD_%-6s, %d, "%s" },\n'
-                % (x, y, ww, hh, cid, k, chk, esc(text)))
+    for x, y, ww, hh, cid, k, chk, en, sunk, dflt, text in rows:
+        f.write('    { %4d, %4d, %4d, %3d, %5d, JW_LD_%-6s, %d, %d, %d, %d,'
+                ' "%s" },\n'
+                % (x, y, ww, hh, cid, k, chk, en, sunk, dflt, esc(text)))
     f.write('};\n#define JW_NLAYERDLG %d\n\n' % len(rows))
     f.write('#endif\n')
     f.close()
@@ -108,7 +126,15 @@ def main():
     g.write('0 %d %d %d\n' % (CAPTION, BORDER, CH))
     g.write('%d %d %d %d\n' % (W - BORDER, CAPTION, BORDER, CH))
     g.write('0 %d %d %d\n' % (H - BORDER, W, BORDER))
-    for x, y, ww, hh, cid, k, chk, text in rows:
+    # the sixteen layer-group cells of the tab control: their frames
+    # come from pictures of the original's own (tools/mklaytab.py) and
+    # are compared, but the digit on each is text and the port's font
+    # is not the original's, so the middle of every cell is left out
+    for k in range(16):
+        tx = BORDER + 2 + 32 * (k & 7)
+        ty = CAPTION + 2 + 16 * (0 if k >= 8 else 1)
+        g.write('%d %d %d %d' % (tx + 2, ty + 2, 28, 12) + chr(10))
+    for x, y, ww, hh, cid, k, chk, en, sunk, dflt, text in rows:
         x += BORDER
         y += CAPTION
         if k in ('CHECK', 'RADIO'):
@@ -120,7 +146,9 @@ def main():
             # of its frame runs
             g.write('%d %d %d %d\n' % (x - 1, y - 1, ww + 2, 17))
         else:
-            g.write('%d %d %d %d\n' % (x + 3, y + 3, ww - 6, hh - 6))
+            # a button: its two edges are compared, the text on it
+            # is not -- 一括's reaches to within two of the edge
+            g.write('%d %d %d %d\n' % (x + 2, y + 2, ww - 4, hh - 4))
     g.close()
     print('%s: %d controls, %s' % (OUT, len(rows), MASK))
     return 0

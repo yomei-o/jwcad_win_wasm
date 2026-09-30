@@ -428,6 +428,11 @@ static int jk_key(int c)
  * applies what the two boxes hold, to that group or to every editable one
  * if 全レイヤグループの縮尺変更 is ticked. */
 static int sk_open, sk_group, sk_caret;
+
+int app_shakudo_open(void)
+{
+    return sk_open;
+}
 static char sk_num[16] = "1", sk_den[16] = "100";
 static unsigned char sk_on[64];
 static char sk_list[16][16];
@@ -583,6 +588,11 @@ static int sk_key(int c)
  * its state round, the right makes it the one being written to. */
 static int ld_open;
 static unsigned char ld_on[64];
+
+int app_layerdlg_open(void)
+{
+    return ld_open;
+}
 
 static void ld_start(void)
 {

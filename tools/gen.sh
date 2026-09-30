@@ -167,14 +167,23 @@ powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww
 python tools/mkjikkaku.py
 
 say '縮尺・読取設定のダイアログ'
+cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/shakudo.txt     -Clicks 'dlg:32944,docs/ref_shakudo.png' >/dev/null
 python tools/mkshakudo.py
+python tools/mkskradio.py
 
 say 'レイヤ設定のダイアログと、その釦に載るレイヤ状態の絵'
+# Every picture of this one is taken over orig/Test5.jww: its sixteen
+# layers are in a mix of states and only some of them have anything on
+# them, which is what the eight button faces need.
+cp orig/Test5.jww tmp/rect.jww
 powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/layerdlg.txt     -Clicks 'dlg:32808,docs/ref_layerdlg.png' >/dev/null
 python tools/mklayerdlg.py
 sh tools/probe11.sh >/dev/null 2>&1 || true
+sh tools/probe12.sh >/dev/null 2>&1 || true
 python tools/mklayicon.py
+python tools/mkgrpicon.py
+python tools/mklaytab.py
 
 say '基本設定 dialog, all eight tabs'
 # The original does not build a tab's controls until it is shown, so each

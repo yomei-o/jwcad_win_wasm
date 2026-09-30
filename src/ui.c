@@ -16,7 +16,10 @@
 #include "gen/jikkaku.h"
 #include "gen/shakudo.h"
 #include "gen/layerdlg.h"
+#include "gen/grpicon.h"
+#include "gen/skradio.h"
 #include "gen/layicon.h"
+#include "gen/laytab.h"
 #include "gen/sunpodlg.h"
 #include "gen/bairitsu.h"
 #include "gen/pens.h"
@@ -2447,6 +2450,16 @@ int ui_jikkaku_hit(int cw, int ch, int x, int y)
  * of it is a tab control in the original, which nothing else here has, so
  * what the port draws is its frame and the one page that is up.
  */
+/* Every label in this dialog is an SS_SUNKEN static and the two combos are
+ * CBS_SIMPLE, so all of them are ringed with the same thin etched frame:
+ * a0a0a0 along the top and down the left, white along the bottom and the
+ * right.  Measured off docs/ref_layerdlg.png. */
+#define JW_LD_ETCH_TL 0xa0a0a0u
+#define JW_LD_ETCH_BR 0xffffffu
+/* the combos have a second ring inside that one */
+#define JW_LD_SUNK_TL 0x696969u
+#define JW_LD_SUNK_BR 0xe3e3e3u
+
 void ui_layerdlg_rect(int cw, int ch, rect_t *r)
 {
     r->w = JW_LD_W;
@@ -2491,7 +2504,8 @@ int ui_layerdlg_layer(int id)
 void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
 {
     rect_t r;
-    int cx, cy, i, th = jw_text_height(), wg = 0;
+    int cx, cy, i, th = jw_text_height(), wg = 0, wl = 0;
+    unsigned lay_has = 0;        /* a bit per layer with something on it */
     const jw_group *g;
 
     ui_layerdlg_rect(fb->w, fb->h, &r);
@@ -2511,6 +2525,61 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
             if (d->group[i].state == 3)
                 wg = i;
     g = d ? &d->group[wg] : 0;
+    if (g)
+        for (i = 0; i < 16; i++)
+            if (g->layer[i].state == 3)
+                wl = i;
+    /* which of the write group's layers have anything drawn on them: the
+     * original puts a different picture on an empty layer's button */
+    if (d)
+        for (i = 0; i < d->ndrawn; i++)
+            if (((d->obj[i].layer >> 4) & 15) == wg)
+                lay_has |= 1u << (d->obj[i].layer & 15);
+
+    /* the tab control's page, under the two rows of cells: the same
+     * two-ring frame the original draws, white then e3e3e3 going in on the
+     * top and the left, 696969 then a0a0a0 on the bottom and the right.
+     * The tab control is (0, 0, 278, 278) and the cells take 34 of it. */
+    fb_edge(fb, cx, cy + 34, 278, 244, 0xffffffu, 0x696969u);
+    fb_edge(fb, cx + 1, cy + 35, 276, 242, 0xe3e3e3u, 0xa0a0a0u);
+
+    /* the sixteen layer groups on the tab control, eight to a row: 8..F
+     * along the top and 0..7 below, which is the order the original shows
+     * them in.  The two cells are lifted from a picture of its own dialog
+     * (tools/mklaytab.py); the one being written to is bigger and is drawn
+     * last so it sits over its neighbours' edges. */
+    for (i = 0; i < 17; i++) {
+        int k = i == 16 ? wg : i;
+        int row = k < 8 ? 1 : 0;        /* 0..7 are the lower row */
+        int col = k & 7;
+        int tx = cx + JW_LAYTAB_X + JW_LAYTAB_DX * col;
+        int ty = cy + JW_LAYTAB_Y + JW_LAYTAB_DY * row;
+        const unsigned int *cell;
+        int cw, ch, px_, py_;
+        char lab[4];
+
+        if (i < 16 && i == wg)
+            continue;                   /* drawn last, at i == 16 */
+        if (i == 16) {
+            /* a cell in the first column meets the page's own left edge,
+             * which runs up to it, so it is not the same cell */
+            cell = col ? jw_laytab_sel : jw_laytab_sel0;
+            cw = JW_LAYTAB_SEL_W;
+            ch = JW_LAYTAB_SEL_H;
+            tx -= 2;
+            ty -= 2;
+        } else {
+            cell = jw_laytab_unsel;
+            cw = JW_LAYTAB_UNSEL_W;
+            ch = JW_LAYTAB_UNSEL_H;
+        }
+        for (py_ = 0; py_ < ch; py_++)
+            for (px_ = 0; px_ < cw; px_++)
+                px_put(fb, tx + px_, ty + py_, cell[py_ * cw + px_]);
+        sprintf(lab, "%X", k);
+        jw_text_px(fb, tx + (cw - jw_text_px_w(lab)) / 2,
+                   ty + (ch - th) / 2, lab, C_BTNTEXT);
+    }
 
     for (i = 0; i < JW_NLAYERDLG; i++) {
         const jw_ld_t *z = &jw_layerdlg[i];
@@ -2521,30 +2590,49 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
         case JW_LD_OK:
         case JW_LD_PUSH: {
             const char *t = z->text;
-            unsigned col = C_BTNTEXT;
+            unsigned col = z->en ? C_BTNTEXT : C_GRAYTEXT;
+            /* the write layer's button is drawn held down */
+            int down = lay >= 0 && g && g->layer[lay].state == 3;
             fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
-            if (z->id == 1)
+            if (z->dflt) {
+                /* BS_DEFPUSHBUTTON is flat: two rings and no 3D edges */
                 fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
-            fb_edge(fb, x + (z->id == 1), y + (z->id == 1),
-                    z->w - 2 * (z->id == 1), z->h - 2 * (z->id == 1),
-                    C_BTNHILIGHT, C_3DDKSHADOW);
-            fb_edge(fb, x + (z->id == 1) + 1, y + (z->id == 1) + 1,
-                    z->w - 2 * (z->id == 1) - 2, z->h - 2 * (z->id == 1) - 2,
-                    C_3DLIGHT, C_BTNSHADOW);
+                fb_edge(fb, x + 1, y + 1, z->w - 2, z->h - 2,
+                        0xa0a0a0u, 0xa0a0a0u);
+            } else if (down) {
+                fb_edge(fb, x, y, z->w, z->h, C_3DDKSHADOW, C_BTNHILIGHT);
+                fb_edge(fb, x + 1, y + 1, z->w - 2, z->h - 2,
+                        C_BTNSHADOW, C_3DLIGHT);
+            } else {
+                fb_edge(fb, x, y, z->w, z->h, C_BTNHILIGHT, C_3DDKSHADOW);
+                fb_edge(fb, x + 1, y + 1, z->w - 2, z->h - 2,
+                        C_3DLIGHT, C_BTNSHADOW);
+            }
+            if (z->id == 1087 && g) {
+                /* the group's own state, as a picture, on a BS_BITMAP
+                 * button exactly like the sixteen layers' */
+                int px_, py_, has = lay_has != 0;
+                for (py_ = 0; py_ < JW_GRPICON_H; py_++)
+                    for (px_ = 0; px_ < JW_GRPICON_W; px_++)
+                        px_put(fb, x + 2 + px_, y + 2 + py_,
+                               jw_grpicon[has][py_ * JW_GRPICON_W + px_]);
+                break;
+            }
             if (lay >= 0 && g) {
-                /* the original paints a little picture of the layer's state
-                 * on the button rather than its number (the number is the
-                 * static above it).  The four are lifted from pictures of
-                 * its own dialog -- see tools/mklayicon.py -- and sit four
-                 * in and four down from the button's corner. */
+                /* the original paints a little picture of the layer's
+                 * state on the button rather than its number (the number is
+                 * the static above it), and a different one again when the
+                 * layer is empty.  The eight faces are lifted whole from
+                 * pictures of its own dialog -- tools/mklayicon.py. */
                 int st = g->layer[lay].state;
-                int px_, py_;
+                int px_, py_, has = (lay_has >> lay) & 1;
                 if (st < 0 || st > 3)
                     st = 0;
                 for (py_ = 0; py_ < JW_LAYICON_H; py_++)
                     for (px_ = 0; px_ < JW_LAYICON_W; px_++)
-                        px_put(fb, x + 4 + px_, y + 4 + py_,
-                               jw_layicon[st][py_ * JW_LAYICON_W + px_]);
+                        px_put(fb, x + 2 + px_, y + 2 + py_,
+                               jw_layicon[st][has]
+                                         [py_ * JW_LAYICON_W + px_]);
                 break;
             }
             zs_text(fb, x + (z->w - jw_text_px_w(t)) / 2,
@@ -2569,23 +2657,41 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
             zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
             break;
         }
-        case JW_LD_COMBO:
-            mj_sunken(fb, x, y, z->w, z->h);
-            mj_combo_button(fb, x, y, z->w, z->h);
+        case JW_LD_COMBO: {
+            /* CBS_SIMPLE (style 0x241): an edit with the list under it, so
+             * there is no drop-down button on it -- just the thin etched
+             * frame the rest of the dialog uses, and the name inside.
+             * 1838 is the group's name, 1839 the write layer's. */
+            const char *t = 0;
+            if (d) {
+                if (z->id == 1838)
+                    t = jw_str((jw_drawing *)d, d->group[wg].name);
+                else if (z->id == 1839)
+                    t = jw_str((jw_drawing *)d,
+                               d->group[wg].layer_name[wl]);
+            }
+            fb_fill(fb, x, y, z->w, z->h, 0xffffffu);
+            fb_edge(fb, x, y, z->w, z->h, JW_LD_ETCH_TL, JW_LD_ETCH_BR);
+            fb_edge(fb, x + 1, y + 1, z->w - 2, z->h - 2,
+                    JW_LD_SUNK_TL, JW_LD_SUNK_BR);
+            if (t && *t)
+                zs_text(fb, x + 4, y + (z->h - th) / 2, z->w - 6, t,
+                        C_BTNTEXT);
             break;
+        }
         case JW_LD_EDIT:
             mj_sunken(fb, x, y, z->w, z->h);
             break;
         case JW_LD_STATIC: {
             /* the name each layer is given, out of the drawing */
+            /* 1975..1990 are the sixteen layer numbers.  The original
+             * leaves them as numbers even when the layers have names --
+             * the name only shows in the レイヤ名 box (1839). */
             const char *t = z->text;
-            if (z->id >= 1975 && z->id <= 1990 && d) {
-                const char *nm = jw_str((jw_drawing *)d,
-                                        d->group[wg].layer_name[z->id - 1975]);
-                if (nm && *nm)
-                    t = nm;
-            }
-            zs_text(fb, x, y + (z->h - th) / 2, z->w, t, C_BTNTEXT);
+            if (z->sunk)
+                fb_edge(fb, x, y, z->w, z->h, JW_LD_ETCH_TL, JW_LD_ETCH_BR);
+            zs_text(fb, x + (z->w - jw_text_px_w(t)) / 2,
+                    y + (z->h - th) / 2, z->w - 2, t, C_BTNTEXT);
             break;
         }
         default:
@@ -2701,11 +2807,20 @@ void ui_shakudo(fb_t *fb, const char *num, const char *den,
                     z->w - CHECK_W - 3, z->text, C_BTNTEXT);
             break;
         }
-        case JW_SK_RADIO:
-            mj_radio(fb, x, y + (z->h - CHECK_W) / 2, on ? on[i] : z->on);
+        case JW_SK_RADIO: {
+            /* not the 文字 dialog's pair: this one's are themed, and are
+             * lifted from a picture of its own (tools/mkskradio.py) */
+            const unsigned int *sp = (on ? on[i] : z->on)
+                                     ? jw_skradio_on : jw_skradio_off;
+            int px_, py_;
+            for (py_ = 0; py_ < JW_SKRADIO_H; py_++)
+                for (px_ = 0; px_ < JW_SKRADIO_W; px_++)
+                    px_put(fb, x + px_, y + py_,
+                           sp[py_ * JW_SKRADIO_W + px_]);
             zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
                     z->w - CHECK_W - 3, z->text, C_BTNTEXT);
             break;
+        }
         case JW_SK_GROUP: {
             int gy = y + th / 2, gh = z->h - th / 2;
 
