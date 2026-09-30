@@ -262,6 +262,94 @@ int main(int argc, char **argv)
         }
     }
 
+    /* points, colours and a solid: tools/probe35.sh printed
+       tools/mkpoints.c's drawing twice, once black and once with
+       カラー印刷 ticked, and decomp/res/print_points.txt is the second.
+       Four things came out of it. */
+    {
+        jw_drawing *e;
+        unsigned char *q;
+        long qn;
+        char *t;
+        int i;
+
+        app_new();
+        e = (jw_drawing *)app_drawing();
+        for (i = 0; i < 2; i++) {       /* one point of each kind */
+            jw_obj *o = jw_add(e, JW_TEN);
+            if (!o)
+                break;
+            o->color = 2;
+            o->ltype = 1;
+            o->d[0] = -80.0 + i * 40.0;
+            o->d[1] = 60.0;
+            o->n = 1 - i;
+        }
+        for (i = 1; i <= 9; i++) {      /* one line of each colour */
+            jw_obj *o = jw_add(e, JW_SEN);
+            if (!o)
+                break;
+            o->color = (unsigned short)i;
+            o->ltype = 1;
+            o->d[0] = -80.0;
+            o->d[1] = 20.0 - i * 10.0;
+            o->d[2] = 80.0;
+            o->d[3] = 20.0 - i * 10.0;
+        }
+        {
+            jw_obj *o = jw_add(e, JW_SOLID);
+            if (o) {
+                o->color = 4;
+                o->ltype = 1;
+                o->d[0] = -80; o->d[1] = -80;
+                o->d[2] = -40; o->d[3] = -80;
+                o->d[4] = -40; o->d[5] = -60;
+                o->d[6] = -80; o->d[7] = -60;
+            }
+        }
+        q = jw_plot_pdf(e, 1, &qn);     /* カラー印刷 */
+        ck(q != 0, "点と色と塗りを刷る");
+        if (q) {
+            int n = 0;
+            const char *r;
+            t = (char *)malloc((size_t)qn + 1);
+            memcpy(t, q, (size_t)qn);
+            t[qn] = 0;
+            /* the widths are print_width in 300 dpi dots */
+            ck(strstr(t, "0.240 w") != 0, "  太さは print_width のドット数");
+            /* the colours are print_rgb */
+            ck(strstr(t, "0.000 1.000 1.000 RG") != 0, "  線色1 は水色");
+            ck(strstr(t, "1.000 1.000 0.000 RG") != 0, "  線色4 は黄");
+            ck(strstr(t, "0.000 0.502 0.502 RG") != 0, "  線色7 は鴨の羽色");
+            /* 補助線色 (9) does not print: nine lines in, eight out */
+            r = t;
+            while ((r = strstr(r, " m ")) != 0) {
+                n++;
+                r += 3;
+            }
+            ck(n == 8 + 5 + 1,
+               "  線は八本、点は一つ（五筆）、塗りが一つ");
+            if (n != 14)
+                printf("     %d 本出ている\n", n);
+            ck(strstr(t, "h B*") != 0, "  塗りは塗って縁もなぞる");
+            free(t);
+            free(q);
+        }
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        {
+            jw_obj *o = jw_add(d, JW_SEN);
+            if (o) {
+                o->color = 2;
+                o->ltype = 1;
+                o->d[0] = SHEET_X0;
+                o->d[1] = SHEET_Y0;
+                o->d[2] = SHEET_X1;
+                o->d[3] = SHEET_Y1;
+            }
+        }
+    }
+
     png = jw_plot_png(d, 2.0, 0, &glen);
     ck(png != 0 && glen > 100, "PNG も出る");
     if (png) {

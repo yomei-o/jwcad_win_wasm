@@ -38,6 +38,23 @@
  *               0.1693 mm exactly.  So a pen's printed width is its
  *               print_width in three-hundredths of an inch.
  *   the ends    `1 J 1 j` -- round caps and round joins.
+ *
+ * Four more, from printing tools/mkpoints.c's drawing twice, black and
+ * in colour (tools/probe35.sh, probe36.sh, decomp/res/print_points.txt):
+ *
+ *   the ninth   **neither 補助線 (line type 9) nor 補助線色 (colour 9)
+ *               is printed** -- nine lines went to the printer each way
+ *               and eight came back each way
+ *   the colours カラー印刷 prints the drawing's print_rgb: 線色1 water
+ *               blue, 線色4 yellow, 線色7 the colour of a duck's wing
+ *   a point     only the kind whose trailing long is **0** prints, and it
+ *               prints as five short strokes making a dot a third of a
+ *               millimetre across.  Swapping the two kinds over moved the
+ *               dot with the long and not with the place, so it is the
+ *               long that decides
+ *   a solid     `h B*` -- closed, filled **and** stroked, at the pen's
+ *               own width, with its four corners in the order they are
+ *               stored
  */
 #ifndef JW_PLOT_H
 #define JW_PLOT_H

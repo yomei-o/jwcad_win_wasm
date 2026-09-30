@@ -95,11 +95,14 @@ static const char *dash_of(int type)
     }
 }
 
-/* 補助線 is not printed: nine lines went to the printer and eight came
-   back. */
+/* The ninth of either is not printed.  Nine lines of one colour and nine
+   line types went to the printer and eight came back (tools/probe34.sh);
+   nine lines of one type and nine colours went and eight came back
+   (tools/probe35.sh).  補助線 and 補助線色 are for working with, not for
+   paper. */
 static int prints(const jw_obj *o)
 {
-    return (o->ltype % 100) != 9;
+    return (o->ltype % 100) != 9 && o->color != 9;
 }
 
 /* ------------------------------------------------------------------ buf --
@@ -276,29 +279,47 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
         break;
     }
     case JW_TEN: {
-        /* A 実点 wears a ring on screen and a 仮点 is one dot.  Neither is
-           a millimetre of anything, so what goes on paper is a small cross
-           -- the same thing jwcad_dos_wasm draws.  The original was not
-           asked about this one. */
-        const double a = 0.4;
+        /* A dot, and a small one.  The original was asked
+           (tools/probe35.sh put a point with a 1 in its trailing long
+           and one with a 0 on a sheet and printed it): **only the one
+           with the 0 came out**, as five short strokes 0.132 mm wide a
+           twenty-fourth of a millimetre apart, the middle three 0.212
+           long and the outer two 0.127 -- a filled dot a third of a
+           millimetre across.  These are those five, in millimetres from
+           the point. */
+        static const double ROW[5][2] = {
+            { -0.0847, 0.0635 }, { -0.0423, 0.1058 }, { 0.0, 0.1058 },
+            {  0.0423, 0.1058 }, { 0.0847, 0.0635 }
+        };
+        double r, g, b;
+        int k;
 
-        state(p, pen, 1);
-        buf_f(p->b, "%.2f %.2f m %.2f %.2f l S\n",
-              px_(p, o->d[0] - a), py_(p, o->d[1]),
-              px_(p, o->d[0] + a), py_(p, o->d[1]));
-        buf_f(p->b, "%.2f %.2f m %.2f %.2f l S\n",
-              px_(p, o->d[0]), py_(p, o->d[1] - a),
-              px_(p, o->d[0]), py_(p, o->d[1] + a));
+        if (o->n != 0)
+            break;                      /* the other kind does not print */
+        pen_rgb(p->d, pen, p->colour, &r, &g, &b);
+        buf_f(p->b, "q %.3f %.3f %.3f RG %.3f w [] 0 d\n", r, g, b,
+              0.1323 * p->mm2pt);
+        for (k = 0; k < 5; k++)
+            buf_f(p->b, "%.2f %.2f m %.2f %.2f l S\n",
+                  px_(p, o->d[0] - ROW[k][1]), py_(p, o->d[1] + ROW[k][0]),
+                  px_(p, o->d[0] + ROW[k][1]), py_(p, o->d[1] + ROW[k][0]));
+        buf_put(p->b, "Q\n", -1);
+        p->pen = -1;
+        p->type = -1;
         break;
     }
     case JW_SOLID: {
-        /* four corners, and the fourth is the third again on a triangle */
+        /* Four corners in the order they are stored, closed, and then
+           **filled and stroked** -- the original wrote `h B*` for one,
+           with the pen's own width (tools/probe35.sh).  A triangle has
+           its fourth corner on top of its third. */
         state(p, pen, 1);
-        buf_f(p->b, "%.2f %.2f m %.2f %.2f l %.2f %.2f l %.2f %.2f l f\n",
+        buf_f(p->b,
+              "%.2f %.2f m %.2f %.2f l %.2f %.2f l %.2f %.2f l h B*\n",
               px_(p, o->d[0]), py_(p, o->d[1]),
               px_(p, o->d[2]), py_(p, o->d[3]),
-              px_(p, o->d[6]), py_(p, o->d[7]),
-              px_(p, o->d[4]), py_(p, o->d[5]));
+              px_(p, o->d[4]), py_(p, o->d[5]),
+              px_(p, o->d[6]), py_(p, o->d[7]));
         break;
     }
     case JW_MOJI: {
@@ -492,14 +513,15 @@ unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
     }
     /* the grid is a screen thing, not a printed one */
     paper.mesh_ix = paper.mesh_iy = 0.0;
-    /* and 補助線 is not printed: the class is put out of draw.c's reach
-       rather than the element taken out, so the block definitions past the
-       drawn ones keep the places they are referred to by */
+    /* and what does not print -- 補助線, 補助線色, and the kind of point
+       whose trailing long is not 0 -- is put out of draw.c's reach rather
+       than taken out, so the block definitions past the drawn ones keep
+       the places they are referred to by */
     own = (jw_obj *)malloc((size_t)(d->nobj > 0 ? d->nobj : 1) * sizeof *own);
     if (own) {
         memcpy(own, d->obj, (size_t)d->nobj * sizeof *own);
         for (i = 0; i < d->nobj; i++)
-            if ((own[i].ltype % 100) == 9)
+            if (!prints(&own[i]) || (own[i].cls == JW_TEN && own[i].n != 0))
                 own[i].cls = JW_NCLASS;
         paper.obj = own;
     }

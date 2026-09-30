@@ -11,9 +11,15 @@
 # measured off it.
 cd "$(dirname "$0")/.."
 set +e
+# gcc needs w64devkit on PATH to find `as`, but putting it there
+# makes `sh` resolve to its busybox, which cannot fork here.  So
+# the compiler gets it and nothing else does.
 CC=${CC:-gcc}
+for dd in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
+    [ -x "$dd/gcc.exe" ] && { CCPATH="$dd"; break; }
+done
 SRC="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c src/houraku.c src/view.c src/draw.c src/text.c src/fontx.c src/plot.c src/png.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
-$CC -O2 -Isrc -o tmp/mkdash.exe tools/mkdash.c $SRC -lm || exit 1
+(PATH="$CCPATH:$PATH"; $CC -O2 -Isrc -o tmp/mkdash.exe tools/mkdash.c $SRC -lm) || exit 1
 ./tmp/mkdash.exe || exit 1
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
 idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; }
