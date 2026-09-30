@@ -179,6 +179,7 @@ static int sel_n;
 static int sun_step;
 static int ika_step;            /* 一括処理: 0 idle, 1 始線, 2 終線, 3 (R) */
 static int ika_live;            /* a dimension is in, so its button is up */
+static void ika_run(jw_drawing *d);
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
@@ -1135,9 +1136,19 @@ const char *jw_cmd_status(const jw_drawing *d)
 const char *jw_cmd_prompt(void)
 {
     /* a 取得 takes the status line over while it is on */
-    if (get_mode)
-        return get_mode == 32940
-             ? (get_step ? JW_STR_10119 : JW_STR_5345) : JW_STR_5345;
+    if (get_mode) {
+        /* What each of them puts there, read off the running original
+           (tools/probe27.sh).  X軸角度 shows ●角度点 for both of
+           its two clicks; ２点間角度 leads with its own line and
+           then shows the same one. */
+        if (get_mode == 32940)
+            return get_step ? JW_STR_10119 : JW_STR_5345;
+        if (get_mode == 32933)
+            return JW_STR_10118;
+        if (get_mode == 32934)
+            return get_step ? JW_STR_10118 : JW_STR_10117;
+        return JW_STR_5345;
+    }
     switch (current) {
     case JW_CMD_SEN:
     case JW_CMD_KUKEI:
@@ -5226,8 +5237,14 @@ int jw_cmd_bar_check(int id)
 int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
     switch (id) {
-    case 1120:                  /* 選択確定 */
-        return sel_step == 2 && jw_cmd_sel_count(d) > 0;
+    case 1120:
+        /* 寸法 has 実行 here, and it is alive at exactly one
+           place: 一括処理's third prompt.  tools/probe45.sh read
+           the button at all five stages of the walk and it went
+           58010f00, 58010f00, 58010f00, **50010f00**, 58010f00. */
+        if (current == JW_CMD_SUNPO)
+            return ika_step == 3;
+        return sel_step == 2 && jw_cmd_sel_count(d) > 0;   /* 選択確定 */
     case 1064:                  /* 連続 -- not done */
         return 0;
     case 1065:                  /* 前範囲, and 追加範囲 once a box is in */
@@ -5407,6 +5424,17 @@ static int bar_press(jw_drawing *d, int id)
             if (!ika_live)
                 return 0;
             ika_step = 1;
+            return 1;
+        }
+        if (id == 1120) {       /* 実行 */
+            /* It draws exactly what the (R) at the third prompt draws:
+               the two runs of tools/probe46.sh came out with byte for
+               byte the same element list.  The one difference is where
+               they leave the walk -- the (R) goes back to the 始線
+               prompt and 実行 stays on the third one. */
+            if (ika_step != 3 || !d)
+                return 0;
+            ika_run(d);
             return 1;
         }
         if (id == 1064) {       /* リセット: back to the two-point kind */
@@ -6799,7 +6827,8 @@ static void get_take_length(double l)
 static int get_click(jw_drawing *d, const jw_view *v,
                      double x, double y, int button)
 {
-    int two = get_mode == 32940 || get_mode == 32933;
+    int two = get_mode == 32940 || get_mode == 32933
+              || get_mode == 32934;
     int i;
 
     if (!d)
@@ -6816,6 +6845,21 @@ static int get_click(jw_drawing *d, const jw_view *v,
         if (get_mode == 32940)
             get_take_length(sqrt((x - get_ax) * (x - get_ax)
                                  + (y - get_ay) * (y - get_ay)));
+        else if (get_mode == 32934)
+            /* ２点間角度 is **not** the angle between the two points,
+               which is what X軸角度 next to it gives.  It is a right
+               angle minus that -- the angle measured from the y axis.
+               Three runs say so: the original was given two points at
+               -26.565, -14.036 and +14.036 degrees and the line it drew
+               afterwards came out at 116.565, 104.036 and 75.964
+               (tools/probe28.sh, probe43.sh, probe46.sh).  The positive
+               one is what tells 90 - a from |a| + 90.
+               A line only shows the angle modulo 180, and the original
+               keeps the number to itself -- the 傾き box stayed empty
+               after every grab, X軸角度's included (tools/probe47.sh)
+               -- so which of 90 - a and 90 - a - 180 it holds is not
+               something this port can know. */
+            get_take_angle(PI / 2.0 - atan2(y - get_ay, x - get_ax));
         else
             get_take_angle(atan2(y - get_ay, x - get_ax));
         return 1;
@@ -7040,7 +7084,10 @@ placed:
                 if (button == 0)
                     return;
                 ika_run(d);
-                ika_step = 0;
+                /* and round again at the 始線 prompt, which is where
+                   the original goes: tools/probe45.sh read 5391 back
+                   after the (R), not the plain dimension's own line */
+                ika_step = 1;
                 return;
             }
             if (button != 0) {  /* (R) is 同一線種選択, which is not done */

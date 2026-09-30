@@ -52,6 +52,7 @@
 #include "../src/view.h"
 #include "../src/gen/bars.h"
 #include "../src/gen/sunpo.h"
+#include "../src/gen/prompts.h"
 
 static int fails;
 
@@ -194,6 +195,24 @@ static void press_bar(int id)
     ck(0, "  その釦がバーに無い");
 }
 
+/* One stage of the walk: what the status line says and whether 実行 is
+ * alive.  A null `prompt` means only the button is looked at. */
+static void step(const char *what, const char *prompt, int jikko)
+{
+    const jw_drawing *d = (const jw_drawing *)app_drawing();
+    const char *p = jw_cmd_prompt();
+    char buf[200];
+
+    if (prompt) {
+        sprintf(buf, "%s: 状態行", what);
+        ck(p && !strcmp(p, prompt), buf);
+        if (p && strcmp(p, prompt))
+            printf("     [%s]\n", p);
+    }
+    sprintf(buf, "%s: 実行 は%s", what, jikko ? "有効" : "無効");
+    ck(!jw_cmd_bar_enabled(d, 1120) == !jikko, buf);
+}
+
 /* What the original's answer holds. */
 static int theirs(const char *path, piece_t *out, int max)
 {
@@ -234,7 +253,7 @@ static int port_y(double mm)
 }
 
 /* And what the port makes of the same drawing and the same places. */
-static int ours(const char *base, int y, piece_t *out, int max)
+static int ours(const char *base, int y, int jikko, piece_t *out, int max)
 {
     unsigned char *b;
     long n;
@@ -260,27 +279,42 @@ static int ours(const char *base, int y, piece_t *out, int max)
     app_press(port_x(sheet_x(464)), port_y(sheet_y(343)), 1);
     ck(jw_cmd_bar_enabled((const jw_drawing *)app_drawing(), 1072) != 0,
        "  寸法を一本引くと有効になる");
+    /* 実行 (1120) is alive at exactly one place in the walk.  These five
+       are what tools/probe45.sh read off the original's own bar:
+       58010f00, 58010f00, 58010f00, 50010f00, 58010f00. */
+    step("  寸法を一本引いたところ", 0, 0);
     press_bar(1072);
-    ck(jw_cmd_prompt() && *jw_cmd_prompt(), "  状態行が出る");
+    step("  一括処理 を押したところ", JW_STR_5391, 0);
     app_press(port_x(sheet_x(391)), port_y(sheet_y(y)), 0);     /* 始線 */
+    step("  始線を指示したところ", JW_STR_5392, 0);
     app_press(port_x(sheet_x(717)), port_y(sheet_y(y)), 0);     /* 終線 */
-    app_press(port_x(sheet_x(900)), port_y(sheet_y(y)), 1);     /* (R) */
+    step("  終線を指示したところ —— ここだけ 実行 が有効", JW_STR_5393, 1);
+    if (jikko) {
+        /* 実行 draws the same thing and stays on the third prompt */
+        press_bar(1120);
+        step("  実行 で描いたところ —— 三つ目の問いのまま", JW_STR_5393, 1);
+    } else {
+        app_press(port_x(sheet_x(900)), port_y(sheet_y(y)), 1); /* (R) */
+        step("  (R) で確定したところ —— 始線の問いに戻る", JW_STR_5391, 0);
+    }
     return pieces((jw_drawing *)app_drawing(), out, max);
 }
 
 /* The four runs the original was put through. */
 static const struct {
     const char *base, *answer, *what;
-    int y;
+    int y, jikko;
 } RUNS[] = {
     { "decomp/res/sunikkatsu_base.jww", "decomp/res/sunikkatsu.jww",
-      "縦五本を素直に (probe39)", 320 },
+      "縦五本を素直に (probe39)", 320, 0 },
     { "decomp/res/sunikkatsu2_base.jww", "decomp/res/sunikkatsu2.jww",
-      "斜めの線と、届かない短い縦線 (probe40)", 320 },
+      "斜めの線と、届かない短い縦線 (probe40)", 320, 0 },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu3.jww",
-      "天端 20/19/15/10/0 を y=320 で (probe41)", 320 },
+      "天端 20/19/15/10/0 を y=320 で (probe41)", 320, 0 },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu4.jww",
-      "同じ図を y=330 で —— 天端 10 の一本も入る (probe42)", 330 },
+      "同じ図を y=330 で —— 天端 10 の一本も入る (probe42)", 330, 0 },
+    { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu5.jww",
+      "(R) の代わりに 実行 を押して (probe46)", 330, 1 },
 };
 
 int main(void)
@@ -293,7 +327,7 @@ int main(void)
     for (k = 0; k < (int)(sizeof RUNS / sizeof RUNS[0]); k++) {
         printf("-- %s\n", RUNS[k].what);
         na = theirs(RUNS[k].answer, a, 256);
-        nb = ours(RUNS[k].base, RUNS[k].y, b, 256);
+        nb = ours(RUNS[k].base, RUNS[k].y, RUNS[k].jikko, b, 256);
         flatten(a, na);
         flatten(b, nb);
         compare(a, na, b, nb);

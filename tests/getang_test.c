@@ -22,6 +22,18 @@
  *   decomp/res/getangleave.jww  leaving the command drops it
  *   decomp/res/getangbox.jww    a number typed into 傾き beats it
  *
+ * ２点間角度 (32934) took longer and has three files of its own, because
+ * the line only ever shows the angle **modulo 180** and one run at one
+ * angle leaves too many rules standing.  The original was given two
+ * points at -26.565, -14.036 and +14.036 degrees (tools/probe28.sh,
+ * probe43.sh, probe46.sh) and drew its next line at 116.565, 104.036 and
+ * 75.964 -- so the rule is **a right angle minus the angle between the
+ * two points**, and it is not |a| + 90, which the positive one rules out.
+ *
+ *   decomp/res/getk2a.jww   -26.565 -> 116.565
+ *   decomp/res/getk2b.jww   -14.036 -> 104.036
+ *   decomp/res/getk2c.jww   +14.036 ->  75.964
+ *
  * Every one of those files is read here and the rule read off it, and
  * then the port is driven the same way and held to the same rule.  Going
  * through the mouse the port cannot land on the original's own points to
@@ -46,6 +58,22 @@ static int fails;
 static void ck(int ok, const char *what)
 {
     printf("%-4s %s\n", ok ? "ok" : "BAD", what);
+    if (!ok)
+        fails++;
+}
+
+/* the same, modulo 180: a line's angle is only ever known that far */
+static void cknear180(double got, double want, const char *what)
+{
+    double d = got - want;
+    int ok;
+
+    while (d > 90.0)
+        d -= 180.0;
+    while (d <= -90.0)
+        d += 180.0;
+    ok = fabs(d) <= 1e-6;
+    printf("%-4s %s (%.6f / %.6f)\n", ok ? "ok" : "BAD", what, got, want);
     if (!ok)
         fails++;
 }
@@ -164,7 +192,8 @@ static void port_run(int grab, double rx0, double ry0, double rx1, double ry1,
     click(rx1, ry1, 0);
     if (grab) {
         app_command(grab);
-        if (grab == 32940 || grab == 32933) {   /* two read points */
+        if (grab == 32940 || grab == 32933
+            || grab == 32934) {         /* two read points */
             click(rx0, ry0, 1);
             click(rx1, ry1, 1);
         } else {                        /* one pick, on the line */
@@ -236,6 +265,16 @@ int main(void)
                   &gotdeg, &gotlen, 1))
         cknear(gotdeg, refdeg, 1e-6,
                "原典: X軸角度 は読んだ二点の間の角");
+    {
+        static const char *K2[3] = { "decomp/res/getk2a.jww",
+                                     "decomp/res/getk2b.jww",
+                                     "decomp/res/getk2c.jww" };
+        int i;
+        for (i = 0; i < 3; i++)
+            if (read_pair(K2[i], &refdeg, &reflen, &gotdeg, &gotlen, 1))
+                cknear180(gotdeg, 90.0 - refdeg,
+                          "原典: ２点間角度 は直角から二点の間の角を引いたもの");
+    }
     if (read_pair("decomp/res/getangtwice.jww", &refdeg, &reflen,
                   &gotdeg, &gotlen, 2))
         cknear(gotdeg, refdeg, 1e-6, "原典: 三本目まで角が残る");
@@ -289,6 +328,11 @@ int main(void)
     if (ref && got && ref != got)
         cknear(deg_of(got), deg_of(ref), 1e-6,
                "移植: X軸角度 も読んだ二点の間の角");
+
+    port_run(32934, rx0, ry0, rx1, ry1, sx, sy, ex, ey, &ref, &got, 0);
+    if (ref && got && ref != got)
+        cknear180(deg_of(got), 90.0 - deg_of(ref),
+                  "移植: ２点間角度 も直角から二点の間の角を引いたもの");
 
     port_run(32932, rx0, ry0, rx1, ry1, sx, sy, ex, ey, &ref, &got, 1);
     if (ref && got && ref != got)
