@@ -41,6 +41,12 @@ WANT = [
     (5330, 'where its line goes'),
     (5331, 'the first point it measures'),
     (5332, 'the second'),
+    (5333, 'and again, once one dimension is in'),
+    (5367, 'the circle the circumference mode wants indicated first'),
+    (6159, 'the tail those two modes put on: anticlockwise'),
+    (6158, 'and the name of the one, the circumference'),
+    (6157, 'and of the other, the angle'),
+    (5576, 'the dimension-value button: its start point, and what R and RR do'),
     (5327, 'the first corner of the box the weld works in'),
     (5328, 'the second one, and what the two buttons do there'),
 ]

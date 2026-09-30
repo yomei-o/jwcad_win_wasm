@@ -370,6 +370,41 @@ int jw_cmd_sunpo_decimals(void)
  * line.  0 is the ordinary two-point dimension. */
 static int sun_radius;          /* 1 = 半径, 2 = 直径 */
 
+/* 寸法 の 寸法値 (1069): the value on its own, with no dimension line and
+ * no extension lines.  The original was asked and, given two left clicks,
+ * wrote one text and nothing else -- the very text the two-point dimension
+ * writes: the distance in real units, centred on the middle of the two
+ * points, half a millimetre off to the left of the way they run, ltype 2
+ * and (places << 12) | 0x043 in the width word.
+ *
+ * Its prompt is 5576 to begin with and 5333 once one is in, which is what
+ * `sun_chi_done` is for.  (R) there moves an existing value and (RR)
+ * changes one; neither is done. */
+static int sun_chi;
+static int sun_chi_done;
+
+/* 寸法 の 円周 (1067): the length of an arc of a circle, written round the
+ * circle itself.
+ *
+ * Read off the original's own drawing (tools/probe17.sh).  Given a circle
+ * to indicate, then 引出し線の始点, then 寸法線の位置, then two read points
+ * on the circle, it wrote exactly what 角度 writes and in the same order --
+ * the value, the arc, a 点 at each end of it, an 引出線 along each way in --
+ * with three differences: the origin and the radius come from the circle
+ * that was indicated rather than from a click of its own, the value is the
+ * length of the arc on THAT circle (its radius times the sweep, in real
+ * units) and not an angle, and the text does not carry 角度's 0x0400.
+ *
+ * The sweep runs anticlockwise, which is what the status line says:
+ * 「○　寸法の始点を指示して下さい　（左回り）円周」.
+ *
+ * A circle on its own has nothing on it that can be read, and those two
+ * points have to be read ones, which is why four passes of asking the
+ * original drew nothing at all.  The fifth put a chord across the circle
+ * and read its ends. */
+static int sun_enshu;
+static double sun_er;           /* the radius of the circle indicated */
+
 /* 寸法 の 端部 (1062): a point at each end of the dimension line, or an
  * arrowhead.  The button turns it over. */
 static int sun_arrow = -1;
@@ -781,8 +816,10 @@ void jw_cmd_set(int id)
         sel_step = 0;
         sel_free();
     }
-    if (id == JW_CMD_SUNPO)
+    if (id == JW_CMD_SUNPO) {
         sun_step = 0;
+        sun_chi = sun_chi_done = sun_enshu = 0;
+    }
     if (id == JW_CMD_NISEN) {
         nisen_step = 0;
         nisen_obj = -1;
@@ -849,7 +886,7 @@ void jw_cmd_escape(void)
     cv_n = 0;
     ht_n = 0;
     ht_nchain = 0;
-    sun_step = sun_radius ? 2 : 0;
+    sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
 }
 
 /* Space: turn 水平・垂直 over.
@@ -1015,12 +1052,31 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_TAKAKU:
         /* 「中心点を指示してください (L)free (R)Read」 */
         return JW_STR_5309;
-    case JW_CMD_SUNPO:
+    case JW_CMD_SUNPO: {
+        /* 円周 and 角度 hang their own name off the end of the prompt from
+           the point where the two measured points are asked for, with
+           「（左回り）」 in front of it -- 6159 then 6158 or 6157 */
+        static char tail[128];
+        const char *p;
+
+        if (sun_chi)
+            return sun_step == 6 ? JW_STR_5332
+                 : sun_chi_done ? JW_STR_5333 : JW_STR_5576;
+        if (sun_step == 7) {
+            snprintf(tail, sizeof tail, "%s%s", JW_STR_5367, JW_STR_6158);
+            return tail;
+        }
         if (sun_step == 0)
             return JW_STR_5329;
         if (sun_step == 1)
             return JW_STR_5330;
-        return sun_step == 2 ? JW_STR_5331 : JW_STR_5332;
+        p = sun_step == 2 ? JW_STR_5331 : JW_STR_5332;
+        if (!sun_enshu && !sun_kaku)
+            return p;
+        snprintf(tail, sizeof tail, "%s%s%s", p, JW_STR_6159,
+                 sun_enshu ? JW_STR_6158 : JW_STR_6157);
+        return tail;
+    }
     case JW_CMD_ENKO:
         /* CZukeiEnko asks for the centre first and then a point the circle
            goes through.  It leads with 円位置 instead only when a radius has
@@ -5101,15 +5157,36 @@ static int bar_press(jw_drawing *d, int id)
             sun_step = 2;
             return 1;
         }
+        if (id == 1067) {       /* 円周: a circle is indicated first */
+            sun_enshu = 1;
+            sun_kaku = 0;
+            sun_radius = 0;
+            sun_chi = 0;
+            sun_step = 7;
+            return 1;
+        }
         if (id == 1068) {       /* 角度 */
             sun_kaku = 1;
             sun_radius = 0;
+            sun_chi = 0;
+            sun_enshu = 0;
             sun_step = 4;   /* the origin comes first */
+            return 1;
+        }
+        if (id == 1069) {       /* 寸法値: the value and nothing else */
+            sun_chi = 1;
+            sun_chi_done = 0;
+            sun_radius = 0;
+            sun_kaku = 0;
+            sun_enshu = 0;
+            sun_step = 5;
             return 1;
         }
         if (id == 1064) {       /* リセット: back to the two-point kind */
             sun_radius = 0;
             sun_kaku = 0;
+            sun_chi = 0;
+            sun_enshu = 0;
             sun_step = 0;
             return 1;
         }
@@ -5648,6 +5725,67 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     op_push(4);
 }
 
+/* 寸法値 (1069): the value on its own, between the two points given. */
+static void sunpo_value(jw_drawing *d, double x0, double y0,
+                        double x1, double y1)
+{
+    double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy);
+    double ux, uy, vx, vy, cw, ch, sp, tw = 0.0, mx, my;
+    char txt[64];
+    const char *p;
+    int i, wg = 0, nch = 0;
+    jw_obj *o;
+
+    if (len <= 0.0)
+        return;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    i = JW_SUN_MOJINO - 1;
+    if (i < 0 || i > 9)
+        i = 0;
+    cw = d->style[i].w;
+    ch = d->style[i].h;
+    sp = d->style[i].sp;
+    sunpo_text(txt, (int)sizeof txt, len, d->group[wg].scale);
+    for (p = txt; *p; ) {
+        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        p += wide ? 2 : 1;
+        nch++;
+    }
+    if (cw <= 0.0 || ch <= 0.0 || !nch)
+        return;
+    ux = dx / len;
+    uy = dy / len;
+    vx = -uy;
+    vy = ux;
+    mx = (x0 + x1) / 2.0 + JW_SUN_HANARE * vx;
+    my = (y0 + y1) / 2.0 + JW_SUN_HANARE * vy;
+    o = jw_add(d, JW_MOJI);
+    if (!o)
+        return;
+    o->color = (unsigned short)d->style[i].color;
+    o->ltype = 2;
+    o->width = (unsigned short)((sun_decimals() << 12)
+                                | (JW_SUN_TEXT_WIDTH & 0x0fffu));
+    o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS);
+    o->d[0] = mx - tw / 2.0 * ux;
+    o->d[1] = my - tw / 2.0 * uy;
+    o->d[2] = mx + tw / 2.0 * ux;
+    o->d[3] = my + tw / 2.0 * uy;
+    o->d[4] = cw;
+    o->d[5] = ch;
+    o->d[6] = sp;
+    o->d[7] = 0.0;
+    o->n = JW_SUN_MOJINO;
+    o->text = jw_add_str(d, txt);
+    o->face = jw_add_str(d, JW_MOJI_FACE);
+    op_push(1);
+}
+
 /* 角度 (1068): the angle between two directions about an origin.
  *
  * Read off the original's own drawing.  Given the origin, a point for the
@@ -5687,10 +5825,20 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
     if (sweep <= 0.0)
         return;
 
-    /* the value, in degrees, minutes and seconds */
-    deg = sweep * 180.0 / PI;
-    sec = (int)(deg * 3600.0 + 0.5);
-    sprintf(txt, "%d\xdf%02d'%02d\"", sec / 3600, (sec / 60) % 60, sec % 60);
+    if (sun_enshu) {
+        /* 円周: the length of that much of the circle, in real units */
+        int wg = 0;
+        for (i = 0; i < 16; i++)
+            if (d->group[i].state == 3)
+                wg = i;
+        sunpo_text(txt, (int)sizeof txt, sun_er * sweep, d->group[wg].scale);
+    } else {
+        /* 角度: the value in degrees, minutes and seconds */
+        deg = sweep * 180.0 / PI;
+        sec = (int)(deg * 3600.0 + 0.5);
+        sprintf(txt, "%d\xdf%02d'%02d\"", sec / 3600, (sec / 60) % 60,
+                sec % 60);
+    }
 
     i = JW_SUN_MOJINO - 1;
     if (i < 0 || i > 9)
@@ -5716,7 +5864,8 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
             o->color = (unsigned short)d->style[i].color;
             o->ltype = 2;
             o->width = 0;
-            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS | 0x0400u);
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS
+                                       | (sun_enshu ? 0u : 0x0400u));
             o->d[0] = px - tw / 2.0 * tx;
             o->d[1] = py - tw / 2.0 * ty;
             o->d[2] = px + tw / 2.0 * tx;
@@ -6295,12 +6444,41 @@ placed:
             sunpo_radius(d, v, x, y);
             return;
         }
+        if (sun_chi) {
+            /* 寸法値: two points, and the value alone goes between them.
+               (L) is free, (R) reads, the same as everywhere else. */
+            if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+                return;
+            if (sun_step != 6) {
+                sun_sx = x;
+                sun_sy = y;
+                sun_step = 6;
+                return;
+            }
+            sunpo_value(d, sun_sx, sun_sy, x, y);
+            sun_chi_done = 1;
+            sun_step = 5;
+            return;
+        }
         if (sun_step == 4) {
             /* 角度 asks for the origin before anything else */
             if (button != 0 && !jw_read(d, v, x, y, &x, &y))
                 return;
             sun_ox = x;
             sun_oy = y;
+            sun_step = 0;
+            return;
+        }
+        if (sun_step == 7) {
+            /* 円周 asks for a circle, and takes its middle and its
+               radius; from there it is 角度's walk exactly */
+            int k = jw_pick(d, v, x, y, 6);
+            if (k < 0 || d->obj[k].cls != JW_ENKO
+                || d->obj[k].d[2] <= 0.0)
+                return;
+            sun_ox = d->obj[k].d[0];
+            sun_oy = d->obj[k].d[1];
+            sun_er = d->obj[k].d[2];
             sun_step = 0;
             return;
         }
@@ -6327,7 +6505,7 @@ placed:
             sun_step = 3;
             return;
         }
-        if (sun_kaku)
+        if (sun_kaku || sun_enshu)
             sunpo_angle(d, rx, ry);
         else
             sunpo_make(d, rx, ry);

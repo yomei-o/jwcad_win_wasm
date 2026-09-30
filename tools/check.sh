@@ -173,6 +173,18 @@ echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合�
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== 寸法値 —— 原典が置いた寸法値との突き合わせ"
+./tests/sunpochi_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 円周 —— 原典が引いた円周寸法との突き合わせ"
+./tests/sunpoenshu_test.exe | sed 's/^/    /'
+
+echo
+echo "=== メニューの総ざらい —— どの項目が応えるか"
+./tests/menusweep_test.exe | sed 's/^/    /'
+
+echo
 echo "=== レイヤ設定 —— 原典が描いた五通りのダイアログとの突き合わせ"
 ./tests/layerdlg_test.exe tests/out/layerdlg | sed 's/^/    /'
 for t in '' _hidden _shown _emptywrite _emptygroup; do

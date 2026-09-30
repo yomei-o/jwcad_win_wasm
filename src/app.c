@@ -1511,6 +1511,12 @@ static int dialog_open(void)
            || sk_open || ld_open;
 }
 
+/* whether any of them is up, for whoever is outside */
+int app_modal(void)
+{
+    return dialog_open();
+}
+
 static void dialog_close(void)
 {
     zoku_open = moji_open = zsel_open = jk_open = 0;

@@ -87,6 +87,7 @@ const char *app_jikkaku_angle(void);
 int  app_sunpodlg_open(void);
 int  app_layerdlg_open(void);
 int  app_shakudo_open(void);
+int  app_modal(void);          /* any dialog at all */
 int  app_bairitsu_open(void);
 
 /* 図形読込 (32862) -- the .jws the original would have put a file window up
