@@ -95,6 +95,9 @@
 #   export:<cmd>,<name> the same, but sending <cmd> instead of 名前を付けて
 #                       保存 -- 32961 is DXF形式で保存, 32976 SFC形式で保存,
 #                       32810 JWC形式で保存
+#   savedlg:<path>     type <path> into whatever modal file dialog is up
+#                       (or comes up) and press OK -- printing goes
+#                       through one of those
 #   saveas:<name>       名前を付けて保存 to tmp\<name>.jww (or to the path
 #                       given, if it looks like one).  Needs the Windows
 #                       common dialog, which the script turns on in HKCU for
@@ -1161,6 +1164,59 @@ try {
                 if (-not (Test-Path $made)) { throw "figout: $name.jws was not written" }
                 Copy-Item $made $figTo -Force
                 Write-Host ("wrote {0} ({1:n0} bytes)" -f $Matches[1], (Get-Item $figTo).Length)
+                break
+            }
+
+            '^savedlg:(.+)$' {
+                # Whatever modal file dialog is up now (or comes up in the
+                # next few seconds): put this path in its name box and press
+                # OK.  Printing goes through one of these -- the printer on
+                # this machine is Microsoft Print To PDF, which asks where to
+                # put the PDF -- and so does anything else that saves through
+                # the shell rather than through Jw_cad's own dialog.
+                $name = $Matches[1]
+                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $name))
+                $dir = Split-Path -Parent $full
+                if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+                Remove-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue
+                $dlg = [IntPtr]::Zero
+                $deadline = (Get-Date).AddSeconds(12)
+                while ((Get-Date) -lt $deadline -and $dlg -eq [IntPtr]::Zero) {
+                    foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                        if ([Jw]::Cls($t) -ne '#32770') { continue }
+                        if (-not [Jw]::IsWindowVisible($t)) { continue }
+                        foreach ($k in [Jw]::Kids($t)) {
+                            if ([Jw]::Cls($k) -eq 'Edit') { $dlg = $t; break }
+                        }
+                        if ($dlg -ne [IntPtr]::Zero) { break }
+                    }
+                    if ($dlg -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 300 }
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no file dialog came up' }
+                $edit = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::Cls($k) -eq 'Edit') { $edit = $k; break }
+                }
+                [void][Jw]::SendMessageStr($edit, $WM_SETTEXT, [IntPtr]::Zero, $full)
+                Start-Sleep -Milliseconds 300
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)
+                $deadline = (Get-Date).AddSeconds(20)
+                while ((Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 400
+                    foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                        if ($t -eq $dlg) { continue }
+                        if ([Jw]::Cls($t) -eq '#32770' -and [Jw]::IsWindowVisible($t)) {
+                            [void][Jw]::SendMessageW($t, $WM_COMMAND, [IntPtr]6, [IntPtr]::Zero)
+                        }
+                    }
+                    if (Test-Path $full) { break }
+                }
+                Start-Sleep -Milliseconds 800
+                if (Test-Path $full) {
+                    Write-Host ("saved {0} ({1:n0} bytes)" -f $name, (Get-Item $full).Length)
+                } else {
+                    throw "savedlg: $name was not written"
+                }
                 break
             }
 

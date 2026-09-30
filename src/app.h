@@ -41,7 +41,8 @@ const fb_t *app_fb(void);
 enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_SAVE_DXF, JW_ACT_OPEN_DXF, JW_ACT_OPEN_SFC,
        JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC,
-       JW_ACT_SAVE_FIG, JW_ACT_SAVE_COORD };
+       JW_ACT_SAVE_FIG, JW_ACT_SAVE_COORD,
+       JW_ACT_PLOT };
 
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the

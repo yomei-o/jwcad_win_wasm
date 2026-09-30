@@ -1307,6 +1307,15 @@ int app_command(int cmd)
     case 32810:                         /* JWC形式で保存 */
         action = JW_ACT_SAVE_JWC;
         return 0;
+    case 57607:                         /* 印刷 */
+        /* The original puts the Windows printer dialog up here and then
+           goes into a mode of its own, with a frame to place and 印刷 (L)
+           to press.  The port has no printer: what it hands over is a
+           file of the sheet, one to one, which is what that print comes
+           out as -- a PDF to send to a printer or a PNG to look at, by
+           the name it is given (src/plot.h). */
+        action = JW_ACT_PLOT;
+        return 0;
     }
     /* a command the port does not do yet: it still becomes the one in force
        if it has a button, so the bar and the prompt follow */

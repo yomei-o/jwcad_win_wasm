@@ -1,0 +1,21 @@
+# The content of the PDF the original itself printed, with the
+# stream decompressed.  tools/probe32.sh made it: ファイル > 印刷
+# with Microsoft Print To PDF as the printer, over a new A-2 sheet
+# with one line on it from (-33.0612,-4.2857) to (28.1633,-34.8980)
+# in sheet millimetres.  The page is the printer's A4, 210 x 297.
+#
+# Everything the port's own printing had to be told is in here: the
+# one to one scale, the sheet's middle at the page's middle, black
+# ink, the width, and the round caps and joins.
+MediaBox 0.0 0.0 595.32001 841.92004
+0.750000 0.000000 0.000000 -0.750000 0.000000 841.920044 cm
+q
+0.000000 0.000000 0.000000 RG
+1 J
+1 j
+10.000000 M
+0.640 w
+271.839996 577.440002 m
+503.200012 693.119995 l
+S
+Q

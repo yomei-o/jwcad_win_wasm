@@ -11,6 +11,7 @@
 #include <stdlib.h>
 
 #include "app.h"
+#include "plot.h"
 #include "cp932.h"
 #include "cmd.h"
 #include "ui.h"
@@ -308,6 +309,24 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_jwc(void)
     saved_n = 0;
     if (!app_save_jwc(&saved, &saved_n))
         return 0;
+    return saved;
+}
+
+/* 印刷: the drawing as a PDF to send to a printer, or a PNG to look at.
+   The page is the sheet, one to one -- see src/plot.h for what the
+   original was asked and what it answered.  `colour` is カラー印刷, which
+   the original has off as its print bar comes up. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_plot(int as_png, int colour)
+{
+    const jw_drawing *d = app_drawing();
+
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!d)
+        return 0;
+    saved = as_png ? jw_plot_png(d, 4.0, colour, &saved_n)
+                   : jw_plot_pdf(d, colour, &saved_n);
     return saved;
 }
 

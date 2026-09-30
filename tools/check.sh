@@ -193,6 +193,10 @@ echo "=== 状態行の尻尾 —— 原典が出す角・長さ・W H・r"
 ./tests/status_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 印刷 —— 原典が刷った PDF との突き合わせ"
+./tests/plot_test.exe tests/out/plot.pdf tests/out/plot.png | sed 's/^/    /'
+
+echo
 echo "=== レイヤ設定 —— 原典が描いた五通りのダイアログとの突き合わせ"
 ./tests/layerdlg_test.exe tests/out/layerdlg | sed 's/^/    /'
 for t in '' _hidden _shown _emptywrite _emptygroup; do

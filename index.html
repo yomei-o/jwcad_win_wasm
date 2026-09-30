@@ -28,6 +28,8 @@
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
+  <button id="pdf" type="button">PDF で印刷</button>
+  <button id="png" type="button">PNG で印刷</button>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
 </div>
@@ -275,6 +277,7 @@
   const saveJwc   = mod.cwrap('jw_save_jwc', 'number', []);
   const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
   const savedFree = mod.cwrap('jw_saved_free', null, []);
+  const plot      = mod.cwrap('jw_plot', 'number', ['number', 'number']);
 
   // 上書 and 名前を付けて保存 both come out here: a browser cannot write
   // back to the file it was given, so it offers the result as a download.
@@ -323,6 +326,17 @@
     offer(saveJwc(), openedName.replace(/\.[^.]*$/, '') + '.jwc');
   }
 
+  // 印刷: the original prints the sheet one to one, in black unless
+  // カラー印刷 is ticked, and clips whatever runs off the printer's paper.
+  // A browser has no printer, so what comes out is the two things a print
+  // is for -- a PDF to send to one, and a PNG to look at.  The page is the
+  // drawing's own 用紙, which is the one page that never clips.  See
+  // src/plot.h for what the original was asked.
+  function downloadPlot(asPng) {
+    const ext = asPng ? '.png' : '.pdf';
+    offer(plot(asPng ? 1 : 0, 0), openedName.replace(/\.[^.]*$/, '') + ext);
+  }
+
   async function load(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const p = mod._malloc(bytes.length);
@@ -354,6 +368,8 @@
   document.getElementById('dxf').addEventListener('click', () => downloadDxf());
   document.getElementById('sfc').addEventListener('click', () => downloadSfc());
   document.getElementById('jwc').addEventListener('click', () => downloadJwc());
+  document.getElementById('pdf').addEventListener('click', () => downloadPlot(false));
+  document.getElementById('png').addEventListener('click', () => downloadPlot(true));
 
   document.getElementById('pick').addEventListener('change', e => {
     if (e.target.files[0]) load(e.target.files[0]);
