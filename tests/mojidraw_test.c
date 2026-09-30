@@ -124,21 +124,30 @@ typedef struct {
     int tick;                   /* a checkbox to put on */
     const char *box, *val;      /* and a box to type into */
     int base;                   /* 基点 0..8, or -1 to leave it alone */
+    int zure;                   /* ずれ使用, and the pair that goes with
+                                   the cell: 横 then 縦 */
+    double zx, zy;
 } run_t;
 
 static const run_t RUNS[] = {
-    { "decomp/res/moji_plain.jww", "素の文字", 0, 0, 0, -1 },
-    { "decomp/res/moji_ang.jww",   "角度 30",  0, "1411", "30", -1 },
-    { "decomp/res/moji_tate.jww",  "縦字",     1325, 0, 0, -1 },
-    { "decomp/res/moji_k0.jww", "基点 左上", 0, 0, 0, 0 },
-    { "decomp/res/moji_k1.jww", "基点 左中", 0, 0, 0, 1 },
-    { "decomp/res/moji_k2.jww", "基点 左下", 0, 0, 0, 2 },
-    { "decomp/res/moji_k3.jww", "基点 中上", 0, 0, 0, 3 },
-    { "decomp/res/moji_k4.jww", "基点 中中", 0, 0, 0, 4 },
-    { "decomp/res/moji_k5.jww", "基点 中下", 0, 0, 0, 5 },
-    { "decomp/res/moji_k6.jww", "基点 右上", 0, 0, 0, 6 },
-    { "decomp/res/moji_k7.jww", "基点 右中", 0, 0, 0, 7 },
-    { "decomp/res/moji_k8.jww", "基点 右下", 0, 0, 0, 8 },
+    { "decomp/res/moji_plain.jww", "素の文字", 0, 0, 0, -1, 0, 0, 0 },
+    { "decomp/res/moji_ang.jww",   "角度 30",  0, "1411", "30", -1, 0, 0, 0 },
+    { "decomp/res/moji_tate.jww",  "縦字",     1325, 0, 0, -1, 0, 0, 0 },
+    { "decomp/res/moji_k0.jww", "基点 左上", 0, 0, 0, 0, 0, 0, 0 },
+    { "decomp/res/moji_k1.jww", "基点 左中", 0, 0, 0, 1, 0, 0, 0 },
+    { "decomp/res/moji_k2.jww", "基点 左下", 0, 0, 0, 2, 0, 0, 0 },
+    { "decomp/res/moji_k3.jww", "基点 中上", 0, 0, 0, 3, 0, 0, 0 },
+    { "decomp/res/moji_k4.jww", "基点 中中", 0, 0, 0, 4, 0, 0, 0 },
+    { "decomp/res/moji_k5.jww", "基点 中下", 0, 0, 0, 5, 0, 0, 0 },
+    { "decomp/res/moji_k6.jww", "基点 右上", 0, 0, 0, 6, 0, 0, 0 },
+    { "decomp/res/moji_k7.jww", "基点 右中", 0, 0, 0, 7, 0, 0, 0 },
+    { "decomp/res/moji_k8.jww", "基点 右下", 0, 0, 0, 8, 0, 0, 0 },
+    { "decomp/res/moji_zure_lt.jww", "左上に ずれ 横5 縦3",
+      0, 0, 0, 0, 1, 5, 3 },
+    { "decomp/res/moji_zure_rb.jww", "右下に ずれ 横7 縦2",
+      0, 0, 0, 8, 1, 7, 2 },
+    { "decomp/res/moji_zure_off.jww", "ずれ使用を入れないと効かない",
+      0, 0, 0, 0, 0, 5, 3 },
 };
 
 int main(void)
@@ -183,6 +192,20 @@ int main(void)
         }
         type_box(1411, "");
         jw_cmd_moji_base(r->base >= 0 ? r->base : 2);
+        jw_cmd_moji_zure(r->zure);
+        {
+            int t;
+            for (t = 0; t < 3; t++) {
+                jw_cmd_moji_zure_at(1, t, 0.0);
+                jw_cmd_moji_zure_at(0, t, 0.0);
+            }
+        }
+        if (r->zx != 0.0 || r->zy != 0.0) {
+            int col = (r->base >= 0 ? r->base : 2) / 3;
+            int row = (r->base >= 0 ? r->base : 2) % 3;
+            jw_cmd_moji_zure_at(1, col, r->zx);
+            jw_cmd_moji_zure_at(0, row, r->zy);
+        }
         if (r->tick && jw_cmd_bar_check(r->tick) <= 0)
             jw_cmd_bar((jw_drawing *)app_drawing(), r->tick);
         if (r->box)
@@ -217,6 +240,75 @@ int main(void)
         }
         jw_free(&theirs);
     }
+    /* 文読 (1069): a file's lines, 行間 apart -- and 行間 is **twice** the
+       box, in millimetres of paper, whatever the characters measure.  The
+       original read the same two line file six ways (tools/probe67.sh ..
+       probe69.sh): empty, 5, 20 and 40 at 文字種10 gave steps of 10, 10,
+       40 and 80, and empty and 20 at 文字種4 gave 10 and 40. */
+    {
+        static const struct { const char *answer, *what, *gyou; } Y[] = {
+            { "decomp/res/moji_yomi0.jww",  "文読、行間なし", "" },
+            { "decomp/res/moji_yomi20.jww", "文読、行間 20", "20" },
+            { "decomp/res/moji_yomi5.jww",  "文読、行間 5",  "5" },
+            { "decomp/res/moji_yomi40.jww", "文読、行間 40", "40" },
+        };
+        static const unsigned char FILE2[] = "ABC\r\nDEF\r\n";
+        int k;
+
+        for (k = 0; k < (int)(sizeof Y / sizeof Y[0]); k++) {
+            const jw_obj *a, *c;
+            jw_drawing *ours;
+            int i, na = 0, nc = 0;
+            const jw_obj *ta[4], *tc[4];
+
+            printf("-- %s\n", Y[k].what);
+            b = slurp(Y[k].answer, &n);
+            if (!b) {
+                printf("BAD  %s が読めない\n", Y[k].answer);
+                fails++;
+                continue;
+            }
+            memset(&theirs, 0, sizeof theirs);
+            if (!jw_parse(&theirs, b, n)) {
+                printf("BAD  %s が開けない\n", Y[k].answer);
+                fails++;
+                free(b);
+                continue;
+            }
+            free(b);
+            app_new();
+            ours = (jw_drawing *)app_drawing();
+            app_command(JW_CMD_MOJI);
+            jw_cmd_moji_base(2);
+            jw_cmd_moji_zure(0);
+            type_box(1411, "");
+            type_box(1418, Y[k].gyou);
+            ck(jw_cmd_text_load(ours, FILE2, (long)sizeof FILE2 - 1) != 0,
+               "  文書が読める");
+            app_press(port_x(sheet_x(400)), port_y(sheet_y(400)), 0);
+            for (i = 0; i < theirs.ndrawn && na < 4; i++)
+                if (theirs.obj[i].cls == JW_MOJI && theirs.obj[i].color != 9)
+                    ta[na++] = &theirs.obj[i];
+            for (i = 0; i < ours->ndrawn && nc < 4; i++)
+                if (ours->obj[i].cls == JW_MOJI && ours->obj[i].color != 9)
+                    tc[nc++] = &ours->obj[i];
+            ck(na == 2 && nc == na, "  二行とも置かれる");
+            for (i = 0; i < na && i < nc; i++) {
+                char msg[160];
+                a = ta[i];
+                c = tc[i];
+                sprintf(msg, "  %d 行目 (%.4f,%.4f)", i, a->d[0], a->d[1]);
+                ck(fabs(a->d[0] - c->d[0]) < 0.35
+                   && fabs(a->d[1] - c->d[1]) < 0.35
+                   && !strcmp(jw_str(&theirs, a->text), jw_str(ours, c->text)),
+                   msg);
+                if (fabs(a->d[1] - c->d[1]) >= 0.35)
+                    printf("     移植は (%.4f,%.4f)\n", c->d[0], c->d[1]);
+            }
+            jw_free(&theirs);
+        }
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

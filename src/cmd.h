@@ -260,8 +260,21 @@ void jw_cmd_figure_at(double mag, double deg);
 /* 文字の 基点 (1064): 0..8 for 左上 左中 左下 中上 中中 中下
    右上 右中 右下, which is the order of the dialog's own radios
    1689..1697.  It comes up on 2 -- 左下. */
+/* 文読 (1069): the bytes of a text file, in place of the original's
+   own 「開く」.  The lines then go down from the next click, 行間 apart
+   -- which is **twice** what that box holds, in millimetres of paper. */
+int  jw_cmd_text_load(jw_drawing *d, const unsigned char *b, long n);
+int  jw_cmd_text_ready(void);
+
 void jw_cmd_moji_base(int n);
 int  jw_cmd_moji_base_now(void);
+/* ずれ使用 (1323) and the six boxes beside it: `across` picks the
+   横ずれ row of three (左中右) or the 縦ずれ one (上中下), in
+   millimetres of paper.  The text's start moves by minus each of them. */
+void jw_cmd_moji_zure(int on);
+int  jw_cmd_moji_zure_now(void);
+void jw_cmd_moji_zure_at(int across, int n, double v);
+double jw_cmd_moji_zure_get(int across, int n);
 
 int  jw_cmd_clip_copy(jw_drawing *d, int cut);
 int  jw_cmd_clip_has(void);

@@ -817,6 +817,66 @@ static void blank(jw_obj *o);
 
 /* What the line is worth in paper millimetres, and how the text element for
    it is laid out.  Shared by the preview and the one that gets placed. */
+/* 文読 (1069) -- read a text file and place its lines.
+ *
+ * The button puts up an ordinary「開く」 (tools/probe66.sh), and the file
+ * that comes back is placed line by line at the next click: the first
+ * line's start lands on it and the rest follow **downwards**, across the
+ * run.
+ *
+ * **行間 (1418) is that step, and it is twice what the box holds, in
+ * millimetres of paper.**  An empty box behaves as 5.  A two line file
+ * was read six ways (tools/probe67.sh .. probe69.sh):
+ *
+ *   文字種10 (10 tall)   empty -> 10   5 -> 10   20 -> 40   40 -> 80
+ *   文字種4  (4 tall)    empty -> 10             20 -> 40
+ *
+ * -- so it is not a multiple of the character height, which the first
+ * four runs alone could not tell (10 tall and a 10 step look the same).
+ */
+static char txt_line[64][256];
+static int txt_n;
+
+int jw_cmd_text_load(jw_drawing *d, const unsigned char *b, long n)
+{
+    long i = 0;
+    int k = 0;
+
+    (void)d;
+    txt_n = 0;
+    while (i < n && k < (int)(sizeof txt_line / sizeof txt_line[0])) {
+        int j = 0;
+
+        while (i < n && b[i] != '\r' && b[i] != '\n'
+               && j < (int)sizeof txt_line[0] - 1)
+            txt_line[k][j++] = (char)b[i++];
+        txt_line[k][j] = 0;
+        while (i < n && (b[i] != '\r' && b[i] != '\n'))
+            i++;                        /* a line longer than the buffer */
+        while (i < n && (b[i] == '\r' || b[i] == '\n')) {
+            i += b[i] == '\r' && i + 1 < n && b[i + 1] == '\n' ? 2 : 1;
+            break;
+        }
+        k++;
+    }
+    txt_n = k;
+    return k > 0;
+}
+
+int jw_cmd_text_ready(void)
+{
+    return txt_n;
+}
+
+/* the step from one line to the next, in millimetres of paper */
+static double txt_pitch(void)
+{
+    const char *t = jw_cmd_box(1418);
+    double v = t && *t ? atof(t) : 5.0;
+
+    return (v > 0.0 ? v : 5.0) * 2.0;
+}
+
 /* 連 (1068) -- 連結・移動・切断, the 文字 bar's text editor.
  *
  * Not「place one after another」, which is what the label looks like: the
@@ -1066,10 +1126,59 @@ static void ren_cut(jw_drawing *d, int i, double x, double y)
  */
 static int moji_kijun = 2;              /* 左下 */
 
+/* ずれ使用 (1323) and the six boxes beside the 3x3: 横ずれ 2004 2005 2006
+ * under the three columns and 縦ずれ 2009 2008 2007 beside the three rows,
+ * so each cell has a pair.  The label says 図寸法mm and it is: the numbers
+ * go on to the paper one for one.
+ *
+ * What they do was asked of the original (tools/probe70.sh).  With ABC at
+ * the same click as everything else:
+ *
+ *   左上, 横 5 縦 3   (-99.2857, -47.898)   -- plain 左上 is (-94.2857, -44.898)
+ *   右下, 横 7 縦 2   (-117.286, -36.898)   -- plain 右下 is (-110.286, -34.898)
+ *   左上, boxes filled but ずれ使用 **off**  -- plain 左上, so the tick is
+ *                                             what turns them on
+ *
+ * -- the start moves by **minus** each of them, in both cells, so it is a
+ * plain (-横, -縦) on the paper and not something that turns with the
+ * corner.  Which box goes with which cell is the dialog's own layout (three
+ * under the three columns, three beside the three rows) and the two runs
+ * above; a run with the other column's box filled was not done.
+ */
+static int moji_zure;
+static double moji_zx[3], moji_zy[3];   /* 左中右 across, 上中下 down */
+
 void jw_cmd_moji_base(int n)
 {
     if (n >= 0 && n < 9)
         moji_kijun = n;
+}
+
+void jw_cmd_moji_zure(int on)
+{
+    moji_zure = on ? 1 : 0;
+}
+
+int jw_cmd_moji_zure_now(void)
+{
+    return moji_zure;
+}
+
+void jw_cmd_moji_zure_at(int across, int n, double v)
+{
+    if (n >= 0 && n < 3) {
+        if (across)
+            moji_zx[n] = v;
+        else
+            moji_zy[n] = v;
+    }
+}
+
+double jw_cmd_moji_zure_get(int across, int n)
+{
+    if (n < 0 || n >= 3)
+        return 0.0;
+    return across ? moji_zx[n] : moji_zy[n];
 }
 
 int jw_cmd_moji_base_now(void)
@@ -1109,6 +1218,11 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
 
         x -= along * ux + across * vx;
         y -= along * uy + across * vy;
+        if (moji_zure) {
+            /* and the ずれ, which is straight down the paper's own axes */
+            x -= moji_zx[moji_kijun / 3];
+            y -= moji_zy[moji_kijun % 3];
+        }
     }
     blank(o);
     o->cls = JW_MOJI;
@@ -7778,6 +7892,48 @@ placed:
             sel_place(d, x, y);
             return;
         }
+    }
+    if (current == JW_CMD_MOJI && txt_n > 0) {
+        /* 文読: the lines go down from the click, 行間 apart */
+        const char *as = jw_cmd_box(1411);
+        double a = as && *as ? atof(as) * PI / 180.0
+                 : jw_cmd_bar_check(1324) > 0 ? PI / 2.0 : 0.0;
+        double vx = -sin(a), vy = cos(a), pitch = txt_pitch();
+        int k, made = 0, was = line_n;
+        char keep[sizeof line_buf];
+
+        if (button != 0 || !d)
+            return;
+        memcpy(keep, line_buf, sizeof keep);
+        for (k = 0; k < txt_n; k++) {
+            jw_obj tmp, *o;
+
+            line_n = (int)strlen(txt_line[k]);
+            if (line_n > (int)sizeof line_buf - 2)
+                line_n = (int)sizeof line_buf - 2;
+            memcpy(line_buf, txt_line[k], (size_t)line_n);
+            /* moji() keeps the pool offset of the last string it was given
+               and only puts a new one in when line_gen moves, so every
+               line has to move it */
+            line_gen++;
+            if (!line_n)
+                continue;
+            if (!moji(d, &tmp, x - k * pitch * vx, y - k * pitch * vy))
+                continue;
+            o = jw_add(d, JW_MOJI);
+            if (!o)
+                break;
+            tmp.layer = o->layer;
+            tmp.lgroup = o->lgroup;
+            *o = tmp;
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            made++;
+        }
+        memcpy(line_buf, keep, sizeof line_buf);
+        line_n = was;
+        txt_n = 0;
+        op_push(made);
+        return;
     }
     if (current == JW_CMD_MOJI && ren_step) {
         /* 連 (1068): 連結 and 切断 -- see the note by ren_join above */

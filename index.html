@@ -75,6 +75,7 @@
   const openSfc = mod.cwrap('jw_open_sfc', 'number', ['number', 'number']);
   const openJwc = mod.cwrap('jw_open_jwc', 'number', ['number', 'number']);
   const figure = mod.cwrap('jw_figure', 'number', ['number', 'number']);
+  const text   = mod.cwrap('jw_bunyomi', 'number', ['number', 'number']);
   const saveFig = mod.cwrap('jw_save_fig', 'number', []);
   const saveCoord = mod.cwrap('jw_save_coord', 'number', []);
   const coord = mod.cwrap('jw_coord', 'number', ['number', 'number']);
@@ -337,6 +338,9 @@
     offer(plot(asPng ? 1 : 0, 0), openedName.replace(/\.[^.]*$/, '') + ext);
   }
 
+  // 文読 (1069) asks for a text file; the next one picked goes to jw_text
+  let askedText = false;
+
   async function load(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const p = mod._malloc(bytes.length);
@@ -345,9 +349,14 @@
     // place of it, which is what the original does with those two.
     // A .jws is a 図形: it enters 図形読込 and hangs on the cursor until a
     // point is clicked, so it does not become the drawing that is open.
-    // a .txt is a 座標ファイル, which the original also reads as a 図形
-    const fig = /\.(jws|txt)$/i.test(file.name);
-    const ok = /\.dxf$/i.test(file.name) ? openDxf(p, bytes.length)
+    // a .txt is a 座標ファイル, which the original also reads as a 図形 --
+    // unless 文読 (the 文字 bar's 1069) asked for it, and then its lines
+    // go down from the next click instead
+    const wantText = askedText;
+    askedText = false;
+    const fig = wantText || /\.(jws|txt)$/i.test(file.name);
+    const ok = wantText                  ? text(p, bytes.length)
+             : /\.dxf$/i.test(file.name) ? openDxf(p, bytes.length)
              : /\.sfc$/i.test(file.name) ? openSfc(p, bytes.length)
              : /\.jwc$/i.test(file.name) ? openJwc(p, bytes.length)
              : /\.txt$/i.test(file.name) ? coord(p, bytes.length)
@@ -413,6 +422,10 @@
       else if (r === 3) download();
       else if (r === 4) downloadFig();
       else if (r === 5) downloadCoord();
+      else if (r === 6) {
+        askedText = true;
+        document.getElementById('pick').click();
+      }
       else if (r) present();
       setTimeout(aim, 0);     /* after the browser has moved the focus */
       return;

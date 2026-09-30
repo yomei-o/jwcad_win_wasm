@@ -752,6 +752,13 @@ int app_figure(const unsigned char *b, long n)
     return jw_cmd_figure_load(&drawing, b, n);
 }
 
+int app_text(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_cmd_text_load(&drawing, b, n);
+}
+
 int app_bairitsu_open(void)
 {
     return br_open;
@@ -810,6 +817,10 @@ static int press_mojikijun(int x, int y)
         return 0;                       /* outside it: the dialog is modal */
     if (id >= 1689 && id <= 1697) {
         jw_cmd_moji_base(id - 1689);
+        return 1;
+    }
+    if (id == 1323) {                   /* ずれ使用 */
+        jw_cmd_moji_zure(!jw_cmd_moji_zure_now());
         return 1;
     }
     if (id == 1 || id == 2) {           /* OK */
@@ -1475,6 +1486,12 @@ int app_press(int x, int y, int button)
             /* 範囲選択's own button, which only comes alive once a box is
                in -- the bar has it greyed until then */
             zsel_start();
+            return 1;
+        }
+        if (id == 1069 && jw_cmd() == JW_CMD_MOJI) {
+            /* 文読: the original puts up an ordinary 「開く」 here
+               (tools/probe66.sh); the port asks the front end for it */
+            action = JW_ACT_OPEN_TEXT;
             return 1;
         }
         if (id == 1064 && jw_cmd() == JW_CMD_MOJI) {

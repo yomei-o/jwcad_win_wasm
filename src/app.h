@@ -42,7 +42,11 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_SAVE_DXF, JW_ACT_OPEN_DXF, JW_ACT_OPEN_SFC,
        JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC,
        JW_ACT_SAVE_FIG, JW_ACT_SAVE_COORD,
-       JW_ACT_PLOT };
+       JW_ACT_PLOT,
+       /* 文読 (1069) on the 文字 bar: the original puts up an
+          ordinary 「開く」 and the port has none, so the front end
+          reads the text file and hands it to app_text. */
+       JW_ACT_OPEN_TEXT };
 
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the
@@ -96,6 +100,10 @@ int  app_bairitsu_open(void);
    for.  Returns 0 if it is not a figure.  The command is entered, and the
    next press puts the figure down. */
 int  app_figure(const unsigned char *b, long n);
+
+/* 文読: the bytes of a text file.  Its lines then go down from
+   the next click, 行間 apart. */
+int  app_text(const unsigned char *b, long n);
 
 /* 図形登録 (32946) -- the other way.  The command takes a range and then a
    基準点; the press that gives the point leaves JW_ACT_SAVE_FIG behind, and

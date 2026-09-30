@@ -184,6 +184,8 @@ EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
         return 4;               /* 図形登録: the figure wants a name */
     case JW_ACT_SAVE_COORD:
         return 5;               /* 座標ファイル: so does that one */
+    case JW_ACT_OPEN_TEXT:
+        return 6;               /* 文読: a text file to read */
     }
     if (redraw)
         app_paint();
@@ -222,6 +224,17 @@ EMSCRIPTEN_KEEPALIVE int jw_open_dxf(unsigned char *b, int n)
 EMSCRIPTEN_KEEPALIVE int jw_figure(unsigned char *b, int n)
 {
     if (!app_figure(b, n))
+        return 0;
+    app_paint();
+    return 1;
+}
+
+/* 文読 (1069): the original puts up an ordinary 「開く」, so the
+   page picks the text file and hands the bytes over.  Its lines then go
+   down from the next click, 行間 apart -- twice what that box holds. */
+EMSCRIPTEN_KEEPALIVE int jw_bunyomi(unsigned char *b, int n)
+{
+    if (!app_text(b, n))
         return 0;
     app_paint();
     return 1;
