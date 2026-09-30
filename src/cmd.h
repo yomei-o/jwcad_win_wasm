@@ -49,9 +49,11 @@ enum {
     JW_CMD_CHUSHIN = 0x8069,        /* 中心線 -- CZukeiChuushinSen */
     JW_CMD_SESSEN = 0x8066,         /* 接線 -- 円→円 only so far */
     JW_CMD_SEKIEN = 0x8068,         /* 接円 -- two lines and a radius */
-    JW_CMD_KYOKUSEN = 0x808c,       /* 曲線 -- スプライン only so far */
+    JW_CMD_KYOKUSEN = 0x808c,       /* 曲線 -- all four kinds: サイン、
+                                       ２次、スプライン、ベジェ (tests/curve_test.c) */
     JW_CMD_HOURAKU = 0x804e,        /* 包絡処理 -- CZukeiHouraku */
-    JW_CMD_HATCH = 0x806a,          /* ハッチ -- 1線 only so far */
+    JW_CMD_HATCH = 0x806a,          /* ハッチ -- 1線・２線・３線・┬┴┬;
+                                       図形 (1693) is the one left */
     JW_CMD_SEIRI = 0x808e,          /* データ整理 -- CZukeiSeiri */
     JW_CMD_BLOCK = 0x8055,          /* ブロック化 -- CZukeiBlock */
     JW_CMD_BLOCK_FREE = 0x808d,     /* ブロック解除 */
