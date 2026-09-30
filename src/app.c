@@ -791,6 +791,34 @@ static int press_bairitsu(int x, int y)
     return 1;
 }
 
+/* 文字基点設定 -- the 文字 bar's 基点 (1064).  Only the
+   nine radios do anything: what each of them does to a placed text was
+   measured off the original (tools/probe62.sh), and nothing has been
+   asked of the ずれ boxes or the three 作図 checkboxes. */
+static int mk_open;
+
+int app_mojikijun_open(void)
+{
+    return mk_open;
+}
+
+static int press_mojikijun(int x, int y)
+{
+    int id = ui_mojikijun_hit(fb.w, fb.h, x, y);
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id >= 1689 && id <= 1697) {
+        jw_cmd_moji_base(id - 1689);
+        return 1;
+    }
+    if (id == 1 || id == 2) {           /* OK */
+        mk_open = 0;
+        return 1;
+    }
+    return 1;
+}
+
 static int kh_open, kh_tab;
 static unsigned char kh_on[8][256];
 
@@ -1401,6 +1429,8 @@ int app_press(int x, int y, int button)
         return press_sunpodlg(x, y);
     if (br_open)
         return press_bairitsu(x, y);
+    if (mk_open)
+        return press_mojikijun(x, y);
     if (sk_open)
         return press_shakudo(x, y);
     if (ld_open)
@@ -1445,6 +1475,11 @@ int app_press(int x, int y, int button)
             /* 範囲選択's own button, which only comes alive once a box is
                in -- the bar has it greyed until then */
             zsel_start();
+            return 1;
+        }
+        if (id == 1064 && jw_cmd() == JW_CMD_MOJI) {
+            /* 基点(左下): the button puts up 文字基点設定 */
+            mk_open = 1;
             return 1;
         }
         if (id == 1843 && jw_cmd() == JW_CMD_MOJI) {
@@ -1997,6 +2032,8 @@ void app_paint(void)
         ui_sunpodlg(&fb, sd_on);
     if (br_open)
         ui_bairitsu(&fb, br_zoom, br_on);
+    if (mk_open)
+        ui_mojikijun(&fb, jw_cmd_moji_base_now());
     if (sk_open) {
         sk_fill();
         ui_shakudo(&fb, sk_num, sk_den, sk_listp, sk_group, sk_on, sk_caret);

@@ -27,8 +27,13 @@ import re
 # it holds is almost all enabled/disabled, which the port answers for itself
 # in jw_cmd_bar_enabled, and putting it in would need a step counter that
 # means the same thing as the capture's.  See docs/notes-commands.md.
+# bars5.txt is 図形 (32862): its bar only exists once a figure has been
+# read, so tools/bars.ps1's sweep (send a command, read the bar) never
+# reached it.  tools/probe61.sh goes in through the file window instead.
+# 貼り付け (57637) puts the same bar up, so 倍率 (1431) and 回転角 (1412)
+# come with it.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
-       'decomp/res/bars3.txt']
+       'decomp/res/bars3.txt', 'decomp/res/bars5.txt']
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar

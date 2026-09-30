@@ -817,6 +817,40 @@ static void blank(jw_obj *o);
 
 /* What the line is worth in paper millimetres, and how the text element for
    it is laid out.  Shared by the preview and the one that gets placed. */
+/* 基点 (1064): which corner of the text the click is.
+ *
+ * The button puts up a dialog whose 3x3 of radios is 1689..1697, in the
+ * order 左上 左中 左下 中上 中中 中下 右上 右中 右下, and 左下 is the one
+ * it comes up on (tools/probe60.sh read them all).  So the index here is
+ * that id minus 1689: the column is index/3 -- 左, 中, 右 -- and the row
+ * is index%3 -- 上, 中, 下.
+ *
+ * What each one does was asked of the original, all nine, with ABC typed
+ * and one click at the same place (tools/probe62.sh).  The click is at
+ * (-94.2857, -34.898), the run is 16 mm and the characters are 10 tall,
+ * and the text started at
+ *
+ *        左            中             右
+ *   上   -94.2857     -102.286      -110.286    y -44.898
+ *   中   -94.2857     -102.286      -110.286    y -39.898
+ *   下   -94.2857     -102.286      -110.286    y -34.898
+ *
+ * -- so the click is pulled back along the run by nothing, half of it and
+ * all of it, and across it by the height, half of it and nothing.
+ */
+static int moji_kijun = 2;              /* 左下 */
+
+void jw_cmd_moji_base(int n)
+{
+    if (n >= 0 && n < 9)
+        moji_kijun = n;
+}
+
+int jw_cmd_moji_base_now(void)
+{
+    return moji_kijun;
+}
+
 static int moji(jw_drawing *d, jw_obj *o, double x, double y)
 {
     const char *p = line_buf;
@@ -838,6 +872,17 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
         len += wide ? cw : cw / 2;
         p += wide ? 2 : 1;
         nch++;
+    }
+    {   /* 基点: pull the click back to where the text starts */
+        const char *as = jw_cmd_box(1411);
+        double a = as && *as ? atof(as) * PI / 180.0
+                 : jw_cmd_bar_check(1324) > 0 ? PI / 2.0 : 0.0;
+        double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
+        double along = len * (double)(moji_kijun / 3) / 2.0;
+        double across = ch * (double)(2 - moji_kijun % 3) / 2.0;
+
+        x -= along * ux + across * vx;
+        y -= along * uy + across * vy;
     }
     blank(o);
     o->cls = JW_MOJI;
@@ -4743,10 +4788,22 @@ static double fig_mag = 1.0, fig_deg;
    own size and work their far end out from it (see src/coord.c) */
 static int fig_coord;
 
+/* 倍率 and 回転角 for a figure, from a front end that has no
+   command bar of its own.  They go **into the bar's own boxes**, because
+   that is where the original keeps them and where figure_place reads
+   them: a front end that types into the boxes and one that calls this
+   have to end up in the same place. */
 void jw_cmd_figure_at(double mag, double deg)
 {
+    char *m = box_slot(JW_CMD_ZUKEI, 1431);
+    char *g = box_slot(JW_CMD_ZUKEI, 1412);
+
     fig_mag = mag;
     fig_deg = deg;
+    if (m)
+        snprintf(m, 16, "%g", mag);
+    if (g)
+        snprintf(g, 16, "%g", deg);
 }
 
 int jw_cmd_figure_ready(void)

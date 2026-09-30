@@ -13,8 +13,10 @@
  *   mo_ang    角度 (1411) 30
  *   mo_tate   縦字 (1325) ticked
  *
- * and 基点 (1064) is left out: pressing it puts a modal window up, which
- * the probe cannot walk past, so nothing is known about it yet.
+ * and then all nine 基点 (tools/probe62.sh), which needed the dialog the
+ * button puts up to be walked -- `dlgin:b1064,<radio>=!` presses one of
+ * its 3x3 and then OK.  The radios are 1689..1697 in the order 左上 左中
+ * 左下 中上 中中 中下 右上 右中 右下, and 左下 is the one it comes up on.
  *
  * What is compared is the text element: where it starts, where its run
  * ends, the size and spacing, the 文字種, the flags and the string.
@@ -121,12 +123,22 @@ typedef struct {
     const char *answer, *what;
     int tick;                   /* a checkbox to put on */
     const char *box, *val;      /* and a box to type into */
+    int base;                   /* 基点 0..8, or -1 to leave it alone */
 } run_t;
 
 static const run_t RUNS[] = {
-    { "decomp/res/moji_plain.jww", "素の文字", 0, 0, 0 },
-    { "decomp/res/moji_ang.jww",   "角度 30",  0, "1411", "30" },
-    { "decomp/res/moji_tate.jww",  "縦字",     1325, 0, 0 },
+    { "decomp/res/moji_plain.jww", "素の文字", 0, 0, 0, -1 },
+    { "decomp/res/moji_ang.jww",   "角度 30",  0, "1411", "30", -1 },
+    { "decomp/res/moji_tate.jww",  "縦字",     1325, 0, 0, -1 },
+    { "decomp/res/moji_k0.jww", "基点 左上", 0, 0, 0, 0 },
+    { "decomp/res/moji_k1.jww", "基点 左中", 0, 0, 0, 1 },
+    { "decomp/res/moji_k2.jww", "基点 左下", 0, 0, 0, 2 },
+    { "decomp/res/moji_k3.jww", "基点 中上", 0, 0, 0, 3 },
+    { "decomp/res/moji_k4.jww", "基点 中中", 0, 0, 0, 4 },
+    { "decomp/res/moji_k5.jww", "基点 中下", 0, 0, 0, 5 },
+    { "decomp/res/moji_k6.jww", "基点 右上", 0, 0, 0, 6 },
+    { "decomp/res/moji_k7.jww", "基点 右中", 0, 0, 0, 7 },
+    { "decomp/res/moji_k8.jww", "基点 右下", 0, 0, 0, 8 },
 };
 
 int main(void)
@@ -170,6 +182,7 @@ int main(void)
                     jw_cmd_bar((jw_drawing *)app_drawing(), TICK[t]);
         }
         type_box(1411, "");
+        jw_cmd_moji_base(r->base >= 0 ? r->base : 2);
         if (r->tick && jw_cmd_bar_check(r->tick) <= 0)
             jw_cmd_bar((jw_drawing *)app_drawing(), r->tick);
         if (r->box)

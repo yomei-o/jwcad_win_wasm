@@ -255,6 +255,12 @@ void jw_cmd_figure_at(double mag, double deg);
 /* 切り取り・コピー・貼り付け.  The original's clipboard is a 図形 --
    貼り付け puts up 図形読込's own command -- so these go through the
    same .jws the 図形 calls above do. */
+/* 文字の 基点 (1064): 0..8 for 左上 左中 左下 中上 中中 中下
+   右上 右中 右下, which is the order of the dialog's own radios
+   1689..1697.  It comes up on 2 -- 左下. */
+void jw_cmd_moji_base(int n);
+int  jw_cmd_moji_base_now(void);
+
 int  jw_cmd_clip_copy(jw_drawing *d, int cut);
 int  jw_cmd_clip_has(void);
 int  jw_cmd_clip_paste(jw_drawing *d);

@@ -177,13 +177,14 @@ int main(void)
         ck(jw_cmd_clip_has() != 0, "  クリップボードに入る");
         ck(jw_cmd_clip_paste(d) != 0, "  貼り付けが 図形 を出す");
         ck(jw_cmd() == (int)JW_CMD_ZUKEI, "  出るのは 図形読込 の命令");
-        /* 倍率 and 回転角 live on the 図形 bar, and that bar
-           has not been taken off the original yet (src/gen/bars.h has no
-           32862), so there is nothing to type into: the two are set
-           through the call the front end would make. */
+        /* 倍率 (1431) and 回転角 (1412) are on the 図形 bar,
+           which 貼り付け puts up.  They are the bar's own state and
+           outlive a new drawing, in the port as in the original, and
+           every run of the probe started the original afresh. */
+        type_box(1431, "");
+        type_box(1412, "");
         if (r->box)
-            jw_cmd_figure_at(atoi(r->box) == 1431 ? atof(r->val) : 1.0,
-                             atoi(r->box) == 1412 ? atof(r->val) : 0.0);
+            type_box(atoi(r->box), r->val);
         app_press(port_x(sheet_x(r->px)), port_y(sheet_y(r->py)), 0);
 
         na = pasted_of(&theirs, a, 4, 1);

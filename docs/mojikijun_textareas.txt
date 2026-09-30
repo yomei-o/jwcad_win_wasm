@@ -1,0 +1,32 @@
+# Where the 文字基点 dialog draws text with a Windows font, in
+# the coordinates of docs/ref_mojikijun.png (the whole 255x239
+# window).  The frame and the caption go with them.  Written by
+# tools/mkmojikijun.py.
+
+0 0 255 31
+0 31 8 200
+247 31 8 200
+0 231 255 8
+22 184 213 18
+67 41 169 17
+90 60 32 17
+90 83 32 17
+90 105 32 17
+142 60 32 17
+142 83 32 17
+142 105 32 17
+195 60 32 17
+195 83 32 17
+195 105 32 17
+79 135 40 20
+132 135 40 20
+183 135 41 20
+18 104 38 20
+18 81 38 20
+18 59 38 20
+97 159 119 16
+18 39 40 16
+33 159 58 16
+33 215 58 16
+112 215 59 16
+187 215 61 16

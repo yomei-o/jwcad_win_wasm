@@ -125,6 +125,15 @@ powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Clicks 'cmd:32806;dlg:b1843,tmp/moji.png' >/dev/null
 python tools/mkmoji.py
 
+say '文字基点設定 dialog, the 文字 bar's 基点 (1064)'
+# docs/ref_mojikijun.png is the committed reference and
+# tests/mojikijun_test.c scores the port against it.  What the nine radios
+# do to a placed text is tools/probe62.sh and tests/mojidraw_test.c.
+sh tools/refenv.sh >/dev/null
+cp orig/Test5.jww tmp/rect.jww
+powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/mojikijun.txt     -Clicks 'cmd:32806;dlg:b1064,docs/ref_mojikijun.png' >/dev/null
+python tools/mkmojikijun.py
+
 say '属性選択 dialog, likewise'
 # 範囲選択 with a box already in has the button that opens it, so the command
 # and the box have to come first.  docs/ref_zokusel.png is the committed

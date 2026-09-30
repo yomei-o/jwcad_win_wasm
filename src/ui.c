@@ -18,6 +18,7 @@
 #include "gen/layerdlg.h"
 #include "gen/grpicon.h"
 #include "gen/skradio.h"
+#include "gen/mojikijun.h"
 #include "gen/layicon.h"
 #include "gen/laytab.h"
 #include "gen/sunpodlg.h"
@@ -3198,6 +3199,146 @@ int ui_bairitsu_hit(int cw, int ch, int x, int y)
         const jw_br_t *z = &jw_bairitsu[i];
 
         if (z->kind == JW_BR_STATIC || z->kind == JW_BR_GROUP || !z->enabled)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+
+/* 文字基点設定 -- the dialog the 文字 bar's 基点 (1064) puts up.
+ *
+ * Its controls are read out of the running original (tools/mkmojikijun.py
+ * from decomp/res/mojikijun.txt) and drawn here the same way the 画面倍率
+ * dialog above is.  What the nine radios do to a placed text was measured
+ * separately -- see moji_kijun in src/cmd.c.
+ *
+ * The six edit boxes and the three 作図 checkboxes are drawn because the
+ * dialog is the original's picture, but nothing has been asked of them, so
+ * the port does not act on them.
+ */
+void ui_mojikijun_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_MK_W;
+    r->h = JW_MK_H;
+    r->x = (cw - JW_MK_W) / 2;
+    r->y = (ch - 42 - JW_MK_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_mojikijun_n(void)
+{
+    return JW_NMOJIKIJUN;
+}
+
+int ui_mojikijun_id(int i)
+{
+    return i >= 0 && i < JW_NMOJIKIJUN ? jw_mojikijun[i].id : 0;
+}
+
+void ui_mojikijun(fb_t *fb, int base)
+{
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_mojikijun_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
+    fb_fill(fb, r.x, r.y, r.w, JW_MK_CAPTION, MJ_CAPTION_BG);
+    jw_text_px(fb, r.x + 9, r.y + (JW_MK_CAPTION - th) / 2, JW_MK_TITLE,
+               C_BTNTEXT);
+    for (i = 0; i < 9; i++) {           /* the close cross */
+        fb_fill(fb, r.x + JW_MK_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+        fb_fill(fb, r.x + JW_MK_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
+    }
+    cx = r.x + JW_MK_BORDER;
+    cy = r.y + JW_MK_CAPTION;
+    fb_fill(fb, cx, cy, JW_MK_CW, JW_MK_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NMOJIKIJUN; i++) {
+        const jw_mk_t *z = &jw_mojikijun[i];
+        int x = cx + z->x, y = cy + z->y;
+        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+
+        switch (z->kind) {
+        case JW_MK_OK:
+        case JW_MK_PUSH: {
+            int k2 = z->deflt;          /* BS_DEFPUSHBUTTON */
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text, col);
+            break;
+        }
+        case JW_MK_RADIO:
+            /* mj_radio draws its ring one row down from the y it is
+               given (see tools/mkskradio.py), so the ring lands in the
+               middle of a 15 tall control at the control's own top */
+            mj_radio(fb, x, y + (z->h - 15) / 2, z->id - 1689 == base);
+            zs_text(fb, x + 16, y + (z->h - th) / 2, z->w - 16, z->text,
+                    col);
+            break;
+        case JW_MK_CHECK: {
+            int by = y + (z->h - CHECK_W) / 2;
+
+            paint_checkbox(fb, x, by, z->on);
+            if (!z->enabled) {
+                fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
+                        C_BTNFACE);
+                if (z->on)
+                    paint_tick_col(fb, x, by, C_BTNSHADOW);
+            }
+            if ((z->h - CHECK_W) / 2 + CHECK_H < z->h)
+                fb_hline(fb, x, by + CHECK_H, CHECK_W, C_BTNHILIGHT);
+            zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
+                    z->w - CHECK_W - 3, z->text, col);
+            break;
+        }
+        case JW_MK_EDIT:
+            mj_sunken(fb, x, y, z->w, z->h);
+            break;
+        case JW_MK_GROUP: {
+            int gy = y + th / 2, gh = z->h - th / 2;
+
+            fb_edge(fb, x, gy, z->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, z->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            fb_fill(fb, x + 8, y, jw_text_px_w(z->text) + 4, th, C_BTNFACE);
+            zs_text(fb, x + 10, y, z->w - 10, z->text, C_BTNTEXT);
+            break;
+        }
+        case JW_MK_STATIC:
+            zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, col);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_mojikijun_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_mojikijun_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    x -= r.x + JW_MK_BORDER;
+    y -= r.y + JW_MK_CAPTION;
+    for (i = 0; i < JW_NMOJIKIJUN; i++) {
+        const jw_mk_t *z = &jw_mojikijun[i];
+
+        if (z->kind == JW_MK_STATIC || z->kind == JW_MK_GROUP || !z->enabled)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

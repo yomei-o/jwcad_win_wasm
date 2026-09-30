@@ -87,6 +87,7 @@ const char *app_jikkaku_angle(void);
 /* 寸法設定: whether its dialog is up */
 int  app_sunpodlg_open(void);
 int  app_layerdlg_open(void);
+int  app_mojikijun_open(void);
 int  app_shakudo_open(void);
 int  app_modal(void);          /* any dialog at all */
 int  app_bairitsu_open(void);
