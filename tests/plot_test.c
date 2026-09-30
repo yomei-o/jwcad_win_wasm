@@ -190,14 +190,22 @@ int main(int argc, char **argv)
 
     /* the nine line types: eight dash arrays and no 補助線, which is
        what came back from the original's own printer (probe34.sh, and
-       decomp/res/print_dash.txt) */
+       decomp/res/print_dash.txt).
+
+       The phase on each is half the first dash, because the original
+       starts every dashed line in the **middle** of a dash: its own PDF
+       writes each dash as its own stroke, and the part one each line
+       begins with came to 0.847, 1.693, 2.582, 4.446, 11.600, 3.556 and
+       10.710 mm -- half of 1.693, 3.429, 5.165, 8.932, 23.199, 7.154 and
+       21.421 in that order (tmp/orig_dash.pdf, read again). */
     {
         static const char *WANT[] = {
-            "[1.693 1.693] 0 d", "[3.429 3.429] 0 d", "[5.165 1.736] 0 d",
-            "[8.932 1.778 1.778 1.778] 0 d",
-            "[23.199 1.778 1.778 1.778] 0 d",
-            "[7.154 1.778 0.889 1.778 0.889 1.778] 0 d",
-            "[21.421 1.778 0.889 1.778 0.889 1.778] 0 d"
+            "[1.693 1.693] 0.8465 d", "[3.429 3.429] 1.7145 d",
+            "[5.165 1.736] 2.5825 d",
+            "[8.932 1.778 1.778 1.778] 4.466 d",
+            "[23.199 1.778 1.778 1.778] 11.5995 d",
+            "[7.154 1.778 0.889 1.778 0.889 1.778] 3.577 d",
+            "[21.421 1.778 0.889 1.778 0.889 1.778] 10.7105 d"
         };
         jw_drawing *e;
         unsigned char *q;
@@ -232,7 +240,9 @@ int main(int argc, char **argv)
                     ok = 0;
                 }
             ck(ok, "  八つの線種が原典の刻みで出る");
-            /* 補助線 is nine lines in and eight out */
+            /* 補助線 is nine lines in and eight out -- and each of
+               the seven dashed ones carries the end dot the original
+               leaves, which is a stroke of its own, so 8 + 7 */
             {
                 int n = 0;
                 const char *r = t;
@@ -240,9 +250,11 @@ int main(int argc, char **argv)
                     n++;
                     r += 3;
                 }
-                ck(n == 8, "  引いた九本のうち刷られるのは八本（補助線は出ない）");
-                if (n != 8)
-                    printf("     %d 本出ている\n", n);
+                ck(n == 8 + 7,
+                   "  引いた九本のうち刷られるのは八本（補助線は出ない）、"
+                   "刻みのあるものは終端の点つき");
+                if (n != 8 + 7)
+                    printf("     %d 筆出ている\n", n);
             }
             free(t);
             free(q);

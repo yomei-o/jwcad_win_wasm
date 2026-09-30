@@ -77,20 +77,33 @@ static void pen_rgb(const jw_drawing *d, int pen, int colour,
  * and **補助線 (9) did not print at all** -- eight rows came back out of
  * the nine that went in, which is what a construction line is for.
  *
- * The phase is not reproduced here: the original starts its pattern from
- * somewhere of its own and the first dash of every line came out a part
- * one.  The lengths are what matter on paper.
+ * **And the phase: every one of them starts in the middle of a dash.**
+ * The part dash each line began with was read off that same PDF and it
+ * is half the full one every time, to the rounding the original works
+ * to (its dash ends all land on multiples of a 600th of an inch):
+ *
+ *   type   first dash   half of         type   first dash   half of
+ *   2      0.847 mm     1.693           6     11.600       23.199
+ *   3      1.693        3.429           7      3.556        7.154
+ *   4      2.582        5.165           8     10.710       21.421
+ *   5      4.446        8.932
+ *
+ * which in PDF is a dash phase of half the first element.  The original
+ * also ends every dashed line with a **zero length stroke at the far
+ * end**, which with its own `1 J` round cap is a dot of the pen's width;
+ * jw_plot_pdf writes that too, because a dash array alone would leave
+ * the end bare whenever the line runs out in a gap.
  */
 static const char *dash_of(int type)
 {
     switch (type) {
-    case 2: return "[1.693 1.693] 0";
-    case 3: return "[3.429 3.429] 0";
-    case 4: return "[5.165 1.736] 0";
-    case 5: return "[8.932 1.778 1.778 1.778] 0";
-    case 6: return "[23.199 1.778 1.778 1.778] 0";
-    case 7: return "[7.154 1.778 0.889 1.778 0.889 1.778] 0";
-    case 8: return "[21.421 1.778 0.889 1.778 0.889 1.778] 0";
+    case 2: return "[1.693 1.693] 0.8465";
+    case 3: return "[3.429 3.429] 1.7145";
+    case 4: return "[5.165 1.736] 2.5825";
+    case 5: return "[8.932 1.778 1.778 1.778] 4.466";
+    case 6: return "[23.199 1.778 1.778 1.778] 11.5995";
+    case 7: return "[7.154 1.778 0.889 1.778 0.889 1.778] 3.577";
+    case 8: return "[21.421 1.778 0.889 1.778 0.889 1.778] 10.7105";
     default: return "[] 0";
     }
 }
@@ -242,6 +255,17 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
         buf_f(p->b, "%.2f %.2f m %.2f %.2f l S\n",
               px_(p, o->d[0]), py_(p, o->d[1]),
               px_(p, o->d[2]), py_(p, o->d[3]));
+        if (type_of(o) != 1) {
+            /* the dot the original leaves at the far end of a
+               dashed line -- a stroke of no length, which its own
+               round cap paints as a dot of the pen width.  A dash
+               array alone leaves the end bare whenever the line
+               runs out in a gap (see dash_of above). */
+            buf_f(p->b, "[] 0 d %.2f %.2f m %.2f %.2f l S %s d\n",
+                  px_(p, o->d[2]), py_(p, o->d[3]),
+                  px_(p, o->d[2]), py_(p, o->d[3]),
+                  dash_of(type_of(o)));
+        }
         break;
     case JW_ENKO: {
         /* the same parametrisation src/draw.c walks: centre, radius, the

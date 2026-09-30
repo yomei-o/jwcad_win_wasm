@@ -179,6 +179,8 @@ static int sel_n;
 static int sun_step;
 static int ika_step;            /* 一括処理: 0 idle, 1 始線, 2 終線, 3 (R) */
 static int ika_live;            /* a dimension is in, so its button is up */
+static double ika_tog[512];     /* the 追加・除外 clicks, along the row  */
+static int ika_ntog;
 static void ika_run(jw_drawing *d);
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
@@ -5424,6 +5426,7 @@ static int bar_press(jw_drawing *d, int id)
             if (!ika_live)
                 return 0;
             ika_step = 1;
+            ika_ntog = 0;
             return 1;
         }
         if (id == 1120) {       /* 実行 */
@@ -6421,8 +6424,15 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
  *   where              that dimension's line position and extension
  *                      length, so the row carries straight on from it.
  *
- * The 追加・除外 clicks of the third prompt are not done: nothing was
- * measured about them.
+ * The third prompt's (L) **turns the line it hits over**: one that is
+ * not in the row comes in, one that is in goes out (tools/probe50.sh).
+ * The same walk was run three times over the band drawing -- once with
+ * a click on the line at x=70, which the segment misses, once with a
+ * click on the one at x=-70, which it crosses, and once with both.  The
+ * first came out with 70 in the row, the second with -70 gone, the
+ * third with both changes.  So it is a toggle, and that is measured.
+ *
+ * (R) at the first two prompts is 同一線種選択, which is not done.
  */
 #define IKA_MAX 512
 
@@ -6622,6 +6632,18 @@ static void ika_run(jw_drawing *d)
             if (s[j] - ss < 1e-9 && ss - s[j] < 1e-9)
                 break;
         if (j == n)
+            s[n++] = ss;
+    }
+    for (i = 0; i < ika_ntog; i++) {
+        /* 追加・除外: each click turns its own line over */
+        double ss = ika_tog[i];
+
+        for (j = 0; j < n; j++)
+            if (s[j] - ss < 1e-9 && ss - s[j] < 1e-9)
+                break;
+        if (j < n)
+            s[j] = s[--n];
+        else if (n < IKA_MAX)
             s[n++] = ss;
     }
     for (i = 1; i < n; i++) {   /* along the dimension, left to right */
@@ -7078,9 +7100,29 @@ placed:
             double px, py;
             int k;
 
+            if (ika_step == 3 && button == 0) {
+                /* 追加・除外: the line this hits comes in if it is out
+                   and goes out if it is in */
+                int t = jw_pick(d, v, x, y, 3);
+                const jw_obj *o;
+                double e1, e2;
+
+                if (t < 0 || d->obj[t].cls != JW_SEN
+                    || ika_ntog >= (int)(sizeof ika_tog / sizeof ika_tog[0]))
+                    return;
+                o = &d->obj[t];
+                e1 = o->d[0] * vx + o->d[1] * vy - tl;
+                e2 = o->d[2] * vx + o->d[3] * vy - tl;
+                if (e1 < 0.0)
+                    e1 = -e1;
+                if (e2 < 0.0)
+                    e2 = -e2;
+                px = e1 <= e2 ? o->d[0] : o->d[2];
+                py = e1 <= e2 ? o->d[1] : o->d[3];
+                ika_tog[ika_ntog++] = px * ux + py * uy;
+                return;
+            }
             if (ika_step == 3) {
-                /* (R) draws; an (L) here is 追加・除外, which is not
-                   done -- nothing about it was measured. */
                 if (button == 0)
                     return;
                 ika_run(d);
@@ -7088,6 +7130,7 @@ placed:
                    the original goes: tools/probe45.sh read 5391 back
                    after the (R), not the plain dimension's own line */
                 ika_step = 1;
+                ika_ntog = 0;
                 return;
             }
             if (button != 0) {  /* (R) is 同一線種選択, which is not done */

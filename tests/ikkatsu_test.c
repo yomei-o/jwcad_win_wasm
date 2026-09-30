@@ -253,7 +253,8 @@ static int port_y(double mm)
 }
 
 /* And what the port makes of the same drawing and the same places. */
-static int ours(const char *base, int y, int jikko, piece_t *out, int max)
+static int ours(const char *base, int y, int jikko,
+                const int (*tog)[2], int ntog, piece_t *out, int max)
 {
     unsigned char *b;
     long n;
@@ -289,6 +290,14 @@ static int ours(const char *base, int y, int jikko, piece_t *out, int max)
     step("  始線を指示したところ", JW_STR_5392, 0);
     app_press(port_x(sheet_x(717)), port_y(sheet_y(y)), 0);     /* 終線 */
     step("  終線を指示したところ —— ここだけ 実行 が有効", JW_STR_5393, 1);
+    {   /* 追加・除外: each (L) here turns its own line over */
+        int i;
+        for (i = 0; i < ntog; i++) {
+            app_press(port_x(sheet_x(tog[i][0])),
+                      port_y(sheet_y(tog[i][1])), 0);
+            step("  追加・除外 を一つ指示したところ", JW_STR_5393, 1);
+        }
+    }
     if (jikko) {
         /* 実行 draws the same thing and stays on the third prompt */
         press_bar(1120);
@@ -301,20 +310,35 @@ static int ours(const char *base, int y, int jikko, piece_t *out, int max)
 }
 
 /* The four runs the original was put through. */
+/* the 追加・除外 clicks, in the original's own view coordinates: x=70 is
+   at 669 and x=-70 at 440, and sheet y=-12 is at 363 */
+static const int TOG_ADD[1][2]  = { { 669, 363 } };
+static const int TOG_DROP[1][2] = { { 440, 363 } };
+static const int TOG_BOTH[2][2] = { { 669, 363 }, { 440, 363 } };
+
 static const struct {
     const char *base, *answer, *what;
-    int y, jikko;
+    int y, jikko, ntog;
+    const int (*tog)[2];
 } RUNS[] = {
     { "decomp/res/sunikkatsu_base.jww", "decomp/res/sunikkatsu.jww",
-      "縦五本を素直に (probe39)", 320, 0 },
+      "縦五本を素直に (probe39)", 320, 0, 0, 0 },
     { "decomp/res/sunikkatsu2_base.jww", "decomp/res/sunikkatsu2.jww",
-      "斜めの線と、届かない短い縦線 (probe40)", 320, 0 },
+      "斜めの線と、届かない短い縦線 (probe40)", 320, 0, 0, 0 },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu3.jww",
-      "天端 20/19/15/10/0 を y=320 で (probe41)", 320, 0 },
+      "天端 20/19/15/10/0 を y=320 で (probe41)", 320, 0, 0, 0 },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu4.jww",
-      "同じ図を y=330 で —— 天端 10 の一本も入る (probe42)", 330, 0 },
+      "同じ図を y=330 で —— 天端 10 の一本も入る (probe42)", 330, 0, 0, 0 },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu5.jww",
-      "(R) の代わりに 実行 を押して (probe46)", 330, 1 },
+      "(R) の代わりに 実行 を押して (probe46)", 330, 1, 0, 0 },
+    { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu6.jww",
+      "追加: 拾われない x=70 を指示すると入る (probe50)",
+      330, 0, 1, TOG_ADD },
+    { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu7.jww",
+      "除外: 拾われている x=-70 を指示すると抜ける (probe50)",
+      330, 0, 1, TOG_DROP },
+    { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu8.jww",
+      "両方いっぺんに (probe50)", 330, 0, 2, TOG_BOTH },
 };
 
 int main(void)
@@ -327,7 +351,8 @@ int main(void)
     for (k = 0; k < (int)(sizeof RUNS / sizeof RUNS[0]); k++) {
         printf("-- %s\n", RUNS[k].what);
         na = theirs(RUNS[k].answer, a, 256);
-        nb = ours(RUNS[k].base, RUNS[k].y, RUNS[k].jikko, b, 256);
+        nb = ours(RUNS[k].base, RUNS[k].y, RUNS[k].jikko,
+                  RUNS[k].tog, RUNS[k].ntog, b, 256);
         flatten(a, na);
         flatten(b, nb);
         compare(a, na, b, nb);
