@@ -817,6 +817,232 @@ static void blank(jw_obj *o);
 
 /* What the line is worth in paper millimetres, and how the text element for
    it is laid out.  Shared by the preview and the one that gets placed. */
+/* 連 (1068) -- 連結・移動・切断, the 文字 bar's text editor.
+ *
+ * Not「place one after another」, which is what the label looks like: the
+ * status line it puts up is 5473,
+ *
+ *   文字を指示してください。  連結（L)　　移動（LL)　　　　文字切断位置指示(R)
+ *
+ * and once one text is picked, 5474,
+ *
+ *   連結文字指示　　（L)移動　　　　　（R)複写
+ *
+ * so it joins two texts, moves one, or cuts one in two.  That is why the
+ * input box goes away while it is on (tools/probe63.sh).
+ *
+ * **連結** was asked of the original four ways (tools/probe64.sh,
+ * probe65.sh).  With AB at -94.2857 and CD at -69.7959 on the same line:
+ *
+ *   AB then CD (L)   one text, 'CDAB', at **AB's** start
+ *   CD then AB (L)   one text, 'ABCD', at **CD's** start
+ *   AB then CD (R)   'CDAB' at AB's start **and CD still where it was**
+ *
+ * -- so the text picked **second** goes in front, the result sits where
+ * the **first** one was, and (R) copies the second instead of moving it.
+ *
+ * **切断** was asked twice.  'ABCD' from -94.2857, its characters half
+ * width (5 across) with half a spacing (0.5) between them:
+ *
+ *   (R) at 10.41 along   'AB' from -94.2857 and 'CD' from -83.2857
+ *   (R) at  5.50 along   'A'  from -94.2857 and 'BCD' from -88.7857
+ *
+ * -- the boundary taken is the one **nearest the click**, the first piece
+ * keeps the start, and the second begins half a spacing after the first
+ * one ends.  (The boundaries are at 5.25, 10.75 and 16.25 along, which is
+ * each piece's run plus half the gap that follows it.)
+ *
+ * 移動 (LL) is a double click, which nothing here can post, so it is not
+ * done.
+ */
+static int ren_step;                    /* 0 off, 1 wants a text, 2 the
+                                           one to join it to */
+static int ren_first;                   /* and which text that was */
+
+/* How far a string runs, the way moji() measures it: a character advances
+   its full width if it is a wide one and half if it is not, and the gap
+   before it is the spacing or half of it by the same rule. */
+static double moji_run(const char *t, double cw, double sp, int nmax)
+{
+    double len = 0.0;
+    int nch = 0, i = 0;
+
+    while (t[i] && (nmax < 0 || nch < nmax)) {
+        int wide = jw_is_lead((unsigned char)t[i]) && t[i + 1];
+        if (nch)
+            len += wide ? sp : sp / 2;
+        len += wide ? cw : cw / 2;
+        i += wide ? 2 : 1;
+        nch++;
+    }
+    return len;
+}
+
+/* how many characters a string holds, wide ones counting one */
+static int moji_nch(const char *t)
+{
+    int n = 0, i = 0;
+
+    while (t[i]) {
+        i += jw_is_lead((unsigned char)t[i]) && t[i + 1] ? 2 : 1;
+        n++;
+    }
+    return n;
+}
+
+/* the byte offset of the nth character */
+static int moji_at(const char *t, int n)
+{
+    int i = 0;
+
+    while (n-- > 0 && t[i])
+        i += jw_is_lead((unsigned char)t[i]) && t[i + 1] ? 2 : 1;
+    return i;
+}
+
+/* put a text's far end where its run and its direction say it should be */
+static void moji_reend(jw_obj *o, const char *t)
+{
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    double l = sqrt(dx * dx + dy * dy);
+    double ux = l > 0.0 ? dx / l : 1.0, uy = l > 0.0 ? dy / l : 0.0;
+    double run = moji_run(t, o->d[4], o->d[6], -1);
+
+    o->d[2] = o->d[0] + run * ux;
+    o->d[3] = o->d[1] + run * uy;
+}
+
+/* 連結: the one picked second goes in front of the one picked first, and
+   the result keeps the first one's place on the paper.  `keep` leaves the
+   second where it is, which is what (R) does.
+
+   The joined text goes **to the end of the drawing**, the way 属性変更
+   moves what it changes: the original's (R) run came back with the
+   untouched CD first and the joined CDAB after it, though both had been
+   placed the other way round (tools/probe65.sh). */
+static void ren_join(jw_drawing *d, int a, int b, int keep)
+{
+    jw_obj was, *A, *B;
+    const char *ta, *tb;
+    char buf[512], face[64];
+    op_t *o;
+    int lo, hi;
+
+    if (a < 0 || b < 0 || a == b || a >= d->ndrawn || b >= d->ndrawn)
+        return;
+    A = &d->obj[a];
+    B = &d->obj[b];
+    if (A->cls != JW_MOJI || B->cls != JW_MOJI)
+        return;
+    ta = jw_str(d, A->text);
+    tb = jw_str(d, B->text);
+    if (!ta || !tb || strlen(ta) + strlen(tb) >= sizeof buf)
+        return;
+    strcpy(buf, tb);
+    strcat(buf, ta);
+    was = *A;
+    face[0] = 0;
+    if (A->face >= 0) {
+        const char *f = jw_str(d, A->face);
+        if (f && strlen(f) < sizeof face)
+            strcpy(face, f);
+    }
+    /* take them out from the back, so the indices in front stay put */
+    o = op_new();
+    lo = a < b ? a : b;
+    hi = a < b ? b : a;
+    if (!keep) {
+        op_keep(o, d, hi, 1);
+        jw_remove(d, hi);
+        if (lo != hi) {
+            op_keep(o, d, lo, 1);
+            jw_remove(d, lo);
+        }
+    } else {
+        op_keep(o, d, a, 1);
+        jw_remove(d, a);
+    }
+    A = jw_add(d, JW_MOJI);
+    if (!A)
+        return;
+    *A = was;
+    A->sel = 0;
+    A->text = jw_add_str(d, buf);
+    A->face = face[0] ? jw_add_str(d, face) : -1;
+    moji_reend(A, buf);
+    if (o)
+        o->n = 1;                       /* the joined one, at the end */
+}
+
+/* 切断: split the text at the character boundary nearest (x, y) */
+static void ren_cut(jw_drawing *d, int i, double x, double y)
+{
+    jw_obj *A, *B;
+    const char *t;
+    char head[512], tail[512];
+    double dx, dy, l, ux, uy, along, best = 0.0, gap;
+    int n, k, cut = 0, off;
+    op_t *o;
+
+    if (i < 0 || i >= d->ndrawn || d->obj[i].cls != JW_MOJI)
+        return;
+    A = &d->obj[i];
+    t = jw_str(d, A->text);
+    if (!t || !*t)
+        return;
+    n = moji_nch(t);
+    if (n < 2 || strlen(t) >= sizeof head)
+        return;
+    dx = A->d[2] - A->d[0];
+    dy = A->d[3] - A->d[1];
+    l = sqrt(dx * dx + dy * dy);
+    ux = l > 0.0 ? dx / l : 1.0;
+    uy = l > 0.0 ? dy / l : 0.0;
+    along = (x - A->d[0]) * ux + (y - A->d[1]) * uy;
+    for (k = 1; k < n; k++) {
+        off = moji_at(t, k);
+        gap = jw_is_lead((unsigned char)t[off]) && t[off + 1]
+              ? A->d[6] : A->d[6] / 2;
+        {
+            double at = moji_run(t, A->d[4], A->d[6], k) + gap / 2;
+            double e = at > along ? at - along : along - at;
+            if (!cut || e < best) {
+                best = e;
+                cut = k;
+            }
+        }
+    }
+    if (!cut)
+        return;
+    off = moji_at(t, cut);
+    memcpy(head, t, (size_t)off);
+    head[off] = 0;
+    strcpy(tail, t + off);
+    gap = jw_is_lead((unsigned char)t[off]) && t[off + 1]
+          ? A->d[6] : A->d[6] / 2;
+    o = op_new();
+    op_keep(o, d, i, 0);
+    B = jw_add(d, JW_MOJI);
+    if (!B)
+        return;
+    A = &d->obj[i];
+    *B = *A;
+    B->sel = 0;
+    B->text = jw_add_str(d, tail);
+    B->face = A->face >= 0 ? jw_add_str(d, jw_str(d, A->face)) : -1;
+    {
+        double run = moji_run(head, A->d[4], A->d[6], -1);
+        B->d[0] = A->d[0] + (run + gap) * ux;
+        B->d[1] = A->d[1] + (run + gap) * uy;
+    }
+    moji_reend(B, tail);
+    A = &d->obj[i];
+    A->text = jw_add_str(d, head);
+    moji_reend(A, head);
+    if (o)
+        o->n = 1;                       /* the piece that was added */
+}
+
 /* 基点 (1064): which corner of the text the click is.
  *
  * The button puts up a dialog whose 3x3 of radios is 1689..1697, in the
@@ -986,6 +1212,7 @@ void jw_cmd_set(int id)
         sel_step = 0;
         sel_free();
     }
+    ren_step = 0;               /* 文字の 連 is not carried out of the command */
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
@@ -1228,6 +1455,8 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_TEN:
         return JW_STR_5376;
     case JW_CMD_MOJI:
+        if (ren_step)
+            return ren_step == 1 ? JW_STR_5473 : JW_STR_5474;
         /* 「文字を入力するか…」 until something is typed, then
            「文字の位置を指示して下さい」 */
         return line_n ? JW_STR_5318 : JW_STR_5316;
@@ -5587,6 +5816,12 @@ static int bar_press(jw_drawing *d, int id)
         }
         return 0;
     }
+    if (current == JW_CMD_MOJI && id == 1068) {
+        /* 連: 連結・移動・切断.  The input box goes away while it is on,
+           which is what the original does too. */
+        ren_step = ren_step ? 0 : 1;
+        return 1;
+    }
     if (current == JW_CMD_ZOKUHEN) {
         if (id == 1352)
             return zh_type = !zh_type, 1;
@@ -7543,6 +7778,32 @@ placed:
             sel_place(d, x, y);
             return;
         }
+    }
+    if (current == JW_CMD_MOJI && ren_step) {
+        /* 連 (1068): 連結 and 切断 -- see the note by ren_join above */
+        /* mode 0 is the only one that looks at texts at all --
+           src/pick.c runs its second pass for modes under 1 */
+        int k = jw_pick(d, v, x, y, 0);
+
+        if (!d)
+            return;
+        if (ren_step == 1) {
+            if (k < 0 || d->obj[k].cls != JW_MOJI)
+                return;
+            if (button != 0) {                  /* (R): 文字切断位置指示 */
+                ren_cut(d, k, x, y);
+                return;
+            }
+            ren_first = k;
+            ren_step = 2;
+            return;
+        }
+        if (k < 0 || d->obj[k].cls != JW_MOJI)
+            return;
+        /* (L) moves the one just picked on to the first, (R) copies it */
+        ren_join(d, ren_first, k, button != 0);
+        ren_step = 1;
+        return;
     }
     if (current == JW_CMD_MOJI) {
         /* Place what has been typed.  Everything about the text comes from

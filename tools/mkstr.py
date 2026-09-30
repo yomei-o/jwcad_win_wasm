@@ -54,6 +54,8 @@ WANT = [
     (5391, 'the first line the batch mode takes'),
     (5392, 'the last one'),
     (5393, 'the ones to add or drop, and what confirms'),
+    (5473, 'the text join/cut mode of the text bar'),
+    (5474, 'and once one text is picked, what the two buttons do'),
     (5327, 'the first corner of the box the weld works in'),
     (5328, 'the second one, and what the two buttons do there'),
 ]

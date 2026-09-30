@@ -193,6 +193,10 @@ echo "=== 文字 —— 原典が置いた文字との突き合わせ"
 ./tests/mojidraw_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 文字の 連 —— 原典が連結・切断した五通りとの突き合わせ"
+./tests/mojiren_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 文字基点設定 —— 原典が描いたダイアログとの突き合わせ"
 ./tests/mojikijun_test.exe tests/out/mojikijun.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_mojikijun.png tests/out/mojikijun.png     -i docs/mojikijun_textareas.txt -d tests/out/mojikijun.diff.png     | head -2 | sed 's/^/    /'
