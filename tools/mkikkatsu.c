@@ -47,6 +47,21 @@ int main(void){
         }
     }
 #endif
+#ifdef JW_IKKATSU_TYPES
+    /* the same row again, but three of the nine on 点線1 instead of
+       実線, so that 同一線種選択 -- the (R) at the first two prompts --
+       has something to tell apart.  The dashed ones are at -70, -35 and
+       10; everything else, the wall included, stays on 実線. */
+    {
+        int k;
+        for(k=0;k<d->ndrawn;k++){
+            double x = d->obj[k].d[0];
+            if (d->obj[k].cls != JW_SEN) continue;
+            if (x == -70.0 || x == -35.0 || x == 10.0)
+                d->obj[k].ltype = 2;
+        }
+    }
+#endif
 #ifdef JW_IKKATSU_MORE
     /* a diagonal that crosses the wall between two of them, and a short
        vertical that does not reach it, to see which ones 一括処理 takes */

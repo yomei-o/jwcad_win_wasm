@@ -181,6 +181,7 @@ static int ika_step;            /* 一括処理: 0 idle, 1 始線, 2 終線, 3 (
 static int ika_live;            /* a dimension is in, so its button is up */
 static double ika_tog[512];     /* the 追加・除外 clicks, along the row  */
 static int ika_ntog;
+static int ika_lt;              /* 同一線種選択: the only 線種 taken   */
 static void ika_run(jw_drawing *d);
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
@@ -849,15 +850,30 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
      * means is stacked characters, which src/text.c already draws. */
     if (jw_cmd_bar_check(1325) > 0)
         o->flags = (unsigned short)(o->flags | 0x20u);
-    /* 垂直 (1324) turns the baseline a quarter turn: the original wrote the
-     * same text running 30 up instead of 30 across, everything else the
-     * same. */
-    if (jw_cmd_bar_check(1324) > 0) {
-        o->d[2] = x;
-        o->d[3] = y + len;
-    } else {
-        o->d[2] = x + len;
-        o->d[3] = y;
+    /* 角度 (1411) lays the baseline at whatever is typed there, in
+     * degrees: the original, given 30 and three characters whose run is
+     * 16 mm, wrote the far end 13.8564 across and 8 up -- 16 at thirty
+     * degrees (tools/probe57.sh's mo_ang).
+     *
+     * 垂直 (1324) turns the baseline a quarter turn: the original wrote
+     * the same text running 30 up instead of 30 across, everything else
+     * the same.  Which of the two wins when both are set was not asked,
+     * so the box is taken when it has something in it and 垂直 when it
+     * has not. */
+    {
+        const char *as = jw_cmd_box(1411);
+
+        if (as && *as) {
+            double a = atof(as) * PI / 180.0;
+            o->d[2] = x + len * cos(a);
+            o->d[3] = y + len * sin(a);
+        } else if (jw_cmd_bar_check(1324) > 0) {
+            o->d[2] = x;
+            o->d[3] = y + len;
+        } else {
+            o->d[2] = x + len;
+            o->d[3] = y;
+        }
     }
     o->d[4] = cw;
     o->d[5] = ch;
@@ -929,7 +945,8 @@ void jw_cmd_set(int id)
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
         /* 一括処理 is dead again until a dimension has been drawn */
-        ika_step = ika_live = 0;
+        ika_step = ika_live = ika_ntog = 0;
+        ika_lt = -1;
     }
     tail_kind = 0;              /* and the status line's readout with it */
     /* leaving a command drops whatever 角度取得 or 長さ取得 had given --
@@ -1437,6 +1454,20 @@ static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
 /* What the point down and the point here make -- one element, or the four of
    a rectangle.  Working it out in one place keeps the provisional figure and
    what gets added identical. */
+/* 扁平率 (1412) as the original reads it: over one it is a percentage,
+   at or under one it is the ratio itself (tools/probe59.sh). */
+static double en_ratio(const char *s)
+{
+    double v;
+
+    if (!s || !*s)
+        return 1.0;
+    v = atof(s);
+    if (v <= 0.0)
+        return 1.0;
+    return v > 1.0 ? v / 100.0 : v;
+}
+
 static int figure_(const jw_drawing *d, jw_obj *o, int max,
                    double x, double y)
 {
@@ -1677,14 +1708,20 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
          * was 0. */
         double r = box_mm(d, 1411);
         double dx = x - sx, dy = y - sy;
-        /* 扁平率 (1412) and 傾き (1413) make it an ellipse: the ratio is a
-         * percentage and the tilt is where its long axis points.  The drag
-         * still ends on the curve, which fixes the long radius and the
-         * parameter of that point -- the original, given 50 and 20 and a
-         * drag of 86.588921 straight out, wrote a = 100.642007, the angle
-         * -0.629233, the tilt 0.349066 (20 degrees) and the ratio 0.5. */
+        /* 扁平率 (1412) and 傾き (1413) make it an ellipse: 傾き is where
+         * the long axis points, in degrees.  The drag still ends on the
+         * curve, which fixes the long radius and the parameter of that
+         * point -- the original, given 50 and 20 and a drag of 86.588921
+         * straight out, wrote a = 100.642007, the angle -0.629233, the
+         * tilt 0.349066 (20 degrees) and the ratio 0.5.
+         *
+         * **扁平率 takes either form.**  The original was given 0.5, 50
+         * and 200 for the same drag (tools/probe57.sh, probe59.sh) and
+         * wrote the ratio 0.5, 0.5 and 2.  So anything over one is a
+         * percentage and anything at or under it is the ratio itself.
+         * What exactly 1 means was not asked; it is 1 either way. */
         const char *fs = jw_cmd_box(1412);
-        double ratio = fs && *fs ? atof(fs) / 100.0 : 1.0;
+        double ratio = en_ratio(fs);
         double tilt = box_angle(1413);
         o->cls = JW_ENKO;
         o->d[0] = sx;
@@ -4799,6 +4836,111 @@ int jw_cmd_figure_save(const jw_drawing *d, double bx, double by,
     return ok;
 }
 
+/* 切り取り (57635) ・ コピー (57634) ・ 貼り付け (57637).
+ *
+ * **Jw_cad's clipboard is a 図形.**  貼り付け does not put up a command
+ * of its own: it puts up **図形読込's**.  The status line reads
+ * 「【図形】の複写位置を指示してください (L)free (R)Read」 and the bar
+ * carries 作図属性・倍率(1431)・回転角(1412)・90ﾟ毎・マウス角・
+ * グループ化 -- the same controls, in the same places, that 図形読込
+ * (32862) puts there (tools/probe56.sh).  So the port does the same
+ * thing with the same machinery: コピー writes the selection out as the
+ * bytes of a .jws, exactly as 選択図形登録 does, and 貼り付け reads them
+ * back in as the figure hanging on the cursor.
+ *
+ * 切り取り does that and then takes the selection away; the original,
+ * given three lines and a range round them, left an empty drawing.
+ *
+ * **Where the copy lands** is the one number that had to be measured.
+ * The original was made to paste the same copy at three different places
+ * and then again at 倍率 2 and 回転角 90 (tools/probe58.sh), and an
+ * L of two lines came back每 time as
+ *
+ *     pasted = click + turn(scale * (original - B))
+ *
+ * with the same B throughout -- so B belongs to the copy, not to the
+ * click.  For that L, B = (-94.2857, -19.5918), which is **not** the
+ * middle of the box round it (-33.06, -4.29) nor any of its corners: it
+ * is the average of the two lines' **own middles**, (-33.06, -34.898)
+ * and (-155.51, -4.286).  The three-line drawing of tools/probe56.sh
+ * says the same, and there the two readings happen to agree.
+ *
+ * What the middle of something that is not a line is was not asked, so
+ * a circle's is taken as its centre and a point's as itself, which is
+ * the only reading of「middle」those have.
+ */
+static unsigned char *clip;
+static long clip_n;
+
+/* the average of the selected elements' own middles */
+static void clip_base(const jw_drawing *d, double *bx, double *by)
+{
+    double sx = 0.0, sy = 0.0;
+    int i, n = 0;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        double mx, my;
+
+        if (!o->sel)
+            continue;
+        if (o->cls == JW_SEN || o->cls == JW_MOJI) {
+            mx = (o->d[0] + o->d[2]) / 2.0;
+            my = (o->d[1] + o->d[3]) / 2.0;
+        } else {
+            mx = o->d[0];
+            my = o->d[1];
+        }
+        sx += mx;
+        sy += my;
+        n++;
+    }
+    *bx = n ? sx / n : 0.0;
+    *by = n ? sy / n : 0.0;
+}
+
+int jw_cmd_clip_copy(jw_drawing *d, int cut)
+{
+    unsigned char *b = 0;
+    double bx, by;
+    long n = 0;
+
+    if (!d || jw_cmd_sel_count(d) <= 0)
+        return 0;
+    clip_base(d, &bx, &by);
+    if (!jw_cmd_figure_save(d, bx, by, &b, &n) || !b)
+        return 0;
+    free(clip);
+    clip = b;
+    clip_n = n;
+    if (cut) {
+        /* straight out, without the 範囲選択 walk's own conditions:
+           the original, given three lines and a range round them, left
+           the drawing empty (tools/probe56.sh) */
+        op_t *t = op_new();
+        int i;
+
+        for (i = d->ndrawn - 1; i >= 0; i--)
+            if (d->obj[i].sel) {
+                op_keep(t, d, i, 1);
+                jw_remove(d, i);
+            }
+    }
+    return 1;
+}
+
+int jw_cmd_clip_has(void)
+{
+    return clip && clip_n > 0;
+}
+
+int jw_cmd_clip_paste(jw_drawing *d)
+{
+    if (!d || !clip || clip_n <= 0)
+        return 0;
+    return jw_cmd_figure_load(d, clip, clip_n);
+}
+
 /* 座標ファイル's ファイル読込 hands the text over the same way: the original
  * turns it into a 図形 -- 「【図形】の複写位置を指示してください」 with
  * 図形読込's own bar -- and its (0, 0) is what lands on the click.
@@ -4834,6 +4976,23 @@ static int figure_place(jw_drawing *d, double x, double y)
 
     if (!d || !fig_have)
         return 0;
+    {   /* 倍率 (1431) and 回転角 (1412) on the 図形 bar.  The
+           original turns and scales **about the figure's own base
+           point** before putting it down where the click is: the same
+           copy pasted at 倍率 2 came out twice the size around
+           that point, and at 回転角 90 a quarter turn round it
+           (tools/probe58.sh). */
+        const char *m = jw_cmd_box(1431), *g = jw_cmd_box(1412);
+
+        /* The 図形 bar itself has not been taken off the original yet
+           (src/gen/bars.h has no 32862), so there are no boxes to read
+           here and whatever jw_cmd_figure_at was told stands.  Once the
+           bar is there these take over by themselves. */
+        if (m)
+            fig_mag = *m && atof(m) > 0.0 ? atof(m) : 1.0;
+        if (g)
+            fig_deg = *g ? atof(g) : 0.0;
+    }
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
@@ -5427,6 +5586,7 @@ static int bar_press(jw_drawing *d, int id)
                 return 0;
             ika_step = 1;
             ika_ntog = 0;
+            ika_lt = -1;
             return 1;
         }
         if (id == 1120) {       /* 実行 */
@@ -6416,11 +6576,14 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
  *                      where the segment crossed: a diagonal from
  *                      (0,-20) to (20,20), crossed at x=17.04, came out
  *                      dimensioned at x=20.
- *   what it writes     per gap, in this order -- the 寸法線, then at the
- *                      gap's **far** end a 点 and an 引出線, then the
- *                      value.  Those two are left out where one is there
- *                      already, which is what happened at both ends of
- *                      the dimension that had been drawn by hand.
+ *   what it writes     per gap: the 寸法線, then a 点 at each end that
+ *                      has none, then an 引出線 at each of those same
+ *                      ends, then the value -- sunpo_make's own order.
+ *                      Usually only the far end is new, so it comes out
+ *                      寸法線, 点, 引出線, 値; both ends are new on the
+ *                      first gap of a row that does not begin where the
+ *                      hand-drawn dimension did, and the original writes
+ *                      both there (tools/probe55.sh).
  *   where              that dimension's line position and extension
  *                      length, so the row carries straight on from it.
  *
@@ -6432,7 +6595,19 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
  * first came out with 70 in the row, the second with -70 gone, the
  * third with both changes.  So it is a toggle, and that is measured.
  *
- * (R) at the first two prompts is 同一線種選択, which is not done.
+ * (R) at either of the first two prompts is 同一線種選択, and what it
+ * does is **narrow the row to one line type** (tools/probe55.sh).  The
+ * band drawing was given 点線1 at -70, -35 and 10 and left on 実線
+ * everywhere else, and the same walk run four ways:
+ *
+ *   (L) both ends   -100 -70 -55 -35 -20 10 40 100   -- all nine
+ *   (R) on a 実線   -100 -55 -20 40 100              -- the 実線 only
+ *   (R) on a 点線    -70 -35 10                      -- the 点線 only
+ *   (L) then (R)    -100 -55 -20 40 100              -- one (R) is enough
+ *
+ * so it is the type of the line the (R) lands on that decides, and one
+ * (R) sets it for the whole row.  The walk goes on to the next prompt
+ * either way.
  */
 #define IKA_MAX 512
 
@@ -6529,29 +6704,46 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
     made++;
 
-    if (!ika_dotted(d, x1, y1)) {
-        o = jw_add(d, JW_TEN);
-        if (o) {
+    /* 端部 and 引出線 at each end that has neither yet -- the near one
+       first, which is sunpo_make's own order.  Usually only the far end
+       is new, because the near one was the gap before's far end; both
+       are new on the first gap of a row that does not start where the
+       hand-drawn dimension did, and the original writes both then
+       (tools/probe55.sh's 点線 run). */
+    {
+        int k, want[2];
+
+        want[0] = !ika_dotted(d, x0, y0);
+        want[1] = !ika_dotted(d, x1, y1);
+        for (k = 0; k < 2; k++) {
+            if (!want[k])
+                continue;
+            o = jw_add(d, JW_TEN);
+            if (!o)
+                break;
             o->color = JW_SUN_TEN_COLOR;
             o->ltype = 1;
             o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
-            o->d[0] = x1;
-            o->d[1] = y1;
+            o->d[0] = k ? x1 : x0;
+            o->d[1] = k ? y1 : y0;
             o->n = 0;
             made++;
         }
-        if (th != tl + JW_SUN_TSUKIDASHI) {
+        for (k = 0; th != tl + JW_SUN_TSUKIDASHI && k < 2; k++) {
+            double s = k ? s1 : s0;
+            if (!want[k])
+                continue;
             o = jw_add(d, JW_SEN);
-            if (o) {
-                o->color = JW_SUN_HIKI_COLOR;
-                o->ltype = 1;
-                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-                o->d[0] = s1 * ux + (tl + JW_SUN_TSUKIDASHI) * vx;
-                o->d[1] = s1 * uy + (tl + JW_SUN_TSUKIDASHI) * vy;
-                o->d[2] = s1 * ux + th * vx;
-                o->d[3] = s1 * uy + th * vy;
-                made++;
-            }
+            if (!o)
+                break;
+            o->color = JW_SUN_HIKI_COLOR;
+            o->ltype = 1;
+            o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+            o->d[0] = s * ux + (tl + JW_SUN_TSUKIDASHI) * vx;
+            o->d[1] = s * uy + (tl + JW_SUN_TSUKIDASHI) * vy;
+            o->d[2] = s * ux + th * vx;
+            o->d[3] = s * uy + th * vy;
+            made++;
         }
     }
 
@@ -6623,6 +6815,8 @@ static void ika_run(jw_drawing *d)
 
         if (o->cls != JW_SEN || !ika_editable(d, o))
             continue;
+        if (ika_lt >= 0 && o->ltype != ika_lt)
+            continue;           /* 同一線種選択 */
         if (!ika_hit(o, ika_ax, ika_ay, ika_bx, ika_by, vx, vy, tl, &px, &py))
             continue;
         ss = px * ux + py * uy;
@@ -7131,10 +7325,7 @@ placed:
                    after the (R), not the plain dimension's own line */
                 ika_step = 1;
                 ika_ntog = 0;
-                return;
-            }
-            if (button != 0) {  /* (R) is 同一線種選択, which is not done */
-                ika_step = 0;
+                ika_lt = -1;
                 return;
             }
             k = jw_pick(d, v, x, y, 3);
@@ -7151,6 +7342,8 @@ placed:
                 px = e1 <= e2 ? o->d[0] : o->d[2];
                 py = e1 <= e2 ? o->d[1] : o->d[3];
             }
+            if (button != 0)    /* (R): 同一線種選択 */
+                ika_lt = d->obj[k].ltype;
             if (ika_step == 1) {
                 ika_s0 = px * ux + py * uy;
                 ika_ax = x;
@@ -7998,7 +8191,31 @@ placed:
         return;
     }
     if (current == JW_CMD_ENKO && jw_cmd_bar_check(1318) > 0) {
-        /* 円弧: centre, then radius and start, then the end */
+        /* 円弧: centre, then radius and start, then the end.
+         *
+         * 扁平率 (1412) and 傾き (1413) work here as they do on a whole
+         * circle, and both the start and the sweep are then in the
+         * **ellipse's own parameter**, not in the angle on the paper:
+         * the original, given 扁平率 0.5 and a drag of (122.24, -61.22)
+         * from the centre, wrote a = 173.169 and the start -0.785398,
+         * which is atan2(dy/ratio, dx), and then swept in the same
+         * parameter (tools/probe57.sh's en_afl, probe59.sh's afl2).
+         *
+         * **Which way round it goes is the original's own mouse, not
+         * its arithmetic.**  Five arcs were asked for and three came
+         * back swept the shorter way while two came back the same arc
+         * plus or minus a whole turn -- the original tracks the pointer
+         * while it waits for the third click and adds up what it sees,
+         * and a posted click gives it one jump instead of a path.  The
+         * port cannot reproduce a path it was never told, so it takes
+         * the shorter way, which is what three of the five did. */
+        double ratio = en_ratio(jw_cmd_box(1412));
+        double tilt = box_angle(1413);
+        double ct = cos(tilt), st = sin(tilt);
+        double dx = x - sx, dy = y - sy;
+        double u = dx * ct + dy * st;
+        double v = (-dx * st + dy * ct) / (ratio > 0.0 ? ratio : 1.0);
+
         if (en_step == 0) {
             sx = x;
             sy = y;
@@ -8008,9 +8225,8 @@ placed:
             return;
         }
         if (en_step == 1) {
-            double dx = x - sx, dy = y - sy;
-            en_r = sqrt(dx * dx + dy * dy);
-            en_a0 = atan2(dy, dx);
+            en_r = sqrt(u * u + v * v);
+            en_a0 = atan2(v, u);
             tx = x;
             ty = y;
             if (en_r > 0.0) {
@@ -8021,7 +8237,7 @@ placed:
             return;
         }
         if (d) {
-            double a = atan2(y - sy, x - sx) - en_a0;
+            double a = atan2(v, u) - en_a0;
             jw_obj *o;
             while (a <= -PI)
                 a += 2 * PI;
@@ -8034,8 +8250,8 @@ placed:
                 o->d[2] = en_r;
                 o->d[3] = en_a0;
                 o->d[4] = a;
-                o->d[5] = 0.0;
-                o->d[6] = 1.0;
+                o->d[5] = tilt;
+                o->d[6] = ratio > 0.0 ? ratio : 1.0;
                 o->n = 0;
                 op_push(1);
             }

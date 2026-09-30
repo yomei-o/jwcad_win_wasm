@@ -185,6 +185,18 @@ echo "=== 寸法の一括処理 —— 原典が二度揃えた寸法との突�
 ./tests/ikkatsu_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 円弧 —— 原典が描いた 13 通りの円との突き合わせ"
+./tests/enko_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 文字 —— 原典が置いた文字との突き合わせ"
+./tests/mojidraw_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 切り取り・コピー・貼り付け —— 原典が貼った六通りとの突き合わせ"
+./tests/clip_test.exe | sed 's/^/    /'
+
+echo
 echo "=== メニューの総ざらい —— どの項目が応えるか"
 ./tests/menusweep_test.exe | sed 's/^/    /'
 

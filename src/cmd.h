@@ -252,6 +252,13 @@ void jw_cmd_figure_at(double mag, double deg);
  * (bx, by) -- the 基準点 the command asks for after 選択確定 -- in its
  * header.  The caller frees *out.  Returns 0 if it could not.
  */
+/* 切り取り・コピー・貼り付け.  The original's clipboard is a 図形 --
+   貼り付け puts up 図形読込's own command -- so these go through the
+   same .jws the 図形 calls above do. */
+int  jw_cmd_clip_copy(jw_drawing *d, int cut);
+int  jw_cmd_clip_has(void);
+int  jw_cmd_clip_paste(jw_drawing *d);
+
 int  jw_cmd_figure_save(const jw_drawing *d, double bx, double by,
                         unsigned char **out, long *n);
 

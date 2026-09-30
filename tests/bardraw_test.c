@@ -196,6 +196,13 @@ static void circle_arc(void)
     }
     d = fresh();
     jw_cmd_set(JW_CMD_ENKO);
+    /* the boxes are the command's own state and a new drawing does not
+       empty them, in the port or in the original -- and 円弧 honours
+       扁平率 and 傾き just as a whole circle does (the original
+       drew an ellipse arc for both, tests/enko_test.c).  The ellipse
+       above left 0.5 in 1412, so this plain arc has to clear it. */
+    type_box(1412, "");
+    type_box(1413, "");
     ck(jw_cmd_bar_check(1318) == 0, "円 comes up with 円弧 off");
     jw_cmd_bar(d, 1318);
     ck(jw_cmd_bar_check(1318) == 1, "and pressing it turns it on");

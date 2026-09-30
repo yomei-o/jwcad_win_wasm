@@ -1220,6 +1220,15 @@ int app_command(int cmd)
            is the 基準点. */
         jw_cmd_set(JW_CMD_ZUKEIREG);
         return 1;
+    case 57634:                         /* 編集 > コピー   Ctrl+C */
+    case 57635:                         /* 同        切り取り Ctrl+X */
+        /* Both want a range picked first; the original's bar and status
+           line do not change when they are pressed, so there is nothing
+           to show for it either way (tools/probe56.sh). */
+        return jw_cmd_clip_copy(&drawing, cmd == 57635);
+    case 57637:                         /* 同        貼り付け Ctrl+V */
+        /* which puts up 図形読込's own command, figure and all */
+        return jw_cmd_clip_paste(&drawing);
     case 33016:                         /* 中心点取得 */
     case 33017:                         /* 線上点・交点取得 */
     case 33028:                         /* 円周1/4点取得 */

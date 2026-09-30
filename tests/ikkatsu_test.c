@@ -254,7 +254,9 @@ static int port_y(double mm)
 
 /* And what the port makes of the same drawing and the same places. */
 static int ours(const char *base, int y, int jikko,
-                const int (*tog)[2], int ntog, piece_t *out, int max)
+                const int (*tog)[2], int ntog,
+                int ex0, int ex1, int rb0, int rb1,
+                piece_t *out, int max)
 {
     unsigned char *b;
     long n;
@@ -286,9 +288,9 @@ static int ours(const char *base, int y, int jikko,
     step("  寸法を一本引いたところ", 0, 0);
     press_bar(1072);
     step("  一括処理 を押したところ", JW_STR_5391, 0);
-    app_press(port_x(sheet_x(391)), port_y(sheet_y(y)), 0);     /* 始線 */
+    app_press(port_x(sheet_x(ex0)), port_y(sheet_y(y)), rb0);   /* 始線 */
     step("  始線を指示したところ", JW_STR_5392, 0);
-    app_press(port_x(sheet_x(717)), port_y(sheet_y(y)), 0);     /* 終線 */
+    app_press(port_x(sheet_x(ex1)), port_y(sheet_y(y)), rb1);   /* 終線 */
     step("  終線を指示したところ —— ここだけ 実行 が有効", JW_STR_5393, 1);
     {   /* 追加・除外: each (L) here turns its own line over */
         int i;
@@ -316,29 +318,47 @@ static const int TOG_ADD[1][2]  = { { 669, 363 } };
 static const int TOG_DROP[1][2] = { { 440, 363 } };
 static const int TOG_BOTH[2][2] = { { 669, 363 }, { 440, 363 } };
 
+/* the 始線・終線 clicks: where, and with which button.  (R) there is
+   同一線種選択, so the two that use it name a line of the type wanted --
+   x=-100 (px 391) and x=100 (px 717) are 実線, x=-70 (440) and x=10
+   (571) are 点線1. */
+#define LL 391, 717, 0, 0
+
 static const struct {
     const char *base, *answer, *what;
     int y, jikko, ntog;
     const int (*tog)[2];
+    int ex0, ex1, rb0, rb1;
 } RUNS[] = {
     { "decomp/res/sunikkatsu_base.jww", "decomp/res/sunikkatsu.jww",
-      "縦五本を素直に (probe39)", 320, 0, 0, 0 },
+      "縦五本を素直に (probe39)", 320, 0, 0, 0, LL },
     { "decomp/res/sunikkatsu2_base.jww", "decomp/res/sunikkatsu2.jww",
-      "斜めの線と、届かない短い縦線 (probe40)", 320, 0, 0, 0 },
+      "斜めの線と、届かない短い縦線 (probe40)", 320, 0, 0, 0, LL },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu3.jww",
-      "天端 20/19/15/10/0 を y=320 で (probe41)", 320, 0, 0, 0 },
+      "天端 20/19/15/10/0 を y=320 で (probe41)", 320, 0, 0, 0, LL },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu4.jww",
-      "同じ図を y=330 で —— 天端 10 の一本も入る (probe42)", 330, 0, 0, 0 },
+      "同じ図を y=330 で —— 天端 10 の一本も入る (probe42)", 330, 0, 0, 0, LL },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu5.jww",
-      "(R) の代わりに 実行 を押して (probe46)", 330, 1, 0, 0 },
+      "(R) の代わりに 実行 を押して (probe46)", 330, 1, 0, 0, LL },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu6.jww",
       "追加: 拾われない x=70 を指示すると入る (probe50)",
-      330, 0, 1, TOG_ADD },
+      330, 0, 1, TOG_ADD, LL },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu7.jww",
       "除外: 拾われている x=-70 を指示すると抜ける (probe50)",
-      330, 0, 1, TOG_DROP },
+      330, 0, 1, TOG_DROP, LL },
     { "decomp/res/sunikkatsu_band.jww", "decomp/res/sunikkatsu8.jww",
-      "両方いっぺんに (probe50)", 330, 0, 2, TOG_BOTH },
+      "両方いっぺんに (probe50)", 330, 0, 2, TOG_BOTH, LL },
+    { "decomp/res/sunikkatsu_types.jww", "decomp/res/sunikkatsu12.jww",
+      "線種混じりの図を素直に (probe55)", 330, 0, 0, 0, LL },
+    { "decomp/res/sunikkatsu_types.jww", "decomp/res/sunikkatsu9.jww",
+      "同一線種選択: 両端とも実線を (R) で (probe55)",
+      330, 0, 0, 0, 391, 717, 1, 1 },
+    { "decomp/res/sunikkatsu_types.jww", "decomp/res/sunikkatsu10.jww",
+      "同一線種選択: 両端とも点線を (R) で (probe55)",
+      330, 0, 0, 0, 440, 571, 1, 1 },
+    { "decomp/res/sunikkatsu_types.jww", "decomp/res/sunikkatsu11.jww",
+      "始線は (L)、終線だけ (R) —— 一度で効く (probe55)",
+      330, 0, 0, 0, 391, 717, 0, 1 },
 };
 
 int main(void)
@@ -352,7 +372,9 @@ int main(void)
         printf("-- %s\n", RUNS[k].what);
         na = theirs(RUNS[k].answer, a, 256);
         nb = ours(RUNS[k].base, RUNS[k].y, RUNS[k].jikko,
-                  RUNS[k].tog, RUNS[k].ntog, b, 256);
+                  RUNS[k].tog, RUNS[k].ntog,
+                  RUNS[k].ex0, RUNS[k].ex1, RUNS[k].rb0, RUNS[k].rb1,
+                  b, 256);
         flatten(a, na);
         flatten(b, nb);
         compare(a, na, b, nb);
