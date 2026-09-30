@@ -34,8 +34,15 @@
  *   **modulo a whole turn** -- the arc is the same either way and the
  *   number is not something the port can be held to.
  *
- * 半円 (1320) drew nothing for two clicks, so it wants more than the
- * probe gave it and is not tested here.
+ * 半円 (1320) wants **three** clicks, not two, which is why the first go
+ * at it drew nothing.  tools/probe60.sh read its prompts:
+ *
+ *   1. １点目の位置を指示してください
+ *   2. ○　２点目の位置を指示してください
+ *   3. 　　　　◆　　　　円弧の方向を指示してください。　r = 6,845.106
+ *
+ * -- two points fix the diameter, and by the third the radius is already
+ * known, so that one only says which way the half bulges.
  *
  * What is compared is the 円弧 element itself: centre, radius, start
  * angle, sweep, tilt and flatness, which is everything a CDataEnko has.
@@ -209,6 +216,8 @@ static const run_t RUNS[] = {
       {{"1412","200"}}, {{300,300},{500,400}}, 2 },
     { "decomp/res/enko_afl2.jww", "円弧と扁平率、終点を左下に", 1318, 1,
       {{"1412","0.5"}}, {{300,300},{500,400},{217,482}}, 3 },
+    { "decomp/res/enko_half.jww", "半円 (1320) —— 三クリック", 1320, 1,
+      {{0,0}}, {{300,300},{500,400},{500,200}}, 3 },
 };
 
 int main(void)
