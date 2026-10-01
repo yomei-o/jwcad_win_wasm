@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Which controls of each command bar src/cmd.c names, bar by bar.
+"""Which controls of each command bar the port names, bar by bar.
 
 This is a reading of the source, not a measurement: tests/barprobe_test.exe
 presses every control and says which of them change what gets drawn, and that
@@ -16,8 +16,8 @@ read out of the running original) and marks each control by whether src/cmd.c
 mentions its id for that command:
 
     box   a number the port gives a starting value to
-    chk   a checkbox whose id src/cmd.c names
-    btn   a button whose id src/cmd.c names
+    chk   a checkbox whose id the port names
+    btn   a button whose id the port names
     --    not named there at all
 
 It is a rough measure -- it looks for the id near the command's name -- but
@@ -27,7 +27,17 @@ import re
 import sys
 
 BARS = 'src/gen/bars.h'
-CMD = 'src/cmd.c'
+# A control counts as covered when **any** of these files has its id in
+# them, with no regard for which command it was for -- so a button that two
+# bars share is called covered as soon as one of them is handled.  This is a
+# reading of the source, not a measurement; tests/barprobe_test.exe --list
+# is the number to go by.
+#
+# The port answers to a control in whichever of these names its id: the
+# command layer for most of them, but a button that puts a dialog up is
+# handled in src/app.c and drawn by src/ui.c.  Reading only src/cmd.c made
+# this over-count by a third (2026-10-01).
+CMD = ('src/cmd.c', 'src/app.c', 'src/ui.c')
 CMDS = 'src/gen/cmds.h'
 
 KIND = {'JW_CTL_CHECK': 'check', 'JW_CTL_BUTTON': 'button',
@@ -91,7 +101,9 @@ def names():
 
 def main():
     show_all = '--all' in sys.argv
-    cmd = open(CMD, encoding='utf-8', errors='replace').read()
+    cmd = ''
+    for one in CMD:
+        cmd += open(one, encoding='utf-8', errors='replace').read()
     boxes = set()
     m = re.search(r'} box\[\] = \{(.*?)\n\};', cmd, re.S)
     for line in m.group(1).splitlines():
@@ -126,7 +138,7 @@ def main():
             for r in rows:
                 print(r)
     print()
-    print('%d of %d controls are named somewhere in src/cmd.c' % (done, total))
+    print('%d of %d controls are named somewhere in the port' % (done, total))
     print('(what they actually do: tests/barprobe_test.exe --list)')
 
 
