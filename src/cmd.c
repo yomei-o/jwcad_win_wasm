@@ -745,6 +745,9 @@ static int    have_kata;        /* 角度取得 has given one */
 static double get_kata;         /* in radians */
 static int    have_naga;        /* 長さ取得 has given one */
 static double get_naga;         /* in millimetres on the paper */
+static int    have_kan;         /* 間隔取得 has given one */
+static double get_kan;          /* in the drawing's own units */
+static int    get_obj = -1;     /* the line 間隔取得 was given */
 
 static int kata_set(void)
 {
@@ -1423,6 +1426,10 @@ void jw_cmd_set(int id)
        next line came out plain (tools/probe21.sh) */
     get_mode = 0;
     have_kata = have_naga = 0;
+    /* and so does 間隔取得's: taking one, going out to 円 and back to
+       複線 left nothing behind (tools/probe94.sh) */
+    have_kan = 0;
+    get_obj = -1;
     if (id == JW_CMD_NISEN) {
         nisen_step = 0;
         nisen_obj = -1;
@@ -7728,6 +7735,13 @@ int jw_cmd_get_naga(double *out)
     return have_naga;
 }
 
+int jw_cmd_get_kankaku(double *out)
+{
+    if (out && have_kan)
+        *out = get_kan;
+    return have_kan;
+}
+
 static void get_take_angle(double a)
 {
     while (a > PI)
@@ -7748,6 +7762,37 @@ static void get_take_length(double l)
     get_mode = 0;
 }
 
+/* 間隔取得 (32948), which sits in the same 長さ取得 submenu.  It takes a
+ * line with (L) and a point with (R)Read, and what it leaves behind is
+ * 複線's 間隔: the perpendicular distance from the point to the line.
+ *
+ * Six earlier runs looked for the number in six places and found it in
+ * none of them (tools/probe44.sh, probe46.sh .. probe48.sh).  All six
+ * had the same hole in them: the second click was an (R) at a spot with
+ * **nothing to read**, so nothing was ever taken.  With a point to read
+ * there, the command finishes by itself, hands control back to the one
+ * it was called from, and that one's next click only says which side
+ * (tools/probe90.sh, probe92.sh).  Three runs, three distances:
+ *
+ *     point (300,600)   164.27 out     decomp/res/kankaku_a.jww
+ *     point (700,650)    82.14 out     decomp/res/kankaku_b.jww
+ *     point (200,200)    27.38 out     decomp/res/kankaku_c.jww
+ *
+ * and the sign is the click's, not the measurement's: the point of run
+ * b is on the far side of the line from the copy.
+ *
+ * Only a line has been held against the original.  The prompt offers
+ * 「線・円指示(L)」, but what the distance to a circle means -- to its
+ * middle, or to the near side of it -- has not been asked. */
+static void get_take_kankaku(double l)
+{
+    if (l <= 0.0)
+        return;
+    get_kan = l;
+    have_kan = 1;
+    get_mode = 0;
+}
+
 /* one click while a 取得 is on; 1 if it was swallowed */
 static int get_click(jw_drawing *d, const jw_view *v,
                      double x, double y, int button)
@@ -7758,6 +7803,30 @@ static int get_click(jw_drawing *d, const jw_view *v,
 
     if (!d)
         return 1;
+    if (get_mode == 32948) {
+        /* a line first, then a point */
+        if (get_step == 0) {
+            i = jw_pick(d, v, x, y, 6);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return 1;
+            get_obj = i;
+            get_step = 1;
+            return 1;
+        }
+        if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+            return 1;
+        if (get_obj >= 0 && get_obj < d->ndrawn
+            && d->obj[get_obj].cls == JW_SEN) {
+            const jw_obj *o = &d->obj[get_obj];
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+            double len = sqrt(dx * dx + dy * dy);
+
+            if (len > 1e-09)
+                get_take_kankaku(fabs(((x - o->d[0]) * -dy
+                                       + (y - o->d[1]) * dx) / len));
+        }
+        return 1;
+    }
     if (two) {
         if (button != 0 && !jw_read(d, v, x, y, &x, &y))
             return 1;
@@ -8386,7 +8455,27 @@ placed:
                  * and typing the number there takes it straight to the
                  * third -- so a typed offset is two clicks, not three.
                  * 1000 on a 1/200 group put the copy 5 mm out. */
-                double typed = box_mm(d, 1411);
+                /* and 間隔取得 (32948) leaves a number in the same place:
+                 * taking one and then clicking a side put the copy
+                 * exactly that far out, three times over
+                 * (decomp/res/kankaku_*.jww, tools/probe92.sh).  It
+                 * **beats the box**: a run with 50 typed into 1411 and
+                 * then 164.28 taken copied by 164.28 (tools/probe93.sh).
+                 * That is the other way round from 長さ取得, where the
+                 * typed box wins -- but there the box was typed after the
+                 * grab and here before it, so what has really been
+                 * measured both times may be「last one in wins」.  The
+                 * other order has not been asked.
+                 *
+                 * It is good for **one copy**: picking a second line in
+                 * the same command put the 「間隔を入力するか」 question
+                 * back and wanted the extra click again
+                 * (tools/probe94.sh). */
+                double typed = 0.0;
+                if (jw_cmd_get_kankaku(&typed))
+                    have_kan = 0;       /* one copy, and it is spent */
+                else
+                    typed = box_mm(d, 1411);
                 if (typed <= 0.0) {
                     para_step = 2;
                     return;

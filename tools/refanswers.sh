@@ -563,6 +563,28 @@ hatch_figs() {
         '840,140;1000,330' "$S" orig/Test5.jww
 }
 
+# 間隔取得 (32948): 複線 の途中で呼び、線 (L) と**読める点** (R) を指すと、
+# その垂線の長さが複線の間隔になります。読む点が無い所で (R) しても何も
+# 取れないので、点を一つ描いてから指します。tools/probe90.sh〜probe94.sh。
+kankaku() {
+    # $1 名前, $2 点の置き場, $3 向きのクリック
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0         -Clicks "cmd:32771;off:1333;300,300;700,500;cmd:32785;$2;cmd:32800;500,400;cmd:32948;500,400;r$2;$3;saveas:decomp/res/$1"         2>&1 | sed 's/^/        /'
+}
+
+kankakus() {
+    echo "=== 間隔取得 (複線の間隔になる)"
+    kankaku kankaku_a.jww 300,600 500,200
+    kankaku kankaku_b.jww 700,650 500,200
+    kankaku kankaku_c.jww 200,200 500,600
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0         -Clicks "cmd:32771;off:1333;300,300;700,500;cmd:32785;300,600;cmd:32800;500,400;500,200;saveas:decomp/res/kankaku_none.jww"         2>&1 | sed 's/^/        /'
+}
+
 hatch_sel() {
     idle
     sh tools/refenv.sh >/dev/null
@@ -597,6 +619,7 @@ while :; do
     hatch_sel
     hatch_pick
     hatch_figs
+    kankakus
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

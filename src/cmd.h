@@ -324,6 +324,9 @@ void jw_cmd_get_mode(int mode);
 int  jw_cmd_get_mode_now(void);
 int  jw_cmd_get_kata(double *deg);
 int  jw_cmd_get_naga(double *mm);
+/* 間隔取得 (32948): the perpendicular distance from a point to a line,
+ * which is what 複線 then copies by.  Nought if none has been taken. */
+int  jw_cmd_get_kankaku(double *out);
 
 /* How far a range command has got: 0 nothing, 1 the first corner is in, 2 a
    range is picked, 3 it is settled (4 for 範囲選択, which stops there).  The
