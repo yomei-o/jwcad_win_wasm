@@ -3,22 +3,28 @@
  *
  *   tests/pending_test.exe
  *
- * The original does **not** draw it in the element's own pen.  Its basic
- * settings have a 仮表示色 (1122, Pen/Color11) and its own window bears
- * it out: with one corner of a 矩形 down, one end of a 線 down, or the
- * centre of a 円 down, and the cursor somewhere else, the window painted
- * into an off-screen bitmap has the provisional figure in **ff0000**
- * (tools/probe75.sh -- the pictures are tmp/pend_*.png).  That is the
- * same colour the range box already had.
+ * The original does **not** draw it in the element's own pen, and it does
+ * not simply paint it red either.  It brackets the draw with
+ * SetROP2(R2_NOTXORPEN) and SetROP2(R2_COPYPEN) -- FUN_004bbad0 and
+ * FUN_004bbaa0 of the decompilation, which also raise and drop the flag
+ * at +0x8444 that its drawing routine FUN_00481d50 reads -- and the pen
+ * is 仮表示色 (1122 on the basic-settings colour page, Pen/Color11,
+ * ff0000 here).  So a pixel becomes **~(ff0000 ^ what was there)**.
  *
- * The port drew it in the element's own pen, which is the bug this test
- * is here to keep shut.  What is checked is that the figure hanging off
- * the cursor paints in ff0000 and that none of it paints in the writing
- * pen's own colour, and that a committed element goes back to that pen.
+ * Its own window bears that out.  The same drawing was painted into an
+ * off-screen bitmap with and without a rubber rectangle over it, and
+ * every pixel that changed was one of these two (tools/probe78.sh,
+ * probe79.sh):
  *
- * What the original's raster op does where the provisional figure
- * crosses something already drawn is still not traced, so this only
- * looks at it over bare paper.
+ *     ffffff -> ff0000     over bare paper
+ *     000000 -> 00ffff     over one of its own black lines
+ *
+ * and a line with one end down and a circle with its centre down came
+ * back in ff0000 over paper as well (tools/probe75.sh).
+ *
+ * The port drew the figure in the element's own pen, which is the bug
+ * this test is here to keep shut.  Both halves are checked: red over the
+ * paper, and cyan where it crosses a black line.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,6 +99,22 @@ static void one(int cmd, const char *what, int n1, const int (*pt)[2])
     count(JW_KARI_RGB, pen_now(), &red, &own);
     printf("     置いたあと 仮 %d 画素、書込みペン %d 画素\n", red, own);
     ck(own > 20, "  置いたものは書込みペンで出る");
+
+    /* and over what is now drawn, the band is ~(pen ^ dest): black turns
+       cyan.  The committed figure is black (線色2), so a second
+       provisional one laid over it has to show 00ffff. */
+    {
+        int cyan, nothing;
+
+        for (i = 0; i < n1; i++)
+            app_press(pt[i][0], pt[i][1], 0);
+        app_move(pt[n1][0], pt[n1][1]);
+        app_paint();
+        count(~(JW_KARI_RGB ^ pen_now()) & 0xffffffu, 0xdeadbeefu,
+              &cyan, &nothing);
+        printf("     重なったところ %d 画素\n", cyan);
+        ck(cyan > 10, "  描いてあるものに重なると ~(ペン^下地)");
+    }
 }
 
 int main(void)

@@ -87,7 +87,8 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
             sy = jw_sy(v, py);
             if (sx >= v->clip.x && sx < v->clip.x + v->clip.w
                 && sy >= v->clip.y && sy < v->clip.y + v->clip.h)
-                fb->px[(size_t)sy * fb->w + sx] = col;
+                fb->px[(size_t)sy * fb->w + sx] =
+                    jw_rop(fb->px[(size_t)sy * fb->w + sx], col);
         }
     }
 }

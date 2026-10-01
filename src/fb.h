@@ -18,6 +18,24 @@ typedef struct {
     int x, y, w, h;
 } rect_t;
 
+/* The raster op in force while a provisional figure is being drawn.
+ *
+ * The original brackets such a draw with SetROP2(R2_NOTXORPEN) going in
+ * and SetROP2(R2_COPYPEN) coming out -- FUN_004bbad0 and FUN_004bbaa0 of
+ * the decompilation, which also raise and drop the flag at +0x8444 that
+ * its drawing routine reads.  jw_draw_kari is that flag, and jw_rop is
+ * the op: a pixel becomes ~(pen ^ what was already there).
+ *
+ * Both src/draw.c and src/text.c put pixels down, so it sits here.  Only
+ * what goes on the paper uses it: the chrome's own text (jw_text_px)
+ * must not. */
+extern int jw_draw_kari;
+
+static __inline unsigned int jw_rop(unsigned int dest, unsigned int col)
+{
+    return jw_draw_kari ? ~(col ^ dest) & 0xffffffu : col;
+}
+
 int  fb_init(fb_t *fb, int w, int h);
 void fb_free(fb_t *fb);
 
