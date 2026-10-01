@@ -206,6 +206,10 @@ echo "=== 切り取り・コピー・貼り付け —— 原典が貼った六�
 ./tests/clip_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 仮表示色 —— 作図中の図形は赤か"
+./tests/pending_test.exe | sed 's/^/    /'
+
+echo
 echo "=== メニューの総ざらい —— どの項目が応えるか"
 ./tests/menusweep_test.exe | sed 's/^/    /'
 

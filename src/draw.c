@@ -661,8 +661,19 @@ static int shown(const jw_drawing *d, const jw_obj *o)
  * colour is -- 0xc0c0c0, which is pen 9.  日影図.jww keeps nine of its
  * sixteen layers that way, and drawing them in their own colours makes the
  * screen look nothing like the original's. */
+/* While this is set, everything drawn takes the provisional colour: a
+ * figure the command is part way through is **not** drawn in its own
+ * pen.  The original's basic settings call that one 仮表示色 (the
+ * Pen/Color11 of src/gen/pens.h, ff0000 here) and its own window bears
+ * it out -- a rectangle with one corner down, a line with one end down
+ * and a circle with its centre down all came back drawn in ff0000
+ * (tools/probe75.sh).  It is the colour the range box already used.
+ */
+int jw_draw_kari;
 static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
 {
+    if (jw_draw_kari)
+        return JW_KARI_RGB;
     if (shown(d, o) == 1)
         return d->pen_rgb[9];
     /* An element picked *in this session* is drawn in Pen/Color10 whatever

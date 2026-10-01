@@ -6,6 +6,11 @@
 #include "jww.h"
 #include "view.h"
 
+/* While this is set, jw_draw paints everything in 仮表示色 instead of
+   each element's own pen -- which is what the original does with the
+   figure a command is part way through (see obj_colour in src/draw.c). */
+extern int jw_draw_kari;
+
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d);
 
 /* The selection being dragged: every picked element drawn again dx,dy away,

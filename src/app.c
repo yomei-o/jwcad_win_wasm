@@ -2005,10 +2005,19 @@ void app_paint(void)
         jw_draw(&fb, &view, &drawing);
     }
     {
-        /* The element the command is part way through.  The original draws
-           its provisional figure through a raster op (it has a SetROP2
-           wrapper at FUN_0079f1b8) which has not been traced yet, so this
-           just draws the element that is about to exist. */
+        /* The element the command is part way through.  The original
+           draws it in 仮表示色 and not in the element's own pen --
+           ff0000 here, the same colour the range box gets.  Its own
+           window says so: a rectangle with one corner down, a line
+           with one end down and a circle with its centre down all came
+           back drawn in ff0000 (tools/probe75.sh), and the basic
+           settings have a 仮表示色 (1122) to name it.  jw_draw_kari is
+           how src/draw.c is told.
+
+           The raster op it goes through (there is a SetROP2 wrapper at
+           FUN_0079f1b8) is still not traced, so what happens where the
+           provisional figure crosses something already drawn is not
+           settled -- only its colour over the paper is. */
         jw_obj o[JW_CMD_MAXFIG];
         int n;
         if (view_ready && have_drawing
@@ -2017,7 +2026,9 @@ void app_paint(void)
             ui_view_rect(fb.w, fb.h, &view.clip);
             one.obj = o;
             one.nobj = one.ndrawn = n;
+            jw_draw_kari = 1;
             jw_draw(&fb, &view, &one);
+            jw_draw_kari = 0;
         }
     }
     if (view_ready && have_drawing) {
