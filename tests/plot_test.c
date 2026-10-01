@@ -47,6 +47,15 @@
 
 static int fails;
 
+/* The printer's dot: the original writes every coordinate as a whole
+   multiple of a six hundredth of an inch (src/plot.c's DOT_PT). */
+static int on_dot(double v)
+{
+    double k = v / (72.0 / 600.0);
+
+    return fabs(k - (double)(long)(k + (k < 0 ? -0.5 : 0.5))) < 1e-3;
+}
+
 static void ck(int ok, const char *what)
 {
     printf("%-4s %s\n", ok ? "ok" : "BAD", what);
@@ -168,12 +177,20 @@ int main(int argc, char **argv)
             printf("     %s がない\n", want);
     }
     if (two_points(text, &x0, &y0, &x1, &y1)) {
-        cknear(x0 / mm2pt - wide / 2.0, SHEET_X0, 1e-2,
+        /* Half a printer's dot either way: both the original and the port
+           round every coordinate to a six hundredth of an inch, which is
+           0.0423 mm, so a point can sit 0.0212 off and a length -- two
+           rounded ends -- 0.0423 (src/plot.c's DOT_PT). */
+        const double DOT = 25.4 / 600.0;
+
+        cknear(x0 / mm2pt - wide / 2.0, SHEET_X0, DOT / 2.0 + 1e-6,
                "  始点は用紙の中心から測って同じところ（x）");
-        cknear(y0 / mm2pt - tall / 2.0, SHEET_Y0, 1e-2, "  同じく y");
-        cknear((x1 - x0) / mm2pt, SHEET_X1 - SHEET_X0, 1e-2,
+        cknear(y0 / mm2pt - tall / 2.0, SHEET_Y0, DOT / 2.0 + 1e-6,
+               "  同じく y");
+        cknear((x1 - x0) / mm2pt, SHEET_X1 - SHEET_X0, DOT + 1e-6,
                "  長さも原寸（x）");
-        cknear((y1 - y0) / mm2pt, SHEET_Y1 - SHEET_Y0, 1e-2, "  同じく y");
+        cknear((y1 - y0) / mm2pt, SHEET_Y1 - SHEET_Y0, DOT + 1e-6,
+               "  同じく y");
     } else {
         ck(0, "  PDF から線が読み取れる");
     }
@@ -199,13 +216,22 @@ int main(int argc, char **argv)
        10.710 mm -- half of 1.693, 3.429, 5.165, 8.932, 23.199, 7.154 and
        21.421 in that order (tmp/orig_dash.pdf, read again). */
     {
-        static const char *WANT[] = {
-            "[1.693 1.693] 0.8465 d", "[3.429 3.429] 1.7145 d",
-            "[5.165 1.736] 2.5825 d",
-            "[8.932 1.778 1.778 1.778] 4.466 d",
-            "[23.199 1.778 1.778 1.778] 11.5995 d",
-            "[7.154 1.778 0.889 1.778 0.889 1.778] 3.577 d",
-            "[21.421 1.778 0.889 1.778 0.889 1.778] 10.7105 d"
+        /* The runs of each type, in millimetres, and how many strokes the
+           original's own printer made of each 200 mm line.  Both came off
+           decomp/res/print_dash.txt. */
+        static const struct {
+            int strokes;                /* dashes, and the end dot */
+            double first;               /* the part dash it starts with */
+            double run[6];              /* on, off, on, off ... */
+            int nrun;
+        } WANT[7] = {
+            { 61, 0.847, { 1.693, 1.693 }, 2 },
+            { 31, 1.693, { 3.429, 3.429 }, 2 },
+            { 31, 2.582, { 5.165, 1.736 }, 2 },
+            { 30, 4.446, { 8.932, 1.778, 1.778, 1.778 }, 4 },
+            { 16, 11.600, { 23.199, 1.778, 1.778, 1.778 }, 4 },
+            { 44, 3.556, { 7.154, 1.778, 0.889, 1.778, 0.889, 1.778 }, 6 },
+            { 23, 10.710, { 21.421, 1.778, 0.889, 1.778, 0.889, 1.778 }, 6 }
         };
         jw_drawing *e;
         unsigned char *q;
@@ -231,31 +257,81 @@ int main(int argc, char **argv)
         q = jw_plot_pdf(e, 0, &qn);
         ck(q != 0, "九つの線種を刷る");
         if (q) {
+            double ys[16], xs0[2048], xs1[2048];
+            int row[16], nrow = 0, nseg = 0, bad = 0;
+            double seg_y[2048];
+            const char *r;
+
             t = (char *)malloc((size_t)qn + 1);
             memcpy(t, q, (size_t)qn);
             t[qn] = 0;
-            for (i = 0; i < 7; i++)
-                if (!strstr(t, WANT[i])) {
-                    printf("     %s がない\n", WANT[i]);
+            /* every stroke the port wrote, and the row it is on */
+            for (r = t; (r = strstr(r, " m ")) != 0; ) {
+                double x0, y0, x1, y1;
+                const char *s2 = r;
+
+                while (s2 > t && s2[-1] != '\n')
+                    s2--;
+                if (sscanf(s2, "%lf %lf m %lf %lf l", &x0, &y0, &x1, &y1) == 4
+                    && nseg < 2048) {
+                    xs0[nseg] = x0;
+                    xs1[nseg] = x1;
+                    seg_y[nseg] = y0;
+                    nseg++;
+                    /* and every number has to be on the printer's dot */
+                    if (!on_dot(x0) || !on_dot(y0) || !on_dot(x1)
+                        || !on_dot(y1))
+                        bad++;
+                }
+                r += 3;
+            }
+            ck(bad == 0, "  どの数も 600 分の一インチの倍数");
+            if (bad)
+                printf("     %d 個が格子から外れている\n", bad);
+            for (i = 0; i < nseg; i++) {
+                int k;
+
+                for (k = 0; k < nrow; k++)
+                    if (ys[k] > seg_y[i] - 1e-6 && ys[k] < seg_y[i] + 1e-6)
+                        break;
+                if (k == nrow && nrow < 16) {
+                    ys[nrow] = seg_y[i];
+                    row[nrow++] = 0;
+                }
+                if (k < 16)
+                    row[k]++;
+            }
+            ck(nrow == 8, "  引いた九本のうち刷られるのは八本（補助線は出ない）");
+            if (nrow != 8)
+                printf("     %d 行出ている\n", nrow);
+            /* the rows come out in the order they were drawn: 実線 first,
+               then the seven dashed ones */
+            ok = 1;
+            for (i = 0; i < 7 && i + 1 < nrow; i++)
+                if (row[i + 1] != WANT[i].strokes) {
+                    printf("     %d 本目: %d 筆、原典は %d 筆\n",
+                           i + 2, row[i + 1], WANT[i].strokes);
                     ok = 0;
                 }
-            ck(ok, "  八つの線種が原典の刻みで出る");
-            /* 補助線 is nine lines in and eight out -- and each of
-               the seven dashed ones carries the end dot the original
-               leaves, which is a stroke of its own, so 8 + 7 */
+            ck(ok, "  刻みの数が原典と同じ");
+            /* and the first dash of each is half the full one */
+            ok = 1;
             {
-                int n = 0;
-                const char *r = t;
-                while ((r = strstr(r, " m ")) != 0) {
-                    n++;
-                    r += 3;
+                int at = row[0];
+
+                for (i = 0; i < 7 && at < nseg; i++) {
+                    double got = (xs1[at] - xs0[at]) * 25.4 / 72.0;
+
+                    if (got < WANT[i].first - 0.05
+                        || got > WANT[i].first + 0.05) {
+                        printf("     %d 本目の最初の刻み %.3f、原典は %.3f\n",
+                               i + 2, got, WANT[i].first);
+                        ok = 0;
+                    }
+                    at += row[i + 1];
                 }
-                ck(n == 8 + 7,
-                   "  引いた九本のうち刷られるのは八本（補助線は出ない）、"
-                   "刻みのあるものは終端の点つき");
-                if (n != 8 + 7)
-                    printf("     %d 筆出ている\n", n);
             }
+            ck(ok, "  どれも刻みの真ん中から始まる");
             free(t);
             free(q);
         }

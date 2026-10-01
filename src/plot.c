@@ -94,18 +94,34 @@ static void pen_rgb(const jw_drawing *d, int pen, int colour,
  * jw_plot_pdf writes that too, because a dash array alone would leave
  * the end bare whenever the line runs out in a gap.
  */
-static const char *dash_of(int type)
+/* The runs of each line type, in millimetres, on and off in turn.  The
+ * line starts half way through the first of them.  Nought for a solid
+ * line and for 補助線, which is not printed at all. */
+static int dash_mm(int type, double *out)
 {
+    static const double P2[] = { 1.693, 1.693 };
+    static const double P3[] = { 3.429, 3.429 };
+    static const double P4[] = { 5.165, 1.736 };
+    static const double P5[] = { 8.932, 1.778, 1.778, 1.778 };
+    static const double P6[] = { 23.199, 1.778, 1.778, 1.778 };
+    static const double P7[] = { 7.154, 1.778, 0.889, 1.778, 0.889, 1.778 };
+    static const double P8[] = { 21.421, 1.778, 0.889, 1.778, 0.889, 1.778 };
+    const double *s;
+    int n, i;
+
     switch (type) {
-    case 2: return "[1.693 1.693] 0.8465";
-    case 3: return "[3.429 3.429] 1.7145";
-    case 4: return "[5.165 1.736] 2.5825";
-    case 5: return "[8.932 1.778 1.778 1.778] 4.466";
-    case 6: return "[23.199 1.778 1.778 1.778] 11.5995";
-    case 7: return "[7.154 1.778 0.889 1.778 0.889 1.778] 3.577";
-    case 8: return "[21.421 1.778 0.889 1.778 0.889 1.778] 10.7105";
-    default: return "[] 0";
+    case 2: s = P2; n = 2; break;
+    case 3: s = P3; n = 2; break;
+    case 4: s = P4; n = 2; break;
+    case 5: s = P5; n = 4; break;
+    case 6: s = P6; n = 4; break;
+    case 7: s = P7; n = 6; break;
+    case 8: s = P8; n = 6; break;
+    default: return 0;
     }
+    for (i = 0; i < n; i++)
+        out[i] = s[i];
+    return n;
 }
 
 /* The ninth of either is not printed.  Nine lines of one colour and nine
@@ -175,14 +191,101 @@ typedef struct {
     int pen, type;              /* what the graphics state is set to */
 } Pdf;
 
+/* The printer's dot.  **Every number the original writes into a PDF is
+ * a whole multiple of a six hundredth of an inch** -- all 948 of them
+ * in decomp/res/print_dash.txt, the 60 in print_points.txt and the
+ * four in print_small.txt, with not one off the grid.  So it rasterises
+ * to its printer's 600 dots to the inch before it writes, and that is
+ * why its dashes wobble by a dot: the same 線種 comes out 3.429 in one
+ * place and 3.471 in the next. */
+#define DOT_PT (72.0 / 600.0)
+
+static double snap_(double v)
+{
+    return floor(v / DOT_PT + 0.5) * DOT_PT;
+}
+
 static double px_(const Pdf *p, double x)
 {
-    return (x + p->hw) * p->mm2pt;
+    return snap_((x + p->hw) * p->mm2pt);
 }
 
 static double py_(const Pdf *p, double y)
 {
-    return (y + p->hh) * p->mm2pt;
+    return snap_((y + p->hh) * p->mm2pt);
+}
+
+/* One run of a polyline, written the way the original writes it: **no
+ * dash array**, an `m ... l S` for every dash, and every end on the
+ * printer's dot.  A dash array cannot say what the original says,
+ * because the snapping makes no two of its dashes quite the same
+ * length.
+ *
+ * The points are in the drawing's millimetres.  The line starts half
+ * way through the first run of the pattern -- all seven dashed types
+ * began with exactly half a dash (RESUME, 刻みの位相)
+ * -- and a dashed
+ * line ends with a stroke of no length at its far end, which the `1 J`
+ * round cap paints as a dot of the pen's width.  Each of the seven
+ * rows the original printed carries exactly one of those. */
+static void stroke_run(Pdf *p, const double *mx, const double *my,
+                       int n, int type)
+{
+    double pat[8], at, left;
+    int np = dash_mm(type, pat), k = 0, i, on = 1, open = 0;
+
+    if (n < 2)
+        return;
+    if (np <= 0) {              /* solid: one stroke the whole way */
+        buf_f(p->b, "%.2f %.2f m", px_(p, mx[0]), py_(p, my[0]));
+        for (i = 1; i < n; i++)
+            buf_f(p->b, " %.2f %.2f l", px_(p, mx[i]), py_(p, my[i]));
+        buf_put(p->b, " S\n", -1);
+        return;
+    }
+    left = pat[0] / 2.0;
+    for (i = 0; i + 1 < n; i++) {
+        double x0 = mx[i], y0 = my[i];
+        double dx = mx[i + 1] - x0, dy = my[i + 1] - y0;
+        double len = sqrt(dx * dx + dy * dy);
+
+        if (len < 1e-12)
+            continue;
+        dx /= len;
+        dy /= len;
+        at = 0.0;
+        while (at < len) {
+            double step = len - at < left ? len - at : left;
+
+            if (on) {
+                if (!open) {
+                    buf_f(p->b, "%.2f %.2f m ",
+                          px_(p, x0 + dx * at), py_(p, y0 + dy * at));
+                    open = 1;
+                }
+                buf_f(p->b, "%.2f %.2f l",
+                      px_(p, x0 + dx * (at + step)),
+                      py_(p, y0 + dy * (at + step)));
+            }
+            at += step;
+            left -= step;
+            if (left <= 1e-12) {
+                if (on && open) {
+                    buf_put(p->b, " S\n", -1);
+                    open = 0;
+                }
+                k = (k + 1) % np;
+                left = pat[k];
+                on = !on;
+            }
+        }
+    }
+    if (open)
+        buf_put(p->b, " S\n", -1);
+    /* and the dot at the far end */
+    buf_f(p->b, "%.2f %.2f m %.2f %.2f l S\n",
+          px_(p, mx[n - 1]), py_(p, my[n - 1]),
+          px_(p, mx[n - 1]), py_(p, my[n - 1]));
 }
 
 static void state(Pdf *p, int pen, int type)
@@ -195,10 +298,8 @@ static void state(Pdf *p, int pen, int type)
               r, g, b, r, g, b, pen_mm(p->d, pen) * p->mm2pt);
         p->pen = pen;
     }
-    if (type != p->type) {
-        buf_f(p->b, "%s d\n", dash_of(type));
-        p->type = type;
-    }
+    /* no dash array: stroke_run writes every dash itself */
+    p->type = type;
 }
 
 static int type_of(const jw_obj *o)
@@ -250,23 +351,17 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
     const int pen = o->color >= 1 && o->color <= 9 ? o->color : 2;
 
     switch (o->cls) {
-    case JW_SEN:
+    case JW_SEN: {
+        double mx[2], my[2];
+
         state(p, pen, type_of(o));
-        buf_f(p->b, "%.2f %.2f m %.2f %.2f l S\n",
-              px_(p, o->d[0]), py_(p, o->d[1]),
-              px_(p, o->d[2]), py_(p, o->d[3]));
-        if (type_of(o) != 1) {
-            /* the dot the original leaves at the far end of a
-               dashed line -- a stroke of no length, which its own
-               round cap paints as a dot of the pen width.  A dash
-               array alone leaves the end bare whenever the line
-               runs out in a gap (see dash_of above). */
-            buf_f(p->b, "[] 0 d %.2f %.2f m %.2f %.2f l S %s d\n",
-                  px_(p, o->d[2]), py_(p, o->d[3]),
-                  px_(p, o->d[2]), py_(p, o->d[3]),
-                  dash_of(type_of(o)));
-        }
+        mx[0] = o->d[0];
+        my[0] = o->d[1];
+        mx[1] = o->d[2];
+        my[1] = o->d[3];
+        stroke_run(p, mx, my, 2, type_of(o));
         break;
+    }
     case JW_ENKO: {
         /* the same parametrisation src/draw.c walks: centre, radius, the
            angle it starts at, how far it sweeps, the tilt of the long axis
@@ -291,15 +386,22 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
         if (n > 720)
             n = 720;
         state(p, pen, type_of(o));
-        for (i = 0; i <= n; i++) {
-            double t = a0 + sw * i / n;
-            double ux = r * cos(t), uy = r * flat * sin(t);
-            double x = cx + ux * ct - uy * st;
-            double y = cy + ux * st + uy * ct;
-            buf_f(p->b, "%.2f %.2f %s\n", px_(p, x), py_(p, y),
-                  i ? "l" : "m");
+        {
+            double *mx = (double *)malloc((size_t)(n + 1) * 2
+                                          * sizeof(double));
+
+            if (!mx)
+                break;
+            for (i = 0; i <= n; i++) {
+                double t = a0 + sw * i / n;
+                double ux = r * cos(t), uy = r * flat * sin(t);
+
+                mx[i] = cx + ux * ct - uy * st;
+                mx[n + 1 + i] = cy + ux * st + uy * ct;
+            }
+            stroke_run(p, mx, mx + n + 1, n + 1, type_of(o));
+            free(mx);
         }
-        buf_put(p->b, "S\n", -1);
         break;
     }
     case JW_TEN: {
