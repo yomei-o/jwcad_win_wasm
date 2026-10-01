@@ -146,6 +146,19 @@ static double base_x, base_y;   /* 基準点 */
 /* 反転 (the second stage's 1067): once pressed, the next click picks the
    基準線 to flip the selection across. */
 static int sel_flip;
+/* 複写 (the second stage's 2092): the tick says whether the range is
+ * copied or moved, and it is **not** the command that says so.
+ * 図形複写 comes up with it on and 図形移動 with it off; taking it off in
+ * 図形複写 turns that command into a move -- the prompt becomes
+ * 「移動先の点を指示して下さい」 and the drawing comes back with the
+ * elements shifted, not doubled (tools/probe102.sh). */
+static int range_moves(void)
+{
+    int on = jw_cmd_bar_check(2092);
+
+    return on >= 0 ? !on : current == JW_CMD_IDOU;
+}
+
 /* 基点変更 (the second stage's 1066): the next click is the new 基準点, and
    the one after that places as usual. */
 static int sel_base_wait;
@@ -1801,7 +1814,8 @@ const char *jw_cmd_prompt(void)
         if (sel_step == 1)
             return JW_STR_5326;
         if (sel_step == 3)
-            return current == JW_CMD_IDOU ? JW_STR_5311 : JW_STR_5307;
+            return current != JW_CMD_SEIRI && range_moves()
+                   ? JW_STR_5311 : JW_STR_5307;
         if (sel_step == 2)
             return JW_STR_5314;
         return JW_STR_5383;
@@ -6098,7 +6112,7 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis)
         return;
     ux /= len;
     uy /= len;
-    if (current == JW_CMD_IDOU) {
+    if (range_moves()) {
         op_t *o = op_new();
 
         for (i = 0; i < sel_n; i++) {
@@ -6164,7 +6178,7 @@ static void sel_place(jw_drawing *d, double x, double y)
             dx = 0.0;
         break;
     }
-    if (current == JW_CMD_IDOU) {
+    if (range_moves()) {
         op_t *o = op_new();
         for (i = 0; i < sel_n; i++) {
             int at = sel_at[i];

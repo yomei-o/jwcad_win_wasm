@@ -580,6 +580,20 @@ kankaku() {
 # 連続線の 連続弧 (2492): 三点で弧を一つ、以後クリックごとに接する弧を
 # 一つずつ。同じ点をもう一度**左**クリックで終わり。tools/probe99.sh・
 # probe100.sh。
+# 複写 (2092): 範囲が決まったあとのバーの印。図形複写 は入った状態、
+# 図形移動 は外れた状態で出ます。外せば移動、入れれば複写になります。
+# tools/probe102.sh・probe103.sh。
+copy2092s() {
+    echo "=== 複写 (2092) は複写か移動かを決める印"
+    for v in "copy2092on 32804 " "copy2092off 32804 pb:2092;wait:600;"              "move2092off 32918 " "move2092on 32918 pb:2092;wait:600;"; do
+        set -- $v
+        idle
+        sh tools/refenv.sh >/dev/null
+        cp decomp/res/new.jww tmp/rect.jww
+        $PS -Open tmp/rect.jww -Cmd 32772             -Clicks "300,300;500,400;cmd:$2;250,250;550,450;m400,350;btn:1120;$3""700,500;saveas:decomp/res/$1.jww"             2>&1 | sed 's/^/        /'
+    done
+}
+
 renarcs() {
     echo "=== 連続線の 連続弧 (接しながら弧を繋ぐ)"
     for v in "one 300,300;400,250;500,300;500,300;"              "two 300,300;400,250;500,300;600,350;600,350;"; do
@@ -650,6 +664,7 @@ while :; do
     kankakus
     moji_verts
     renarcs
+    copy2092s
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break
