@@ -566,6 +566,19 @@ typedef struct {
     int nitem, citem;
     op_item *item;              /* 移動 changes a whole selection at once,
                                    so there is no useful upper bound */
+    /* What the drawing looked like **before this step was undone**,
+       which is what 進む puts back.  Filled in by jw_cmd_undo and
+       thrown away when a new step is taken.  The original keeps the
+       same thing -- its 戻る and 進む read a whole drawing back
+       (FUN_00458a80 and FUN_00453bd0 write and read a version 700
+       .jww, $EDTBLK<n>.<nnn>, when it does not fit in memory). */
+    jw_obj *after;
+    int nafter, ndrawn_after;
+    /* and the drawn elements the undo took out, in the order it took
+       them.  進む puts these back **at the front** of the drawing, which
+       is what the original does (see jw_cmd_redo). */
+    jw_obj *back;
+    int nback;
 } op_t;
 
 /* Remember an element as it is now, so it can be put back. */
@@ -591,10 +604,23 @@ static op_item *op_keep(op_t *o, const jw_drawing *d, int at, int removed)
 }
 
 static op_t *op;
-static int nop, cop;
+/* nop is how many steps can still be undone; ntop is how many there
+   are altogether, so op[nop .. ntop) are the ones 進む can step back
+   into.  Taking a new step throws those away. */
+static int nop, ntop, cop;
+
+static void op_drop(op_t *o)
+{
+    free(o->item);
+    free(o->after);
+    free(o->back);
+    memset(o, 0, sizeof *o);
+}
 
 static op_t *op_new(void)
 {
+    while (ntop > nop)
+        op_drop(&op[--ntop]);
     if (nop == cop) {
         int c = cop ? cop * 2 : 64;
         op_t *p = (op_t *)realloc(op, (size_t)c * sizeof *p);
@@ -604,6 +630,7 @@ static op_t *op_new(void)
         cop = c;
     }
     memset(&op[nop], 0, sizeof op[nop]);
+    ntop = nop + 1;
     return &op[nop++];
 }
 
@@ -1640,6 +1667,33 @@ int jw_cmd_can_undo(void)
     return nop > 0;
 }
 
+int jw_cmd_can_redo(void)
+{
+    return ntop > nop;
+}
+
+/* The drawing's elements as they stand, kept so that 進む can put them
+   back.  Only the elements: the string pool only ever grows, so the
+   offsets in them stay good. */
+static int op_snap(op_t *o, const jw_drawing *d)
+{
+    jw_obj *p;
+
+    free(o->after);
+    o->after = 0;
+    o->nafter = o->ndrawn_after = 0;
+    if (d->nobj <= 0)
+        return 1;
+    p = (jw_obj *)malloc((size_t)d->nobj * sizeof *p);
+    if (!p)
+        return 0;
+    memcpy(p, d->obj, (size_t)d->nobj * sizeof *p);
+    o->after = p;
+    o->nafter = d->nobj;
+    o->ndrawn_after = d->ndrawn;
+    return 1;
+}
+
 void jw_cmd_undo(jw_drawing *d)
 {
     op_t *o;
@@ -1648,6 +1702,8 @@ void jw_cmd_undo(jw_drawing *d)
     if (!d || nop <= 0)
         return;
     o = &op[nop - 1];
+    if (!op_snap(o, d))
+        return;
     {   /* A definition and the elements inside it sit past the drawn ones,
            at the very end, so they come off first. */
         int n;
@@ -1656,10 +1712,22 @@ void jw_cmd_undo(jw_drawing *d)
     }
     {   /* Everything is added at the end of the drawn elements, so the last
            command's elements are the last ones there -- unless it said
-           where it put them. */
+           where it put them.  Each one is kept as it goes, because
+           進む puts exactly these back. */
         int n;
-        for (n = o->n; n > 0 && d->ndrawn > 0; n--)
-            jw_remove(d, o->add_at ? o->add_at - 1 : d->ndrawn - 1);
+
+        free(o->back);
+        o->back = 0;
+        o->nback = 0;
+        if (o->n > 0)
+            o->back = (jw_obj *)malloc((size_t)o->n * sizeof *o->back);
+        for (n = o->n; n > 0 && d->ndrawn > 0; n--) {
+            int at = o->add_at ? o->add_at - 1 : d->ndrawn - 1;
+
+            if (o->back)
+                o->back[o->nback++] = d->obj[at];
+            jw_remove(d, at);
+        }
     }
     for (i = o->nitem - 1; i >= 0; i--) {
         op_item *it = &o->item[i];
@@ -1689,10 +1757,72 @@ void jw_cmd_undo(jw_drawing *d)
             }
         }
     }
-    free(o->item);
-    o->item = 0;
-    o->nitem = o->citem = 0;
+    /* the items stay: 進む may bring this step back, and then 戻る
+       has to be able to take it away again */
     nop--;
+    step = 0;
+    tracking = 0;
+}
+
+/* 進む (0xe12c).  One press puts one undone step back, and that is all
+ * it is: the original was given three lines, two 戻る and then one and
+ * two 進む, and came back with two lines and then three
+ * (tools/probe107.sh).
+ *
+ * Measuring it took fixing the apparatus first.  The decompilation says
+ * 戻る (`FUN_00504100`) asks **the command in force** to undo its own
+ * step before it touches the drawing (vtable +0x40), and 進む
+ * (`FUN_00503e90`) does the same through +0x3c.  So a command that is
+ * part way through swallows the press, which is why six earlier runs
+ * could not make the counts add up.  Leaving the command and coming
+ * back first makes every press land exactly once. */
+void jw_cmd_redo(jw_drawing *d)
+{
+    op_t *o;
+    int i;
+
+    if (!d || ntop <= nop)
+        return;
+    o = &op[nop];
+    if (o->nitem == 0 && o->ndef == 0 && o->nback > 0) {
+        /* The step only added elements, and they go back **at the
+           front**.  That is the original's own answer, not a guess:
+           three lines drawn 1, 2, 3 and then
+
+             戻る x1, 進む x1   ->  3, 1, 2
+             戻る x2, 進む x1   ->  2, 1
+             戻る x2, 進む x2   ->  3, 2, 1
+
+           (decomp/res/redo_*.jww).  The first of those is the one that
+           tells 'put them at the front' apart from 'turn the whole
+           list round', which fits the other two just as well. */
+        for (i = 0; i < o->nback; i++)
+            if (!jw_add(d, o->back[i].cls))
+                return;
+        memmove(&d->obj[o->nback], &d->obj[0],
+                (size_t)(d->nobj - o->nback) * sizeof *d->obj);
+        memcpy(d->obj, o->back, (size_t)o->nback * sizeof *d->obj);
+    } else {
+        /* Anything else -- a step that moved or erased things rather
+           than adding them -- has not been asked of the original, so
+           the drawing simply goes back to how it stood before the
+           戻る.  The content is right; whether the original would order
+           it differently is not known. */
+        if (o->nafter > d->cobj) {
+            jw_obj *p = (jw_obj *)realloc(d->obj,
+                                          (size_t)o->nafter * sizeof *p);
+
+            if (!p)
+                return;
+            d->obj = p;
+            d->cobj = o->nafter;
+        }
+        if (o->nafter > 0)
+            memcpy(d->obj, o->after, (size_t)o->nafter * sizeof *d->obj);
+        d->nobj = o->nafter;
+        d->ndrawn = o->ndrawn_after;
+    }
+    nop++;
     step = 0;
     tracking = 0;
 }

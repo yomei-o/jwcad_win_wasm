@@ -69,7 +69,8 @@ enum {
     JW_CMD_ZUKEIREG = 0x80b2,       /* 図形登録 -- it takes a range of its
                                        own, and the point after 選択確定 is
                                        the 基準点 */
-    JW_CMD_UNDO = 0xe12b            /* 元に戻る (ID_EDIT_UNDO) */
+    JW_CMD_UNDO = 0xe12b,           /* 戻る */
+    JW_CMD_REDO = 0xe12c            /* 進む */
 };
 
 int  jw_cmd(void);                  /* the current command */
@@ -144,6 +145,11 @@ void jw_cmd_track(double x, double y);
    What this can take back is the elements the commands here have added. */
 int  jw_cmd_can_undo(void);
 void jw_cmd_undo(jw_drawing *d);
+/* 進む (0xe12c) -- one press puts one undone step back.  The original was
+ * given three lines, two 戻る and then one and two 進む, and came back with
+ * two lines and then three (tools/probe107.sh). */
+int  jw_cmd_can_redo(void);
+void jw_cmd_redo(jw_drawing *d);
 
 /* Esc: let go of the points the command has taken so far, staying in the
    command.  The original does this -- its status line goes back from

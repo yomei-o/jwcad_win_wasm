@@ -583,6 +583,27 @@ kankaku() {
 # 複写 (2092): 範囲が決まったあとのバーの印。図形複写 は入った状態、
 # 図形移動 は外れた状態で出ます。外せば移動、入れれば複写になります。
 # tools/probe102.sh・probe103.sh。
+# 戻る (0xe12b) と 進む (0xe12c)。投げる前に**命令を出入りさせて**命令側の
+# 段を空にするのが肝で、そうしないと一回ぶん吸われます（デコンパイルの
+# とおり 戻る はまず今の命令自身の一歩を戻すので）。tools/probe107.sh〜
+# probe109.sh。
+redos() {
+    echo "=== 戻る と 進む"
+    L='off:1333;300,300;700,500;300,550;700,650;300,200;700,250;cmd:32773;cmd:32771;wait:800;'
+    U='cmd:57643;wait:800;'
+    R='cmd:57644;wait:800;'
+    N='300,700;700,720;cmd:32773;cmd:32771;wait:800;'
+    for v in "n0 " "n1 $U" "n2 $U$U" "n3 $U$U$U" "u1r1 $U$R"              "u2r1 $U$U$R" "u2r2 $U$U$R$R" "u3r1 $U$U$U$R"              "fresh $U$U$N$R" "none $R"; do
+        set -- $v
+        nm=$1
+        shift
+        idle
+        sh tools/refenv.sh >/dev/null
+        cp decomp/res/new.jww tmp/rect.jww
+        $PS -Open tmp/rect.jww -Cmd 32771             -Clicks "$L$*saveas:decomp/res/redo_$nm.jww"             2>&1 | sed 's/^/        /'
+    done
+}
+
 copy2092s() {
     echo "=== 複写 (2092) は複写か移動かを決める印"
     for v in "copy2092on 32804 " "copy2092off 32804 pb:2092;wait:600;"              "move2092off 32918 " "move2092on 32918 pb:2092;wait:600;"; do
@@ -665,6 +686,7 @@ while :; do
     moji_verts
     renarcs
     copy2092s
+    redos
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

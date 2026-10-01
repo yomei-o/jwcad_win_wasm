@@ -1345,6 +1345,11 @@ int app_command(int cmd)
             return 0;
         jw_cmd_undo(have_drawing ? &drawing : 0);
         return 1;
+    case JW_CMD_REDO:
+        if (!jw_cmd_can_redo())
+            return 0;
+        jw_cmd_redo(have_drawing ? &drawing : 0);
+        return 1;
     case 0x8027:                        /* 線属性 */
         zoku_color = have_drawing && drawing.write_color
                      ? drawing.write_color : 2;
