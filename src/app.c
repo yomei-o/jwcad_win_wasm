@@ -803,6 +803,8 @@ static int press_bairitsu(int x, int y)
    measured off the original (tools/probe62.sh), and nothing has been
    asked of the ずれ boxes or the three 作図 checkboxes. */
 static int mk_open;
+/* which of the six ずれ boxes is being typed into, or 0 */
+static int mk_caret;
 
 int app_mojikijun_open(void)
 {
@@ -829,9 +831,28 @@ static int press_mojikijun(int x, int y)
     }
     if (id == 1 || id == 2) {           /* OK */
         mk_open = 0;
+        mk_caret = 0;
         return 1;
     }
+    /* the six ずれ boxes take the typing.  They are dead until
+       ずれ使用 is on, which is how the original has them: driving its
+       own dialog with the boxes before the tick was refused outright
+       (tools/probe70.sh). */
+    if (jw_cmd_moji_zure_box(id) && jw_cmd_moji_zure_now()) {
+        mk_caret = id;
+        return 1;
+    }
+    mk_caret = 0;
     return 1;
+}
+
+static int mk_key(int c)
+{
+    if (c == 13) {
+        mk_caret = 0;
+        return 1;
+    }
+    return jw_cmd_moji_zure_key(mk_caret, c);
 }
 
 static int kh_open, kh_tab;
@@ -1628,6 +1649,10 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (mk_open && mk_caret && mk_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (dialog_open()) {
         /* modal: the drawing and its command bar hear nothing.  Esc shuts
            it without applying what was typed, as a cancel button would;
@@ -2083,7 +2108,7 @@ void app_paint(void)
     if (br_open)
         ui_bairitsu(&fb, br_zoom, br_on);
     if (mk_open)
-        ui_mojikijun(&fb, jw_cmd_moji_base_now());
+        ui_mojikijun(&fb, jw_cmd_moji_base_now(), mk_caret);
     if (sk_open) {
         sk_fill();
         ui_shakudo(&fb, sk_num, sk_den, sk_listp, sk_group, sk_on, sk_caret);

@@ -1217,6 +1217,73 @@ int jw_cmd_moji_zure_now(void)
     return moji_zure;
 }
 
+/* The six boxes of the dialog, as they are typed into.  The numbers
+ * above are what the drawing uses; this is the text that stands in
+ * them, so that what was typed comes back unchanged (2004 is
+ * 左, 2005 中, 2006 右 across; 2009 上, 2008 中, 2007 下 down --
+ * which is how the original was driven when the numbers were measured,
+ * tools/probe67.sh). */
+static char moji_ztext[6][16];
+
+static int zure_ix(int id)
+{
+    switch (id) {
+    case 2004: return 0;
+    case 2005: return 1;
+    case 2006: return 2;
+    case 2009: return 3;
+    case 2008: return 4;
+    case 2007: return 5;
+    }
+    return -1;
+}
+
+static void zure_text(int ix, double v)
+{
+    if (ix < 0 || ix > 5)
+        return;
+    if (v == 0.0)
+        moji_ztext[ix][0] = 0;
+    else
+        sprintf(moji_ztext[ix], "%g", v);
+}
+
+const char *jw_cmd_moji_zure_box(int id)
+{
+    int ix = zure_ix(id);
+
+    return ix < 0 ? 0 : moji_ztext[ix];
+}
+
+/* One character into one of them.  8 rubs one out, 13 is the end of
+   it; everything a number can hold goes in. */
+int jw_cmd_moji_zure_key(int id, int c)
+{
+    int ix = zure_ix(id), n;
+
+    if (ix < 0)
+        return 0;
+    n = (int)strlen(moji_ztext[ix]);
+    if (c == 8) {
+        if (n > 0)
+            moji_ztext[ix][--n] = 0;
+    } else if (c == 13) {
+        /* nothing to do: the number is kept in step as it is typed */
+    } else if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+        if (n + 1 < (int)sizeof moji_ztext[ix]) {
+            moji_ztext[ix][n++] = (char)c;
+            moji_ztext[ix][n] = 0;
+        }
+    } else {
+        return 0;
+    }
+    if (ix < 3)
+        moji_zx[ix] = atof(moji_ztext[ix]);
+    else
+        moji_zy[ix - 3] = atof(moji_ztext[ix]);
+    return 1;
+}
+
 void jw_cmd_moji_zure_at(int across, int n, double v)
 {
     if (n >= 0 && n < 3) {
@@ -1224,6 +1291,7 @@ void jw_cmd_moji_zure_at(int across, int n, double v)
             moji_zx[n] = v;
         else
             moji_zy[n] = v;
+        zure_text(across ? n : n + 3, v);
     }
 }
 

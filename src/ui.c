@@ -3230,6 +3230,17 @@ void ui_mojikijun_rect(int cw, int ch, rect_t *r)
         r->y = 0;
 }
 
+/* Whether a control of the dialog is live.  The table is a snapshot of
+   the original's dialog as it comes up, with ずれ使用 off and the six
+   ずれ boxes dead with it; ticking it brings them to life, which is why
+   the original refused to be driven into them before the tick
+   (tools/probe70.sh). */
+static int mk_live(const jw_mk_t *z)
+{
+    return z->enabled
+           || (z->kind == JW_MK_EDIT && jw_cmd_moji_zure_now());
+}
+
 int ui_mojikijun_n(void)
 {
     return JW_NMOJIKIJUN;
@@ -3240,7 +3251,7 @@ int ui_mojikijun_id(int i)
     return i >= 0 && i < JW_NMOJIKIJUN ? jw_mojikijun[i].id : 0;
 }
 
-void ui_mojikijun(fb_t *fb, int base)
+void ui_mojikijun(fb_t *fb, int base, int caret)
 {
     rect_t r;
     int cx, cy, i, th = jw_text_height();
@@ -3261,7 +3272,7 @@ void ui_mojikijun(fb_t *fb, int base)
     for (i = 0; i < JW_NMOJIKIJUN; i++) {
         const jw_mk_t *z = &jw_mojikijun[i];
         int x = cx + z->x, y = cy + z->y;
-        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+        unsigned int col = mk_live(z) ? C_BTNTEXT : C_BTNSHADOW;
 
         switch (z->kind) {
         case JW_MK_OK:
@@ -3306,9 +3317,21 @@ void ui_mojikijun(fb_t *fb, int base)
                     z->w - CHECK_W - 3, z->text, col);
             break;
         }
-        case JW_MK_EDIT:
+        case JW_MK_EDIT: {
+            const char *t = jw_cmd_moji_zure_box(z->id);
+            int ty = y + (z->h - th) / 2;
+
             mj_sunken(fb, x, y, z->w, z->h);
+            if (t && *t && mk_live(z)) {
+                zs_text(fb, x + 3, ty, z->w - 6, t, C_BTNTEXT);
+                if (caret == z->id)
+                    fb_fill(fb, x + 3 + jw_text_px_w(t), ty, 1, th,
+                            C_BTNTEXT);
+            } else if (caret == z->id) {
+                fb_fill(fb, x + 3, ty, 1, th, C_BTNTEXT);
+            }
             break;
+        }
         case JW_MK_GROUP: {
             int gy = y + th / 2, gh = z->h - th / 2;
 
@@ -3341,7 +3364,7 @@ int ui_mojikijun_hit(int cw, int ch, int x, int y)
     for (i = 0; i < JW_NMOJIKIJUN; i++) {
         const jw_mk_t *z = &jw_mojikijun[i];
 
-        if (z->kind == JW_MK_STATIC || z->kind == JW_MK_GROUP || !z->enabled)
+        if (z->kind == JW_MK_STATIC || z->kind == JW_MK_GROUP || !mk_live(z))
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

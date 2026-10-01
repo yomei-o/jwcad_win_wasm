@@ -289,6 +289,11 @@ void jw_cmd_moji_zure(int on);
 int  jw_cmd_moji_zure_now(void);
 void jw_cmd_moji_zure_at(int across, int n, double v);
 double jw_cmd_moji_zure_get(int across, int n);
+/* and the six boxes of the dialog as text, which is what is typed into
+ * them and what is painted in them.  The ids are 2004/2005/2006 across
+ * (左中右) and 2009/2008/2007 down (上中下). */
+const char *jw_cmd_moji_zure_box(int id);
+int  jw_cmd_moji_zure_key(int id, int c);
 /* 下線作図 (1327)・上線作図 (1328)・左右縦線 (1329) on the
    same dialog: the lines ruled round a text as it is placed. */
 void jw_cmd_moji_rule(int which, int on);

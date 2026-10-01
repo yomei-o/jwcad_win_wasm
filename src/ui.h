@@ -140,7 +140,7 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style);
 void ui_mojikijun_rect(int cw, int ch, rect_t *r);
 int  ui_mojikijun_n(void);
 int  ui_mojikijun_id(int i);
-void ui_mojikijun(fb_t *fb, int base);
+void ui_mojikijun(fb_t *fb, int base, int caret);
 int  ui_mojikijun_hit(int cw, int ch, int x, int y);
 /* The 色No. list, when the box has been pressed.  Ten rows, 0 to 9. */
 void ui_moji_drop(fb_t *fb);

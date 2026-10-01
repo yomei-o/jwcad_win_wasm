@@ -20,6 +20,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include <math.h>
 #include "../src/view.h"
 #include "../src/gen/bars.h"
 #include "../src/gen/mojikijun.h"
@@ -138,6 +139,60 @@ int main(int argc, char **argv)
         sprintf(what, "  %d 番目を押すとそれが選ばれる", i);
         ck(jw_cmd_moji_base_now() == i, what);
         ck(app_mojikijun_open() != 0, "  ダイアログは出たまま");
+    }
+
+    /* the six ずれ boxes take typing, which the port could not do
+       at all until now.  They are dead until ずれ使用 is on
+       -- the original refuses to be driven into them before the tick
+       (tools/probe70.sh) -- and what goes in them is what the drawing
+       then uses (tests/mojidraw_test.c holds that to the original). */
+    {
+        static const struct { int id; int across, n; const char *v; } Z[6] = {
+            { 2004, 1, 0, "5" },  { 2005, 1, 1, "6.5" }, { 2006, 1, 2, "-7" },
+            { 2009, 0, 0, "3" },  { 2008, 0, 1, "0.25" }, { 2007, 0, 2, "8" }
+        };
+        int k;
+
+        ck(jw_cmd_moji_zure_now() == 0, "ずれ使用 is off");
+        ctl(2004, &x, &y);
+        app_press(x, y, 0);
+        app_key('5');
+        ck(jw_cmd_moji_zure_get(1, 0) == 0.0,
+           "  ずれ使用 の前は打ち込めない");
+        ctl(1323, &x, &y);
+        app_press(x, y, 0);
+        ck(jw_cmd_moji_zure_now() != 0, "ずれ使用 を入れる");
+        for (k = 0; k < 6; k++) {
+            char what[80];
+            const char *t;
+            int c2;
+
+            ctl(Z[k].id, &x, &y);
+            app_press(x, y, 0);
+            for (c2 = 0; Z[k].v[c2]; c2++)
+                app_key((unsigned char)Z[k].v[c2]);
+            t = jw_cmd_moji_zure_box(Z[k].id);
+            sprintf(what, "  %d に %s が入る", Z[k].id, Z[k].v);
+            ck(t && !strcmp(t, Z[k].v)
+               && jw_cmd_moji_zure_get(Z[k].across, Z[k].n) == atof(Z[k].v),
+               what);
+        }
+        /* backspace rubs one out, and the number follows */
+        ctl(2004, &x, &y);
+        app_press(x, y, 0);
+        app_key('0');
+        ck(jw_cmd_moji_zure_get(1, 0) == 50.0, "  打ち足せる");
+        app_key(8);
+        ck(jw_cmd_moji_zure_get(1, 0) == 5.0, "  一字消せる");
+        app_key(8);
+        ck(jw_cmd_moji_zure_get(1, 0) == 0.0, "  空にすると 0");
+        /* and the dialog still paints */
+        app_paint();
+        for (k = 0; k < 6; k++)
+            jw_cmd_moji_zure_at(Z[k].across, Z[k].n, 0.0);
+        ctl(1323, &x, &y);
+        app_press(x, y, 0);
+        ck(jw_cmd_moji_zure_now() == 0, "ずれ使用 を戻す");
     }
 
     /* OK takes it down and keeps the last one */
