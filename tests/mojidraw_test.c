@@ -122,6 +122,7 @@ static void cknear(double got, double want, double tol, const char *what)
 typedef struct {
     const char *answer, *what;
     int tick;                   /* a checkbox to put on */
+    int tick2;                  /* a second one, for 垂直 + 縦字 */
     const char *box, *val;      /* and a box to type into */
     int base;                   /* 基点 0..8, or -1 to leave it alone */
     int zure;                   /* ずれ使用, and the pair that goes with
@@ -130,24 +131,30 @@ typedef struct {
 } run_t;
 
 static const run_t RUNS[] = {
-    { "decomp/res/moji_plain.jww", "素の文字", 0, 0, 0, -1, 0, 0, 0 },
-    { "decomp/res/moji_ang.jww",   "角度 30",  0, "1411", "30", -1, 0, 0, 0 },
-    { "decomp/res/moji_tate.jww",  "縦字",     1325, 0, 0, -1, 0, 0, 0 },
-    { "decomp/res/moji_k0.jww", "基点 左上", 0, 0, 0, 0, 0, 0, 0 },
-    { "decomp/res/moji_k1.jww", "基点 左中", 0, 0, 0, 1, 0, 0, 0 },
-    { "decomp/res/moji_k2.jww", "基点 左下", 0, 0, 0, 2, 0, 0, 0 },
-    { "decomp/res/moji_k3.jww", "基点 中上", 0, 0, 0, 3, 0, 0, 0 },
-    { "decomp/res/moji_k4.jww", "基点 中中", 0, 0, 0, 4, 0, 0, 0 },
-    { "decomp/res/moji_k5.jww", "基点 中下", 0, 0, 0, 5, 0, 0, 0 },
-    { "decomp/res/moji_k6.jww", "基点 右上", 0, 0, 0, 6, 0, 0, 0 },
-    { "decomp/res/moji_k7.jww", "基点 右中", 0, 0, 0, 7, 0, 0, 0 },
-    { "decomp/res/moji_k8.jww", "基点 右下", 0, 0, 0, 8, 0, 0, 0 },
+    { "decomp/res/moji_plain.jww", "素の文字", 0, 0, 0, 0, -1, 0, 0, 0 },
+    { "decomp/res/moji_ang.jww", "角度 30", 0, 0, "1411", "30", -1, 0, 0, 0 },
+    { "decomp/res/moji_tate.jww", "縦字", 1325, 0, 0, 0, -1, 0, 0, 0 },
+    /* 垂直 (1324) lays the run a quarter turn **up** -- and with
+       縦字 as well it lays it **down** instead, which is the way
+       縦書き reads (tools/probe95.sh) */
+    { "decomp/res/moji_vert.jww", "垂直", 1324, 0, 0, 0, -1, 0, 0, 0 },
+    { "decomp/res/moji_vert_tate.jww", "垂直＋縦字",
+      1324, 1325, 0, 0, -1, 0, 0, 0 },
+    { "decomp/res/moji_k0.jww", "基点 左上", 0, 0, 0, 0, 0, 0, 0, 0 },
+    { "decomp/res/moji_k1.jww", "基点 左中", 0, 0, 0, 0, 1, 0, 0, 0 },
+    { "decomp/res/moji_k2.jww", "基点 左下", 0, 0, 0, 0, 2, 0, 0, 0 },
+    { "decomp/res/moji_k3.jww", "基点 中上", 0, 0, 0, 0, 3, 0, 0, 0 },
+    { "decomp/res/moji_k4.jww", "基点 中中", 0, 0, 0, 0, 4, 0, 0, 0 },
+    { "decomp/res/moji_k5.jww", "基点 中下", 0, 0, 0, 0, 5, 0, 0, 0 },
+    { "decomp/res/moji_k6.jww", "基点 右上", 0, 0, 0, 0, 6, 0, 0, 0 },
+    { "decomp/res/moji_k7.jww", "基点 右中", 0, 0, 0, 0, 7, 0, 0, 0 },
+    { "decomp/res/moji_k8.jww", "基点 右下", 0, 0, 0, 0, 8, 0, 0, 0 },
     { "decomp/res/moji_zure_lt.jww", "左上に ずれ 横5 縦3",
-      0, 0, 0, 0, 1, 5, 3 },
+      0, 0, 0, 0, 0, 1, 5, 3 },
     { "decomp/res/moji_zure_rb.jww", "右下に ずれ 横7 縦2",
-      0, 0, 0, 8, 1, 7, 2 },
+      0, 0, 0, 0, 8, 1, 7, 2 },
     { "decomp/res/moji_zure_off.jww", "ずれ使用を入れないと効かない",
-      0, 0, 0, 0, 0, 5, 3 },
+      0, 0, 0, 0, 0, 0, 5, 3 },
 };
 
 int main(void)
@@ -208,6 +215,8 @@ int main(void)
         }
         if (r->tick && jw_cmd_bar_check(r->tick) <= 0)
             jw_cmd_bar((jw_drawing *)app_drawing(), r->tick);
+        if (r->tick2 && jw_cmd_bar_check(r->tick2) <= 0)
+            jw_cmd_bar((jw_drawing *)app_drawing(), r->tick2);
         if (r->box)
             type_box(atoi(r->box), r->val);
         app_key('A');

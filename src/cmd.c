@@ -1330,7 +1330,12 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
      * the same text running 30 up instead of 30 across, everything else
      * the same.  Which of the two wins when both are set was not asked,
      * so the box is taken when it has something in it and 垂直 when it
-     * has not. */
+     * has not.
+     *
+     * **With 縦字 as well it runs the other way** -- 30 *down*, not up
+     * (decomp/res/moji_vert_tate.jww against moji_vert.jww,
+     * tools/probe95.sh).  Which stands to reason: that is the way
+     * 縦書き reads. */
     {
         const char *as = jw_cmd_box(1411);
 
@@ -1340,7 +1345,7 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
             o->d[3] = y + len * sin(a);
         } else if (jw_cmd_bar_check(1324) > 0) {
             o->d[2] = x;
-            o->d[3] = y + len;
+            o->d[3] = jw_cmd_bar_check(1325) > 0 ? y - len : y + len;
         } else {
             o->d[2] = x + len;
             o->d[3] = y;

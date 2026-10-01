@@ -574,6 +574,20 @@ kankaku() {
     $PS -Open tmp/rect.jww -Cmd 0         -Clicks "cmd:32771;off:1333;300,300;700,500;cmd:32785;$2;cmd:32800;500,400;cmd:32948;500,400;r$2;$3;saveas:decomp/res/$1"         2>&1 | sed 's/^/        /'
 }
 
+# 文字の 垂直 (1324)。縦字 (1325) も一緒に押すと走りが下を向きます。
+# tools/probe95.sh・probe97.sh。ほかの文字の答え（probe57 の mo_*）と
+# 同じ (400,400) で取ります。
+moji_verts() {
+    echo "=== 文字の 垂直 (縦字と両方だと下を向く)"
+    for v in "vert btn:1324;" "vert_tate btn:1324;btn:1325;"; do
+        set -- $v
+        idle
+        sh tools/refenv.sh >/dev/null
+        cp decomp/res/new.jww tmp/rect.jww
+        $PS -Open tmp/rect.jww -Cmd 0             -Clicks "cmd:32806;$2type:ABC;400,400;saveas:decomp/res/moji_$1.jww"             2>&1 | sed 's/^/        /'
+    done
+}
+
 kankakus() {
     echo "=== 間隔取得 (複線の間隔になる)"
     kankaku kankaku_a.jww 300,600 500,200
@@ -620,6 +634,7 @@ while :; do
     hatch_pick
     hatch_figs
     kankakus
+    moji_verts
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break
