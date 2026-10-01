@@ -587,6 +587,25 @@ kankaku() {
 # 段を空にするのが肝で、そうしないと一回ぶん吸われます（デコンパイルの
 # とおり 戻る はまず今の命令自身の一歩を戻すので）。tools/probe107.sh〜
 # probe109.sh。
+# 連 の 移動 (LL)。ダブルクリックは LL<x>,<y> で投げられます（Windows は
+# down / up / WM_LBUTTONDBLCLK / up の四つで送るので、全部投げれば足ります）。
+# tools/probe110.sh・probe111.sh。
+renmoves() {
+    echo "=== 連 の 移動 (LL)"
+    T='cmd:32806;type:AB;400,300;type:CD;400,400;'
+    for v in "renmove  700,500" "renmove2  600,250"; do
+        set -- $v
+        idle
+        sh tools/refenv.sh >/dev/null
+        cp decomp/res/new.jww tmp/rect.jww
+        $PS -Open tmp/rect.jww -Cmd 0             -Clicks "$T""btn:1068;wait:800;LL405,300;wait:800;$2;saveas:decomp/res/$1.jww"             2>&1 | sed 's/^/        /'
+    done
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp decomp/res/new.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 0         -Clicks "$T""dlgin:b1064,1693=!;wait:600;btn:1068;wait:800;LL405,300;wait:800;700,500;saveas:decomp/res/renmove_naka.jww"         2>&1 | sed 's/^/        /'
+}
+
 redos() {
     echo "=== 戻る と 進む"
     L='off:1333;300,300;700,500;300,550;700,650;300,200;700,250;cmd:32773;cmd:32771;wait:800;'
@@ -687,6 +706,7 @@ while :; do
     renarcs
     copy2092s
     redos
+    renmoves
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

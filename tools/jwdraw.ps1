@@ -32,6 +32,10 @@
 #   w<x>,<y>[,r]        click in the FRAME's client coordinates -- for the
 #                       layer grid, whose buttons are frame children
 #   cmd:<id>            WM_COMMAND to the frame, mid-way
+#   LL<x>,<y>       a **double** left click, which is what the original
+#                   calls (LL).  Windows delivers one as down, up,
+#                   WM_LBUTTONDBLCLK, up, and the view takes all four
+#                   posted, so no real mouse is needed
 #   raw:v,<msg>,<w>,<l> any message to the view (5136 = 選択確定)
 #   raw:f,<msg>,<w>,<l> the same to the frame -- keys have to go here,
 #                       because posted clicks never give the view the focus
@@ -276,6 +280,7 @@ public static class Jw {
 
 $WM_MOUSEMOVE   = 0x0200
 $WM_LBUTTONDOWN = 0x0201
+$WM_LBUTTONDBLCLK = 0x0203
 $WM_LBUTTONUP   = 0x0202
 $WM_RBUTTONDOWN = 0x0204
 $WM_RBUTTONUP   = 0x0205
@@ -1341,6 +1346,23 @@ try {
                     Start-Sleep -Milliseconds 60
                 }
                 [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l1)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^LL(\d+),(\d+)$' {
+                # A double click, the way Windows sends one: down, up,
+                # WM_LBUTTONDBLCLK, up.  The original's 連 calls it (LL)
+                # and uses it for 移動.
+                $x = [int]$Matches[1]; $y = [int]$Matches[2]
+                $l = LParam $x $y
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0, $l)
+                Start-Sleep -Milliseconds 60
+                [void][Jw]::PostMessage($view, $WM_LBUTTONDOWN, [IntPtr]1, $l)
+                [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l)
+                Start-Sleep -Milliseconds 30
+                [void][Jw]::PostMessage($view, $WM_LBUTTONDBLCLK, [IntPtr]1, $l)
+                [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l)
                 Start-Sleep -Milliseconds $StepMs
                 break
             }

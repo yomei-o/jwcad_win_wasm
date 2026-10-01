@@ -991,7 +991,8 @@ static double txt_pitch(void)
  * done.
  */
 static int ren_step;                    /* 0 off, 1 wants a text, 2 the
-                                           one to join it to */
+                                           one to join it to, 3 the one
+                                           picked with (LL) wants a place */
 static int ren_first;                   /* and which text that was */
 
 /* How far a string runs, the way moji() measures it: a character advances
@@ -1176,6 +1177,46 @@ static void ren_cut(jw_drawing *d, int i, double x, double y)
     moji_reend(A, head);
     if (o)
         o->n = 1;                       /* the piece that was added */
+}
+
+/* 連 の 移動 -- the (LL) of its prompt.
+ *
+ * A double click on a text asks 「移動先の点を指示して下さい」 (5311)
+ * and the next click puts the text's **start** there.  Two runs of the
+ * original, with AB at (-94.2857, 26.3265): a click at the view's
+ * (700,500) left it at (89.3878, -96.1224) and one at (600,250) at
+ * (28.1633, 56.9388) -- the clicked point itself, to six places
+ * (tools/probe110.sh).  **基点 makes no difference**: the same move with
+ * 中中 picked came out at the very same place (probe111).
+ *
+ * And the text that moved goes to the **end** of the drawing: the two
+ * came back CD first and AB second, the other way round from how they
+ * were typed.
+ *
+ * Measuring any of this needed a double click, which the port's own
+ * driver could not send until `LL<x>,<y>` was added to
+ * tools/jwdraw.ps1 -- Windows delivers one as down, up,
+ * WM_LBUTTONDBLCLK, up, and all four can be posted. */
+static void ren_move_to(jw_drawing *d, int i, double x, double y)
+{
+    jw_obj *A, *B;
+    op_t *o;
+
+    if (!d || i < 0 || i >= d->ndrawn || d->obj[i].cls != JW_MOJI)
+        return;
+    o = op_new();
+    op_keep(o, d, i, 1);        /* it is taken out and put back at the end */
+    A = &d->obj[i];
+    B = jw_add(d, JW_MOJI);
+    if (!B)
+        return;
+    A = &d->obj[i];
+    *B = *A;
+    B->sel = 0;
+    jw_obj_move(B, x - A->d[0], y - A->d[1]);
+    jw_remove(d, i);
+    if (o)
+        o->n = 1;
 }
 
 /* 基点 (1064): which corner of the text the click is.
@@ -1896,7 +1937,8 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5376;
     case JW_CMD_MOJI:
         if (ren_step)
-            return ren_step == 1 ? JW_STR_5473 : JW_STR_5474;
+            return ren_step == 1 ? JW_STR_5473
+                   : ren_step == 3 ? JW_STR_5311 : JW_STR_5474;
         /* 「文字を入力するか…」 until something is typed, then
            「文字の位置を指示して下さい」 */
         return line_n ? JW_STR_5318 : JW_STR_5316;
@@ -8225,6 +8267,22 @@ static int obj_middle(const jw_obj *o, double *mx, double *my)
     return 0;
 }
 
+/* A double left click.  Only 連 wants one -- it is how the original says
+   「移動（LL)」 -- and everywhere else it is just a left click. */
+void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    if (d && current == JW_CMD_MOJI && ren_step == 1) {
+        int k = jw_pick(d, v, x, y, 0);
+
+        if (k >= 0 && d->obj[k].cls == JW_MOJI) {
+            ren_first = k;
+            ren_step = 3;
+        }
+        return;
+    }
+    jw_cmd_point(d, v, x, y, 0);
+}
+
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
@@ -8615,6 +8673,11 @@ placed:
 
         if (!d)
             return;
+        if (ren_step == 3) {        /* where the one picked with (LL) goes */
+            ren_move_to(d, ren_first, x, y);
+            ren_step = 1;
+            return;
+        }
         if (ren_step == 1) {
             if (k < 0 || d->obj[k].cls != JW_MOJI)
                 return;

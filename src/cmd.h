@@ -136,6 +136,12 @@ const char *jw_cmd_status(const jw_drawing *d);
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button);
 
+/* A **double** left click, which the original writes (LL).  The only thing
+ * that wants one is 文字 の 連: a double click there picks the text to
+ * move, and the click after it says where its start goes
+ * (tools/probe110.sh).  Anywhere else it is an ordinary left click. */
+void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y);
+
 /* The mouse moved to here, in paper millimetres. */
 void jw_cmd_track(double x, double y);
 
