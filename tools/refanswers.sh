@@ -530,6 +530,39 @@ hatch_rect_base92() {
 # 範囲選択 (1067): a boxful of closed figures at once.  This one starts from
 # a blank sheet -- decomp/res/new.jww, what the original's 新規 makes -- so
 # that nothing of Test5's own falls in the box.
+# ハッチの 図形 (1693): 選択図形登録 したものを敷く。歩きは
+#   ハッチ → 図形 → 範囲選択 → 範囲の二隅 → 選択図形登録
+#          → 角度・縦ピッチ・横ピッチ → 境界 (R) → 実行
+# で、選択確定 (1120) を押してはいけません（押すと 選択図形登録 が消える）。
+# 敷くものは矩形の外に描いた L 字。tools/probe85.sh〜probe88.sh。
+hatch_fig() {
+    # $1 名前, $2 矩形の二隅, $3 L の三点, $4 範囲の二隅, $5 設定, $6 開く図面
+    idle
+    sh tools/refenv.sh >/dev/null
+    cp "${6:-decomp/res/new.jww}" tmp/rect.jww
+    $PS -Open tmp/rect.jww -Cmd 32772 \
+        -Clicks "$2;cmd:32771;off:1333;$3;cmd:32874;pb:1693;wait:800;pb:1067;wait:800;$4;pb:1068;wait:1000;$5;r550,300;btn:1148;saveas:decomp/res/$1" \
+        2>&1 | sed 's/^/        /'
+}
+
+hatch_figs() {
+    echo "=== hatch 図形 (選択図形登録したものを敷く)"
+    L='880,180;940,180;880,180;880,210'
+    S='set:1419,0;set:1411,60;set:1412,80'
+    hatch_fig hatchfig        '300,300;800,600' "$L" '850,150;970,240' "$S"
+    hatch_fig hatchfig_region '350,350;850,650' "$L" '850,150;970,240' "$S"
+    hatch_fig hatchfig_p40    '300,300;800,600' "$L" '850,150;970,240' \
+        'set:1419,0;set:1411,40;set:1412,40'
+    hatch_fig hatchfig_ang    '300,300;800,600' "$L" '850,150;970,240' \
+        'set:1419,30;set:1411,60;set:1412,80'
+    hatch_fig hatchfig_a '300,300;800,600' '880,180;980,180;880,180;880,210' \
+        '840,140;1000,330' "$S"
+    hatch_fig hatchfig_b '300,300;800,600' '880,180;920,180;880,180;880,250' \
+        '840,140;1000,330' "$S"
+    hatch_fig hatchfig_t5 '300,300;800,600' '880,180;980,180;880,180;880,210' \
+        '840,140;1000,330' "$S" orig/Test5.jww
+}
+
 hatch_sel() {
     idle
     sh tools/refenv.sh >/dev/null
@@ -563,6 +596,7 @@ while :; do
     hatch_rect_base92
     hatch_sel
     hatch_pick
+    hatch_figs
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

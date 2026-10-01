@@ -317,6 +317,7 @@ echo "=== 曲線 —— 原典が描いたスプラインとの突き合わせ"
 echo
 echo "=== ハッチ —— 原典が引いたハッチとの突き合わせ"
 ./tests/hatch_test.exe | sed 's/^/    /'
+./tests/hatchfig_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 包絡処理 —— 原典が包絡した 9 通りとの突き合わせ"

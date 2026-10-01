@@ -292,6 +292,19 @@ static double ht_bx, ht_by;
 /* 範囲選択 (1067): 0 none, 1 waiting for the box's first corner, 2 for its
    second, 3 boxed and waiting for 選択確定. */
 static int ht_sel;
+/* 図形 (1693): the pattern the hatch lays down, and the box round
+   it.  It is **not** the figure 図形読込 read -- that has
+   nothing to do with it.  It is what 範囲選択 (1067) picked
+   and 選択図形登録 (1068) then registered; with
+   nothing registered the original refuses the command outright and says
+   so (string 10036,
+   「範囲選択で選択図形登録を行ってください。」 -- tools/probe84.sh drew
+   nothing at all).  Text and dimensions are left out of it, which is
+   what FUN_006765a0 and FUN_00676210 of the decompilation do. */
+#define HT_PAT 512
+static jw_obj ht_pat[HT_PAT];
+static int ht_npat;
+static double ht_pxl, ht_pyl, ht_pxh, ht_pyh;
 
 static void ht_mode_set(int id);
 static int ht_mode = 1689;      /* 1線, the one the original enters in */
@@ -3381,6 +3394,8 @@ static int hatch_at(jw_drawing *d, double o, double ux, double uy,
 static int hatch_grid(jw_drawing *d, double ux, double uy, double nx,
                       double ny, double vp, double hp);
 static void hatch_span(double ax, double ay, double *lo, double *hi);
+static int hatch_cut(double o, double ax, double ay, double bx, double by,
+                     double *t);
 
 /* Give an element the write attributes.  It comes back at the end of the
  * drawing, which is what the original does -- so what is drawn on top of what
@@ -3418,6 +3433,139 @@ static void zoku_change(jw_drawing *d, int i)
     rec->n = 1;
 }
 
+/* 選択図形登録 (1068): what the box picked becomes the pattern. */
+static int hatch_register(const jw_drawing *d)
+{
+    int i, first = 1;
+
+    ht_npat = 0;
+    if (!d)
+        return 0;
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        double a, b2, c, e;
+
+        /* the original leaves out text and dimensions (FUN_006765a0
+           tests for CDataMoji and CDataSunpou).  The port has no
+           dimension class -- its own dimensions come out as lines and
+           text -- so only the text is skipped here. */
+        if (!o->sel || o->cls == JW_MOJI)
+            continue;
+        if (ht_npat >= HT_PAT)
+            break;
+        ht_pat[ht_npat++] = *o;
+        jw_obj_box(o, &a, &b2, &c, &e);
+        if (first || a < ht_pxl) ht_pxl = a;
+        if (first || b2 < ht_pyl) ht_pyl = b2;
+        if (first || c > ht_pxh) ht_pxh = c;
+        if (first || e > ht_pyh) ht_pyh = e;
+        first = 0;
+    }
+    return ht_npat;
+}
+
+/* One copy of the pattern, moved by (dx, dy). */
+static int hatch_stamp(jw_drawing *d, double dx, double dy)
+{
+    int i, made = 0;
+
+    for (i = 0; i < ht_npat; i++) {
+        jw_obj *o = jw_add(d, ht_pat[i].cls);
+
+        if (!o)
+            break;
+        *o = ht_pat[i];
+        o->sel = 0;
+        o->flags = (unsigned short)((o->flags & ~2u) | 0x20u);
+        jw_obj_move(o, dx, dy);
+        made++;
+    }
+    return made;
+}
+
+/* 図形 (1693): the pattern tiled over the region.
+ *
+ * Four things were taken off the original (tools/probe85.sh through
+ * probe88.sh), each with an L of known size laid in a plain rectangle:
+ *
+ *   * the copies sit on a **lattice fixed to the drawing's origin**,
+ *     spanned by 横ピッチ (1412) along the hatch angle and
+ *     縦ピッチ (1411) across it.  Moving the region did not
+ *     move one of them, and neither did moving the pattern itself
+ *     (probe86: same coordinates to six places, only the count changed)
+ *   * the point of the pattern that lands on a lattice point is
+ *     **(box left + width/4, box top - height/4)** -- the middle of the
+ *     top left quarter of the box round it.  Three Ls of different
+ *     shapes gave that to six places (probe87), and the first L had
+ *     width exactly twice height, which is why it took three
+ *   * a copy is laid only where **the whole box round it is inside**
+ *     the region.  With the rectangle 183.7 across and 縦ピッチ 60,
+ *     three rows fit; sliding the rectangle 30.6 left two did
+ *   * nothing is scaled.  The same L in Test5, whose write group is at
+ *     1/200, came out the same size and at the same 80 apart (probe88),
+ *     so the division by the group's scale that FUN_00676210 reads as
+ *     doing is not one the drawing ever sees.
+ *
+ * The copies are **not turned** with the angle -- only the lattice is.
+ * At 角度 30 the Ls still stood square (probe86). */
+static int hatch_figs(jw_drawing *d, double ux, double uy,
+                      double pitch, double gap)
+{
+    double vx = -uy, vy = ux;   /* across, a quarter turn the other way */
+    double w = ht_pxh - ht_pxl, h = ht_pyh - ht_pyl;
+    double rx = ht_pxl + w / 4.0, ry = ht_pyh - h / 4.0;
+    double alo, ahi, t[HT_MAX];
+    int m, m0, m1, made = 0;
+
+    if (ht_npat <= 0 || pitch <= 0.0 || gap <= 0.0)
+        return 0;
+    hatch_span(vx, vy, &alo, &ahi);
+    /* which rows can hold one at all: the box has to clear both ends */
+    m0 = (int)floor((alo + (vx * rx + vy * ry)
+                     - (vx * ht_pxl + vy * ht_pyl)) / pitch) - 2;
+    m1 = (int)ceil((ahi + (vx * rx + vy * ry)
+                    - (vx * ht_pxh + vy * ht_pyh)) / pitch) + 2;
+    if (m1 - m0 > 100000)
+        return 0;
+    for (m = m0; m <= m1; m++) {
+        double o = m * pitch;   /* the row, measured across */
+        int nt = hatch_cut(o, vx, vy, ux, uy, t), k, k0, k1, i;
+
+        for (i = 0; i + 1 < nt; i += 2) {
+            if (t[i + 1] - t[i] <= 0.0)
+                continue;
+            k0 = (int)floor((t[i] - (ux * rx + uy * ry)
+                             + (ux * ht_pxl + uy * ht_pyl)) / gap) - 1;
+            k1 = (int)ceil((t[i + 1] - (ux * rx + uy * ry)
+                            + (ux * ht_pxh + uy * ht_pyh)) / gap) + 1;
+            if (k1 - k0 > 100000)
+                return made;
+            for (k = k0; k <= k1; k++) {
+                double lx = k * gap * ux + o * vx;
+                double ly = k * gap * uy + o * vy;
+                double dx = lx - rx, dy = ly - ry;
+                double x0 = ht_pxl + dx, y0 = ht_pyl + dy;
+                double x1 = ht_pxh + dx, y1 = ht_pyh + dy;
+                double au, bu, av, bv;
+
+                /* the box round the copy, across and along */
+                av = vx * x0 + vy * y0;
+                bv = vx * x1 + vy * y1;
+                if (bv < av) { double s = av; av = bv; bv = s; }
+                au = ux * x0 + uy * y0;
+                bu = ux * x1 + uy * y1;
+                if (bu < au) { double s = au; au = bu; bu = s; }
+                if (av <= alo || ahi <= bv)
+                    continue;
+                if (au <= t[i] || t[i + 1] <= bu)
+                    continue;
+                made += hatch_stamp(d, dx, dy);
+            }
+        }
+    }
+    return made;
+}
+
 static void hatch(jw_drawing *d)
 {
     const char *sa = jw_cmd_box(1419), *sp = jw_cmd_box(1411);
@@ -3427,11 +3575,11 @@ static void hatch(jw_drawing *d)
     double ux, uy, nx, ny, lo, hi, o, bo;
     int k, k0, k1, made = 0, extra = 0;
 
-    if (ht_mode < 1689 || ht_mode > 1692)
-        return;                 /* 図形 is not done */
+    if (ht_mode < 1689 || ht_mode > 1693)
+        return;
     if (pitch <= 0.0)
         return;
-    if (ht_mode != 1689) {
+    if (ht_mode != 1689 && ht_mode != 1693) {
         if (gap <= 0.0)
             return;
         /* a group whose middle falls outside the region can still have a
@@ -3455,6 +3603,12 @@ static void hatch(jw_drawing *d)
     uy = sin(ang * PI / 180.0);
     nx = uy;                    /* turn the direction a quarter turn */
     ny = -ux;
+    if (ht_mode == 1693) {      /* 図形 -- the pattern, tiled */
+        made = hatch_figs(d, ux, uy, pitch, gap);
+        if (made)
+            op_push(made);
+        return;
+    }
     if (ht_mode == 1692) {      /* ┬┴┬ -- ピッチ is 縦ピッチ, 線間隔 is 横ピッチ */
         made = hatch_grid(d, ux, uy, nx, ny, pitch, gap);
         if (made)
@@ -6027,6 +6181,13 @@ static int bar_press(jw_drawing *d, int id)
             if (ht_sel != 3 || !d)
                 return 0;
             hatch_selected(d);
+            sel_clear(d);
+            ht_sel = 0;
+            return 1;
+        }
+        if (id == 1068) {       /* 選択図形登録 */
+            if (ht_sel != 3 || !d || !hatch_register(d))
+                return 0;
             sel_clear(d);
             ht_sel = 0;
             return 1;
