@@ -5438,78 +5438,150 @@ int jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n)
     return 1;
 }
 
+/* 倍率 (1431) and 回転角 (1412) on the 図形 bar.  The original turns
+   and scales **about the figure's own base point** before putting it
+   down where the click is: the same copy pasted at 倍率 2 came out twice
+   the size around that point, and at 回転角 90 a quarter turn round it
+   (tools/probe58.sh). */
+static void fig_boxes(void)
+{
+    /* The 図形 bar itself was not taken off the original at first, and
+       then there were no boxes to read and whatever jw_cmd_figure_at
+       was told stood.  Now that src/gen/bars.h has 32862 these take
+       over by themselves. */
+    const char *m = jw_cmd_box(1431), *g = jw_cmd_box(1412);
+
+    if (m)
+        fig_mag = *m && atof(m) > 0.0 ? atof(m) : 1.0;
+    if (g)
+        fig_deg = *g ? atof(g) : 0.0;
+}
+
+/* Which layer group and layer the figure goes on: the write ones. */
+static void fig_where(const jw_drawing *d, int *wg, int *wl)
+{
+    int i;
+
+    *wg = 0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            *wg = i;
+    *wl = d->group[*wg].write_layer & 15;
+}
+
+/* One element of the figure, moved to where the figure is going.  `sp`
+   is the drawing whose pool the element's strings are in -- the
+   destination for a placement, the figure itself for the picture that
+   hangs off the cursor. */
+static void fig_one(const jw_drawing *d, const jw_drawing *sp,
+                    jw_obj *o, const jw_obj *p, int wg, int wl,
+                    double x, double y)
+{
+    double fs = fig.group[p->lgroup & 15].scale;
+    double f = fs > 0.0 && d->group[wg].scale > 0.0
+                   ? fs / d->group[wg].scale : 1.0;
+
+    o->layer = (unsigned short)wl;
+    o->lgroup = (unsigned short)wg;
+    o->sel = 0;
+    jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
+                 fig_deg * 3.141592653589793 / 180.0,
+                 x - fig_bx, y - fig_by);
+    if (fig_coord && o->cls == JW_MOJI) {
+        /* a coordinate file's text keeps the size the file named, in
+           millimetres on the paper, and its far end follows from that */
+        double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+        double len = sqrt(dx * dx + dy * dy), want;
+
+        o->d[4] = p->d[4];
+        o->d[5] = p->d[5];
+        o->d[6] = p->d[6];
+        want = jw_coord_text_len(sp, o);
+        if (len > 0.0) {
+            o->d[2] = o->d[0] + dx / len * want;
+            o->d[3] = o->d[1] + dy / len * want;
+        }
+        /* and the angle it runs at, in degrees, which the original
+           fills in from the same direction */
+        o->d[7] = atan2(dy, dx) * 180.0 / 3.141592653589793;
+    }
+}
+
 /* Put the figure down with its base point at (x, y). */
 static int figure_place(jw_drawing *d, double x, double y)
 {
-    int i, wg = 0, wl, made = 0;
-    double f;
+    int i, wg, wl, made = 0;
 
     if (!d || !fig_have)
         return 0;
-    {   /* 倍率 (1431) and 回転角 (1412) on the 図形 bar.  The
-           original turns and scales **about the figure's own base
-           point** before putting it down where the click is: the same
-           copy pasted at 倍率 2 came out twice the size around
-           that point, and at 回転角 90 a quarter turn round it
-           (tools/probe58.sh). */
-        const char *m = jw_cmd_box(1431), *g = jw_cmd_box(1412);
-
-        /* The 図形 bar itself has not been taken off the original yet
-           (src/gen/bars.h has no 32862), so there are no boxes to read
-           here and whatever jw_cmd_figure_at was told stands.  Once the
-           bar is there these take over by themselves. */
-        if (m)
-            fig_mag = *m && atof(m) > 0.0 ? atof(m) : 1.0;
-        if (g)
-            fig_deg = *g ? atof(g) : 0.0;
-    }
-    for (i = 0; i < 16; i++)
-        if (d->group[i].state == 3)
-            wg = i;
-    wl = d->group[wg].write_layer & 15;
+    fig_boxes();
+    fig_where(d, &wg, &wl);
     for (i = 0; i < fig.ndrawn; i++) {
         const jw_obj *p = &fig.obj[i];
         jw_obj *o = jw_add(d, p->cls);
-        double fs = fig.group[p->lgroup & 15].scale;
 
         if (!o)
             break;
-        f = fs > 0.0 && d->group[wg].scale > 0.0 ? fs / d->group[wg].scale
-                                                 : 1.0;
         *o = *p;
         /* the strings belong to the figure's pool, so they are copied over */
         o->text = p->text >= 0 ? jw_add_str(d, jw_str(&fig, p->text)) : -1;
         o->face = p->face >= 0 ? jw_add_str(d, jw_str(&fig, p->face)) : -1;
-        o->layer = (unsigned short)wl;
-        o->lgroup = (unsigned short)wg;
-        o->sel = 0;
-        jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
-                     fig_deg * 3.141592653589793 / 180.0,
-                     x - fig_bx, y - fig_by);
-        if (fig_coord && o->cls == JW_MOJI) {
-            /* a coordinate file's text keeps the size the file named, in
-               millimetres on the paper, and its far end follows from that */
-            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
-            double len = sqrt(dx * dx + dy * dy), want;
-
-            o->d[4] = p->d[4];
-            o->d[5] = p->d[5];
-            o->d[6] = p->d[6];
-            want = jw_coord_text_len(d, o);
-            if (len > 0.0) {
-                o->d[2] = o->d[0] + dx / len * want;
-                o->d[3] = o->d[1] + dy / len * want;
-            }
-            /* and the angle it runs at, in degrees, which the original
-               fills in from the same direction */
-            o->d[7] = atan2(dy, dx) * 180.0 / 3.141592653589793;
-        }
+        fig_one(d, d, o, p, wg, wl, x, y);
         made++;
     }
     if (made)
         op_push(made);
     return made;
 }
+
+/* The figure as it hangs off the cursor, waiting for the point that puts
+ * it down.  The original shows it the whole time, in 仮表示 -- a 95 KB
+ * figure read in and the cursor moved twice put the same 141 ff0000
+ * pixels down in both places, moved by exactly what the cursor moved by
+ * (tools/probe80.sh) -- and it goes on showing it after one has been
+ * placed (tools/probe83.sh).  Where it shows it is where the click puts
+ * it: every one of those 141 pixels was also a pixel of the figure once
+ * placed (tools/probe81.sh).
+ *
+ * It is the same drawing as the placement, so it goes through the same
+ * fig_one, and it is painted with jw_draw_kari up, which is what makes
+ * the texts in it come out as boxes (src/draw.c).
+ *
+ * `out` is filled in with a drawing the caller can hand to jw_draw: the
+ * destination's own tables, the figure's elements where they are going,
+ * and the figure's string pool, so nothing has to be put into the
+ * drawing itself to show it. */
+int jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out)
+{
+    static jw_obj *pv;
+    static int cpv;
+    int i, wg, wl;
+
+    if (!d || !out || !fig_have || !tracking || current != JW_CMD_ZUKEI
+        || fig.ndrawn <= 0)
+        return 0;
+    if (cpv < fig.ndrawn) {
+        jw_obj *n = (jw_obj *)realloc(pv, (size_t)fig.ndrawn * sizeof *n);
+
+        if (!n)
+            return 0;
+        pv = n;
+        cpv = fig.ndrawn;
+    }
+    fig_boxes();
+    fig_where(d, &wg, &wl);
+    for (i = 0; i < fig.ndrawn; i++) {
+        pv[i] = fig.obj[i];
+        fig_one(d, &fig, &pv[i], &fig.obj[i], wg, wl, tx, ty);
+    }
+    *out = *d;
+    out->obj = pv;
+    out->nobj = out->ndrawn = fig.ndrawn;
+    out->pool = fig.pool;
+    out->npool = fig.npool;
+    return 1;
+}
+
 
 int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
                          int to_color, int to_ltype)

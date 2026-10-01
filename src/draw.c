@@ -2667,9 +2667,54 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         }
         case JW_MOJI:
-            jw_text_run(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
-                        o->d[2], o->d[3], o->d[4], o->d[5], col,
-                        (o->flags & 0x20) != 0);
+            /* A text that is only hanging off the cursor comes out as
+             * its **box** and not as its glyphs.  Both ways in say so:
+             * a 文字 typed but not yet placed shows an empty rectangle
+             * (tools/probe83.sh), and so does a text inside a 図形 that
+             * is waiting to be put down (tools/probe82.sh).  The box is
+             * the text's own: from (d0,d1) to (d2,d3), and d5 -- the
+             * character height -- out to the side.  Driving the original
+             * with a 10mm 'AW' whose run is 10.5mm long gave a box 18 by
+             * 18 pixels at 1.6333 px/mm, which is that rectangle to the
+             * pixel.
+             *
+             * Only text that runs left to right has been held against
+             * the original; 縦書き goes through the same formula. */
+            if (jw_draw_kari) {
+                double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+                double len = sqrt(dx * dx + dy * dy), ux, uy;
+                double ch = o->d[5], ppb = pix_per_bit(v);
+                double ax, ay, bx, by, cx, cy, ex, ey;
+
+                if (len < 1e-9) {
+                    ux = 1.0;
+                    uy = 0.0;
+                    len = jw_text_count(jw_str(d, o->text)) * o->d[4];
+                } else {
+                    ux = dx / len;
+                    uy = dy / len;
+                }
+                ax = o->d[0];
+                ay = o->d[1];
+                bx = ax + ux * len;
+                by = ay + uy * len;
+                cx = bx - uy * ch;
+                cy = by + ux * ch;
+                ex = ax - uy * ch;
+                ey = ay + ux * ch;
+                line(fb, v, jw_ux(v, ax), jw_uy(v, ay),
+                     jw_ux(v, bx), jw_uy(v, by), col, wide, 1, ppb, 0);
+                line(fb, v, jw_ux(v, bx), jw_uy(v, by),
+                     jw_ux(v, cx), jw_uy(v, cy), col, wide, 1, ppb, 0);
+                line(fb, v, jw_ux(v, cx), jw_uy(v, cy),
+                     jw_ux(v, ex), jw_uy(v, ey), col, wide, 1, ppb, 0);
+                line(fb, v, jw_ux(v, ex), jw_uy(v, ey),
+                     jw_ux(v, ax), jw_uy(v, ay), col, wide, 1, ppb, 0);
+            } else {
+                jw_text_run(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
+                            o->d[2], o->d[3], o->d[4], o->d[5], col,
+                            (o->flags & 0x20) != 0);
+            }
             break;
         case JW_BLOCK:
             block(fb, v, d, o, 0);

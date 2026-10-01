@@ -240,6 +240,15 @@ int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
 int  jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n);
 int  jw_cmd_figure_ready(void);
 
+/* The figure as it hangs off the cursor before the point that puts it
+ * down.  The original paints it the whole time, in 仮表示, where the
+ * click would put it, and goes on painting it after one has been placed
+ * (tools/probe80.sh, probe81.sh, probe83.sh).  Nought when there is no
+ * figure or the mouse has not moved yet; otherwise *out is a drawing
+ * ready for jw_draw -- it borrows the figure's elements and string pool
+ * and must not outlive the next call. */
+int  jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out);
+
 /* 座標ファイル (32895) の ファイル読込 -- the same, from the text file. */
 int  jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n);
 

@@ -2014,10 +2014,13 @@ void app_paint(void)
            settings have a 仮表示色 (1122) to name it.  jw_draw_kari is
            how src/draw.c is told.
 
-           The raster op it goes through (there is a SetROP2 wrapper at
-           FUN_0079f1b8) is still not traced, so what happens where the
-           provisional figure crosses something already drawn is not
-           settled -- only its colour over the paper is. */
+           It goes through a raster op as well: the original brackets
+           the draw with SetROP2(R2_NOTXORPEN) and SetROP2(R2_COPYPEN)
+           -- FUN_004bbad0 and FUN_004bbaa0, which raise and drop the
+           same flag -- so a pixel becomes ~(pen ^ what was there).
+           Over the paper that is ff0000 and over one of the drawing's
+           own black lines 00ffff, both of which its window gave back
+           (tools/probe78.sh, probe79.sh).  jw_rop in src/fb.h is it. */
         jw_obj o[JW_CMD_MAXFIG];
         int n;
         if (view_ready && have_drawing
@@ -2026,6 +2029,20 @@ void app_paint(void)
             ui_view_rect(fb.w, fb.h, &view.clip);
             one.obj = o;
             one.nobj = one.ndrawn = n;
+            jw_draw_kari = 1;
+            jw_draw(&fb, &view, &one);
+            jw_draw_kari = 0;
+        }
+    }
+    {
+        /* and the 図形 waiting to be put down, which is the same
+           thing writ large: the whole figure, where the click would put
+           it, in 仮表示. */
+        jw_drawing one;
+
+        if (view_ready && have_drawing
+            && jw_cmd_figure_preview(&drawing, &one)) {
+            ui_view_rect(fb.w, fb.h, &view.clip);
             jw_draw_kari = 1;
             jw_draw(&fb, &view, &one);
             jw_draw_kari = 0;
