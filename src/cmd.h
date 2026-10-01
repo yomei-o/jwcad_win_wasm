@@ -23,7 +23,9 @@ enum {
     JW_CMD_TEN = 0x8011,            /* 点 */
     JW_CMD_KUKEI = 0x8004,          /* 矩形 -- CZukeiSen's other mode */
     JW_CMD_ENKO = 0x8005,           /* 円 */
-    JW_CMD_RENZOKU = 0x8073,        /* 連続線 */
+    JW_CMD_RENZOKU = 0x8073,        /* 連続線。連続弧 (2492) を入れると
+                                       直線でなく接しながら弧を繋ぎます
+                                       (tests/renarc_test.c) */
     JW_CMD_SHOUKYO = 0x801a,        /* 消去 */
     JW_CMD_CORNER = 0x8012,         /* コーナー処理 */
     JW_CMD_SHINSHUKU = 0x8017,      /* 線伸縮 */

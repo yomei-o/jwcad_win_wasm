@@ -577,6 +577,20 @@ kankaku() {
 # 文字の 垂直 (1324)。縦字 (1325) も一緒に押すと走りが下を向きます。
 # tools/probe95.sh・probe97.sh。ほかの文字の答え（probe57 の mo_*）と
 # 同じ (400,400) で取ります。
+# 連続線の 連続弧 (2492): 三点で弧を一つ、以後クリックごとに接する弧を
+# 一つずつ。同じ点をもう一度**左**クリックで終わり。tools/probe99.sh・
+# probe100.sh。
+renarcs() {
+    echo "=== 連続線の 連続弧 (接しながら弧を繋ぐ)"
+    for v in "one 300,300;400,250;500,300;500,300;"              "two 300,300;400,250;500,300;600,350;600,350;"; do
+        set -- $v
+        idle
+        sh tools/refenv.sh >/dev/null
+        cp decomp/res/new.jww tmp/rect.jww
+        $PS -Open tmp/rect.jww -Cmd 0             -Clicks "cmd:32883;btn:2492;$2saveas:decomp/res/renarc_$1.jww"             2>&1 | sed 's/^/        /'
+    done
+}
+
 moji_verts() {
     echo "=== 文字の 垂直 (縦字と両方だと下を向く)"
     for v in "vert btn:1324;" "vert_tate btn:1324;btn:1325;"; do
@@ -635,6 +649,7 @@ while :; do
     hatch_figs
     kankakus
     moji_verts
+    renarcs
     if [ ! -x tests/hatch_test.exe ]; then
         echo "    (tests/hatch_test.exe is not built -- not checked)"
         break

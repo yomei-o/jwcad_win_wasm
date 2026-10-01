@@ -218,6 +218,7 @@ echo
 echo "=== 角度取得・長さ取得 —— 原典が二度描いた線との突き合わせ"
 ./tests/getang_test.exe | sed 's/^/    /'
 ./tests/kankaku_test.exe | sed 's/^/    /'
+./tests/renarc_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 状態行の尻尾 —— 原典が出す角・長さ・W H・r"

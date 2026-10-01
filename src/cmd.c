@@ -772,6 +772,25 @@ static double naga_mm(const jw_drawing *d)
     return v > 0.0 ? v : (have_naga ? get_naga : 0.0);
 }
 
+/* 連続線の 連続弧 (2492).  With it ticked the command strings arcs
+ * together instead of segments.  The original's own prompts spell the
+ * walk out (tools/probe99.sh):
+ *
+ *     始点を指示してください
+ *     　　◎　円弧の中間点を指示してください
+ *     ◆　　終点を指示してください
+ *     ◆　　終点を指示してください  << 同一点再指示で終了 ﾏｳｽ（L) >>
+ *
+ * so: three points make the first arc, and every click after that adds
+ * one more.  ra_ux/ra_uy is the way out of the last centre through the
+ * join, which is what makes the next one leave tangentially. */
+static int ra_step;             /* 0 none, 1 after the start, 2 running */
+static int ra_have;             /* an arc is laid, so ra_u is good */
+static double ra_jx, ra_jy;     /* where the chain has got to */
+static double ra_mx, ra_my;     /* the middle point of the first arc */
+static double ra_ux, ra_uy;     /* out of the last centre, through the join */
+static double ra_dx, ra_dy;     /* and the way the last arc was going there */
+
 /* 包絡処理: the first corner of the box, and whether it has been given */
 static int hou_step;
 static double hou_x, hou_y;
@@ -1418,6 +1437,7 @@ void jw_cmd_set(int id)
         sel_free();
     }
     ren_step = 0;               /* 文字の 連 is not carried out of the command */
+    ra_step = ra_have = 0;      /* and neither is a 連続弧 part way through */
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
@@ -1774,6 +1794,64 @@ static void blank(jw_obj *o)
     o->text = o->face = -1;
     o->ltype = 1;
     o->color = 2;
+}
+
+/* The circle through three points.  Nought when they are in a line. */
+static int three_circle(double x1, double y1, double x2, double y2,
+                        double x3, double y3, double *cx, double *cy)
+{
+    double a = x1 * x1 + y1 * y1, b2 = x2 * x2 + y2 * y2;
+    double c = x3 * x3 + y3 * y3;
+    double dd = 2.0 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2));
+
+    if (fabs(dd) < 1e-12)
+        return 0;
+    *cx = (a * (y2 - y3) + b2 * (y3 - y1) + c * (y1 - y2)) / dd;
+    *cy = (a * (x3 - x2) + b2 * (x1 - x3) + c * (x2 - x1)) / dd;
+    return 1;
+}
+
+/* 0 .. 2pi */
+static double turn_pos(double a)
+{
+    while (a < 0.0)
+        a += 2.0 * PI;
+    while (a >= 2.0 * PI)
+        a -= 2.0 * PI;
+    return a;
+}
+
+/* One arc of a 連続弧 chain, and the way out of its centre through its
+   far end, which the next one leaves along. */
+static int ren_arc_add(jw_drawing *d, double cx, double cy,
+                       double sx2, double sy2, double ex, double ey,
+                       int ccw)
+{
+    double r = sqrt((sx2 - cx) * (sx2 - cx) + (sy2 - cy) * (sy2 - cy));
+    double a0 = atan2(sy2 - cy, sx2 - cx);
+    double a1 = atan2(ey - cy, ex - cx);
+    double sw = turn_pos(a1 - a0);
+    jw_obj *o;
+
+    if (r < 1e-9)
+        return 0;
+    if (!ccw)
+        sw -= 2.0 * PI;
+    o = jw_add(d, JW_ENKO);
+    if (!o)
+        return 0;
+    o->d[0] = cx;
+    o->d[1] = cy;
+    o->d[2] = r;
+    o->d[3] = a0;
+    o->d[4] = sw;
+    o->d[5] = 0.0;
+    o->d[6] = 1.0;
+    ra_ux = (ex - cx) / r;
+    ra_uy = (ey - cy) / r;
+    ra_dx = ccw ? -ra_uy : ra_uy;
+    ra_dy = ccw ? ra_ux : -ra_ux;
+    return 1;
 }
 
 static void sunpo_text(char *out, int n, double mm, double scale);
@@ -2301,6 +2379,10 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 
     if (current == JW_CMD_MOJI)
         return tracking ? moji(d, o, tx, ty) : 0;
+    if (current == JW_CMD_RENZOKU && jw_cmd_bar_check(2492) > 0)
+        /* 連続弧 hangs an arc off the cursor, not a segment, and what
+           that looks like before the third point has not been asked */
+        return 0;
     if (current == JW_CMD_RENZOKU) {
         int n = 0;
         /* the segment that is drawn but not yet in the drawing */
@@ -8940,6 +9022,75 @@ placed:
                 op_push(1);
             }
         }
+        return;
+    }
+    if (current == JW_CMD_RENZOKU && jw_cmd_bar_check(2492) > 0) {
+        /* 連続弧: three points make the first arc, and each
+         * click after that adds one that leaves the last tangentially
+         * and ends where the click is.  Clicking the same point again
+         * ends the chain, which is what the prompt says.
+         *
+         * The original was given (300,300) (400,250) (500,300) and then
+         * (600,350), and wrote two arcs of radius 76.5306: the first
+         * through the three points, the second from the first's end
+         * through the fourth point, leaving along the same tangent and
+         * curving the other way (decomp/res/renarc_*.jww,
+         * tools/probe100.sh).
+         *
+         * Three points in a line have not been asked, so nothing is
+         * laid for them and the chain goes on. */
+        if (!d)
+            return;
+        if (ra_step == 0) {
+            ra_jx = x;
+            ra_jy = y;
+            ra_step = 1;
+            ra_have = 0;
+        } else if (ra_step == 1) {
+            ra_mx = x;
+            ra_my = y;
+            ra_step = 2;
+        } else if (fabs(x - ra_jx) < 1e-9 && fabs(y - ra_jy) < 1e-9) {
+            ra_step = 0;        /* the same point again: that is the end */
+        } else if (!ra_have) {
+            double cx, cy;
+
+            if (three_circle(ra_jx, ra_jy, ra_mx, ra_my, x, y, &cx, &cy)) {
+                double a0 = atan2(ra_jy - cy, ra_jx - cx);
+                double am = atan2(ra_my - cy, ra_mx - cx);
+                double a1 = atan2(y - cy, x - cx);
+                int ccw = turn_pos(am - a0) < turn_pos(a1 - a0);
+
+                if (ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw)) {
+                    ra_have = 1;
+                    op_push(1);
+                }
+            }
+            ra_jx = x;
+            ra_jy = y;
+        } else {
+            /* the centre is along the old radius, at whatever distance
+               brings the circle through the new point */
+            double dx = ra_jx - x, dy = ra_jy - y;
+            double dot = ra_ux * dx + ra_uy * dy;
+
+            if (fabs(dot) > 1e-12) {
+                double t = -(dx * dx + dy * dy) / (2.0 * dot);
+                double cx = ra_jx + t * ra_ux, cy = ra_jy + t * ra_uy;
+                /* and it must set off the way the last one arrived:
+                   going round counter-clockwise, the way out of the
+                   start is the radius turned a quarter turn left */
+                double vx = -(ra_jy - cy), vy = ra_jx - cx;
+                int ccw = vx * ra_dx + vy * ra_dy > 0.0;
+
+                if (ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw))
+                    op_push(1);
+            }
+            ra_jx = x;
+            ra_jy = y;
+        }
+        tx = x;
+        ty = y;
         return;
     }
     if (current == JW_CMD_RENZOKU) {
