@@ -251,6 +251,79 @@ static void rubbish_in_every_box(void)
     ck(!bad, "  どの箱に何を打っても、図面が持てない数は出てこない");
 }
 
+/* Every button and every checkbox of every bar, pressed at four different
+ * moments: before any click, after one, after three, and twice over.
+ *
+ * `buttons_at_the_wrong_time` below does eleven of them by hand.  The
+ * number boxes taught the lesson: sweeping the real set out of
+ * `src/gen/bars.h` found four more commands with the same hole that the
+ * hand-written list had missed.  So this walks the lot.
+ *
+ * What it watches is the one thing every command must obey: nothing the
+ * drawing gains is a number the drawing could not hold (`jw_numbers_sane`:
+ * every coordinate inside +/-1e12).  It does **not** watch the element
+ * count -- plenty of commands take elements away on purpose, and the sweep
+ * said so at once: 包絡処理's 実線 (bar 32846, control 1338) swallowed 243
+ * lines, which is exactly what 包絡 is for.
+ *
+ * It runs last, because a tick it leaves set would change what a later
+ * command draws.
+ */
+static void press_everything(void)
+{
+    jw_drawing *d = fresh();
+    int base = d->ndrawn, ctls = 0, bad = 0, i, j, when;
+
+    for (i = 0; i < (int)(sizeof jw_bars / sizeof jw_bars[0]); i++) {
+        const jw_bar_t *b = &jw_bars[i];
+
+        if (b->cmd >= 100000)
+            continue;
+        for (j = 0; j < b->n; j++) {
+            int kind = b->c[j].kind;
+            unsigned id = b->c[j].id;
+
+            if (kind != JW_CTL_BUTTON && kind != JW_CTL_CHECK)
+                continue;
+            if (id == 0xffff)
+                continue;
+            ctls++;
+            for (when = 0; when < 4; when++) {
+                int was, k, q, m;
+
+                jw_cmd_set(JW_CMD_TEN);
+                jw_cmd_set((unsigned short)b->cmd);
+                was = d->ndrawn;
+                for (k = 0; k < when; k++)
+                    jw_cmd_point(d, app_view(), -20.0 + k * 13.0,
+                                 -20.0 - k * 9.0, 0);
+                jw_cmd_bar(d, (int)id);
+                if (when == 3)
+                    jw_cmd_bar(d, (int)id);
+                for (k = 0; k < 3; k++)
+                    jw_cmd_point(d, app_view(), 15.0 + k * 11.0,
+                                 -45.0 - k * 7.0, 0);
+                app_key(27);
+                for (q = was; q < d->ndrawn && bad < 20; q++)
+                    for (m = 0; m < 8; m++) {
+                        double v = d->obj[q].d[m];
+                        if (!(v > -1e12 && v < 1e12)) {
+                            printf("     bar %u ctl %u (when %d): d[%d] = %g\n",
+                                   b->cmd, id, when, m, v);
+                            bad++;
+                            m = 8;
+                            q = d->ndrawn;
+                        }
+                    }
+            }
+            if (d->ndrawn > base + 4000)
+                d = fresh();        /* keep the drawing from growing forever */
+        }
+    }
+    printf("     (%d controls x 4 moments)\n", ctls);
+    ck(!bad, "  any button or tick, pressed at any moment, keeps the drawing sane");
+}
+
 /* undo everything, twice over */
 static void undo_past_the_start(void)
 {
@@ -549,6 +622,7 @@ int main(void)
     dim_setup_button();
     layer_dialog();
     one_letter_commands();
+    press_everything();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
