@@ -217,11 +217,37 @@ static double sun_ox, sun_oy;
  * value stood on end beside it rather than laid along the line. */
 static int sun_prog;
 
+/* A length taken from a box is a length the drawing will have to hold, and
+ * `jw_numbers_sane` says what a drawing may hold: every coordinate inside
+ * ±1e12.  A box takes anything that is made of digits, a dot, a minus and a
+ * comma, so `999999999999999999999` goes in as readily as `1000` and comes
+ * out of the group's scale as 5e12 -- past that bound, and the four corners
+ * it makes can no longer be written out and read back.  Anything that will
+ * not fit is treated the same as an empty box.  (tests/fail_test.c's
+ * 「rubbish in a number box never makes a rubbish element」 found it.) */
+static double box_len_ok(double v)
+{
+    return v > 0.0 && v < 1e12;
+}
+
+/* The same bound for a box whose number goes into an element as it stands
+ * -- a radius, a flattening, an angle in degrees.  `deflt` is what an empty
+ * box gives, and a number the drawing could not hold gives it too. */
+static double box_num(const char *t, double deflt)
+{
+    double v;
+
+    if (!t || !*t)
+        return deflt;
+    v = atof(t);
+    return (v > -1e12 && v < 1e12) ? v : deflt;
+}
+
 static double sun_angle(void)
 {
     const char *t = jw_cmd_box(1411);
 
-    return t ? atof(t) : 0.0;
+    return box_num(t, 0.0);
 }
 
 /* 円弧 (the 円 bar's 1318): the radius and the start angle taken at the
@@ -671,7 +697,7 @@ static double box_mm(const jw_drawing *d, int id)
             wg = i;
     if (d->group[wg].scale > 0.0)
         v /= d->group[wg].scale;
-    return v;
+    return box_len_ok(v) ? v : 0.0;
 }
 
 /* the second number of a "横,縦" box, or the first again when there is only
@@ -694,7 +720,7 @@ static double box_mm2(const jw_drawing *d, int id)
             wg = i;
     if (d->group[wg].scale > 0.0)
         v /= d->group[wg].scale;
-    return v;
+    return box_len_ok(v) ? v : 0.0;
 }
 
 /* The readout the original hangs off the end of the status line while a
@@ -754,7 +780,7 @@ static double box_angle(int id)
 {
     const char *t = jw_cmd_box(id);
 
-    return t && *t ? atof(t) * PI / 180.0 : 0.0;
+    return box_num(t, 0.0) * PI / 180.0;
 }
 
 /* 設定 > 角度取得 and 設定 > 長さ取得: a number taken off something
@@ -947,7 +973,7 @@ int jw_cmd_text_ready(void)
 static double txt_pitch(void)
 {
     const char *t = jw_cmd_box(1418);
-    double v = t && *t ? atof(t) : 5.0;
+    double v = box_num(t, 5.0);
 
     return (v > 0.0 ? v : 5.0) * 2.0;
 }
@@ -1359,9 +1385,9 @@ int jw_cmd_moji_zure_key(int id, int c)
         return 0;
     }
     if (ix < 3)
-        moji_zx[ix] = atof(moji_ztext[ix]);
+        moji_zx[ix] = box_num(moji_ztext[ix], 0.0);
     else
-        moji_zy[ix - 3] = atof(moji_ztext[ix]);
+        moji_zy[ix - 3] = box_num(moji_ztext[ix], 0.0);
     return 1;
 }
 
@@ -1464,7 +1490,7 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     }
     {   /* 基点: pull the click back to where the text starts */
         const char *as = jw_cmd_box(1411);
-        double a = as && *as ? atof(as) * PI / 180.0
+        double a = as && *as ? box_num(as, 0.0) * PI / 180.0
                  : jw_cmd_bar_check(1324) > 0 ? PI / 2.0 : 0.0;
         double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
         double along = len * (double)(moji_kijun / 3) / 2.0;
@@ -1508,7 +1534,7 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
         const char *as = jw_cmd_box(1411);
 
         if (as && *as) {
-            double a = atof(as) * PI / 180.0;
+            double a = box_num(as, 0.0) * PI / 180.0;
             o->d[2] = x + len * cos(a);
             o->d[3] = y + len * sin(a);
         } else if (jw_cmd_bar_check(1324) > 0) {
@@ -1890,7 +1916,7 @@ const char *jw_cmd_status(const jw_drawing *d)
     switch (kind) {
     case 1:
         num3(b, (int)sizeof b, d, vb);
-        snprintf(buf, sizeof buf, "%s   [ %.3f��]   %s", p, va, b);
+        snprintf(buf, sizeof buf, "%s   [ %.3f\x81\x8b]   %s", p, va, b);
         return buf;
     case 2:
         num3(a, (int)sizeof a, d, va);
@@ -2277,7 +2303,7 @@ static double en_ratio(const char *s)
 
     if (!s || !*s)
         return 1.0;
-    v = atof(s);
+    v = box_num(s, 1.0);
     if (v <= 0.0)
         return 1.0;
     return v > 1.0 ? v / 100.0 : v;
@@ -2947,7 +2973,7 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
 
     if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
         return;
-    dist = sz ? atof(sz) : 0.0;
+    dist = box_num(sz, 0.0);
     if (dist <= 0.0)
         return;                 /* no size typed in: nothing to cut */
     for (i = 0; i < 16; i++)
@@ -3065,9 +3091,9 @@ static int nisen_gap(const jw_drawing *d)
 
     if (!t || !*t)
         return 0;
-    nisen_a = atof(t);
+    nisen_a = box_num(t, 0.0);
     p = strchr(t, ',');
-    nisen_b = p ? atof(p + 1) : nisen_a;
+    nisen_b = p ? box_num(p + 1, 0.0) : nisen_a;
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
@@ -3918,8 +3944,8 @@ static void hatch(jw_drawing *d)
 {
     const char *sa = jw_cmd_box(1419), *sp = jw_cmd_box(1411);
     const char *sg = jw_cmd_box(1412);
-    double ang = sa ? atof(sa) : 0.0, pitch = sp ? atof(sp) : 0.0;
-    double gap = sg ? atof(sg) : 0.0;
+    double ang = box_num(sa, 0.0), pitch = box_num(sp, 0.0);
+    double gap = box_num(sg, 0.0);
     double ux, uy, nx, ny, lo, hi, o, bo;
     int k, k0, k1, made = 0, extra = 0;
 
@@ -4220,7 +4246,7 @@ static void sesline(jw_drawing *d, const jw_view *v, double x, double y)
         ses_step = 1;
         if (ses_mode == 1691) {
             const char *sa = jw_cmd_box(1412);
-            double ang = sa ? atof(sa) : 0.0;
+            double ang = box_num(sa, 0.0);
             double nx, ny, side;
 
             c = &d->obj[i];
@@ -4430,7 +4456,7 @@ static int sek_draw(jw_drawing *d, double cx, double cy, double r)
 static double sek_radius(const jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
-    double r = sz ? atof(sz) : 0.0;
+    double r = box_num(sz, 0.0);
     int wg = 0, i;
 
     if (r <= 0.0)
@@ -5954,9 +5980,9 @@ static void fig_boxes(void)
     const char *m = jw_cmd_box(1431), *g = jw_cmd_box(1412);
 
     if (m)
-        fig_mag = *m && atof(m) > 0.0 ? atof(m) : 1.0;
+        fig_mag = box_num(m, 0.0) > 0.0 ? box_num(m, 1.0) : 1.0;
     if (g)
-        fig_deg = *g ? atof(g) : 0.0;
+        fig_deg = box_num(g, 0.0);
 }
 
 /* Which layer group and layer the figure goes on: the write ones. */
@@ -6260,7 +6286,7 @@ int jw_cmd_sel_erase(jw_drawing *d)
 static double sel_scale(void)
 {
     const char *t = jw_cmd_box(1411);
-    double v = t ? atof(t) : 0.0;
+    double v = box_num(t, 0.0);
 
     return v > 0.0 ? v : 1.0;
 }
@@ -6269,7 +6295,7 @@ static double sel_turn(void)
 {
     const char *t = jw_cmd_box(1412);
 
-    return (t ? atof(t) : 0.0) * PI / 180.0;
+    return box_num(t, 0.0) * PI / 180.0;
 }
 
 /* 反転: every picked element across the line that was just pointed at.  A
@@ -6814,9 +6840,9 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
         if (!t || !*t)
             return 1;
-        a = atof(t);
+        a = box_num(t, 0.0);
         p = strchr(t, ',');
-        b = p ? atof(p + 1) : a;
+        b = p ? box_num(p + 1, 0.0) : a;
         if (id == 1065) {
             a /= 2.0;
             b /= 2.0;
@@ -7017,7 +7043,7 @@ static void takaku(jw_drawing *d, double cx, double cy)
 {
     const char *sz = jw_cmd_box(1411), *ns = jw_cmd_box(1413);
     const char *ang = jw_cmd_box(1414);
-    double r = sz ? atof(sz) : 0.0, a0 = ang ? atof(ang) : 0.0;
+    double r = box_num(sz, 0.0), a0 = box_num(ang, 0.0);
     int n = ns ? atoi(ns) : 0, i, wg = 0, made = 0;
 
     if (n < 3 || n > 1000 || r <= 0.0)
@@ -8625,7 +8651,7 @@ placed:
     if (current == JW_CMD_MOJI && txt_n > 0) {
         /* 文読: the lines go down from the click, 行間 apart */
         const char *as = jw_cmd_box(1411);
-        double a = as && *as ? atof(as) * PI / 180.0
+        double a = as && *as ? box_num(as, 0.0) * PI / 180.0
                  : jw_cmd_bar_check(1324) > 0 ? PI / 2.0 : 0.0;
         double vx = -sin(a), vy = cos(a), pitch = txt_pitch();
         int k, made = 0, was = line_n;

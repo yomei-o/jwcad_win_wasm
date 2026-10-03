@@ -179,6 +179,78 @@ static void rubbish_in_the_boxes(void)
     ck(d->ndrawn >= n0, "  and never loses what was there");
 }
 
+/* The same rubbish, but through **every** number box of **every** bar.
+ *
+ * `rubbish_in_the_boxes` above only pokes 矩形's two, and that was enough to
+ * find one: `999999999999999999999` in 寸法 came out of the layer group's
+ * scale as 5e12 and made a rectangle whose corners were past what
+ * `jw_numbers_sane` lets a drawing hold -- so it could no longer be written
+ * out and read back.  A box takes any run of digits, dots, minuses and
+ * commas, so there is nothing to stop the same thing anywhere else.
+ *
+ * `src/gen/bars.h` is the original's own list of what is on each bar, so
+ * the sweep is over the real set rather than a hand-written one.  The
+ * second-stage bars (cmd = 100000 + id, the one a command puts up once a
+ * range is settled) are skipped: they cannot be entered by command alone.
+ */
+#include "../src/gen/bars.h"
+
+static void rubbish_in_every_box(void)
+{
+    static const char *JUNK[] = {
+        "abc", "-", ".", ",", "--", "1e9999", "999999999999999999999",
+        "99999999999999999999999999999999999999999", "-999999999999999999999",
+        "0", "-5", "0.000000000000001", ""
+    };
+    jw_drawing *d = fresh();
+    int bad = 0, boxes = 0, i, j, k;
+
+    for (i = 0; i < (int)(sizeof jw_bars / sizeof jw_bars[0]); i++) {
+        const jw_bar_t *b = &jw_bars[i];
+
+        if (b->cmd >= 100000)
+            continue;
+        for (j = 0; j < b->n; j++) {
+            if (b->c[j].kind != JW_CTL_COMBO || b->c[j].id == 0xffff)
+                continue;
+            boxes++;
+            for (k = 0; k < (int)(sizeof JUNK / sizeof JUNK[0]); k++) {
+                int was, m, q;
+
+                jw_cmd_set(JW_CMD_TEN);         /* leave whatever was running */
+                jw_cmd_set((unsigned short)b->cmd);
+                type_box(b->c[j].id, JUNK[k]);
+                was = d->ndrawn;
+                for (m = 0; m < 5; m++)
+                    jw_cmd_point(d, app_view(), -30.0 + m * 17.0,
+                                 -30.0 - m * 11.0, 0);
+                app_key(27);
+                if (d->ndrawn < was) {
+                    printf("     バー %u の箱 %u に「%s」で要素が減った\n",
+                           b->cmd, b->c[j].id, JUNK[k]);
+                    bad++;
+                }
+                for (q = was; q < d->ndrawn; q++)
+                    for (m = 0; m < 8; m++) {
+                        double v = d->obj[q].d[m];
+                        if (!(v > -1e12 && v < 1e12)) {
+                            printf("     バー %u の箱 %u に「%s」→ d[%d] = %g\n",
+                                   b->cmd, b->c[j].id, JUNK[k], m, v);
+                            bad++;
+                            m = 8;
+                            q = d->ndrawn;
+                        }
+                    }
+                type_box(b->c[j].id, "");
+            }
+        }
+    }
+    printf("     （バー %d 本の数値箱 %d 個 × %d 通り）\n",
+           (int)(sizeof jw_bars / sizeof jw_bars[0]), boxes,
+           (int)(sizeof JUNK / sizeof JUNK[0]));
+    ck(!bad, "  どの箱に何を打っても、図面が持てない数は出てこない");
+}
+
 /* undo everything, twice over */
 static void undo_past_the_start(void)
 {
@@ -469,6 +541,7 @@ int main(void)
     click_on_nothing();
     escape_everywhere();
     rubbish_in_the_boxes();
+    rubbish_in_every_box();
     undo_past_the_start();
     buttons_at_the_wrong_time();
     keys_under_a_dialog();
