@@ -151,6 +151,26 @@ static void alike(const char *base, const char *jwc, const char *answer,
             break;
         }
     ck(bad < 0, what);
+    {   /* and the drawing's title, which comes out of the header's two
+           32-byte lines joined with a newline.  The original's answer has
+           Test5's own 「特殊な日影図\r\n」 with one more newline on the end,
+           which is line one, a newline and an empty line two; the port used
+           to leave the title alone and so kept Test5's unchanged. */
+        const char *a = jw_str(&mine, mine.name);
+        const char *c = jw_str(&ref, ref.name);
+        char msg[160];
+
+        sprintf(msg, "  %s: and the drawing's title", what);
+        ck(strcmp(a, c) == 0, msg);
+        if (strcmp(a, c) != 0) {
+            int j;
+            printf("     port    ");
+            for (j = 0; a[j] && j < 48; j++) printf("%02x ", (unsigned char)a[j]);
+            printf("\n     original");
+            for (j = 0; c[j] && j < 48; j++) printf("%02x ", (unsigned char)c[j]);
+            printf("\n");
+        }
+    }
     if (bad >= 0) {
         printf("     element %d:\n", bad);
         show(&mine, "port    ", &mine.obj[bad]);

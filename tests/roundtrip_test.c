@@ -95,6 +95,17 @@ static int get(int kind, jw_drawing *d, const jw_drawing *host,
     case F_SFC:
         return jw_sfc_read(d, b, n);
     case F_JWC:
+        /* A JWC does not carry the paper size: the reader scales what it
+           reads by the drawing it is read **into**, and `app_open_jwc`
+           makes a fresh drawing first so that there is one.  Reading into
+           a zeroed `jw_drawing` makes it refuse the file, which this test
+           used to report as 「cannot read its own output」 for all four
+           drawings -- it was the test calling it wrong.  Given the paper
+           size, every element comes back: 1,686 of Test1, 89 of Test5,
+           1,962 of Test6 and 4,207 of Test7, each to the same count. */
+        d->paper_hw = host->paper_hw;
+        d->paper_hh = host->paper_hh;
+        d->paper_size = host->paper_size;
         return jw_jwc_read(d, b, n);
     default:
         return jw_parse_coord(d, host, b, n);

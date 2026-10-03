@@ -29,6 +29,7 @@
 #include "../src/gen/cmds.h"
 #include "../src/gen/layout.h"
 #include "../src/gen/newjww.h"
+#include "../src/gen/jwc.h"
 
 static unsigned long rng = 20260925u;
 
@@ -249,6 +250,28 @@ static int same_lines(const unsigned char *a, long na,
     return 1;
 }
 
+/* JWCの見出し欄――落ち着かないもの。
+ *
+ * JWC の頭には 32 バイトの行が二つある。`decomp/res/geom.jwc`
+ * は一行目に「特殊な日影図」と CR LF、二行目は空。それを原典に
+ * 読ませて保存させたものが `decomp/res/jwcin.jww` で、その見出しは同じ
+ * 文字列の末尾に改行が **もう一つ** 付いたものだった。つまり原典は二つの
+ * 行を改行で繋ぐときに一行目が元々持っている改行を落とさない。だから JWC
+ * を一周するごとに見出しは改行を一つずつ肥える――原典も落ち着かない。
+ *
+ * 読込み一般の話ではなく JWC の読み手の仕業であることも測ってある：
+ * DXF を取り込んだ `dxfin.jww`・`geomin.jww` も、図形を置いた `figin.jww` も、
+ * どれも見出しは「特殊な日影図」のままで改行は増えていない。
+ *
+ * 移植も同じことをする（tests/jwcread_test.c が jwcin.jww に照らしている）。
+ * だからこの比較が外すのは見出し欄だけ。両方で潰しておけば、肥えた改行が
+ * それより後ろの行番号を一つずらすのも止まる。 */
+static void hide_jwc_name(unsigned char *b, long n)
+{
+    if (b && n >= JWC_NAME + 64)
+        memset(b + JWC_NAME, 0, 64);
+}
+
 static int settles(const jw_drawing *d, int which, const char *who)
 {
     unsigned char *a = 0, *b = 0, *c = 0;
@@ -266,6 +289,10 @@ static int settles(const jw_drawing *d, int which, const char *who)
     if (!fmt_read(&e, which, a, na) || !fmt_write(&e, which, &b, &nb))
         goto done;              /* it would not go round once: not this test */
     if (fmt_read(&f, which, b, nb) && fmt_write(&f, which, &c, &nc)) {
+        if (which == 2) {
+            hide_jwc_name(b, nb);
+            hide_jwc_name(c, nc);
+        }
         if (!same_lines(b, nb, c, nc, who, NAME[which]))
             ok = 0;
         free(c);

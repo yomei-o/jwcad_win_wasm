@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "gen/jwc.h"
 
 #define PI 3.14159265358979323846
 
@@ -101,6 +102,34 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
 
     while (d->nobj > 0)
         jw_remove(d, d->nobj - 1);
+
+    /* The drawing's title, two lines of 32 bytes at 0x28.
+     *
+     * src/jwcwrite.c puts it there, breaking the name at its own newline:
+     * 「特殊な日影図\r\n」 goes out as that line and an empty second one,
+     * which is byte for byte what the original wrote into
+     * decomp/res/geom.jwc.  Reading it back was missing, so a JWC opened
+     * in the port kept whatever title the drawing already had.
+     *
+     * The original joins the two lines with a newline.  That is measured,
+     * not guessed: decomp/res/jwcin.jww is Test5 with geom.jwc imported
+     * into it and saved by the original, and its title is Test5's own
+     * 「特殊な日影図\r\n」 with **one more newline** on the end -- which is
+     * line one, a newline, and an empty line two.  (Only a header whose
+     * second line is empty has been seen, so that is all this is held
+     * against.) */
+    {
+        char name[70];
+        int j, m = 0;
+
+        for (j = 0; j < 32 && b[JWC_NAME + j]; j++)
+            name[m++] = (char)b[JWC_NAME + j];
+        name[m++] = '\n';
+        for (j = 0; j < 32 && b[JWC_NAME + 32 + j]; j++)
+            name[m++] = (char)b[JWC_NAME + 32 + j];
+        name[m] = 0;
+        d->name = jw_add_str(d, name);
+    }
 
     at = JWC_ELEM;
     for (k = 0; k < count[0]; k++) {          /* lines */
