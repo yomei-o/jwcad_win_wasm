@@ -228,6 +228,37 @@ static void prompts_of_the_commands(void)
     click(0.0, 40.0);
     cksame(jw_cmd_prompt(), JW_STR_5378, "  一つ入ると次の線・円を指示");
 
+    /* 曲線: サインは基準線のあと五点、２次は四点 */
+    app_command(JW_CMD_KYOKUSEN);
+    jw_cmd_bar(0, 1689);                /* サイン曲線 */
+    cksame(jw_cmd_prompt(), JW_STR_5345, "サイン曲線は基準線から");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5404, "  次は原点");
+    click(-80.0, 10.0);
+    cksame(jw_cmd_prompt(), JW_STR_5417, "  次は振幅の幅の点");
+    click(-60.0, 20.0);
+    cksame(jw_cmd_prompt(), JW_STR_5418, "  次は１サイクル点");
+    click(-20.0, 10.0);
+    cksame(jw_cmd_prompt(), P_START, "  次は始点");
+    click(0.0, 10.0);
+    cksame(jw_cmd_prompt(), P_END, "  そして終点");
+
+    app_command(JW_CMD_KYOKUSEN);
+    jw_cmd_bar(0, 1690);                /* ２次曲線 */
+    cksame(jw_cmd_prompt(), JW_STR_5345, "２次曲線も基準線から");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5404, "  次は原点");
+    click(-80.0, 10.0);
+    cksame(jw_cmd_prompt(), JW_STR_5416, "  次は中間点");
+    click(-60.0, 20.0);
+    cksame(jw_cmd_prompt(), P_START, "  次は始点");
+
+    app_command(JW_CMD_KYOKUSEN);
+    jw_cmd_bar(0, 1691);                /* スプライン */
+    cksame(jw_cmd_prompt(), P_START, "スプラインは始点から");
+    click(-80.0, 10.0);
+    cksame(jw_cmd_prompt(), JW_STR_5416, "  一点入ると中間点");
+
     /* 図形読込: 図形がなければ 0x14ea */
     app_command(JW_CMD_ZUKEI);
     ck(!jw_cmd_figure_ready(), "まだ図形を読んでいない");

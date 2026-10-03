@@ -71,6 +71,10 @@ WANT = [
     (5487, 'the element whose attributes are to be changed'),
     (5353, 'where a figure goes'),
     (5354, 'and what it says when no figure has been read'),
+    (5404, 'the origin of a sine or quadratic curve'),
+    (5416, 'the middle point of a quadratic curve, or of a spline'),
+    (5417, 'the amplitude point of a sine curve'),
+    (5418, 'and the point one cycle of it reaches'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

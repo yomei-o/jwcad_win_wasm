@@ -2026,6 +2026,34 @@ const char *jw_cmd_prompt(void)
         if (chu_step == 1)
             return JW_STR_5373;
         return chu_step == 2 ? JW_STR_5320 : JW_STR_5321;
+    case JW_CMD_KYOKUSEN:
+        /* CZukeiKyokuSen keeps a kind in [0xa8] and a step in [0xac].
+         *
+         *   サイン曲線 (0x15)  1 基準線 0x14e1、2 原点 0x151c、
+         *                      3 振幅の幅 0x1529、4 １サイクル点 0x152a、
+         *                      5 始点 0x14c8、6 終点 0x14c9
+         *   ２次曲線 (0x16)    1 基準線、2 原点、3 中間点 0x1528、
+         *                      5 始点、6 終点（4 は飛ばす）
+         *
+         * which is exactly the five and four points the port's 1689 and
+         * 1690 take after the line they run along.  スプライン・ベジェ
+         * （原典の「それ以外」）は 0x14c8 のあと中間点 0x1528 で、原典は
+         * 三つめの状態で 0x14c9 を出しますが、その状態にいつ入るかは
+         * 読み切れていないので、ここは点が一つも無いあいだ始点、あとは
+         * 中間点にしてあります。 */
+        if (cv_mode == 1689 || cv_mode == 1690) {
+            if (!cv_base)
+                return JW_STR_5345;
+            if (cv_n == 0)
+                return JW_STR_5404;
+            if (cv_mode == 1689)
+                return cv_n == 1 ? JW_STR_5417
+                     : cv_n == 2 ? JW_STR_5418
+                     : cv_n == 3 ? JW_STR_5320 : JW_STR_5321;
+            return cv_n == 1 ? JW_STR_5416
+                 : cv_n == 2 ? JW_STR_5320 : JW_STR_5321;
+        }
+        return cv_n == 0 ? JW_STR_5320 : JW_STR_5416;
     case JW_CMD_ZOKUHEN:
         /* CZukeiHenkou's FUN_0067ad40 is four lines long: while nothing is
            picked it puts up 0x156f 「変更するデータを指示してください。
