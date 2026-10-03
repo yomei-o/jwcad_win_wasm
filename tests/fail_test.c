@@ -607,6 +607,81 @@ static void one_letter_commands(void)
     jw_cmd_set(0x8003);
 }
 
+/* ダイアログの箱にも出鱈目を打つ。
+ *
+ * rubbish_in_every_box() が回るのは命令バーの箱で、ダイアログの箱は
+ * その網の外にいた。そこから図面の数に届くのは三つある：縮尺の
+ * 分子と分母（`src/app.c` の `sk_apply` が割る）、軸角
+ * （`jw_cmd_set_axis`）、文字の任意サイズの三箱。どの箱も数字と
+ * `.` と `-` しか受け付けないので、投げるのもその範囲でいちばん
+ * 意地の悪いものにする。
+ *
+ * 見るのは数の正気だけ。要素の数はダイアログが変えてよい。 */
+static void rubbish_in_every_dialog(void)
+{
+    /* ダイアログを出す命令（src/app.c の app_command） */
+    static const unsigned short D[] = {
+        32891,                  /* 基本設定 */
+        32808, 32829,           /* レイヤ */
+        32944, 32825, 32827,    /* 縮尺・読取 */
+        32842, 32843,           /* 軸角・目盛・オフセット */
+        32925,                  /* 寸法設定 */
+        32811, 32844            /* 画面倍率・文字表示 */
+    };
+    static const char *JUNK[] = {
+        "999999999999999", "0.000000000001", "0", "0.0", "-", ".",
+        "..", "-0", "1.2.3", "----", "99999999999999999999", ""
+    };
+    int i, j, bad = 0;
+    int nd = (int)(sizeof D / sizeof D[0]);
+    int nj = (int)(sizeof JUNK / sizeof JUNK[0]);
+
+    for (i = 0; i < nd; i++)
+        for (j = 0; j < nj; j++) {
+            jw_drawing *d = fresh();
+            const char *s;
+            int k;
+
+            if (!app_command(D[i]) || !app_modal())
+                continue;
+            for (k = 0; k < 24; k++)
+                app_key(8);
+            for (s = JUNK[j]; *s; s++)
+                app_key((unsigned char)*s);
+            app_key(13);                /* Enter is Ok */
+            app_key(27);                /* Esc if it is still up */
+            /* and now draw with whatever it left behind.  通すのは窓の
+               画素からの道（app_press）で、打った寸法はそこで縮尺に
+               割られる —— 縮尺の分母に馬鹿を入れた効きめが出るのは
+               この経路だけ。 */
+            jw_cmd_set(JW_CMD_TEN);
+            jw_cmd_set(JW_CMD_KUKEI);
+            type_box(1413, "100");
+            type_box(1411, "100");
+            app_press(400, 300, 0);
+            app_press(700, 450, 0);
+            type_box(1413, "");
+            type_box(1411, "");
+            app_press(400, 300, 0);
+            app_press(700, 450, 0);
+            for (k = 0; k < d->ndrawn; k++) {
+                int m;
+
+                for (m = 0; m < 8; m++) {
+                    double v = d->obj[k].d[m];
+
+                    if (!(v > -1e12 && v < 1e12)) {
+                        if (!bad)
+                            printf("     %d に \"%s\" -> [%d].d[%d] = %g\n",
+                                   D[i], JUNK[j], k, m, v);
+                        bad++;
+                    }
+                }
+            }
+        }
+    ck(!bad, "  ダイアログの箱に出鱈目を打っても図面が持てない数にならない");
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -622,6 +697,7 @@ int main(void)
     dim_setup_button();
     layer_dialog();
     one_letter_commands();
+    rubbish_in_every_dialog();
     press_everything();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
