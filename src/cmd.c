@@ -2026,6 +2026,35 @@ const char *jw_cmd_prompt(void)
         if (chu_step == 1)
             return JW_STR_5373;
         return chu_step == 2 ? JW_STR_5320 : JW_STR_5321;
+    case JW_CMD_ZOKUHEN:
+        /* CZukeiHenkou's FUN_0067ad40 is four lines long: while nothing is
+           picked it puts up 0x156f 「変更するデータを指示してください。
+           線・円・実点(L)　文字(R)」, and that is the whole of it -- the
+           command takes one click and is done, which is what the port does
+           too. */
+        return JW_STR_5487;
+    case JW_CMD_HATCH:
+        /* CZukeiHachi's FUN_00672100 branches three ways.  While it is
+           waiting for the 基準点 it puts up 0x14c2 (the same line the
+           copies and moves use); while a range is being dragged it hands
+           over to the range handler; otherwise it asks for the ring, and
+           that is 0x1501 「始めの線・弧をﾏｳｽ(L)で、閉鎖連続線・円を
+           ﾏｳｽ(R)で指示してください。」 until one is in and 0x1502
+           「　■ 次の線・円をﾏｳｽ(L)で指示してください。」 after.  (It hangs
+           the count of what is in the ring off both; that tail is not added
+           here.) */
+        if (ht_base_wait)
+            return JW_STR_5314;
+        if (ht_sel)
+            return ht_sel == 2 ? JW_STR_5326 : JW_STR_5383;
+        return ht_nchain == 0 ? JW_STR_5377 : JW_STR_5378;
+    case JW_CMD_ZUKEI:
+        /* CZukeiTourokuZukei asks FUN_00572c70 whether there is a figure to
+           place: no, and it puts up 0x14ea 「【図形】データがありません。
+           再選沢してください。」; yes, and it puts up 0x14e9 「【図形】の
+           複写位置を指示してください  (L)free  (R)Read」.  (Its third
+           branch, 0x2786, is the one the 倍率・回転 variant shows.) */
+        return jw_cmd_figure_ready() ? JW_STR_5353 : JW_STR_5354;
     case JW_CMD_MENTORI:
     case JW_CMD_CORNER:
         /* 「線（Ａ）指示(L)　線切断(R)」 then 「◆　線【Ｂ】指示(L)…」

@@ -215,6 +215,24 @@ static void prompts_of_the_commands(void)
     cksame(jw_cmd_prompt(), JW_STR_5367, "接線は円を指示から");
     click(-40.0, 0.0);
     cksame(jw_cmd_prompt(), JW_STR_5368, "  拾うと次の円を指示");
+
+    /* 属性変更: 一つしかない */
+    app_command(JW_CMD_ZOKUHEN);
+    cksame(jw_cmd_prompt(), JW_STR_5487, "属性変更は変更するデータを指示");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5487, "  一つ拾っても同じ");
+
+    /* ハッチ: 輪を拾う間は 0x1501 、一つ入ると 0x1502 */
+    app_command(JW_CMD_HATCH);
+    cksame(jw_cmd_prompt(), JW_STR_5377, "ハッチは始めの線・弧を指示");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5378, "  一つ入ると次の線・円を指示");
+
+    /* 図形読込: 図形がなければ 0x14ea */
+    app_command(JW_CMD_ZUKEI);
+    ck(!jw_cmd_figure_ready(), "まだ図形を読んでいない");
+    cksame(jw_cmd_prompt(), JW_STR_5354,
+           "  その間は「【図形】データがありません」");
 }
 
 int main(void)

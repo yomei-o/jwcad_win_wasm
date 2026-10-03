@@ -66,6 +66,11 @@ WANT = [
     (5373, 'the second one'),
     (5374, 'the third one, when no radius was typed'),
     (5375, 'and where to put the circle, once the radius settles it'),
+    (5377, 'the first line or arc of the ring a hatch fills'),
+    (5378, 'the next one, once the chain has started'),
+    (5487, 'the element whose attributes are to be changed'),
+    (5353, 'where a figure goes'),
+    (5354, 'and what it says when no figure has been read'),
 ]
 
 STRINGS = 'decomp/res/string.txt'
