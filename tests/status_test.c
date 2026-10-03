@@ -32,6 +32,7 @@
 #include "../src/cmd.h"
 #include "../src/jww.h"
 #include "../src/view.h"
+#include "../src/gen/prompts.h"
 
 #define PI 3.14159265358979323846
 
@@ -143,6 +144,79 @@ static const jw_obj *last_of(const jw_drawing *d, int cls)
     return 0;
 }
 
+/* 命令ごとの案内文 ―― 原典のどの文字列が出るか。
+ *
+ * 移植は長いあいだ、持ち場を書いていない命令には線の
+ * 「始点を指示してください」を出していた。原典の各クラスは自分の
+ * 文字列を持っている（`decomp/byclass/CZukei*.c` の `FUN_004efbb0`
+ * 呼び出しがその番号を渡している）。ここで押さえるのは逆コンパイル
+ * から読めた四つ。 */
+static void prompts_of_the_commands(void)
+{
+    const jw_drawing *d;
+    int i;
+
+    app_new();
+    d = app_drawing();
+
+    /* 拾うものを置く：横に二本の線と、離れたところに二つの円 */
+    app_command(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);                    /* Space: 水平・垂直 off */
+    click(-100.0, 40.0);
+    click(100.0, 40.0);
+    click(-100.0, -40.0);
+    click(100.0, -40.0);
+    app_command(JW_CMD_ENKO);
+    click(-60.0, 0.0);
+    click(-40.0, 0.0);
+    click(60.0, 0.0);
+    click(90.0, 0.0);
+    ck(d->ndrawn >= 4, "拾うための線二本と円二つが置けた");
+
+    /* 分割: CZukeiBunkatsu の 0x14ed と 0x14ee */
+    app_command(JW_CMD_BUNKATSU);
+    cksame(jw_cmd_prompt(), JW_STR_5357, "分割は線・円（Ａ）指示から");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5358, "  線を拾うと線【Ｂ】指示");
+
+    /* 中心線: 0x14fc・0x14fd のあとは線と同じ対 */
+    app_command(JW_CMD_CHUSHIN);
+    cksame(jw_cmd_prompt(), JW_STR_5372, "中心線は１番目の線・円から");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5373, "  次は２番目");
+    click(0.0, -40.0);
+    cksame(jw_cmd_prompt(), P_START, "  二つ揃うと線と同じ始点");
+    click(-80.0, 0.0);
+    cksame(jw_cmd_prompt(), P_END, "  そして終点");
+
+    /* 接円: 0x14fc・0x14fd・0x14fe、半径が決まると 0x14ff */
+    app_command(JW_CMD_SEKIEN);
+    cksame(jw_cmd_prompt(), JW_STR_5372, "接円も１番目の線・円から");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5373, "  次は２番目");
+    click(0.0, -40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5374, "  半径が空なら３番目を訊く");
+    jw_cmd_box_click(1411);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key('2');
+    jw_cmd_box_key('0');
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_prompt(), JW_STR_5375,
+           "  半径を打つと置く場所を訊く");
+    jw_cmd_box_click(1411);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key(13);
+
+    /* 接線の円→円: 0x14f7 と 0x14f8 */
+    app_command(JW_CMD_SESSEN);
+    cksame(jw_cmd_prompt(), JW_STR_5367, "接線は円を指示から");
+    click(-40.0, 0.0);
+    cksame(jw_cmd_prompt(), JW_STR_5368, "  拾うと次の円を指示");
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -231,6 +305,8 @@ int main(void)
 
     app_command(JW_CMD_TEN);
     cksame(jw_cmd_status(d), P_TEN, "点に移ると尻尾は消える");
+
+    prompts_of_the_commands();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;

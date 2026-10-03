@@ -1986,6 +1986,46 @@ const char *jw_cmd_prompt(void)
            goes to another line instead of to a point; not done here.) */
         return stretch_step == 0 ? JW_STR_5336 : JW_STR_5338;
     case JW_CMD_BUNKATSU:
+        /* 分割 is not コーナー: it has its own pair.  CZukeiBunkatsu's
+           FUN_007614c0 puts up 0x14ed while its state is 0 or 1 -- 「線・円
+           （Ａ）指示　ﾏｳｽ(L)　分割始点指示　ﾏｳｽ(R)　連続点分割 (RR)」 --
+           and once one is picked (state 2) it asks for the second: 0x14ee
+           「□　線【B】指示…」 when what was picked is a CDataSen, 0x14ef
+           「○　円【B】指示…」 when it is a CDataEnko.  (Its state 3 is
+           ２点間分割 and shows 0x14f0, and 連続点分割 shows 0x16bb and
+           0x16bc; the port's 分割 takes two lines and reaches neither.) */
+        return corner_step == 0 ? JW_STR_5357 : JW_STR_5358;
+    case JW_CMD_SESSEN:
+        /* CZukeiSessen shows 0x14f7 「円を指示してください。」 while its
+           state is 0 or 1 and 0x14f8 「●　　次の円を指示してください。」
+           once it is 2.  (Its states 3 and 5 are the 点→円 and 線→円
+           halves, which show 0x14fa, 0x14fb and the line command's own
+           pair; those are not written down here because the port's modes
+           do not line up with them one to one.) */
+        if (ses_mode == 1689)
+            return ses_step == 0 ? JW_STR_5367 : JW_STR_5368;
+        return JW_STR_5320;
+    case JW_CMD_SEKIEN:
+        /* CZukeiSetuEn asks for three in turn -- 0x14fc, 0x14fd, 0x14fe --
+           and once a radius settles the circle it asks where to put it
+           instead, 0x14ff.  (It hangs 「    [ r = %.3lf ]」 off the first
+           two while a radius is in the box; that tail is not added here.) */
+        if (sek_step == 0)
+            return JW_STR_5372;
+        if (sek_step == 1)
+            return JW_STR_5373;
+        return box_num(jw_cmd_box(1411), 0.0) > 0.0
+               ? JW_STR_5375 : JW_STR_5374;
+    case JW_CMD_CHUSHIN:
+        /* CZukeiChuushinSen's state runs 1,2,3,4 and shows 0x14fc, 0x14fd,
+           then the line command's own pair -- the two elements first, then
+           the two ends of the centre line between them.  The original hangs
+           string 0x150a off the last two; that tail is not added here. */
+        if (chu_step == 0)
+            return JW_STR_5372;
+        if (chu_step == 1)
+            return JW_STR_5373;
+        return chu_step == 2 ? JW_STR_5320 : JW_STR_5321;
     case JW_CMD_MENTORI:
     case JW_CMD_CORNER:
         /* 「線（Ａ）指示(L)　線切断(R)」 then 「◆　線【Ｂ】指示(L)…」

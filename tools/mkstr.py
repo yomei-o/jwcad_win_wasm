@@ -58,6 +58,14 @@ WANT = [
     (5474, 'and once one text is picked, what the two buttons do'),
     (5327, 'the first corner of the box the weld works in'),
     (5328, 'the second one, and what the two buttons do there'),
+    (5357, 'the first line or circle a division takes'),
+    (5358, 'the second one, once the first is a line'),
+    (5359, 'the second one, once the first is a circle'),
+    (5368, 'the second circle a tangent takes'),
+    (5372, 'the first line or circle a tangent circle takes'),
+    (5373, 'the second one'),
+    (5374, 'the third one, when no radius was typed'),
+    (5375, 'and where to put the circle, once the radius settles it'),
 ]
 
 STRINGS = 'decomp/res/string.txt'
