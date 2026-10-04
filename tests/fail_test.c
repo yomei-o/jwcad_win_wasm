@@ -862,6 +862,47 @@ static void undo_part_way(void)
     jw_cmd_set(JW_CMD_TEN);
 }
 
+/* 複線's 連続 (1064) carries on from the copy just made, which the port held
+   by its place in the drawing.  属性変更 moves the element it changes to the
+   end of the drawing (the original's saved file has it last), so changing
+   an earlier line moved the copy one place forward and 連続 then built off
+   whatever had come to stand there -- here the line that was changed. */
+static void parallel_carries_on(void)
+{
+    jw_drawing *d;
+    int k, n;
+    double y;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        jw_cmd_bar(d, 1333);
+    jw_cmd_point(d, app_view(), -50.0, 0.0, 0);      /* A, y = 0 */
+    jw_cmd_point(d, app_view(), 50.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), -50.0, 20.0, 0);     /* B, y = 20 */
+    jw_cmd_point(d, app_view(), 50.0, 20.0, 0);
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    type_box(1411, "500");                           /* 5 mm on 1/100 */
+    jw_cmd_point(d, app_view(), 0.0, 20.0, 0);       /* B */
+    jw_cmd_point(d, app_view(), 0.0, 30.0, 0);       /* above it */
+    jw_cmd_point(d, app_view(), 0.0, 30.0, 0);
+    n = d->ndrawn;
+    ck(n == 3 && d->obj[2].d[1] > 24.99 && d->obj[2].d[1] < 25.01,
+       "  複線 makes C at y = 25");
+    jw_cmd_set(JW_CMD_ZOKUHEN);
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);        /* A goes to the end */
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    jw_cmd_bar(d, 1064);                             /* 連続 */
+    k = d->ndrawn - 1;
+    y = d->obj[k].d[1];
+    ck(d->ndrawn == n + 1 && y > 29.99 && y < 30.01,
+       "  and 連続 still goes on from C after 属性変更 has moved A behind it");
+    type_box(1411, "");
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 /* The text line holds 254 bytes, and a character of two bytes comes as two
    keys.  It used to take a lead byte into the last free place and refuse
    the trail after it, so 253 letters and then あ left the text ending in
@@ -983,6 +1024,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    parallel_carries_on();
     undo_part_way();
     text_full_of_kanji();
     zoomed_in_paint();

@@ -104,6 +104,7 @@ static int para_step;
 static int para_obj;
 static double para_off;
 static int para_last = -1;      /* the copy 連続 carries on from */
+static jw_obj para_last_obj;    /* and that copy as it was made: see para_find */
 static double tx, ty;           /* where the mouse is now */
 static int tracking;
 
@@ -1995,6 +1996,29 @@ static void picks_shift(int by)
     for (i = 0; i < ht_nchain; i++)
         if (ht_chain[i] >= 0)
             ht_chain[i] += by;
+}
+
+/* The copy 複線's 連続 (1064) carries on from.  It is held by its place,
+ * and a place goes stale: a 戻る that puts an erased element back in the
+ * middle, or a 進む that puts a step back at the front, moves everything
+ * after it along, and the place then names the next line over.  So the
+ * copy itself is kept too, and the place is only trusted while it still
+ * holds that copy; otherwise the drawn elements are searched for it, last
+ * first, and if it is not there any more 連続 has nothing to carry on
+ * from.  (The original holds the element itself.) */
+static int para_find(const jw_drawing *d)
+{
+    int i;
+
+    if (!d || para_last < 0)
+        return -1;
+    if (para_last < d->ndrawn
+        && !memcmp(&d->obj[para_last], &para_last_obj, sizeof para_last_obj))
+        return para_last;
+    for (i = d->ndrawn - 1; i >= 0; i--)
+        if (!memcmp(&d->obj[i], &para_last_obj, sizeof para_last_obj))
+            return para_last = i;
+    return -1;
 }
 
 void jw_cmd_redo(jw_drawing *d)
@@ -7186,7 +7210,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         double gap = box_mm(d, 1411);
         const jw_obj *src;
         double dx, dy, len, nx, ny;
-        int base = id == 1064 ? para_last : para_obj;
+        int base = id == 1064 ? para_find(d) : para_obj;
         int k;
 
         if (!d || base < 0 || base >= d->ndrawn
@@ -7218,6 +7242,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
             o->d[2] = src->d[2] + nx * f;
             o->d[3] = src->d[3] + ny * f;
             para_last = (int)(o - d->obj);
+            para_last_obj = *o;
             op_push(1);
             return 1;
         }
@@ -7248,8 +7273,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
                 o->d[1] = ay + ny * f;
                 o->d[2] = bx + nx * f;
                 o->d[3] = by + ny * f;
-                if (!k)
+                if (!k) {
                     para_last = (int)(o - d->obj);
+                    para_last_obj = *o;
+                }
                 made++;
             }
             para_off = gap;
@@ -9228,6 +9255,7 @@ placed:
             o->d[2] = src.d[2] + -dy / len * para_off;
             o->d[3] = src.d[3] + dx / len * para_off;
             para_last = (int)(o - d->obj);
+            para_last_obj = *o;
             op_push(1);
         }
         return;
