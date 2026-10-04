@@ -70,6 +70,8 @@ static int stretch_obj;
    pressing Enter does not place anything. */
 static char line_buf[256];
 static int line_n;
+static int line_lead_next;      /* the last byte taken was a lead byte */
+static int line_drop_trail;     /* a lead byte was refused: drop its trail */
 /* 斜体 and 太字 from the dialog, which are not part of a 文字種: they go
    into the text's trailing long as 10000 and 20000. */
 static int moji_italic, moji_bold;
@@ -898,6 +900,7 @@ void jw_cmd_key(int c)
 {
     line_gen++;
     if (c == 8) {
+        line_lead_next = line_drop_trail = 0;
         /* back over a whole character, lead byte and all */
         if (line_n > 0) {
             int i = 0, last = 0;
@@ -910,8 +913,26 @@ void jw_cmd_key(int c)
         }
         return;
     }
-    if (c >= 0 && c < 256 && line_n < (int)sizeof line_buf - 2)
+    /* A character of two bytes comes as two calls, lead byte first.  It
+       goes in whole or not at all: the line used to take the lead byte
+       into its last free place and refuse the trail byte after it, which
+       left a text ending in half a character (253 letters and then あ).
+       So a lead byte needs room for two, and the byte after a refused one
+       is refused with it. */
+    if (line_drop_trail) {
+        line_drop_trail = 0;
+        return;
+    }
+    if (c >= 0 && c < 256) {
+        int lead = line_lead_next == 0 && jw_is_lead((unsigned char)c);
+
+        if (line_n + (lead ? 2 : 1) > (int)sizeof line_buf - 2) {
+            line_drop_trail = lead;
+            return;
+        }
         line_buf[line_n++] = (char)c;
+        line_lead_next = lead;          /* the next byte is its trail */
+    }
 }
 
 static void blank(jw_obj *o);
@@ -8856,8 +8877,20 @@ placed:
             jw_obj tmp, *o;
 
             line_n = (int)strlen(txt_line[k]);
-            if (line_n > (int)sizeof line_buf - 2)
-                line_n = (int)sizeof line_buf - 2;
+            if (line_n > (int)sizeof line_buf - 2) {
+                /* cut on a character, not through one */
+                int at = 0;
+
+                while (at < line_n) {
+                    int w = jw_is_lead((unsigned char)txt_line[k][at])
+                            && at + 1 < line_n ? 2 : 1;
+
+                    if (at + w > (int)sizeof line_buf - 2)
+                        break;
+                    at += w;
+                }
+                line_n = at;
+            }
             memcpy(line_buf, txt_line[k], (size_t)line_n);
             /* moji() keeps the pool offset of the last string it was given
                and only puts a new one in when line_gen moves, so every

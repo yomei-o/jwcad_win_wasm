@@ -771,6 +771,44 @@ static void big_numbers_everywhere(void)
     ck(!bad, "  どの箱に大きな数を入れて釦を全部押しても、二秒以内で終わる");
 }
 
+/* The text line holds 254 bytes, and a character of two bytes comes as two
+   keys.  It used to take a lead byte into the last free place and refuse
+   the trail after it, so 253 letters and then あ left the text ending in
+   half a character. */
+static void text_full_of_kanji(void)
+{
+    static const int PRE[3] = { 251, 252, 253 };
+    int p, i;
+
+    for (p = 0; p < 3; p++) {
+        const char *l;
+        int n, whole = 1;
+
+        jw_cmd_set(JW_CMD_MOJI);
+        for (i = 0; i < 300; i++)
+            jw_cmd_key(8);
+        for (i = 0; i < PRE[p]; i++)
+            jw_cmd_key('a');
+        jw_cmd_key(0x82);               /* あ */
+        jw_cmd_key(0xa0);
+        jw_cmd_key(0x82);               /* い */
+        jw_cmd_key(0xa2);
+        l = jw_cmd_line();
+        n = (int)strlen(l);
+        for (i = 0; i < n; i++)
+            if ((unsigned char)l[i] == 0x82) {
+                if (i + 1 >= n)
+                    whole = 0;
+                i++;
+            }
+        ck(whole && n <= 254, PRE[p] == 251 ? "  文字の行が埋まっても、二バイトの字が半分で切れない（251 字のあと）"
+                            : PRE[p] == 252 ? "    （252 字のあと）" : "    （253 字のあと）");
+        for (i = 0; i < 300; i++)
+            jw_cmd_key(8);
+    }
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 /* Zooming in on a drawing with text in it.  Every character used to be
    sampled up to (w + h)^2 times whether it was on the window or not, so a
    repaint of Test7 at 256 times took ten seconds (src/text.c, glyph).
@@ -854,6 +892,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    text_full_of_kanji();
     zoomed_in_paint();
     big_numbers_everywhere();
     press_everything();
