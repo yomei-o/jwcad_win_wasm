@@ -935,17 +935,70 @@ static int press_blkedit(int x, int y)
     return 1;
 }
 
+/* CP932 typed into a fixed buffer a byte at a time -- the two block-name
+ * boxes.  The same two faults the 文字 line had (src/cmd.c, jw_cmd_key):
+ * a lead byte taken into the last place with no room for its trail, and a
+ * backspace that took off bytes of 0x80 and over that were not lead bytes,
+ * which is not how a pair is told -- the trail of ア is 0x41, so backing
+ * over ア left its lead byte behind.  Both are settled by walking the
+ * string from its start, which is the only way CP932 can be read. */
+static int ends_in_lead(const char *s, size_t n)
+{
+    size_t i = 0;
+
+    while (i < n) {
+        if (jw_is_lead((unsigned char)s[i])) {
+            if (i + 1 >= n)
+                return 1;
+            i += 2;
+        } else {
+            i++;
+        }
+    }
+    return 0;
+}
+
+static void text_back(char *s)
+{
+    size_t n = strlen(s), i = 0, last = 0;
+
+    while (i < n) {
+        last = i;
+        i += jw_is_lead((unsigned char)s[i]) && i + 1 < n ? 2 : 1;
+    }
+    s[last] = 0;
+}
+
+/* one byte in; `drop` is the buffer's own flag for a refused lead byte,
+   whose trail must be refused after it */
+static void text_put(char *s, size_t cap, int *drop, int c)
+{
+    size_t n = strlen(s);
+
+    if (*drop) {
+        *drop = 0;
+        return;
+    }
+    if (!ends_in_lead(s, n)) {          /* c starts a character */
+        size_t w = jw_is_lead((unsigned char)c) ? 2 : 1;
+
+        if (n + w >= cap) {
+            *drop = w == 2;
+            return;
+        }
+    }
+    s[n] = (char)c;                     /* (a trail always has its room) */
+    s[n + 1] = 0;
+}
+
+static int blk_drop, be_drop;
+
 /* One key while the ブロック編集 dialog is up: the name box takes it. */
 static int be_key(int c)
 {
-    size_t n = strlen(be_name);
-
     if (c == 8) {
-        while (n && (unsigned char)be_name[n - 1] >= 0x80
-               && !jw_is_lead((unsigned char)be_name[n - 1]))
-            n--;
-        if (n)
-            be_name[n - 1] = 0;
+        text_back(be_name);
+        be_drop = 0;
         return 1;
     }
     if (c == 13) {                      /* Enter is the OK button */
@@ -954,9 +1007,8 @@ static int be_key(int c)
         be_open = 0;
         return 1;
     }
-    if (c >= 0x20 && n + 1 < sizeof be_name) {
-        be_name[n] = (char)c;
-        be_name[n + 1] = 0;
+    if (c >= 0x20 && c < 256) {
+        text_put(be_name, sizeof be_name, &be_drop, c);
         return 1;
     }
     return 0;
@@ -994,16 +1046,14 @@ static int press_blkname(int x, int y)
 }
 
 /* One key while the dialog is up: the name takes anything printable. */
+
 static int blk_key(int c)
 {
     size_t n = strlen(blk_name);
 
     if (c == 8) {
-        while (n && (unsigned char)blk_name[n - 1] >= 0x80
-               && !jw_is_lead((unsigned char)blk_name[n - 1]))
-            n--;                        /* the trail byte of a pair */
-        if (n)
-            blk_name[n - 1] = 0;
+        text_back(blk_name);
+        blk_drop = 0;
         return 1;
     }
     if (c == 13) {                      /* Enter is the OK button */
@@ -1016,9 +1066,9 @@ static int blk_key(int c)
     }
     if (blk_attr)                       /* the box is greyed out there */
         return 0;
-    if (c >= 0x20 && n + 1 < sizeof blk_name) {
-        blk_name[n] = (char)c;
-        blk_name[n + 1] = 0;
+    (void)n;
+    if (c >= 0x20 && c < 256) {
+        text_put(blk_name, sizeof blk_name, &blk_drop, c);
         return 1;
     }
     return 0;

@@ -201,6 +201,31 @@ int main(int argc, char **argv)
         }
     }
 
+    /* CP932 in the name box, a byte at a time: a two-byte character that
+       does not fit is refused whole, and backspace takes a whole one off
+       -- ア is 0x83 0x41, a trail byte under 0x80, which the old backspace
+       did not see as one and so left 0x83 behind */
+    {
+        const char *s;
+
+        for (i = 0; i < 62; i++)
+            app_key('x');
+        app_key(0x83);
+        app_key(0x41);
+        s = app_blkname();
+        ck(strlen(s) == 62 && s[61] == 'x',
+           "a character with no room for both its bytes is left out whole");
+        for (i = 0; i < 70; i++)
+            app_key(8);
+        app_key('a');
+        app_key(0x83);
+        app_key(0x41);
+        app_key(8);
+        ck(!strcmp(app_blkname(), "a"), "and backspace takes ア off whole");
+        for (i = 0; i < 70; i++)
+            app_key(8);
+    }
+
     app_key('B');
     app_key('L');
     app_key('K');
