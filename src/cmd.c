@@ -1835,6 +1835,18 @@ void jw_cmd_undo(jw_drawing *d)
             }
         }
     }
+    /* A step that only added elements is put back by 進む from `back`, not
+       from the copy of the whole drawing op_snap made above -- jw_cmd_redo
+       tests exactly this before it looks at `after`.  So that copy is
+       dropped again: it is the whole drawing, 136 bytes an element, made
+       on every 戻る, and kept for as long as the step can be redone.
+       Two hundred presses on a drawing of fifty thousand elements came to
+       well over a gigabyte, which the browser build does not have. */
+    if (o->nitem == 0 && o->ndef == 0 && o->nback > 0) {
+        free(o->after);
+        o->after = 0;
+        o->nafter = o->ndrawn_after = 0;
+    }
     /* the items stay: 進む may bring this step back, and then 戻る
        has to be able to take it away again */
     nop--;
