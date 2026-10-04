@@ -1720,6 +1720,49 @@ void jw_cmd_escape(void)
     sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
 }
 
+/* Whether the command in force is part way through -- a point down, an
+ * element picked -- which is what the original's 戻る asks first.
+ * FUN_00504100 calls the command's own vtable +0x40 before it touches the
+ * drawing, and only when that says there was nothing of its own to take
+ * back does a step of the drawing come off (the note on jw_cmd_redo; it is
+ * why tests/redo_test.c leaves the command before every press).  The
+ * states are the ones jw_cmd_escape puts back. */
+int jw_cmd_midway(void)
+{
+    int sun_rest = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
+
+    return step != 0 || en_step != 0 || hou_step != 0 || cut_step != 0
+           || corner_step != 0 || stretch_step != 0 || para_step != 0
+           || nisen_step != 0 || ses_step != 0 || sek_step != 0
+           || chu_step != 0 || cv_n != 0 || ht_n != 0 || ht_nchain != 0
+           || sun_step != sun_rest;
+}
+
+/* And what the command does with that press.  Read for two of them:
+ *
+ *   線 (CZukeiSen, FUN_006ed530)  with its first point down it lets go of
+ *        the point and says it took the press -- one press, back to the
+ *        start
+ *   中心線 (CZukeiChuushinSen, FUN_0063d5f0)  its state goes back **one**
+ *        each press, 3 to 2 to 1, so the second line picked is dropped
+ *        before the first
+ *
+ * The rest go back to their start, which is what jw_cmd_escape does; how
+ * far each of them steps has not been read. */
+void jw_cmd_back(void)
+{
+    if (current == JW_CMD_CHUSHIN && chu_step > 0) {
+        chu_step--;
+        if (chu_step < 2)
+            chu_b = -1;
+        if (chu_step < 1)
+            chu_a = -1;
+        tracking = 0;
+        return;
+    }
+    jw_cmd_escape();
+}
+
 /* Space: turn 水平・垂直 over.
  *
  * The original does this while a line is being drawn -- with the start down
@@ -1739,9 +1782,9 @@ void jw_cmd_reset(void)
        jw_cmd_set: the previous command and 水平・垂直 are left alone, the
        way the original leaves +0x8568 and +0x730 alone. */
     current = JW_CMD_SEN;
-    step = 0;
-    cut_step = 0;
-    tracking = 0;
+    jw_cmd_escape();            /* and nothing picked out of the last one:
+                                   the indices meant its elements, not
+                                   these */
     /* All of it, the 進む side as well.  This used to free only the
        steps below nop, and only their item lists: ntop stayed where it
        was and nitem kept its count, so 新規 then 進む brought a freed

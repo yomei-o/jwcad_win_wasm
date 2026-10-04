@@ -771,6 +771,55 @@ static void big_numbers_everywhere(void)
     ck(!bad, "  どの箱に大きな数を入れて釦を全部押しても、二秒以内で終わる");
 }
 
+/* 戻る with a command part way through.  The original's 戻る asks the
+   command first (FUN_00504100, vtable +0x40) and takes a step off the
+   drawing only when the command had nothing of its own: so with the first
+   point of a line down, 戻る lets go of that point and leaves the lines
+   alone.  The port took the last line off and kept the point -- and a
+   command that had picked an element kept its index, which after the undo
+   could mean another element. */
+static void undo_part_way(void)
+{
+    jw_drawing *d = fresh();
+    int n0, k;
+
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    for (k = 0; k < 3; k++) {
+        jw_cmd_point(d, app_view(), -40.0 + k * 10.0, -40.0, 0);
+        jw_cmd_point(d, app_view(), -40.0 + k * 10.0, -10.0, 0);
+    }
+    n0 = d->ndrawn;
+    jw_cmd_point(d, app_view(), 50.0, 50.0, 0);      /* a first point down */
+    ck(jw_cmd_midway(), "  線 with its first point down is part way");
+    app_command(JW_CMD_UNDO);
+    ck(d->ndrawn == n0 && !jw_cmd_midway(),
+       "  戻る lets go of the point and leaves the lines alone");
+    app_command(JW_CMD_UNDO);
+    ck(d->ndrawn == n0 - 1, "  and the next 戻る takes the last line off");
+
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);    /* one line picked */
+    ck(jw_cmd_midway(), "  中心線 with one line picked is part way");
+    app_command(JW_CMD_UNDO);
+    ck(d->ndrawn == n0 - 1 && !jw_cmd_midway(),
+       "  戻る drops the pick, not a line");
+
+    /* 中心線 steps back one pick a press (FUN_0063d5f0: 3 -> 2 -> 1) */
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
+    jw_cmd_point(d, app_view(), -30.0, -25.0, 0);    /* two lines picked */
+    app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway() && d->ndrawn == n0 - 1,
+       "  with two lines picked, 戻る drops only the second");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0 - 1, "  and the next the first");
+
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
+    app_new();
+    ck(!jw_cmd_midway(), "  and 新規 drops a pick made in the last drawing");
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 /* The text line holds 254 bytes, and a character of two bytes comes as two
    keys.  It used to take a lead byte into the last free place and refuse
    the trail after it, so 253 letters and then あ left the text ending in
@@ -892,6 +941,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    undo_part_way();
     text_full_of_kanji();
     zoomed_in_paint();
     big_numbers_everywhere();

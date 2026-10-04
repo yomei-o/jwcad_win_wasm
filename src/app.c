@@ -1391,6 +1391,16 @@ int app_command(int cmd)
         blk_open = 1;
         return 1;
     case JW_CMD_UNDO:
+        /* A command part way through takes the press itself and backs
+           up (jw_cmd_back); only a command at rest lets a step of the
+           drawing come off (jw_cmd_midway).  The port used to undo the drawing whatever the
+           command was doing, and the command kept the elements it had
+           picked by their index -- which after the undo could be another
+           element, or past the end. */
+        if (jw_cmd_midway()) {
+            jw_cmd_back();
+            return 1;
+        }
         if (!jw_cmd_can_undo())
             return 0;
         jw_cmd_undo(have_drawing ? &drawing : 0);
