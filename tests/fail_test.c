@@ -814,6 +814,19 @@ static void undo_part_way(void)
     app_command(JW_CMD_UNDO);
     ck(!jw_cmd_midway() && d->ndrawn == n0 - 1, "  and the next the first");
 
+    /* ２線 and 接円 step back one at a time too */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_NISEN);
+    type_box(1412, "500");
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);    /* the line */
+    jw_cmd_point(d, app_view(), -40.0, -40.0, 0);    /* the start */
+    app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway(), "  ２線: 戻る after the start point keeps the line");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0 - 1, "    and the next drops it");
+    type_box(1412, "");
+
+    jw_cmd_set(JW_CMD_CHUSHIN);
     jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
     app_new();
     ck(!jw_cmd_midway(), "  and 新規 drops a pick made in the last drawing");

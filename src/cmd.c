@@ -1738,17 +1738,22 @@ int jw_cmd_midway(void)
            || sun_step != sun_rest;
 }
 
-/* And what the command does with that press.  Read for two of them:
+/* And what the command does with that press, read out of each one's
+ * vtable +0x40:
  *
  *   線 (CZukeiSen, FUN_006ed530)  with its first point down it lets go of
  *        the point and says it took the press -- one press, back to the
  *        start
- *   中心線 (CZukeiChuushinSen, FUN_0063d5f0)  its state goes back **one**
- *        each press, 3 to 2 to 1, so the second line picked is dropped
- *        before the first
+ *   中心線 (CZukeiChuushinSen, FUN_0063d5f0), 接円 (CZukeiSetuEn,
+ *        FUN_00706a20) and ２線 (CZukei2Sen, FUN_00624150)  their state
+ *        goes back **one** each press, so the second thing picked is
+ *        dropped before the first
+ *   分割 (CZukeiBunkatsu)  from one line picked straight back to the start
  *
  * The rest go back to their start, which is what jw_cmd_escape does; how
- * far each of them steps has not been read. */
+ * far each of them steps has not been read (コーナー and 伸縮 keep a
+ * history of their own and step through it, which the port does not
+ * have). */
 void jw_cmd_back(void)
 {
     if (current == JW_CMD_CHUSHIN && chu_step > 0) {
@@ -1760,6 +1765,29 @@ void jw_cmd_back(void)
         tracking = 0;
         return;
     }
+    /* 接円 (CZukeiSetuEn, FUN_00706a20): 3 -> 2 -> 0, the second element
+       and then the first -- the port's sek_step 2 and 1 */
+    if (current == JW_CMD_SEKIEN && sek_step > 0) {
+        sek_step--;
+        if (sek_step < 2)
+            sek_b = -1;
+        if (sek_step < 1)
+            sek_a = -1;
+        tracking = 0;
+        return;
+    }
+    /* ２線 (CZukei2Sen, slot 16 at 0x00624150): the end point's state 3
+       goes back to 2, the start point's, and 2 back to 1, the line --
+       the port's nisen_step 2 and 1 */
+    if (current == JW_CMD_NISEN && nisen_step > 0) {
+        nisen_step--;
+        if (nisen_step < 1)
+            nisen_obj = -1;
+        tracking = 0;
+        return;
+    }
+    /* 分割 (CZukeiBunkatsu) goes from its state 2 straight back to 0, which
+       is the start; so does the rest, as far as anyone has read */
     jw_cmd_escape();
 }
 
