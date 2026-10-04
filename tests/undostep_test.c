@@ -206,6 +206,10 @@ static void one(const char *name, int cmd, walk_fn walk)
     snprintf(msg, sizeof msg, "  and one 進む brings back the %d it had",
              after.nobj);
     ck(same_elements(&after), msg);
+    /* and the 戻る after that 進む: wherever 進む put the step's elements,
+       this has to take back that step and nothing else */
+    jw_cmd_undo(d);
+    ck(same_exactly(&before), "  and a second 戻る gives it back exactly again");
     free(before.obj);
     free(after.obj);
 }
