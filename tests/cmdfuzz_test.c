@@ -30,6 +30,7 @@
 #include "../src/gen/layout.h"
 #include "../src/gen/newjww.h"
 #include "../src/gen/jwc.h"
+#include "../src/view.h"
 
 static unsigned long rng = 20260925u;
 
@@ -131,6 +132,42 @@ static int snap_differs(const snap_t *s, const jw_drawing *d)
         if (memcmp(&s->obj[i], &d->obj[i], sizeof *s->obj))
             return i;
     return -1;
+}
+
+/* A press aimed at the drawing rather than at a random pixel.  Most
+ * commands want an element under the cursor -- a line to cut, a circle to
+ * touch, the end of something -- and a pixel picked at random lands on
+ * nothing nearly every time, so whole commands were never finished: the
+ * step check below saw a dozen steps in eighteen hundred actions.  Half the
+ * presses now go to a point of an element already drawn: an end of it,
+ * the middle of a line, the centre of a circle. */
+static void press_aimed(void)
+{
+    const jw_drawing *d = app_drawing();
+    const jw_view *v = app_view();
+    const jw_obj *o;
+    double x, y;
+    int which;
+
+    if (!d || !v || d->ndrawn <= 0) {
+        app_press((int)(nextr() % W), (int)(nextr() % H), (int)(nextr() % 2));
+        return;
+    }
+    o = &d->obj[nextr() % (unsigned long)d->ndrawn];
+    which = (int)(nextr() % 3);
+    if (o->cls == JW_SEN) {
+        x = which == 0 ? o->d[0] : which == 1 ? o->d[2]
+                                              : (o->d[0] + o->d[2]) / 2.0;
+        y = which == 0 ? o->d[1] : which == 1 ? o->d[3]
+                                              : (o->d[1] + o->d[3]) / 2.0;
+    } else if (o->cls == JW_ENKO && which == 2) {
+        x = o->d[0] + o->d[2];          /* on the ring, at angle 0 */
+        y = o->d[1];
+    } else {
+        x = o->d[0];
+        y = o->d[1];
+    }
+    app_press(jw_sx(v, x), jw_sy(v, y), (int)(nextr() % 2));
 }
 
 static void write_every_way(const jw_drawing *d)
@@ -501,9 +538,11 @@ int main(int argc, char **argv)
             acts++;
             if (r < 25)
                 app_command(jw_btn_cmd[nextr() % JW_NBUTTONS]);
-            else if (r < 60)
+            else if (r < 42)
                 app_press((int)(nextr() % W), (int)(nextr() % H),
                           (int)(nextr() % 2));
+            else if (r < 60)
+                press_aimed();
             else if (r < 75)
                 app_move((int)(nextr() % W), (int)(nextr() % H));
             else if (r < 90)

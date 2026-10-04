@@ -417,6 +417,10 @@ echo "=== 失敗系 —— 何もないところを押す、途中でやめる�
 ./tests/fail_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 一歩進めて一歩戻す —— 編集の命令ごとに、戻るで図面がそっくり戻るか"
+./tests/undostep_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 手だけで —— ツールバーの釦とクリックだけで各コマンドが動くか"
 ./tests/hand_test.exe | sed 's/^/    /'
 
