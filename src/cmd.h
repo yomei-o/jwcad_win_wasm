@@ -155,6 +155,7 @@ void jw_cmd_undo(jw_drawing *d);
  * given three lines, two 戻る and then one and two 進む, and came back with
  * two lines and then three (tools/probe107.sh). */
 int  jw_cmd_can_redo(void);
+int  jw_cmd_undo_depth(void);   /* how many steps 戻る can take back */
 void jw_cmd_redo(jw_drawing *d);
 
 /* Esc: let go of the points the command has taken so far, staying in the

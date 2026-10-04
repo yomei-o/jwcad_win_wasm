@@ -97,6 +97,42 @@ static fp_t *fingerprint(const jw_drawing *d, int *n)
     return f;
 }
 
+/* The drawing's elements exactly as they stand, in order -- what one
+ * 戻る has to give back.  Unlike the fingerprint above this one keeps the
+ * order: 戻る puts an erased element back **where it was** (jw_cmd_undo's
+ * own note), so the drawing order -- what is on top of what -- is part of
+ * what it restores. */
+typedef struct {
+    jw_obj *obj;
+    int nobj, ndrawn;
+} snap_t;
+
+static void snap_take(snap_t *s, const jw_drawing *d)
+{
+    s->nobj = d ? d->nobj : 0;
+    s->ndrawn = d ? d->ndrawn : 0;
+    s->obj = 0;
+    if (s->nobj > 0) {
+        s->obj = (jw_obj *)malloc((size_t)s->nobj * sizeof *s->obj);
+        if (s->obj)
+            memcpy(s->obj, d->obj, (size_t)s->nobj * sizeof *s->obj);
+    }
+}
+
+/* -1 when the two agree, otherwise the first element that differs (or the
+   count, as nobj) */
+static int snap_differs(const snap_t *s, const jw_drawing *d)
+{
+    int i;
+
+    if (!d || d->nobj != s->nobj || d->ndrawn != s->ndrawn)
+        return s->nobj;
+    for (i = 0; i < s->nobj; i++)
+        if (memcmp(&s->obj[i], &d->obj[i], sizeof *s->obj))
+            return i;
+    return -1;
+}
+
 static void write_every_way(const jw_drawing *d)
 {
     unsigned char *o;
@@ -374,6 +410,8 @@ int main(int argc, char **argv)
     int i, bad = 0, files = 0;
     long acts = 0;
     long undone = 0;            /* the undo sweep at the end of each run */
+    long stepped = 0;           /* steps taken back and put again on the way */
+    int stepbad = 0;
 
     if (seed && *seed) {
         rng = strtoul(seed, 0, 0);
@@ -448,6 +486,17 @@ int main(int argc, char **argv)
 
         for (k = 0; k < steps; k++) {
             unsigned long r = nextr() % 100;
+            /* One step forward and one back has to be no step at all.
+               Watched only when there is nothing to 進む into beforehand:
+               then a deeper undo stack afterwards can only mean the action
+               took a new step (a 進む would need something to redo). */
+            int depth0 = jw_cmd_undo_depth(), fresh_step;
+            snap_t before;
+
+            if (!jw_cmd_can_redo())
+                snap_take(&before, app_drawing());
+            else
+                before.obj = 0, before.nobj = -1;
 
             acts++;
             if (r < 25)
@@ -461,6 +510,35 @@ int main(int argc, char **argv)
                 app_key(KEYS[nextr() % (sizeof KEYS / sizeof KEYS[0])]);
             else
                 app_paint();
+            fresh_step = before.nobj >= 0
+                         && jw_cmd_undo_depth() == depth0 + 1;
+            if (fresh_step) {
+                int at;
+
+                jw_cmd_undo((jw_drawing *)app_drawing());
+                at = snap_differs(&before, app_drawing());
+                if (at >= 0 && stepbad < 5) {
+                    const jw_drawing *dr = app_drawing();
+                    printf("BAD  %s: step %d (command %d) is not undone"
+                           " exactly -- %d/%d elements before, %d/%d after"
+                           " 戻る, first difference at %d\n", argv[i], k,
+                           jw_cmd(), before.nobj, before.ndrawn,
+                           dr ? dr->nobj : -1, dr ? dr->ndrawn : -1, at);
+                    if (dr && at < before.nobj && at < dr->nobj)
+                        printf("       was cls %d %.6g %.6g %.6g %.6g,"
+                               " now cls %d %.6g %.6g %.6g %.6g\n",
+                               before.obj[at].cls, before.obj[at].d[0],
+                               before.obj[at].d[1], before.obj[at].d[2],
+                               before.obj[at].d[3], dr->obj[at].cls,
+                               dr->obj[at].d[0], dr->obj[at].d[1],
+                               dr->obj[at].d[2], dr->obj[at].d[3]);
+                    stepbad++;
+                    bad++;
+                }
+                jw_cmd_redo((jw_drawing *)app_drawing());
+                stepped++;
+            }
+            free(before.obj);
             if ((k & 63) == 0 && app_drawing()
                 && !jw_numbers_sane(app_drawing())) {
                 printf("BAD  %s: a number no drawing could hold after"
@@ -595,5 +673,7 @@ int main(int argc, char **argv)
     printf("%ld steps undone afterwards, the stack running out every time,"
            " what was left still writable, and redoing them all bringing"
            " back the same elements\n", undone);
+    printf("%ld steps taken back one at a time on the way, each giving the"
+           " drawing back exactly as it was\n", stepped);
     return bad ? 1 : 0;
 }

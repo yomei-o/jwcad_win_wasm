@@ -1743,6 +1743,13 @@ int jw_cmd_can_redo(void)
     return ntop > nop;
 }
 
+/* how many steps 戻る can take back -- for the tests, which want to know
+   whether an action took a step at all */
+int jw_cmd_undo_depth(void)
+{
+    return nop;
+}
+
 /* The drawing's elements as they stand, kept so that 進む can put them
    back.  Only the elements: the string pool only ever grows, so the
    offsets in them stay good. */
