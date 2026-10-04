@@ -34,6 +34,10 @@ void app_zoom(double factor, int sx, int sy);
 void app_pan(int dx, int dy);
 const jw_view *app_view(void);
 void app_paint(void);                   /* redraw into the framebuffer */
+/* 0: draw the drawing afresh on every paint rather than reuse the picture of
+   it from the last paint when nothing it depends on has changed.  For the
+   tests that hold the two ways to the same pixels. */
+void app_paint_cache(int on);
 const fb_t *app_fb(void);
 
 /* Something the front end has to do, because it needs the file system or a

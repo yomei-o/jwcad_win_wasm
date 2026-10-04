@@ -31,6 +31,7 @@
 #include "../src/gen/newjww.h"
 #include "../src/gen/jwc.h"
 #include "../src/view.h"
+#include "../src/fb.h"
 
 static unsigned long rng = 20260925u;
 
@@ -168,6 +169,35 @@ static void press_aimed(void)
         y = o->d[1];
     }
     app_press(jw_sx(v, x), jw_sy(v, y), (int)(nextr() % 2));
+}
+
+/* The picture of the drawing that app_paint keeps from one paint to the
+ * next (src/app.c, draw_drawing) has to be the picture a fresh paint makes.
+ * After each action the window is painted once with it and once without,
+ * and the two have to agree pixel for pixel.  Returns 0 on a difference. */
+static int cache_agrees(void)
+{
+    const fb_t *f;
+    unsigned int *a;
+    size_t n;
+    int same;
+
+    app_paint();
+    f = app_fb();
+    if (!f || !f->px)
+        return 1;
+    n = (size_t)f->w * (size_t)f->h;
+    a = (unsigned int *)malloc(n * sizeof *a);
+    if (!a)
+        return 1;
+    memcpy(a, f->px, n * sizeof *a);
+    app_paint_cache(0);
+    app_paint();
+    app_paint_cache(1);
+    f = app_fb();
+    same = !memcmp(a, f->px, n * sizeof *a);
+    free(a);
+    return same;
 }
 
 static void write_every_way(const jw_drawing *d)
@@ -449,6 +479,7 @@ int main(int argc, char **argv)
     long undone = 0;            /* the undo sweep at the end of each run */
     long stepped = 0;           /* steps taken back and put again on the way */
     int stepbad = 0;
+    int cachebad = 0;           /* cached and fresh paints that differed */
 
     if (seed && *seed) {
         rng = strtoul(seed, 0, 0);
@@ -578,6 +609,13 @@ int main(int argc, char **argv)
                 stepped++;
             }
             free(before.obj);
+            if (!cache_agrees() && cachebad < 5) {
+                printf("BAD  %s: step %d (command %d) -- the kept picture of"
+                       " the drawing is not what a fresh paint draws\n",
+                       argv[i], k, jw_cmd());
+                cachebad++;
+                bad++;
+            }
             if ((k & 63) == 0 && app_drawing()
                 && !jw_numbers_sane(app_drawing())) {
                 printf("BAD  %s: a number no drawing could hold after"

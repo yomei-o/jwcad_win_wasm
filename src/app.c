@@ -2020,12 +2020,124 @@ const jw_drawing *app_drawing(void)
     return have_drawing ? &drawing : 0;
 }
 
+/* The drawing, kept as it was last drawn.
+ *
+ * While a command is part way through, every mouse move asks for a paint so
+ * the provisional figure can follow the cursor -- and a paint drew the whole
+ * drawing again underneath it.  On Test7 (4,207 elements) that is 70 ms a
+ * move, about fourteen a second.  But between two moves the drawing, the
+ * view and the window round it have not changed; only the provisional figure
+ * on top has.  So the drawing area is kept after jw_draw, under a key made of
+ * everything jw_draw reads -- the drawing (its header struct, its elements,
+ * its string pool), the view, the renderer's own knobs -- and of the pixels
+ * ui_paint left in the area before jw_draw went over them.  When the key
+ * comes round again the area is copied back instead of drawn.
+ *
+ * The key is a 64-bit hash, so a stale picture would take a collision.
+ * tests/cmdfuzz_test.c paints both ways after every action of its walks and
+ * holds the two pictures to be the same pixel for pixel. */
+static unsigned int *base_px;
+static size_t base_cap;
+static unsigned long long base_key;
+static int base_ok;
+static int base_off;            /* app_paint_cache(0): always draw */
+
+/* Off leaves the kept picture alone, so that a test can paint once each way
+   and still find the next cached paint a hit when nothing has changed. */
+void app_paint_cache(int on)
+{
+    base_off = !on;
+}
+
+static unsigned long long mix(unsigned long long h, const void *p, size_t n)
+{
+    const unsigned char *b = (const unsigned char *)p;
+    size_t i = 0;
+
+    for (; i + 8 <= n; i += 8) {
+        unsigned long long w;
+
+        memcpy(&w, b + i, 8);
+        h = (h ^ w) * 0x100000001b3ULL;
+        h ^= h >> 29;
+    }
+    for (; i < n; i++)
+        h = (h ^ b[i]) * 0x100000001b3ULL;
+    return h;
+}
+
+static void draw_drawing(void)
+{
+    const rect_t *r = &view.clip;
+    unsigned long long h = 0xcbf29ce484222325ULL;
+    int x0 = r->x < 0 ? 0 : r->x, y0 = r->y < 0 ? 0 : r->y;
+    int x1 = r->x + r->w > fb.w ? fb.w : r->x + r->w;
+    int y1 = r->y + r->h > fb.h ? fb.h : r->y + r->h;
+    int w = x1 - x0, y;
+    size_t need;
+
+    if (base_off || w <= 0 || y1 <= y0) {
+        jw_draw(&fb, &view, &drawing);
+        return;
+    }
+    need = (size_t)w * (size_t)(y1 - y0);
+    h = mix(h, &view, sizeof view);
+    h = mix(h, &fb.w, sizeof fb.w);
+    h = mix(h, &fb.h, sizeof fb.h);
+    h = mix(h, &jw_round_x, sizeof jw_round_x);
+    h = mix(h, &jw_round_y, sizeof jw_round_y);
+    h = mix(h, &jw_line_open, sizeof jw_line_open);
+    h = mix(h, &jw_mm_per_bit, sizeof jw_mm_per_bit);
+    h = mix(h, &jw_stretch, sizeof jw_stretch);
+    h = mix(h, &drawing, sizeof drawing);
+    if (drawing.obj && drawing.nobj > 0)
+        h = mix(h, drawing.obj, (size_t)drawing.nobj * sizeof *drawing.obj);
+    if (drawing.pool && drawing.npool > 0)
+        h = mix(h, drawing.pool, (size_t)drawing.npool);
+    for (y = y0; y < y1; y++)
+        h = mix(h, fb.px + (size_t)y * fb.w + x0, (size_t)w * sizeof *fb.px);
+
+    if (base_ok && h == base_key && need <= base_cap) {
+        for (y = y0; y < y1; y++)
+            memcpy(fb.px + (size_t)y * fb.w + x0,
+                   base_px + (size_t)(y - y0) * w, (size_t)w * sizeof *fb.px);
+        return;
+    }
+    jw_draw(&fb, &view, &drawing);
+    base_ok = 0;
+    if (need > base_cap) {
+        unsigned int *p = (unsigned int *)realloc(base_px, need * sizeof *p);
+
+        if (!p)
+            return;
+        base_px = p;
+        base_cap = need;
+    }
+    for (y = y0; y < y1; y++)
+        memcpy(base_px + (size_t)(y - y0) * w,
+               fb.px + (size_t)y * fb.w + x0, (size_t)w * sizeof *fb.px);
+    base_key = h;
+    base_ok = 1;
+}
+
 void app_paint(void)
 {
     int i, n;
 
     if (!fb.px)
         return;
+    /* The status line's readout -- the angle and length of the line being
+       drawn, a rectangle's W and H -- is worked out by jw_cmd_pending, and
+       that used to run only further down, after ui_paint had already
+       written the status line.  So a paint showed the readout of the paint
+       before it: after a click it stayed stale until the mouse moved, and
+       painting twice gave two different pictures (tests/cmdfuzz_test.c
+       found it by painting twice).  Work it out first. */
+    if (view_ready && have_drawing) {
+        jw_obj o[JW_CMD_MAXFIG];
+
+        jw_cmd_pending(&drawing, o, JW_CMD_MAXFIG);
+    }
     ui_paint(&fb, have_drawing ? &drawing : 0,
              view_ready ? view.scale * JW_SCREEN_MM_PER_PX : 0.0,
              have_file, jw_cmd_can_undo());
@@ -2033,7 +2145,7 @@ void app_paint(void)
         if (!view_ready)
             app_fit();
         ui_view_rect(fb.w, fb.h, &view.clip);
-        jw_draw(&fb, &view, &drawing);
+        draw_drawing();
     }
     {
         /* The element the command is part way through.  The original
