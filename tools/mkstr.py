@@ -75,6 +75,9 @@ WANT = [
     (5416, 'the middle point of a quadratic curve, or of a spline'),
     (5417, 'the amplitude point of a sine curve'),
     (5418, 'and the point one cycle of it reaches'),
+    (5401, 'where a double line starts, once its base line is picked'),
+    (5402, 'and where it ends'),
+    (5420, 'which cleanup to run, once a selection is settled'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

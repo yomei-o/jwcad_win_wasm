@@ -259,6 +259,30 @@ static void prompts_of_the_commands(void)
     click(-80.0, 10.0);
     cksame(jw_cmd_prompt(), JW_STR_5416, "  一点入ると中間点");
 
+    /* ２線: 機械語から読んだ 0x14e1・0x1519・0x151a */
+    app_command(JW_CMD_NISEN);
+    jw_cmd_box_click(1412);             /* 間隔: 空だと線を拾わない */
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key('5');
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_prompt(), JW_STR_5345, "２線は基準線から");
+    click(0.0, 40.0);
+    cksame(jw_cmd_prompt(), JW_STR_5401, "  拾うと始点");
+    click(-80.0, 20.0);
+    cksame(jw_cmd_prompt(), JW_STR_5402, "  そして終点");
+
+    /* 整理: 選択確定のあとは 0x152c 実行項目を指示 */
+    app_command(JW_CMD_SEIRI);
+    click(-150.0, 100.0);
+    click(150.0, -100.0);
+    {   /* 選択確定 は窓の上にカーソルがあるときだけ効く */
+        const jw_view *v = app_view();
+        app_move(jw_sx(v, 0.0), jw_sy(v, 0.0));
+    }
+    jw_cmd_bar((jw_drawing *)d, 1120);  /* 選択確定 */
+    cksame(jw_cmd_prompt(), JW_STR_5420, "整理は確定すると実行項目を指示");
+
     /* 図形読込: 図形がなければ 0x14ea */
     app_command(JW_CMD_ZUKEI);
     ck(!jw_cmd_figure_ready(), "まだ図形を読んでいない");

@@ -2058,6 +2058,17 @@ const char *jw_cmd_prompt(void)
                  : cv_n == 2 ? JW_STR_5320 : JW_STR_5321;
         }
         return cv_n == 0 ? JW_STR_5320 : JW_STR_5416;
+    case JW_CMD_NISEN:
+        /* CZukei2Sen's FUN_006236b0.  Ghidra dropped the arguments of all
+           seven of its FUN_004efbb0 calls, so they were read off the
+           machine code instead (objdump of orig/Jw_win.exe, 0x623a75 to
+           0x6240be): state 1 pushes 0x14e1 「基準線を指示してください。」,
+           state 2 0x1519 「始点を指示してください … 基準線変更(LL)
+           指示線包絡(RR)」 and state 3 0x151a, the same for the end.
+           (0x1517 and 0x1518 are the 包絡 hovers of its states 4 to 7.) */
+        if (nisen_step == 0)
+            return JW_STR_5345;
+        return nisen_step == 1 ? JW_STR_5401 : JW_STR_5402;
     case JW_CMD_ZOKUHEN:
         /* CZukeiHenkou's FUN_0067ad40 is four lines long: while nothing is
            picked it puts up 0x156f 「変更するデータを指示してください。
@@ -2112,6 +2123,13 @@ const char *jw_cmd_prompt(void)
            dragged, then 5314 基準点 and 5307/5311 for where it goes. */
         if (sel_step == 1)
             return JW_STR_5326;
+        /* 整理 places nothing, so 「複写先の点」 was never its line.
+           CZukeiSeiri's FUN_006e62c0 asks FUN_0044fcd0 whether the
+           selection is empty: if not it puts up 0x152c 「実行項目を指示
+           してください。（実行中マウスクリックで中断）」 -- which is where
+           the port's 整理 stands once the selection is settled. */
+        if (sel_step == 3 && current == JW_CMD_SEIRI)
+            return JW_STR_5420;
         if (sel_step == 3)
             return current != JW_CMD_SEIRI && range_moves()
                    ? JW_STR_5311 : JW_STR_5307;
