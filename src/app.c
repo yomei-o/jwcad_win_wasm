@@ -1398,7 +1398,7 @@ int app_command(int cmd)
            picked by their index -- which after the undo could be another
            element, or past the end. */
         if (jw_cmd_midway()) {
-            jw_cmd_back();
+            jw_cmd_back(have_drawing ? &drawing : 0);
             return 1;
         }
         if (!jw_cmd_can_undo())

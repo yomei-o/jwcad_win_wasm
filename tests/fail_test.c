@@ -862,6 +862,53 @@ static void undo_part_way(void)
     jw_cmd_set(JW_CMD_TEN);
 }
 
+/* 移動 with its selection settled, then 戻る.  The selection is held by
+   places in the drawing, and putting the moved elements down writes each
+   back at its place -- so a step of the drawing taken off in between had
+   the move write over whatever came to stand there.  戻る now lets go of
+   the selection first. */
+static void move_after_undo(void)
+{
+    jw_drawing *d;
+    int k, n, lost = 0;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        jw_cmd_bar(d, 1333);
+    for (k = 0; k < 3; k++) {
+        jw_cmd_point(d, app_view(), -50.0, k * 20.0, 0);
+        jw_cmd_point(d, app_view(), 50.0, k * 20.0, 0);
+    }
+    jw_cmd_set(JW_CMD_SHOUKYO);
+    jw_cmd_point(d, app_view(), 0.0, 20.0, 1);       /* erase the middle one */
+    jw_cmd_set(JW_CMD_IDOU);
+    jw_cmd_point(d, app_view(), -60.0, 30.0, 0);     /* box round the top */
+    jw_cmd_point(d, app_view(), 60.0, 50.0, 0);
+    jw_cmd_track(0.0, 40.0);
+    jw_cmd_bar(d, 1120);                             /* 選択確定 */
+    ck(jw_cmd_midway(), "  移動 with a settled selection is part way");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == 2,
+       "  戻る lets go of the selection and leaves the drawing alone");
+    app_command(JW_CMD_UNDO);                        /* the erase comes back */
+    n = d->ndrawn;
+    jw_cmd_point(d, app_view(), 0.0, 100.0, 0);      /* a click to place */
+    for (k = 0; k < 3; k++) {
+        int j, have = 0;
+
+        for (j = 0; j < d->ndrawn; j++)
+            if (d->obj[j].cls == JW_SEN && d->obj[j].d[1] == k * 20.0
+                && d->obj[j].d[3] == k * 20.0)
+                have = 1;
+        lost += !have;
+    }
+    ck(n == 3 && !lost, "  and a click afterwards moves nothing over them");
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 /* 複線's 連続 (1064) carries on from the copy just made, which the port held
    by its place in the drawing.  属性変更 moves the element it changes to the
    end of the drawing (the original's saved file has it last), so changing
@@ -1024,6 +1071,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    move_after_undo();
     parallel_carries_on();
     undo_part_way();
     text_full_of_kanji();

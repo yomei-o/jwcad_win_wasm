@@ -566,6 +566,7 @@ static char *box_slot(unsigned cmd, int id)
  */
 
 static void sel_free(void);
+static void sel_clear(jw_drawing *d);
 
 /* 元に戻る works a command at a time, not an element at a time: drawing a
  * rectangle in Jw_cad and pressing it puts the drawing back to 46 lines, all
@@ -1753,6 +1754,17 @@ int jw_cmd_midway(void)
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
     case JW_CMD_HATCH:     return ht_n != 0 || ht_nchain != 0;
     case JW_CMD_SUNPO:     return sun_step != sun_rest;
+    case JW_CMD_HANI:
+    case JW_CMD_FUKUSHA:
+    case JW_CMD_IDOU:
+    case JW_CMD_SEIRI:
+        /* a box being drawn, or a selection made or settled.  A settled
+           one is held by its places in the drawing (sel_at), and 移動 puts
+           each moved element back **at** its place: a step of the drawing
+           undone in between would have it write over whatever came to
+           stand there.  CZukeiFukusha's own +0x40 (FUN_0064e7c0) takes the
+           press in several of its states. */
+        return sel_step != 0;
     }
     return 0;
 }
@@ -1773,8 +1785,17 @@ int jw_cmd_midway(void)
  * far each of them steps has not been read (コーナー and 伸縮 keep a
  * history of their own and step through it, which the port does not
  * have). */
-void jw_cmd_back(void)
+void jw_cmd_back(jw_drawing *d)
 {
+    if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
+         || current == JW_CMD_IDOU || current == JW_CMD_SEIRI)
+        && sel_step != 0) {
+        /* let go of the selection, marks and all */
+        sel_clear(d);
+        sel_step = 0;
+        tracking = 0;
+        return;
+    }
     if (current == JW_CMD_CHUSHIN && chu_step > 0) {
         chu_step--;
         if (chu_step < 2)
