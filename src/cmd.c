@@ -1731,11 +1731,29 @@ int jw_cmd_midway(void)
 {
     int sun_rest = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
 
-    return step != 0 || en_step != 0 || hou_step != 0 || cut_step != 0
-           || corner_step != 0 || stretch_step != 0 || para_step != 0
-           || nisen_step != 0 || ses_step != 0 || sek_step != 0
-           || chu_step != 0 || cv_n != 0 || ht_n != 0 || ht_nchain != 0
-           || sun_step != sun_rest;
+    /* Only the command in force: another one's state stays as it was left
+       -- 中心線 keeps its middle after drawing, ready for the next line --
+       and is put back when that command is entered again. */
+    if (step != 0)
+        return 1;
+    switch (current) {
+    case JW_CMD_ENKO:      return en_step != 0;
+    case JW_CMD_HOURAKU:   return hou_step != 0;
+    case JW_CMD_SHOUKYO:   return cut_step != 0;
+    case JW_CMD_CORNER:
+    case JW_CMD_MENTORI:
+    case JW_CMD_BUNKATSU:  return corner_step != 0;
+    case JW_CMD_SHINSHUKU: return stretch_step != 0;
+    case JW_CMD_FUKUSEN:   return para_step != 0;
+    case JW_CMD_NISEN:     return nisen_step != 0;
+    case JW_CMD_SESSEN:    return ses_step != 0;
+    case JW_CMD_SEKIEN:    return sek_step != 0;
+    case JW_CMD_CHUSHIN:   return chu_step != 0;
+    case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
+    case JW_CMD_HATCH:     return ht_n != 0 || ht_nchain != 0;
+    case JW_CMD_SUNPO:     return sun_step != sun_rest;
+    }
+    return 0;
 }
 
 /* And what the command does with that press, read out of each one's
@@ -1958,6 +1976,27 @@ void jw_cmd_undo(jw_drawing *d)
  * part way through swallows the press, which is why six earlier runs
  * could not make the counts add up.  Leaving the command and coming
  * back first makes every press land exactly once. */
+/* The commands hold what they have picked by its place in the drawing.
+ * The original holds the element itself, so a 進む in the middle of a
+ * command (its +0x3c declines, and the drawing's step goes back) leaves the
+ * pick where it was; here a step put back **at the front** moves every
+ * element along, and the held places with them have to move by as much. */
+static void picks_shift(int by)
+{
+    int *const P[] = { &cut_obj, &corner_obj, &stretch_obj, &para_obj,
+                       &para_last, &chu_a, &chu_b, &ses_a, &sek_a, &sek_b,
+                       &nisen_obj, &get_obj };
+    unsigned k;
+    int i;
+
+    for (k = 0; k < sizeof P / sizeof P[0]; k++)
+        if (*P[k] >= 0)
+            *P[k] += by;
+    for (i = 0; i < ht_nchain; i++)
+        if (ht_chain[i] >= 0)
+            ht_chain[i] += by;
+}
+
 void jw_cmd_redo(jw_drawing *d)
 {
     op_t *o;
@@ -1995,6 +2034,7 @@ void jw_cmd_redo(jw_drawing *d)
            this step has to take them from -- it took the last drawn ones,
            which after this are somebody else's */
         o->add_at = 1;
+        picks_shift(o->nback);
     } else {
         /* Anything else -- a step that moved or erased things rather
            than adding them -- has not been asked of the original, so
@@ -2014,6 +2054,9 @@ void jw_cmd_redo(jw_drawing *d)
             memcpy(d->obj, o->after, (size_t)o->nafter * sizeof *d->obj);
         d->nobj = o->nafter;
         d->ndrawn = o->ndrawn_after;
+        /* the whole drawing as it was: there is no saying where a picked
+           element went, so the command lets go of what it had */
+        jw_cmd_escape();
     }
     nop++;
     step = 0;

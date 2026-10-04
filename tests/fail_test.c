@@ -814,9 +814,38 @@ static void undo_part_way(void)
     app_command(JW_CMD_UNDO);
     ck(!jw_cmd_midway() && d->ndrawn == n0 - 1, "  and the next the first");
 
+    /* 進む in the middle of a command: the step goes back at the front of
+       the drawing, every element moves along one, and the line 中心線 had
+       picked has to be the same line afterwards -- the original holds the
+       element, not its place */
+    {
+        int k, before;
+
+        jw_cmd_set(JW_CMD_TEN);
+        jw_cmd_set(JW_CMD_SEN);
+        jw_cmd_point(d, app_view(), 60.0, 0.0, 0);   /* a line to undo */
+        jw_cmd_point(d, app_view(), 60.0, 30.0, 0);
+        jw_cmd_set(JW_CMD_TEN);
+        app_command(JW_CMD_UNDO);                     /* now 進む can redo it */
+        before = d->ndrawn;
+        jw_cmd_set(JW_CMD_CHUSHIN);
+        jw_cmd_point(d, app_view(), -40.0, -25.0, 0); /* x = -40 */
+        app_command(JW_CMD_REDO);
+        jw_cmd_point(d, app_view(), -30.0, -25.0, 0); /* x = -30 */
+        jw_cmd_point(d, app_view(), -35.0, -45.0, 0);
+        jw_cmd_point(d, app_view(), -35.0, -5.0, 0);
+        k = d->ndrawn - 1;
+        ck(d->ndrawn == before + 2 && d->obj[k].cls == JW_SEN
+           && d->obj[k].d[0] > -35.01 && d->obj[k].d[0] < -34.99
+           && d->obj[k].d[2] > -35.01 && d->obj[k].d[2] < -34.99,
+           "  中心線 still uses the line it picked after a 進む in between");
+        jw_cmd_set(JW_CMD_TEN);
+    }
+
     /* ２線 and 接円 step back one at a time too */
     jw_cmd_set(JW_CMD_TEN);
     jw_cmd_set(JW_CMD_NISEN);
+    n0 = d->ndrawn + 1;                 /* (so n0 - 1 is the count now) */
     type_box(1412, "500");
     jw_cmd_point(d, app_view(), -40.0, -25.0, 0);    /* the line */
     jw_cmd_point(d, app_view(), -40.0, -40.0, 0);    /* the start */
