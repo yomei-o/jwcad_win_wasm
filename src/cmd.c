@@ -3709,6 +3709,16 @@ static void kyokusen(jw_drawing *d)
         return;                 /* サイン and ２次 go through curve_draw */
     if (cv_n < 2 || n < 1)
         return;
+    /* Both kinds make (points - 1) * 分割数 lines, and nothing bounded
+       that: a nine-digit 分割数 set this making hundreds of millions of
+       lines until memory gave out, and the product itself overflows an
+       int past two thousand million.  The サイン and ２次 path above stops
+       at 100000 lines; this one refuses outright past the same number, so
+       that what it does draw is always the whole curve.  (How the
+       original bounds it has not been found -- its own point arrays hold
+       about five hundred.) */
+    if ((double)(cv_n - 1) * n > 100000.0)
+        return;
     if (cv_mode == 1692) {      /* ベジェ */
         int pts = (cv_n - 1) * n;
 

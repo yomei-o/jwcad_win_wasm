@@ -708,6 +708,39 @@ static void rubbish_in_every_dialog(void)
     ck(!bad, "  ダイアログの箱に出鱈目を打っても図面が持てない数にならない");
 }
 
+/* 曲線's スプライン and ベジェ make (points - 1) * 分割数 lines, and a huge
+   分割数 used to be taken at its word: nine digits had it adding lines for
+   minutes until memory ran out.  It now draws the whole curve or nothing. */
+static void huge_curve(void)
+{
+    static const int MODE[2] = { 1691, 1692 };
+    int m;
+
+    for (m = 0; m < 2; m++) {
+        jw_drawing *d = fresh();
+        int n0 = d->ndrawn, k;
+
+        jw_cmd_set(JW_CMD_TEN);
+        jw_cmd_set(JW_CMD_KYOKUSEN);
+        jw_cmd_bar(d, MODE[m]);
+        type_box(1411, "999999999");
+        jw_cmd_point(d, app_view(), -50.0, 0.0, 0);
+        jw_cmd_point(d, app_view(), 0.0, 40.0, 0);
+        jw_cmd_point(d, app_view(), 50.0, 0.0, 0);
+        jw_cmd_bar(d, 1800);            /* 作図実行 */
+        ck(d->ndrawn == n0, m ? "  ベジェ with 分割数 999999999 draws nothing"
+                              : "  スプライン with 分割数 999999999 draws nothing");
+        type_box(1411, "10");
+        jw_cmd_point(d, app_view(), -50.0, 0.0, 0);
+        jw_cmd_point(d, app_view(), 0.0, 40.0, 0);
+        jw_cmd_point(d, app_view(), 50.0, 0.0, 0);
+        jw_cmd_bar(d, 1800);
+        k = d->ndrawn - n0;
+        ck(k > 0 && k <= 20, "  and the same three points with 10 still draw");
+        type_box(1411, "");
+    }
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -724,6 +757,7 @@ int main(void)
     layer_dialog();
     one_letter_commands();
     rubbish_in_every_dialog();
+    huge_curve();
     press_everything();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
