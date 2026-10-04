@@ -708,6 +708,69 @@ static void rubbish_in_every_dialog(void)
     ck(!bad, "  ダイアログの箱に出鱈目を打っても図面が持てない数にならない");
 }
 
+/* Large numbers in every box, and then every button on the bar pressed.
+ *
+ * rubbish_in_every_box() watches what the numbers come out as; this watches
+ * how long it takes.  A count typed into a box -- rings, 分割数, a number of
+ * lines -- is a loop bound, and 曲線 was found taking a nine-digit one at
+ * its word and adding lines for minutes (huge_curve below).  So every box
+ * of every bar gets a few large numbers, the drawing gets five clicks on
+ * what is already there, and every button and tick on the bar is pressed
+ * (作図実行 among them); the whole of it for one box has to be done in two
+ * seconds and add no more than 200000 elements. */
+#include <time.h>
+static void big_numbers_everywhere(void)
+{
+    static const char *BIG[] = { "99999999", "2147483647", "1000000" };
+    jw_drawing *d = fresh();
+    int bad = 0, boxes = 0, i, j, k, worst_ms = 0;
+
+    for (i = 0; i < (int)(sizeof jw_bars / sizeof jw_bars[0]); i++) {
+        const jw_bar_t *b = &jw_bars[i];
+
+        if (b->cmd >= 100000)
+            continue;
+        for (j = 0; j < b->n; j++) {
+            if (b->c[j].kind != JW_CTL_COMBO || b->c[j].id == 0xffff)
+                continue;
+            boxes++;
+            for (k = 0; k < (int)(sizeof BIG / sizeof BIG[0]); k++) {
+                int was, m, q, ms;
+                clock_t t0;
+
+                d = fresh();
+                jw_cmd_set(JW_CMD_TEN);
+                jw_cmd_set((unsigned short)b->cmd);
+                type_box(b->c[j].id, BIG[k]);
+                was = d->ndrawn;
+                t0 = clock();
+                for (m = 0; m < 5; m++) {
+                    const jw_obj *o = &d->obj[(m * 7) % (d->ndrawn ? d->ndrawn : 1)];
+
+                    jw_cmd_point(d, app_view(), o->d[0], o->d[1], m & 1);
+                }
+                for (q = 0; q < b->n; q++)
+                    if (b->c[q].kind == JW_CTL_BUTTON
+                        || b->c[q].kind == JW_CTL_CHECK)
+                        jw_cmd_bar(d, b->c[q].id);
+                app_key(27);
+                ms = (int)((clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
+                if (ms > worst_ms)
+                    worst_ms = ms;
+                if (ms > 2000 || d->ndrawn - was > 200000) {
+                    printf("     バー %u の箱 %u に「%s」: %d ms, %d 要素増\n",
+                           b->cmd, b->c[j].id, BIG[k], ms, d->ndrawn - was);
+                    bad++;
+                }
+                type_box(b->c[j].id, "");
+            }
+        }
+    }
+    printf("     （数値箱 %d 個 × %d 通り、いちばん遅くて %d ms）\n", boxes,
+           (int)(sizeof BIG / sizeof BIG[0]), worst_ms);
+    ck(!bad, "  どの箱に大きな数を入れて釦を全部押しても、二秒以内で終わる");
+}
+
 /* 曲線's スプライン and ベジェ make (points - 1) * 分割数 lines, and a huge
    分割数 used to be taken at its word: nine digits had it adding lines for
    minutes until memory ran out.  It now draws the whole curve or nothing. */
@@ -758,6 +821,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    big_numbers_everywhere();
     press_everything();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
