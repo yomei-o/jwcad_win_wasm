@@ -175,12 +175,15 @@ static void press_aimed(void)
  * next (src/app.c, draw_drawing) has to be the picture a fresh paint makes.
  * After each action the window is painted once with it and once without,
  * and the two have to agree pixel for pixel.  Returns 0 on a difference. */
+static clock_t compare_time;     /* spent in here: not the walk's own */
+
 static int cache_agrees(void)
 {
     const fb_t *f;
     unsigned int *a;
     size_t n;
     int same;
+    clock_t c0 = clock();
 
     app_paint();
     f = app_fb();
@@ -196,6 +199,7 @@ static int cache_agrees(void)
     app_paint_cache(1);
     f = app_fb();
     same = !memcmp(a, f->px, n * sizeof *a);
+    compare_time += clock() - c0;
     free(a);
     return same;
 }
@@ -551,6 +555,7 @@ int main(int argc, char **argv)
                     bad++;
         }
         t0 = clock();
+        compare_time = 0;
 
         for (k = 0; k < steps; k++) {
             unsigned long r = nextr() % 100;
@@ -602,6 +607,21 @@ int main(int argc, char **argv)
                                before.obj[at].d[3], dr->obj[at].cls,
                                dr->obj[at].d[0], dr->obj[at].d[1],
                                dr->obj[at].d[2], dr->obj[at].d[3]);
+                    stepbad++;
+                    bad++;
+                }
+                jw_cmd_redo((jw_drawing *)app_drawing());
+                /* and back once more: 進む may have put the step's elements
+                   somewhere else (a step that only added goes back at the
+                   front), and the 戻る after it still has to take back
+                   exactly that step -- it used to take the last drawn
+                   elements, someone else's (tests/redo_test.c) */
+                jw_cmd_undo((jw_drawing *)app_drawing());
+                at = snap_differs(&before, app_drawing());
+                if (at >= 0 && stepbad < 5) {
+                    printf("BAD  %s: step %d (command %d) -- the 戻る after"
+                           " a 進む does not give the drawing back (first"
+                           " difference at %d)\n", argv[i], k, jw_cmd(), at);
                     stepbad++;
                     bad++;
                 }
@@ -739,7 +759,8 @@ int main(int argc, char **argv)
                that falls over */
             /* the multiply first would overflow: a long run gets past two
                million ticks, and that times 1000 does not fit an int */
-            long ms = (long)((clock() - t0) / (double)CLOCKS_PER_SEC * 1000.0);
+            long ms = (long)((clock() - t0 - compare_time)
+                             / (double)CLOCKS_PER_SEC * 1000.0);
             if (ms > 60000)
                 printf("BAD  %s: %ld ms for %d steps\n", argv[i], ms, steps);
         }

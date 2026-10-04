@@ -1877,9 +1877,20 @@ void jw_cmd_redo(jw_drawing *d)
         for (i = 0; i < o->nback; i++)
             if (!jw_add(d, o->back[i].cls))
                 return;
+        /* Only the drawn elements turn round.  jw_add puts each new one at
+           the end of the drawn ones, ahead of the block definitions, so the
+           definitions stay where they are.  This used to move the whole
+           array along -- definitions too -- which pushed the last of them
+           off the end and left the new slots' blanks among the drawn
+           elements: a point at the origin came back as a block reference
+           (tests/cmdfuzz_test.c, seed 7 at 3000 steps). */
         memmove(&d->obj[o->nback], &d->obj[0],
-                (size_t)(d->nobj - o->nback) * sizeof *d->obj);
+                (size_t)(d->ndrawn - o->nback) * sizeof *d->obj);
         memcpy(d->obj, o->back, (size_t)o->nback * sizeof *d->obj);
+        /* and they are at the front now, which is where the next 戻る of
+           this step has to take them from -- it took the last drawn ones,
+           which after this are somebody else's */
+        o->add_at = 1;
     } else {
         /* Anything else -- a step that moved or erased things rather
            than adding them -- has not been asked of the original, so

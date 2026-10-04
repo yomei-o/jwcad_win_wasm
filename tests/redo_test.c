@@ -159,6 +159,82 @@ static void run(const char *path, int undo, int fresh, int redo,
     jw_free(&ref);
 }
 
+/* 戻る after 進む.  None of the original's runs above presses 戻る again
+ * once a step has been put back, and the port got it wrong twice over:
+ *
+ *   - 進む puts a step that only added elements back **at the front**
+ *     (the 1, 2, 3 -> 3, 1, 2 above), but the 戻る after it still took the
+ *     last drawn elements -- line 2 instead of line 3;
+ *   - and with block definitions in the drawing (they sit after the drawn
+ *     elements) 進む moved the definitions along too, pushing the last off
+ *     the end (tests/cmdfuzz_test.c, seed 7 at 3000 steps).
+ *
+ * Not measured against the original, which is not asked here: what is held
+ * is only that 戻る takes back the step it says it does, whatever order
+ * 進む left things in. */
+static void after_redo(void)
+{
+    jw_drawing *d;
+    int i, n0;
+
+    printf("-- 進む のあとの 戻る\n");
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        jw_cmd_bar(d, 1333);
+    for (i = 0; i < 3; i++) {
+        jw_cmd_point(d, app_view(), -50.0, 10.0 * i, 0);
+        jw_cmd_point(d, app_view(), 50.0, 10.0 * i + 5.0, 0);
+    }
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_undo(d);
+    jw_cmd_redo(d);
+    ck(d->ndrawn == 3 && d->obj[0].d[1] == 20.0,
+       "  線 1, 2, 3 から 戻る・進む で 3 が先頭に来る（原典どおり）");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == 2 && d->obj[0].d[1] == 0.0 && d->obj[1].d[1] == 10.0,
+       "  もう一度 戻る で消えるのは 3（2 ではない）");
+    jw_cmd_redo(d);
+    ck(d->ndrawn == 3 && d->obj[0].d[1] == 20.0,
+       "  そしてもう一度 進む で 3 が先頭に戻る");
+
+    /* the same with a block definition behind the drawn elements */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    {
+        jw_obj *def = jw_add_def(d, JW_LIST);
+        jw_obj *ref;
+
+        if (def) {
+            def->d[0] = 0.0;
+            def->text = jw_add_str(d, "blk");
+        }
+        ref = jw_add(d, JW_BLOCK);
+        if (ref) {
+            ref->d[0] = 0.0;
+            ref->d[1] = 0.0;
+        }
+    }
+    n0 = d->nobj;
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_point(d, app_view(), 30.0, 30.0, 0);
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_undo(d);
+    jw_cmd_redo(d);
+    ck(d->nobj == n0 + 1 && d->ndrawn == 2
+       && d->obj[d->nobj - 1].cls == JW_LIST,
+       "  ブロック定義があっても 進む は定義を動かさない");
+    ck(d->obj[0].cls == JW_TEN && d->obj[1].cls == JW_BLOCK,
+       "  点は先頭、ブロックの参照はそのまま");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == 1 && d->obj[0].cls == JW_BLOCK
+       && d->obj[d->nobj - 1].cls == JW_LIST,
+       "  戻る で消えるのは点で、参照と定義は残る");
+}
+
 int main(void)
 {
     run("decomp/res/redo_n0.jww", 0, 0, 0, "-- 戻らない");
@@ -172,6 +248,7 @@ int main(void)
     run("decomp/res/redo_u1r1.jww", 1, 0, 1, "-- 戻る 1 回、進む 1 回");
     run("decomp/res/redo_u3r1.jww", 3, 0, 1, "-- 戻る 3 回、進む 1 回");
     run("decomp/res/redo_none.jww", 0, 0, 1, "-- 戻らずに 進む");
+    after_redo();
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
