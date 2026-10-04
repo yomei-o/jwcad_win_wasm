@@ -228,6 +228,76 @@ static double py_(const Pdf *p, double y)
  * line ends with a stroke of no length at its far end, which the `1 J`
  * round cap paints as a dot of the pen's width.  Each of the seven
  * rows the original printed carries exactly one of those. */
+/* Where [0, len] of the segment from (x0,y0) along (dx,dy) is on the page,
+ * give or take `m` millimetres: Liang-Barsky against the sheet, which runs
+ * from -hw to hw and -hh to hh.  0 if none of it is. */
+static int on_page(const Pdf *p, double x0, double y0, double dx, double dy,
+                   double len, double m, double *t0, double *t1)
+{
+    double lo = 0.0, hi = len;
+    double P[4], Q[4];
+    int i;
+
+    P[0] = -dx; Q[0] = x0 - (-p->hw - m);
+    P[1] = dx;  Q[1] = (p->hw + m) - x0;
+    P[2] = -dy; Q[2] = y0 - (-p->hh - m);
+    P[3] = dy;  Q[3] = (p->hh + m) - y0;
+    for (i = 0; i < 4; i++) {
+        if (P[i] == 0.0) {
+            if (Q[i] < 0.0)
+                return 0;
+        } else {
+            double t = Q[i] / P[i];
+
+            if (P[i] < 0.0) {
+                if (t > lo)
+                    lo = t;
+            } else if (t < hi) {
+                hi = t;
+            }
+        }
+    }
+    if (lo >= hi)
+        return 0;
+    *t0 = lo;
+    *t1 = hi;
+    return 1;
+}
+
+/* Move the pattern on by `dist` without drawing any of it.  `left` is what
+ * is left of entry k, and `on` whether k is a dash.  Whole cycles are taken
+ * off by arithmetic -- a cycle is the pattern once, or twice when it has an
+ * odd number of entries, since only then are dash and gap back where they
+ * were -- so the length of what is skipped costs nothing. */
+static void dash_skip(const double *pat, int np, double dist,
+                      int *k, double *left, int *on)
+{
+    double cycle = 0.0;
+    int i;
+
+    if (dist < *left) {
+        *left -= dist;
+        return;
+    }
+    dist -= *left;
+    *k = (*k + 1) % np;
+    *on = !*on;
+    *left = pat[*k];
+    for (i = 0; i < np; i++)
+        cycle += pat[i];
+    if (np % 2)
+        cycle *= 2.0;
+    if (cycle > 0.0 && dist > cycle)
+        dist = fmod(dist, cycle);
+    while (dist >= *left && *left > 0.0) {
+        dist -= *left;
+        *k = (*k + 1) % np;
+        *on = !*on;
+        *left = pat[*k];
+    }
+    *left -= dist;
+}
+
 static void stroke_run(Pdf *p, const double *mx, const double *my,
                        int n, int type)
 {
@@ -247,15 +317,36 @@ static void stroke_run(Pdf *p, const double *mx, const double *my,
     for (i = 0; i + 1 < n; i++) {
         double x0 = mx[i], y0 = my[i];
         double dx = mx[i + 1] - x0, dy = my[i + 1] - y0;
-        double len = sqrt(dx * dx + dy * dy);
+        double len = sqrt(dx * dx + dy * dy), t0, t1;
 
         if (len < 1e-12)
             continue;
         dx /= len;
         dy /= len;
-        at = 0.0;
-        while (at < len) {
-            double step = len - at < left ? len - at : left;
+        /* Only the part on the sheet is walked dash by dash; the rest just
+           moves the pattern on.  A dashed line a thousand kilometres long
+           -- the drawing may hold coordinates up to 1e12 -- used to be
+           written out a dash at a time, and the PDF never finished.  The
+           10 mm to spare keeps the cut ends, and the pen's round caps,
+           off the paper. */
+        if (!on_page(p, x0, y0, dx, dy, len, 10.0, &t0, &t1)) {
+            if (open) {
+                buf_put(p->b, " S\n", -1);
+                open = 0;
+            }
+            dash_skip(pat, np, len, &k, &left, &on);
+            continue;
+        }
+        if (t0 > 0.0) {
+            if (open) {
+                buf_put(p->b, " S\n", -1);
+                open = 0;
+            }
+            dash_skip(pat, np, t0, &k, &left, &on);
+        }
+        at = t0;
+        while (at < t1) {
+            double step = t1 - at < left ? t1 - at : left;
 
             if (on) {
                 if (!open) {
@@ -278,6 +369,13 @@ static void stroke_run(Pdf *p, const double *mx, const double *my,
                 left = pat[k];
                 on = !on;
             }
+        }
+        if (t1 < len) {
+            if (open) {
+                buf_put(p->b, " S\n", -1);
+                open = 0;
+            }
+            dash_skip(pat, np, len - t1, &k, &left, &on);
         }
     }
     if (open)

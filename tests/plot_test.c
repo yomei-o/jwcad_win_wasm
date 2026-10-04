@@ -453,6 +453,37 @@ int main(int argc, char **argv)
         }
         free(png);
     }
+
+    /* A dashed line far longer than the sheet.  The drawing may hold
+       coordinates up to 1e12, and the PDF used to be written a dash at a
+       time along the whole of it -- a 1e9 mm line had not finished after
+       two minutes.  Only the part on the sheet is walked now; the rest
+       moves the pattern on by arithmetic, so the dashes that are on the
+       sheet are the same ones as before (checked stroke for stroke against
+       the old writer while this was made). */
+    {
+        jw_drawing *dd;
+        jw_obj *o;
+        unsigned char *pdf;
+        long plen = 0;
+        int lt;
+
+        app_new();
+        dd = (jw_drawing *)app_drawing();
+        for (lt = 2; lt <= 9; lt++) {
+            o = jw_add(dd, JW_SEN);
+            o->ltype = (unsigned char)lt;
+            o->color = 2;
+            o->d[0] = -1e9;
+            o->d[1] = lt * 5.0;
+            o->d[2] = 1e9;
+            o->d[3] = lt * 5.0;
+        }
+        pdf = jw_plot_pdf(dd, 0, &plen);
+        ck(pdf != 0 && plen > 0 && plen < 2000000,
+           "線種のついた 1e9 mm の線八本も、PDF はすぐ書ける（用紙の上の破線だけ）");
+        free(pdf);
+    }
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
