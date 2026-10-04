@@ -52,6 +52,51 @@ static const int KEYS[] = {
 
 static long written;
 
+/* 図面の指紋 ―― どの要素があるかだけを、並びを問わずに持つ。
+ *
+ * 進む は並びを変える。要素を足しただけの一歩は **前に** 戻る
+ * （`src/cmd.c` の op_redo に原典の答えが書いてある：1、2、3 と引いて
+ * 戻る×1・進む×1 で 3, 1, 2）ので、並べたまま比べても意味がない。
+ * そこで並べ替えてから比べる。 */
+typedef struct { double k[12]; } fp_t;
+
+static int fp_cmp(const void *a, const void *b)
+{
+    const fp_t *x = (const fp_t *)a, *y = (const fp_t *)b;
+    int i;
+
+    for (i = 0; i < 12; i++) {
+        if (x->k[i] < y->k[i])
+            return -1;
+        if (x->k[i] > y->k[i])
+            return 1;
+    }
+    return 0;
+}
+
+static fp_t *fingerprint(const jw_drawing *d, int *n)
+{
+    fp_t *f;
+    int i, j;
+
+    *n = d ? d->nobj : 0;
+    if (*n <= 0)
+        return 0;
+    f = (fp_t *)malloc((size_t)*n * sizeof *f);
+    if (!f)
+        return 0;
+    for (i = 0; i < *n; i++) {
+        for (j = 0; j < 8; j++)
+            f[i].k[j] = d->obj[i].d[j];
+        f[i].k[8] = d->obj[i].cls;
+        f[i].k[9] = d->obj[i].color;
+        f[i].k[10] = d->obj[i].ltype;
+        f[i].k[11] = d->obj[i].layer;
+    }
+    qsort(f, (size_t)*n, sizeof *f, fp_cmp);
+    return f;
+}
+
 static void write_every_way(const jw_drawing *d)
 {
     unsigned char *o;
@@ -454,9 +499,19 @@ int main(int argc, char **argv)
            elements to 0 after undoing 0 -- which says nothing at all about
            undo.  That count is gone again. */
         {
-            long undos = 0;
+            long undos = 0, redos = 0;
             const jw_drawing *dr = app_drawing();
+            fp_t *was = 0, *now = 0;
+            int nwas = 0, nnow = 0;
 
+            /* まず 進む を尽かす。歩きの途中で 戻る が押されていれば
+               進む の山が残っていて、そのまま測ると「戻す前」が
+               一番先まで進んだ姿にならない。 */
+            while (jw_cmd_can_redo() && redos < 500000)
+                jw_cmd_redo((jw_drawing *)app_drawing()), redos++;
+            redos = 0;
+            dr = app_drawing();
+            was = fingerprint(dr, &nwas);
             while (jw_cmd_can_undo() && undos < 500000) {
                 jw_cmd_undo((jw_drawing *)app_drawing());
                 undos++;
@@ -475,6 +530,55 @@ int main(int argc, char **argv)
                 write_every_way(dr);
                 undone += undos;
             }
+            /* そして全部やり直す。進む の山も尽きなければならず、
+               尽きたところで図面は **戻る前と同じ要素を持っていなければ
+               ならない**。並びは問わない（fingerprint の注釈）。 */
+            while (jw_cmd_can_redo() && redos < 500000) {
+                jw_cmd_redo((jw_drawing *)app_drawing());
+                redos++;
+            }
+            if (jw_cmd_can_redo()) {
+                printf("BAD  %s: the redo stack would not run out"
+                       " (%ld redone)\n", argv[i], redos);
+                bad++;
+            }
+            dr = app_drawing();
+            if (dr && !jw_numbers_sane(dr)) {
+                printf("BAD  %s: a number no drawing could hold after"
+                       " redoing everything\n", argv[i]);
+                bad++;
+            } else {
+                now = fingerprint(dr, &nnow);
+                if (nnow != nwas) {
+                    printf("BAD  %s: %d elements before undoing them all,"
+                           " %d after redoing them all"
+                           " (%ld undone, %ld redone)\n",
+                           argv[i], nwas, nnow, undos, redos);
+                    bad++;
+                } else if (nwas > 0 && was && now
+                           && memcmp(was, now, (size_t)nwas * sizeof *was)) {
+                    int q, shown = 0;
+
+                    printf("BAD  %s: the %d elements came back changed"
+                           " (%ld undone, %ld redone)\n",
+                           argv[i], nwas, undos, redos);
+                    for (q = 0; q < nwas && shown < 2; q++)
+                        if (fp_cmp(&was[q], &now[q])) {
+                            printf("       [%d] was %.6g %.6g %.6g %.6g"
+                                   " cls %g, now %.6g %.6g %.6g %.6g cls %g\n",
+                                   q, was[q].k[0], was[q].k[1], was[q].k[2],
+                                   was[q].k[3], was[q].k[8],
+                                   now[q].k[0], now[q].k[1], now[q].k[2],
+                                   now[q].k[3], now[q].k[8]);
+                            shown++;
+                        }
+                    bad++;
+                }
+                if (dr)
+                    write_every_way(dr);
+            }
+            free(was);
+            free(now);
         }
         {   /* a command that never comes back is as much a fault as one
                that falls over */
@@ -488,7 +592,8 @@ int main(int argc, char **argv)
     printf("%d drawings, %ld commands, clicks and keys with nothing falling"
            " over, and what was left written out %ld times\n",
            files, acts, written);
-    printf("%ld steps undone afterwards, the stack running out every time"
-           " and what was left still writable\n", undone);
+    printf("%ld steps undone afterwards, the stack running out every time,"
+           " what was left still writable, and redoing them all bringing"
+           " back the same elements\n", undone);
     return bad ? 1 : 0;
 }

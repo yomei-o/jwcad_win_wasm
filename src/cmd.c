@@ -1721,10 +1721,14 @@ void jw_cmd_reset(void)
     step = 0;
     cut_step = 0;
     tracking = 0;
-    while (nop > 0) {
-        free(op[--nop].item);
-        op[nop].item = 0;
-    }
+    /* All of it, the 進む side as well.  This used to free only the
+       steps below nop, and only their item lists: ntop stayed where it
+       was and nitem kept its count, so 新規 then 進む brought a freed
+       step back to life and the 戻る after it read a NULL item list
+       (tests/cmdfuzz_test.c's undo-and-redo sweep, seed 2). */
+    nop = 0;
+    while (ntop > 0)
+        op_drop(&op[--ntop]);
     sel_step = 0;
     sel_free();
 }

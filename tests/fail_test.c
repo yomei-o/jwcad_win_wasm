@@ -341,6 +341,32 @@ static void undo_past_the_start(void)
         jw_cmd_undo(d);
     ck(d->ndrawn == n0, "  undo takes them all back and then stops");
     ck(!jw_cmd_can_undo(), "  and says there is nothing left to undo");
+
+    /* 新規 (or opening another drawing) throws away the 進む side too.
+       It used to keep it: two steps undone, a new drawing, and 進む put
+       the old drawing's lines into the new one -- and a step that had
+       erased something came back with its record freed, so the 戻る
+       after it fell over (tests/cmdfuzz_test.c, seed 2). */
+    d = fresh();
+    n0 = d->ndrawn;
+    for (k = 0; k < 3; k++) {
+        jw_cmd_point(d, app_view(), -40.0 + k * 10.0, -40.0, 0);
+        jw_cmd_point(d, app_view(), -40.0 + k * 10.0, -10.0, 0);
+    }
+    jw_cmd_set(JW_CMD_SHOUKYO);
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 1);   /* (R) erases one */
+    jw_cmd_undo(d);
+    jw_cmd_undo(d);
+    ck(jw_cmd_can_redo(), "  two steps undone can be redone");
+    d = fresh();
+    n0 = d->ndrawn;
+    ck(!jw_cmd_can_redo() && !jw_cmd_can_undo(),
+       "  but not once another drawing is opened");
+    for (k = 0; k < 4; k++)
+        jw_cmd_redo(d);
+    for (k = 0; k < 4; k++)
+        jw_cmd_undo(d);
+    ck(d->ndrawn == n0, "  and 進む and 戻る there leave the new one alone");
 }
 
 /* pressing the bar's buttons when the command is not ready for them */
