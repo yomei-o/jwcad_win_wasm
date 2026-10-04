@@ -73,6 +73,35 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
        without this the two loops below run for the rest of the day. */
     if (nx > fb->w + fb->h) nx = fb->w + fb->h;
     if (ny > fb->w + fb->h) ny = fb->w + fb->h;
+    /* And a cell that lies wholly off the window is not sampled at all.
+       Every sample is inside the parallelogram the cell's four corners make,
+       so if their screen box -- a pixel wider all round, for the rounding --
+       misses the clip, so does every sample.  Without this, zooming in made
+       each character of the drawing cost up to (w + h)^2 samples whether it
+       was on the window or not: Test7 at 256 times took ten seconds a paint,
+       and 0.045 with its texts taken out. */
+    {
+        double cx[4], cy[4];
+        int c, x0, x1, y0, y1;
+
+        cx[0] = ox;                      cy[0] = oy;
+        cx[1] = ox + ux * cw;            cy[1] = oy + uy * cw;
+        cx[2] = ox + vx * ch;            cy[2] = oy + vy * ch;
+        cx[3] = ox + ux * cw + vx * ch;  cy[3] = oy + uy * cw + vy * ch;
+        x0 = x1 = jw_sx(v, cx[0]);
+        y0 = y1 = jw_sy(v, cy[0]);
+        for (c = 1; c < 4; c++) {
+            int sx = jw_sx(v, cx[c]), sy = jw_sy(v, cy[c]);
+
+            if (sx < x0) x0 = sx;
+            if (sx > x1) x1 = sx;
+            if (sy < y0) y0 = sy;
+            if (sy > y1) y1 = sy;
+        }
+        if (x1 + 2 < v->clip.x || x0 - 2 >= v->clip.x + v->clip.w
+            || y1 + 2 < v->clip.y || y0 - 2 >= v->clip.y + v->clip.h)
+            return;
+    }
     for (j = 0; j < ny; j++) {
         gy = f->height - 1 - j * f->height / ny;
         for (i = 0; i < nx; i++) {

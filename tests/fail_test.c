@@ -771,6 +771,39 @@ static void big_numbers_everywhere(void)
     ck(!bad, "  どの箱に大きな数を入れて釦を全部押しても、二秒以内で終わる");
 }
 
+/* Zooming in on a drawing with text in it.  Every character used to be
+   sampled up to (w + h)^2 times whether it was on the window or not, so a
+   repaint of Test7 at 256 times took ten seconds (src/text.c, glyph).
+   With the cells off the window skipped it is a tenth of a second; two
+   seconds here leaves room for a slow machine. */
+static void zoomed_in_paint(void)
+{
+    unsigned char *b;
+    long n;
+    int k, worst = 0;
+
+    b = slurp("orig/Test7.jww", &n);
+    if (!b || !app_open(b, n)) {
+        free(b);
+        ck(0, "  orig/Test7.jww opens");
+        return;
+    }
+    free(b);
+    app_fit();
+    for (k = 0; k < 12; k++) {
+        clock_t t0 = clock();
+        int ms;
+
+        app_paint();
+        ms = (int)((clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
+        if (ms > worst)
+            worst = ms;
+        app_zoom(2.0, 500 + k * 20, 300 + k * 10);
+    }
+    printf("     （4096 倍まで、いちばん遅い描き直しで %d ms）\n", worst);
+    ck(worst < 2000, "  文字のある図面を拡大しても、描き直しは二秒以内");
+}
+
 /* 曲線's スプライン and ベジェ make (points - 1) * 分割数 lines, and a huge
    分割数 used to be taken at its word: nine digits had it adding lines for
    minutes until memory ran out.  It now draws the whole curve or nothing. */
@@ -821,6 +854,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    zoomed_in_paint();
     big_numbers_everywhere();
     press_everything();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
