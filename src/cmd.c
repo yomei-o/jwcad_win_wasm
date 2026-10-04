@@ -3169,20 +3169,53 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
  *
  * (The original wrote that pair the other way round, end first; which way it
  * picks is not worked out, and it makes no difference to the line.) */
+/*
+ * The 分割数 need not be a whole number, and the decompilation says what
+ * the original makes of one that is not.  FUN_007668f0 reads the box: a
+ * number of 1.01 or less is raised to 1.01 (and written back into the box),
+ * and more than 10000 is refused with 5613 「分割数が多すぎます。」.  The
+ * line-to-line case, FUN_0075d660, then steps (end - start) / n at a time
+ * and draws (int)n - 1 lines -- one more when n has a fractional part
+ * (FUN_007674b0: `if (1e-07 < frac) count++`), each step weighted 1
+ * (FUN_007697b0 with a zero slope).  So 2.5 gives two lines, at 0.4 and 0.8
+ * of the way, the last gap the short one; and 4 gives the three at the
+ * quarters it always did.
+ *
+ * A negative 分割数 is 逆分割 (it sets +0x7e98), whose gaps grow or shrink
+ * along the way; that is not done here, and nor is an empty box, which
+ * FUN_0058cc80 may read as 0 and so as 1.01 -- that has not been asked.
+ * (This used to take the box through atoi and refuse anything outside
+ * 2..1000, so 2.5 drew one line at the half and 5000 drew nothing.)
+ */
 static void bunkatsu(jw_drawing *d, int a, int b)
 {
     const jw_obj *p = &d->obj[a], *q = &d->obj[b];
     const char *ns = jw_cmd_box(1411);
-    int n = ns ? atoi(ns) : 0, k, made = 0;
+    double n = box_num(ns, 0.0);
+    int k, count, made = 0;
     double ax0, ay0, ax1, ay1, bx0, by0, bx1, by1;
 
     if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
         return;
-    if (n < 2 || n > 1000)
+    if (!ns || !*ns || n <= 0.0)
         return;
+    if (n <= 1.01) {
+        char t[16];
+
+        n = 1.01;
+        snprintf(t, sizeof t, "%.2f", n);
+        box_put(1411, t);
+    }
+    if (n > 10000.0) {
+        box_put(1411, "10000");
+        return;
+    }
+    count = (int)n - 1;
+    if (n - (int)n > 1e-07)
+        count++;
     ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
     bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
-    for (k = 1; k < n; k++) {
+    for (k = 1; k <= count; k++) {
         double t = (double)k / n;
         jw_obj *o = jw_add(d, JW_SEN);
         if (!o)

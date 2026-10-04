@@ -156,6 +156,69 @@ int main(int argc, char **argv)
     jw_cmd_undo(d);
     ck(d->ndrawn == before, "元に戻る takes both back");
 
+    /* A 分割数 that is not a whole number, and ones out of range.  These are
+       read out of the decompilation (FUN_007668f0, FUN_0075d660 and
+       FUN_007674b0, the note on bunkatsu() in src/cmd.c), not measured: a
+       step of (end - start) / n, (int)n - 1 lines and one more for a
+       fractional part, 1.01 at the least and 10000 at the most. */
+    {
+        static const struct {
+            const char *n;
+            int lines;
+            double first, last;     /* how far along, 0..1 */
+            const char *after;      /* what the box holds afterwards */
+            const char *what;
+        } F[] = {
+            { "2.5", 2, 0.4, 0.8, "2.5",
+              "2.5 leaves two lines, at 0.4 and 0.8 of the way" },
+            { "1.5", 1, 1 / 1.5, 1 / 1.5, "1.5",
+              "1.5 leaves one, two thirds of the way" },
+            { "1", 1, 1 / 1.01, 1 / 1.01, "1.01",
+              "1 is taken as 1.01, and the box says so" },
+            { "10001", 0, 0, 0, "10000",
+              "more than 10000 is refused, and the box is set to 10000" },
+            { "5000", 4999, 1 / 5000.0, 4999 / 5000.0, "5000",
+              "5000 is not too many (the port refused anything past 1000)" },
+        };
+        double a1x = (r[0]->d[0] + r[0]->d[2]) / 2;
+        double a1y = (r[0]->d[1] + r[0]->d[3]) / 2;
+        double b1x = (r[1]->d[0] + r[1]->d[2]) / 2;
+        double b1y = (r[1]->d[1] + r[1]->d[3]) / 2;
+        const jw_obj *p0 = &d->obj[before - 2], *q0 = &d->obj[before - 1];
+        unsigned f;
+
+        for (f = 0; f < sizeof F / sizeof F[0]; f++) {
+            int was = d->ndrawn, good;
+
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            type_box(1411, F[f].n);
+            jw_cmd_point(d, app_view(), a1x, a1y, 0);
+            jw_cmd_point(d, app_view(), b1x, b1y, 0);
+            p0 = &d->obj[before - 2];
+            q0 = &d->obj[before - 1];
+            good = d->ndrawn - was == F[f].lines;
+            if (good && F[f].lines > 0) {
+                const jw_obj *a = &d->obj[was], *z = &d->obj[d->ndrawn - 1];
+                double ex = p0->d[0] + (q0->d[0] - p0->d[0]) * F[f].first;
+                double ey = p0->d[1] + (q0->d[1] - p0->d[1]) * F[f].first;
+                double zx = p0->d[0] + (q0->d[0] - p0->d[0]) * F[f].last;
+                double zy = p0->d[1] + (q0->d[1] - p0->d[1]) * F[f].last;
+
+                good = near(a->d[0], ex) && near(a->d[1], ey)
+                       && near(z->d[0], zx) && near(z->d[1], zy);
+            }
+            good = good && jw_cmd_box(1411)
+                   && !strcmp(jw_cmd_box(1411), F[f].after);
+            if (!good)
+                printf("     %s: %d lines, box \"%s\"\n", F[f].n,
+                       d->ndrawn - was,
+                       jw_cmd_box(1411) ? jw_cmd_box(1411) : "(none)");
+            ck(good, F[f].what);
+            while (d->ndrawn > was && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+        }
+    }
+
     jw_free(&ref);
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
