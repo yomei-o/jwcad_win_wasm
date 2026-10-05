@@ -685,6 +685,13 @@ int app_sunpodlg_open(void)
     return sd_open;
 }
 
+/* 寸法設定's boxes: which one has the caret, and what has been typed
+   into it.  The value itself lives in the command (jw_cmd_sunpo_box);
+   this is only the line being edited, and it goes back on Enter or when
+   the caret moves away. */
+static int sd_caret;
+static char sd_edit[32];
+
 static void sd_start(void)
 {
     int i, n = ui_sunpodlg_n();
@@ -692,18 +699,73 @@ static void sd_start(void)
     for (i = 0; i < n && i < (int)sizeof sd_on; i++)
         sd_on[i] = (unsigned char)ui_sunpodlg_on(i);
     sd_open = 1;
+    sd_caret = 0;                       /* nothing is being typed yet */
+    sd_edit[0] = 0;
+}
+
+static void sd_commit(void)
+{
+    if (sd_caret) {
+        jw_cmd_sunpo_box_set(sd_caret, sd_edit);
+        sd_caret = 0;
+        sd_edit[0] = 0;
+    }
+}
+
+/* a digit, a dot, a minus or a backspace into the box with the caret */
+static int sd_key(int c)
+{
+    size_t n;
+
+    if (!sd_caret)
+        return 0;
+    if (c == 13) {                      /* Enter: take it */
+        sd_commit();
+        return 1;
+    }
+    n = strlen(sd_edit);
+    if (c == 8) {
+        if (n)
+            sd_edit[n - 1] = 0;
+        return 1;
+    }
+    if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+        if (n + 1 < sizeof sd_edit) {
+            sd_edit[n] = (char)c;
+            sd_edit[n + 1] = 0;
+        }
+        return 1;
+    }
+    return 0;
 }
 
 static int press_sunpodlg(int x, int y)
 {
     int id = ui_sunpodlg_hit(fb.w, fb.h, x, y), i, n = ui_sunpodlg_n();
+    char t[32];
 
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
-    if (id == 1 || id == 2) {           /* neither does anything yet */
+    if (id == 1) {                      /* OK: what was typed is taken */
+        sd_commit();
         sd_open = 0;
         return 1;
     }
+    if (id == 2) {                      /* 見出しの ×: typing is dropped */
+        sd_caret = 0;
+        sd_edit[0] = 0;
+        sd_open = 0;
+        return 1;
+    }
+    /* a box that is wired up takes the caret, and what was in the one
+       before it is taken */
+    if (jw_cmd_sunpo_box(id, t, (int)sizeof t)) {
+        sd_commit();
+        sd_caret = id;
+        sd_edit[0] = 0;
+        return 1;
+    }
+    sd_commit();
     for (i = 0; i < n && i < (int)sizeof sd_on; i++)
         if (ui_sunpodlg_id(i) == id)
             sd_on[i] = (unsigned char)!sd_on[i];
@@ -1736,6 +1798,8 @@ static void dialog_close(void)
 {
     zoku_open = moji_open = zsel_open = jk_open = 0;
     sd_open = br_open = kh_open = zhen_open = sk_open = ld_open = 0;
+    sd_caret = 0;
+    sd_edit[0] = 0;
 }
 
 int app_key(int c)
@@ -1761,6 +1825,10 @@ int app_key(int c)
         return 1;
     }
     if (mk_open && mk_caret && mk_key(c)) {
+        app_paint();
+        return 1;
+    }
+    if (sd_open && sd_caret && sd_key(c)) {
         app_paint();
         return 1;
     }
@@ -2327,7 +2395,7 @@ void app_paint(void)
     if (jk_open)
         ui_jikkaku(&fb, jk_angle, jk_on, 1);
     if (sd_open)
-        ui_sunpodlg(&fb, sd_on);
+        ui_sunpodlg(&fb, sd_on, sd_caret, sd_edit);
     if (br_open)
         ui_bairitsu(&fb, br_zoom, br_on);
     if (mk_open)

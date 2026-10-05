@@ -413,8 +413,97 @@ static int box_focus;
  * -- (places << 12) | 0x43. */
 static int sun_keta = -1;
 
+/* ------------------------------------------- 寸法設定 (32925) --------
+ *
+ * 寸法の形は `src/gen/sunpo.h` に原典の設定から読んだ数として入って
+ * いますが、それは**窓から変えられる**ものでした。一つずつ変えて同じ
+ * 寸法を引かせ、出てきた要素の差で確かめてあります
+ * （`tools/probe147.sh`、【設定値は図寸(mm)単位】）:
+ *
+ *   1488 文字種類    値の文字が その文字種の 幅・高さ・間隔・色 になる
+ *   1489 寸法線色    寸法線の色
+ *   2083 引出線色    引出線二本の色
+ *   1473 矢印・点色  両端の点（矢印）の色
+ *   1475 寸法線と文字の間隔
+ *   1477 矢印の長さ  1481 矢印の角度
+ *   1479 引出線の突出寸法
+ *
+ * （`tools/whatdid.py` の `pen` と `type` は名前が入れ替わっています ——
+ * 読んでいる +0x28 が線種で +0x2a が色です。`src/jww.h` の注が正しい。）
+ */
+static int    sun_mojino  = JW_SUN_MOJINO;
+static double sun_hanare  = JW_SUN_HANARE;
+static double sun_yalen   = JW_SUN_ARROW_LEN;
+static double sun_yaang   = JW_SUN_ARROW_ANG;
+static double sun_tsuki   = JW_SUN_TSUKIDASHI;
+static int    sun_sencol  = JW_SUN_SEN_COLOR;
+static int    sun_hikicol = JW_SUN_HIKI_COLOR;
+static int    sun_tencol  = JW_SUN_TEN_COLOR;
+
 /* how many places the value is written to, for whoever draws the button */
 int jw_cmd_sunpo_decimals(void);
+
+/* The 寸法設定 dialog's boxes, by the id each one carries.  `out` gets
+   what the box should show; jw_cmd_sunpo_box_set takes what was typed.
+   Anything else is left alone, so the boxes that are not done yet keep
+   drawing empty. */
+int jw_cmd_sunpo_box(int id, char *out, int n)
+{
+    switch (id) {
+    case 1488: snprintf(out, (size_t)n, "%d", sun_mojino);   return 1;
+    case 1489: snprintf(out, (size_t)n, "%d", sun_sencol);   return 1;
+    case 2083: snprintf(out, (size_t)n, "%d", sun_hikicol);  return 1;
+    case 1473: snprintf(out, (size_t)n, "%d", sun_tencol);   return 1;
+    case 1475: snprintf(out, (size_t)n, "%g", sun_hanare);   return 1;
+    case 1477: snprintf(out, (size_t)n, "%g", sun_yalen);    return 1;
+    case 1479: snprintf(out, (size_t)n, "%g", sun_tsuki);    return 1;
+    case 1481: snprintf(out, (size_t)n, "%g", sun_yaang);    return 1;
+    }
+    return 0;
+}
+
+void jw_cmd_sunpo_box_set(int id, const char *t)
+{
+    double v;
+
+    if (!t || !*t)
+        return;
+    v = atof(t);
+    switch (id) {
+    case 1488:                          /* 文字種類 1..10 */
+        if (v >= 1.0 && v <= 10.0)
+            sun_mojino = (int)v;
+        break;
+    case 1489:                          /* 寸法線色 */
+        if (v >= 1.0 && v <= 9.0)
+            sun_sencol = (int)v;
+        break;
+    case 2083:                          /* 引出線色 */
+        if (v >= 1.0 && v <= 9.0)
+            sun_hikicol = (int)v;
+        break;
+    case 1473:                          /* 矢印・点色 */
+        if (v >= 1.0 && v <= 9.0)
+            sun_tencol = (int)v;
+        break;
+    case 1475:                          /* 寸法線と文字の間隔 */
+        if (v >= 0.0 && v <= 1000.0)
+            sun_hanare = v;
+        break;
+    case 1477:                          /* 矢印の長さ */
+        if (v > 0.0 && v <= 1000.0)
+            sun_yalen = v;
+        break;
+    case 1479:                          /* 引出線の突出寸法 */
+        if (v >= 0.0 && v <= 1000.0)
+            sun_tsuki = v;
+        break;
+    case 1481:                          /* 矢印の角度 */
+        if (v > 0.0 && v < 90.0)
+            sun_yaang = v;
+        break;
+    }
+}
 
 static int sun_decimals(void)
 {
@@ -2822,7 +2911,7 @@ static int sen_value(const jw_drawing *d, jw_obj *o, int max)
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
-    i = JW_SUN_MOJINO - 1;
+    i = sun_mojino - 1;
     if (i < 0 || i >= 10)
         i = 0;
     cw = d->style[i].w;
@@ -2850,8 +2939,8 @@ static int sen_value(const jw_drawing *d, jw_obj *o, int max)
     o[1].width = 0;
     o[1].flags = (unsigned short)(o[1].flags | JW_SUN_TEXT_FLAGS);
     {
-        double mx = (o->d[0] + o->d[2]) / 2.0 + JW_SUN_HANARE * vx;
-        double my = (o->d[1] + o->d[3]) / 2.0 + JW_SUN_HANARE * vy;
+        double mx = (o->d[0] + o->d[2]) / 2.0 + sun_hanare * vx;
+        double my = (o->d[1] + o->d[3]) / 2.0 + sun_hanare * vy;
         o[1].d[0] = mx - tw / 2.0 * ux;
         o[1].d[1] = my - tw / 2.0 * uy;
         o[1].d[2] = mx + tw / 2.0 * ux;
@@ -2861,7 +2950,7 @@ static int sen_value(const jw_drawing *d, jw_obj *o, int max)
     o[1].d[5] = ch;
     o[1].d[6] = sp;
     o[1].d[7] = 0.0;
-    o[1].n = JW_SUN_MOJINO;
+    o[1].n = sun_mojino;
     o[1].text = jw_add_str((jw_drawing *)d, txt);
     o[1].face = jw_add_str((jw_drawing *)d, JW_MOJI_FACE);
     return 2;
@@ -2931,7 +3020,7 @@ static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
             continue;
         }
         for (k = 1.0; k >= -1.0; k -= 2.0) {
-            double a = k * JW_SUN_ARROW_ANG * PI / 180.0;
+            double a = k * sun_yaang * PI / 180.0;
             double ca = cos(a), sa = sin(a);
             if (n >= max)
                 break;
@@ -2941,8 +3030,8 @@ static int sen_marks(const jw_drawing *d, jw_obj *o, int max, int n)
             o[n].color = o[0].color;
             o[n].d[0] = px;
             o[n].d[1] = py;
-            o[n].d[2] = px + JW_SUN_ARROW_LEN * (wx * ca - wy * sa);
-            o[n].d[3] = py + JW_SUN_ARROW_LEN * (wx * sa + wy * ca);
+            o[n].d[2] = px + sun_yalen * (wx * ca - wy * sa);
+            o[n].d[3] = py + sun_yalen * (wx * sa + wy * ca);
             n++;
         }
     }
@@ -8041,7 +8130,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     o = jw_add(d, JW_SEN);
     if (!o)
         return;
-    o->color = JW_SUN_SEN_COLOR;
+    o->color = sun_sencol;
     o->ltype = 1;
     o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
     o->d[0] = cx;
@@ -8052,7 +8141,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     for (k = 0; k < 16; k++)
         if (d->group[k].state == 3)
             wg = k;
-    si = JW_SUN_MOJINO - 1;
+    si = sun_mojino - 1;
     if (si < 0 || si >= 10)
         si = 0;
     cw = d->style[si].w;
@@ -8072,8 +8161,8 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         nch++;
     }
     if (cw > 0.0 && ch > 0.0 && nch) {
-        double mx = (cx + ex) / 2.0 - uy * JW_SUN_HANARE;
-        double my = (cy + ey) / 2.0 + ux * JW_SUN_HANARE;
+        double mx = (cx + ex) / 2.0 - uy * sun_hanare;
+        double my = (cy + ey) / 2.0 + ux * sun_hanare;
         /* cx,cy is the line's far end by now, so this is its middle */
         o = jw_add(d, JW_MOJI);
         if (o) {
@@ -8090,7 +8179,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
             o->d[5] = ch;
             o->d[6] = sp;
             o->d[7] = 0.0;
-            o->n = JW_SUN_MOJINO;
+            o->n = sun_mojino;
             o->text = jw_add_str(d, txt);
             o->face = jw_add_str(d, JW_MOJI_FACE);
         }
@@ -8099,7 +8188,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         o = jw_add(d, JW_TEN);
         if (!o)
             break;
-        o->color = JW_SUN_TEN_COLOR;
+        o->color = sun_tencol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
         o->d[0] = k ? ex : cx;
@@ -8125,7 +8214,7 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
-    i = JW_SUN_MOJINO - 1;
+    i = sun_mojino - 1;
     if (i < 0 || i > 9)
         i = 0;
     cw = d->style[i].w;
@@ -8146,8 +8235,8 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
     uy = dy / len;
     vx = -uy;
     vy = ux;
-    mx = (x0 + x1) / 2.0 + JW_SUN_HANARE * vx;
-    my = (y0 + y1) / 2.0 + JW_SUN_HANARE * vy;
+    mx = (x0 + x1) / 2.0 + sun_hanare * vx;
+    my = (y0 + y1) / 2.0 + sun_hanare * vy;
     o = jw_add(d, JW_MOJI);
     if (!o)
         return;
@@ -8164,7 +8253,7 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
     o->d[5] = ch;
     o->d[6] = sp;
     o->d[7] = 0.0;
-    o->n = JW_SUN_MOJINO;
+    o->n = sun_mojino;
     o->text = jw_add_str(d, txt);
     o->face = jw_add_str(d, JW_MOJI_FACE);
     op_push(1);
@@ -8224,7 +8313,7 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
                 sec % 60);
     }
 
-    i = JW_SUN_MOJINO - 1;
+    i = sun_mojino - 1;
     if (i < 0 || i > 9)
         i = 0;
     cw = d->style[i].w;
@@ -8240,8 +8329,8 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
     }
     mid = a0 + sweep / 2.0;
     if (cw > 0.0 && ch > 0.0 && nch) {
-        double px = sun_ox + (r2 + JW_SUN_HANARE) * cos(mid);
-        double py = sun_oy + (r2 + JW_SUN_HANARE) * sin(mid);
+        double px = sun_ox + (r2 + sun_hanare) * cos(mid);
+        double py = sun_oy + (r2 + sun_hanare) * sin(mid);
         double tx = cos(mid - PI / 2.0), ty = sin(mid - PI / 2.0);
         o = jw_add(d, JW_MOJI);
         if (o) {
@@ -8258,7 +8347,7 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
             o->d[5] = ch;
             o->d[6] = sp;
             o->d[7] = 0.0;
-            o->n = JW_SUN_MOJINO;
+            o->n = sun_mojino;
             o->text = jw_add_str(d, txt);
             o->face = jw_add_str(d, JW_MOJI_FACE);
             made++;
@@ -8269,7 +8358,7 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
     o = jw_add(d, JW_ENKO);
     if (!o)
         return;
-    o->color = JW_SUN_SEN_COLOR;
+    o->color = sun_sencol;
     o->ltype = 1;
     o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
     o->d[0] = sun_ox;
@@ -8288,7 +8377,7 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
         o = jw_add(d, JW_TEN);
         if (!o)
             break;
-        o->color = JW_SUN_TEN_COLOR;
+        o->color = sun_tencol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
         o->d[0] = sun_ox + r2 * cos(a);
@@ -8303,7 +8392,7 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
         o = jw_add(d, JW_SEN);
         if (!o)
             break;
-        o->color = JW_SUN_HIKI_COLOR;
+        o->color = sun_hikicol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
         o->d[0] = sun_ox + r1 * cos(a);
@@ -8342,7 +8431,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
     o = jw_add(d, JW_SEN);
     if (!o)
         return;
-    o->color = JW_SUN_SEN_COLOR;
+    o->color = sun_sencol;
     o->ltype = 1;
     o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
     o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
@@ -8359,7 +8448,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
            the far one, whatever 端部 is set to -- read off its own drawing */
         o = jw_add(d, JW_TEN);
         if (o) {
-            o->color = JW_SUN_TEN_COLOR;
+            o->color = sun_tencol;
             o->ltype = 1;
             o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
             o->d[0] = x0;
@@ -8374,7 +8463,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                 wx /= wl;
                 wy /= wl;
                 for (k = 1.0; k >= -1.0; k -= 2.0) {
-                    double aa = k * JW_SUN_ARROW_ANG * PI / 180.0;
+                    double aa = k * sun_yaang * PI / 180.0;
                     double ca = cos(aa), sa = sin(aa);
                     o = jw_add(d, JW_SEN);
                     if (!o)
@@ -8383,8 +8472,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                     o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
                     o->d[0] = x1;
                     o->d[1] = y1;
-                    o->d[2] = x1 + JW_SUN_ARROW_LEN * (wx * ca - wy * sa);
-                    o->d[3] = y1 + JW_SUN_ARROW_LEN * (wx * sa + wy * ca);
+                    o->d[2] = x1 + sun_yalen * (wx * ca - wy * sa);
+                    o->d[3] = y1 + sun_yalen * (wx * sa + wy * ca);
                     made++;
                 }
             }
@@ -8394,7 +8483,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             o = jw_add(d, JW_TEN);
             if (!o)
                 break;
-            o->color = JW_SUN_TEN_COLOR;
+            o->color = sun_tencol;
             o->ltype = 1;
             o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
             o->d[0] = i ? x1 : x0;
@@ -8403,8 +8492,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             made++;
         }
     } else {
-        double alen = JW_SUN_ARROW_LEN;
-        double aang = JW_SUN_ARROW_ANG * PI / 180.0;
+        double alen = sun_yalen;
+        double aang = sun_yaang * PI / 180.0;
         for (i = 0; i < 2; i++) {
             double tipx = i ? x1 : x0, tipy = i ? y1 : y0;
             double wx = (i ? x0 - x1 : x1 - x0);
@@ -8438,23 +8527,23 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
      * were at the same place across the new direction -- and wrote the
      * dimension line, the two points and the value with no extensions at
      * all. */
-    for (i = 0; th != tl + JW_SUN_TSUKIDASHI && i < 2; i++) {
+    for (i = 0; th != tl + sun_tsuki && i < 2; i++) {
         double s = i ? s1 : s0;
         o = jw_add(d, JW_SEN);
         if (!o)
             break;
-        o->color = JW_SUN_HIKI_COLOR;
+        o->color = sun_hikicol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-        o->d[0] = s * ux + (tl + JW_SUN_TSUKIDASHI) * vx;
-        o->d[1] = s * uy + (tl + JW_SUN_TSUKIDASHI) * vy;
+        o->d[0] = s * ux + (tl + sun_tsuki) * vx;
+        o->d[1] = s * uy + (tl + sun_tsuki) * vy;
         o->d[2] = s * ux + th * vx;
         o->d[3] = s * uy + th * vy;
         made++;
     }
 
     /* 寸法値 -- 文字種 MOJINO, centred on the line and HANARE above it */
-    i = JW_SUN_MOJINO - 1;
+    i = sun_mojino - 1;
     if (i < 0 || i > 9)
         i = 0;
     cw = d->style[i].w;
@@ -8470,7 +8559,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         nch++;
     }
     if (cw > 0.0 && ch > 0.0 && nch) {
-        double mid = (s0 + s1) / 2.0, t = tl + JW_SUN_HANARE;
+        double mid = (s0 + s1) / 2.0, t = tl + sun_hanare;
         o = jw_add(d, JW_MOJI);
         if (o) {
             o->color = (unsigned short)d->style[i].color;
@@ -8486,8 +8575,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                    half a millimetre off it, running across rather than
                    along, with an ordinary text's 1 at +0x28 and the upright
                    bit in the flags. */
-                double px = (s1 - JW_SUN_HANARE) * ux + t * vx;
-                double py = (s1 - JW_SUN_HANARE) * uy + t * vy;
+                double px = (s1 - sun_hanare) * ux + t * vx;
+                double py = (s1 - sun_hanare) * uy + t * vy;
                 o->ltype = 1;
                 o->flags = (unsigned short)(o->flags | 0x1000u);
                 o->d[0] = px;
@@ -8504,7 +8593,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             o->d[5] = ch;
             o->d[6] = sp;
             o->d[7] = 0.0;
-            o->n = JW_SUN_MOJINO;
+            o->n = sun_mojino;
             o->text = jw_add_str(d, txt);
             /* the original's own dimension value carries the font name like
                any other text (decomp/res/sunpo.jww); leaving it out made a
@@ -8664,7 +8753,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     o = jw_add(d, JW_SEN);
     if (!o)
         return 0;
-    o->color = JW_SUN_SEN_COLOR;
+    o->color = sun_sencol;
     o->ltype = 1;
     o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
     o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
@@ -8687,7 +8776,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
             o = jw_add(d, JW_TEN);
             if (!o)
                 break;
-            o->color = JW_SUN_TEN_COLOR;
+            o->color = sun_tencol;
             o->ltype = 1;
             o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
             o->d[0] = k ? x1 : x0;
@@ -8695,25 +8784,25 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
             o->n = 0;
             made++;
         }
-        for (k = 0; th != tl + JW_SUN_TSUKIDASHI && k < 2; k++) {
+        for (k = 0; th != tl + sun_tsuki && k < 2; k++) {
             double s = k ? s1 : s0;
             if (!want[k])
                 continue;
             o = jw_add(d, JW_SEN);
             if (!o)
                 break;
-            o->color = JW_SUN_HIKI_COLOR;
+            o->color = sun_hikicol;
             o->ltype = 1;
             o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-            o->d[0] = s * ux + (tl + JW_SUN_TSUKIDASHI) * vx;
-            o->d[1] = s * uy + (tl + JW_SUN_TSUKIDASHI) * vy;
+            o->d[0] = s * ux + (tl + sun_tsuki) * vx;
+            o->d[1] = s * uy + (tl + sun_tsuki) * vy;
             o->d[2] = s * ux + th * vx;
             o->d[3] = s * uy + th * vy;
             made++;
         }
     }
 
-    i = JW_SUN_MOJINO - 1;
+    i = sun_mojino - 1;
     if (i < 0 || i > 9)
         i = 0;
     cw = d->style[i].w;
@@ -8731,7 +8820,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     if (cw <= 0.0 || ch <= 0.0 || !nch)
         return made;
     mid = (s0 + s1) / 2.0;
-    t = tl + JW_SUN_HANARE;
+    t = tl + sun_hanare;
     o = jw_add(d, JW_MOJI);
     if (!o)
         return made;
@@ -8748,7 +8837,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     o->d[5] = ch;
     o->d[6] = sp;
     o->d[7] = 0.0;
-    o->n = JW_SUN_MOJINO;
+    o->n = sun_mojino;
     o->text = jw_add_str(d, txt);
     o->face = jw_add_str(d, JW_MOJI_FACE);
     made++;
@@ -10451,19 +10540,19 @@ placed:
         wx /= wl;
         wy /= wl;
         for (k = 1.0; k >= -1.0; k -= 2.0) {
-            double a = k * JW_SUN_ARROW_ANG * PI / 180.0;
+            double a = k * sun_yaang * PI / 180.0;
             double ca = cos(a), sa = sin(a);
             jw_obj *n = jw_add(d, JW_SEN);
             if (!n)
                 break;
             if (button != 0) {          /* (R) uses the dimension pen */
-                n->color = JW_SUN_SEN_COLOR;
+                n->color = sun_sencol;
                 n->ltype = 1;
             }
             n->d[0] = ax;
             n->d[1] = ay;
-            n->d[2] = ax + JW_SUN_ARROW_LEN * (wx * ca - wy * sa);
-            n->d[3] = ay + JW_SUN_ARROW_LEN * (wx * sa + wy * ca);
+            n->d[2] = ax + sun_yalen * (wx * ca - wy * sa);
+            n->d[3] = ay + sun_yalen * (wx * sa + wy * ca);
         }
         op_push(2);
         return;

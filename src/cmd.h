@@ -352,6 +352,14 @@ int  jw_cmd_get_mode_now(void);
 int  jw_cmd_sokutei_mode(void);
 int  jw_cmd_sokutei_mm(void);
 int  jw_cmd_sokutei_dp(void);
+
+/* 寸法設定 (32925): the boxes that are wired up, by the id each one
+   carries on the dialog.  jw_cmd_sunpo_box fills `out` with what the box
+   should show and answers 1; the ones that are not done yet answer 0 and
+   are drawn empty.  See the 寸法設定 note in src/cmd.c for what each one
+   was measured to do. */
+int  jw_cmd_sunpo_box(int id, char *out, int n);
+void jw_cmd_sunpo_box_set(int id, const char *t);
 int  jw_cmd_get_kata(double *deg);
 int  jw_cmd_get_naga(double *mm);
 /* 間隔取得 (32948): the perpendicular distance from a point to a line,

@@ -243,7 +243,8 @@ int  ui_layerdlg_layer(int id);
 /* 寸法設定 -- the dialog 32925 puts up.  The picture only: nothing on it is
    wired up yet.  `on` is one byte per control of src/gen/sunpodlg.h. */
 void ui_sunpodlg_rect(int cw, int ch, rect_t *r);
-void ui_sunpodlg(fb_t *fb, const unsigned char *on);
+void ui_sunpodlg(fb_t *fb, const unsigned char *on, int caret,
+                 const char *edit);
 int  ui_sunpodlg_hit(int cw, int ch, int x, int y);
 int  ui_sunpodlg_n(void);
 int  ui_sunpodlg_id(int i);

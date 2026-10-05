@@ -3144,7 +3144,11 @@ int ui_sunpodlg_on(int i)
     return i >= 0 && i < JW_NSUNPODLG ? jw_sunpodlg[i].on : 0;
 }
 
-void ui_sunpodlg(fb_t *fb, const unsigned char *on)
+/* 寸法設定: the boxes that are wired up show their value, and the one
+   with the caret shows it.  `caret` is that box's id, or 0.  Which boxes
+   answer is the command's business (jw_cmd_sunpo_box). */
+void ui_sunpodlg(fb_t *fb, const unsigned char *on, int caret,
+                 const char *edit)
 {
     rect_t r;
     int cx, cy, i, th = jw_text_height();
@@ -3211,9 +3215,22 @@ void ui_sunpodlg(fb_t *fb, const unsigned char *on)
             mj_sunken(fb, x, y, z->w, z->h);
             mj_combo_button(fb, x, y, z->w, z->h);
             break;
-        case JW_SD_EDIT:
+        case JW_SD_EDIT: {
+            char t[32];
+            int got = jw_cmd_sunpo_box(z->id, t, (int)sizeof t);
+            const char *v = t;
+
             mj_sunken(fb, x, y, z->w, z->h);
+            if (caret == z->id && edit)
+                v = edit;               /* what is being typed, as typed */
+            if (got)
+                jw_text_px(fb, x + 3, y + (z->h - th) / 2, v,
+                           z->enabled ? C_BTNTEXT : C_GRAYTEXT);
+            if (caret == z->id)
+                fb_fill(fb, x + 3 + (got ? jw_text_px_w(v) : 0),
+                        y + (z->h - th) / 2, 1, th, C_BTNTEXT);
             break;
+        }
         case JW_SD_GROUP: {
             int gy = y + th / 2, gh = z->h - th / 2;
 
