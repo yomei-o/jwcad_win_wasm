@@ -2035,6 +2035,20 @@ void jw_cmd_back(jw_drawing *d)
         tracking = 0;
         return;
     }
+    /* 曲線 (CZukeiKyokuSen, slot 16 at 0x00621ca0 の辺り): its state at
+       +0xac walks straight down, 5 -> 4 -> 3 -> 2 -> 1, one per press
+       (サイン曲線 jumps 5 -> 3, and that mode is not done here).  The
+       port's state is the points it has collected and the line the
+       two unfinished modes pick first, so one press drops the last
+       point, and the last press drops the line. */
+    if (current == JW_CMD_KYOKUSEN && (cv_n > 0 || cv_base)) {
+        if (cv_n > 0)
+            cv_n--;
+        else
+            cv_base = 0;
+        tracking = 0;
+        return;
+    }
     /* 分割 (CZukeiBunkatsu) goes from its state 2 straight back to 0, which
        is the start; so does the rest, as far as anyone has read */
     jw_cmd_escape();

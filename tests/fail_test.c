@@ -873,6 +873,20 @@ static void undo_part_way(void)
     app_command(JW_CMD_UNDO);
     ck(!jw_cmd_midway() && d->ndrawn == n0, "    and the next drops it");
 
+    /* 曲線 drops the last point it took, one per press -- CZukeiKyokuSen's
+       +0xac walks 5 -> 4 -> 3 -> 2 -> 1 */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_KYOKUSEN);
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
+    jw_cmd_point(d, app_view(), -20.0, -25.0, 0);
+    jw_cmd_point(d, app_view(), 0.0, -35.0, 0);
+    ck(jw_cmd_midway(), "  曲線: three points down is part way");
+    app_command(JW_CMD_UNDO);
+    app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway(), "    two 戻る and one is still there");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway(), "    and the third drops it");
+
     jw_cmd_set(JW_CMD_CHUSHIN);
     jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
     app_new();
