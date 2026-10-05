@@ -173,6 +173,49 @@ static void opens(int cmd, int tpl, const char *what)
     }
 }
 
+/* the button with this id on the bar now up, pressed where it is */
+static int press_bar_id(int id)
+{
+    int x, y;
+
+    for (y = 0; y < 60; y += 2)
+        for (x = 0; x < 1264; x += 2)
+            if (ui_bar_hit(x, y) == id) {
+                app_press(x, y, 0);
+                return 1;
+            }
+    return 0;
+}
+
+/* 複写 with its range settled: the second bar's 作図属性 (1070) puts up
+   作図属性設定, template 342 -- not the range selection's 属性変更, which
+   is the first bar's 1070 */
+static void copy_attributes(void)
+{
+    static const int CMD[2] = { 32804, 32918 };
+    int k;
+
+    for (k = 0; k < 2; k++) {
+        const jw_view *v;
+
+        app_new();
+        app_command(32771);             /* 線 */
+        app_press(400, 300, 0);
+        app_press(600, 400, 0);
+        app_command(CMD[k]);
+        app_press(300, 200, 0);         /* a box round it */
+        app_press(700, 500, 0);
+        app_move(500, 350);
+        ck(press_bar_id(1120), k ? "移動: 選択確定 is on the bar"
+                                 : "複写: 選択確定 is on the bar");
+        ck(press_bar_id(1070) && app_modal() && app_tdlg_tpl() == 342,
+           "  and the next bar's 作図属性 puts up 作図属性設定");
+        app_key(27);
+        ck(!app_modal(), "  which Esc takes down");
+        (void)v;
+    }
+}
+
 int main(void)
 {
     static const struct { const char *name; int tpl; } CAP[] = {
@@ -196,6 +239,7 @@ int main(void)
     opens(32979, 371, "ファイル名変更 puts up ファイル選択");
     opens(32980, 371, "ファイル削除 puts up ファイル選択");
     opens(32984, 371, "ファイル属性変更 puts up ファイル選択");
+    copy_attributes();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

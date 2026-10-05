@@ -1082,6 +1082,7 @@ static char td_txt[TD_MAX][64];
 static const char *td_txtp[TD_MAX];
 static int td_drop[TD_MAX];
 static int td_caret;                    /* the edit box being typed into */
+static int td_tpl;                      /* the template it came from */
 
 static const struct { unsigned short cmd, tpl; } TD_CMD[] = {
     { 59392, 273 },     /* 表示 > ツールバー -- ツールバーの表示 */
@@ -1101,15 +1102,7 @@ int app_tdlg_open(void)
 /* the template the dialog that is up came from, or 0 */
 int app_tdlg_tpl(void)
 {
-    int i, id;
-
-    if (!td_open)
-        return 0;
-    for (i = 0; i < (int)(sizeof TD_CMD / sizeof TD_CMD[0]); i++)
-        if (ui_tdlg_find(TD_CMD[i].tpl) == td_t)
-            return TD_CMD[i].tpl;
-    (void)id;
-    return 0;
+    return td_open ? td_tpl : 0;
 }
 
 int app_tdlg_on(int i)
@@ -1152,6 +1145,7 @@ static int td_start(int tpl)
             td_caret = id;
     }
     td_t = t;
+    td_tpl = tpl;
     td_open = 1;
     return 1;
 }
@@ -1823,6 +1817,18 @@ int app_press(int x, int y, int button)
     }
 
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        /* 複写・移動 once the range is settled: their second bar has its
+           own 1070, 作図属性, and that one puts up 作図属性設定 (template
+           342) -- CZukeiFukusha's slot 31 builds it (tools/cmddlg.py's
+           sort of reading, from the class side).  The 1070 below is the
+           first bar's 属性変更 and must not answer here: this bar's 1069
+           is ﾏｳｽ倍率, which is enabled, and the window it opened was the
+           range selection's. */
+        if (id == 1070 && jw_cmd_sel_stage() == 3
+            && (jw_cmd() == JW_CMD_FUKUSHA || jw_cmd() == JW_CMD_IDOU)) {
+            td_start(342);
+            return 1;
+        }
         if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
                                              1069) > 0) {
             /* 属性変更 -- the same window, its other half */
