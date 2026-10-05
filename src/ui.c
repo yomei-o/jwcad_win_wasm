@@ -1294,7 +1294,117 @@ int ui_zoku_hit(int cw, int ch, int x, int y)
  * takes the drawing.
  */
 #define MJ_CAPTION_BG 0xf3f3f3u /* this one's caption came out light */
-#define MJ_CLOSE      0x9b9b9bu
+
+/* -------------------------------------------- ダイアログの外枠と × ----
+ *
+ * **GetWindowRect の矩形は、画面に出ているものより左右と下が 7 画素ずつ
+ * 大きい。**Windows 10 以降が掴みしろとして持っている見えない縁で、
+ * `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` がそう答えます
+ * （`tools/probe116.sh`: 504x227 の窓のうち見えているのは 490x220、
+ * 左 7・上 0・右 7・下 7）。`docs/ref_*.png` でそこが真っ黒なのは
+ * PrintWindow の絵だからで、**プログラムはそこに何も描いていません**。
+ * 移植はその黒をそのまま塗っていたので、外枠が真っ黒に見えていました。
+ *
+ * 見えている 490x220 の縁一画素は DWM が半透明の灰で描きます。画面から
+ * 測ると（`dlgshot:`）**後ろの色の九分の五に 7c7c7c の九分の四**を足して
+ * 切り捨てた色です。画面から取った四通りが一つ残らずこの式に合います
+ * （f3f3f3 の上で bebebe、d8d8d8 で afafaf、b1b1b1 で 999999、
+ * d0d0d0 で aaaaaa）。
+ * 中身はその内側で、見出しとクライアントが窓座標の x = 8 から CW 画素
+ * ぶん並びます（どのダイアログも BORDER 8・CAPTION 31）。上の縁一画素は
+ * **見出しの上に重なります** —— 原典のその行が bebebe、つまり f3f3f3 に
+ * 掛けた色だったので。左右と下の縁は後ろの絵に直に掛かります。
+ */
+#define DLG_BORDER   8
+#define DLG_CAPTION  31
+#define DLG_EDGE_RGB 0x7c7c7cu
+#define DLG_EDGE_NUM 4                  /* 7c7c7c の分、九分の四 */
+#define DLG_EDGE_DEN 9
+
+static unsigned int dlg_mix(unsigned int under)
+{
+    unsigned int o = 0, i;
+
+    for (i = 0; i < 3; i++) {
+        unsigned int sh = i * 8;
+        unsigned int a = (under >> sh) & 0xff, b = (DLG_EDGE_RGB >> sh) & 0xff;
+
+        o |= ((a * (DLG_EDGE_DEN - DLG_EDGE_NUM) + b * DLG_EDGE_NUM)
+              / DLG_EDGE_DEN) << sh;
+    }
+    return o;
+}
+
+static void dlg_edge_px(fb_t *fb, int x, int y)
+{
+    if (x >= 0 && y >= 0 && x < fb->w && y < fb->h)
+        fb->px[y * fb->w + x] = dlg_mix(fb->px[y * fb->w + x]);
+}
+
+/* The one pixel of frame Windows draws round the visible window. */
+static void dlg_edge(fb_t *fb, int x, int y, int w, int h)
+{
+    int i;
+
+    for (i = 0; i < w; i++) {
+        dlg_edge_px(fb, x + i, y);
+        dlg_edge_px(fb, x + i, y + h - 1);
+    }
+    for (i = 1; i < h - 1; i++) {
+        dlg_edge_px(fb, x, y + i);
+        dlg_edge_px(fb, x + w - 1, y + i);
+    }
+}
+
+/* 見出しと外枠。`r` は窓そのもの（GetWindowRect のほう）の矩形で、
+   `cw`/`ch` はクライアント。見えない縁には何も置きません。 */
+static void dlg_chrome(fb_t *fb, const rect_t *r, int cw, int ch)
+{
+    fb_fill(fb, r->x + DLG_BORDER, r->y, cw, DLG_CAPTION, MJ_CAPTION_BG);
+    dlg_edge(fb, r->x + DLG_BORDER - 1, r->y, cw + 2, DLG_CAPTION + ch + 1);
+}
+
+/* 見出しの × —— 原典の絵から一画素ずつ写したもの（`docs/ref_shakudo.png`
+   の窓座標 (W-28, 10) から 10x10）。斜め二本の芯が 171818、両端だけ
+   212121 で、その左右に b5b6b6 の縁取りが付きます。どのダイアログでも
+   同じ形・同じ位置でした（右端から 28 画素）。レイヤ設定 と
+   軸角・目盛・オフセット にだけ × がありません（`tools/probe116.sh`・
+   `probe117.sh` の WM_NCHITTEST に HTCLOSE が出ない）。 */
+#define DLG_X_SIZE 10
+#define DLG_X_CORE 0x171818u
+#define DLG_X_TIP  0x212121u
+#define DLG_X_HALO 0xb5b6b6u
+
+static void dlg_cross(fb_t *fb, const rect_t *r, int w)
+{
+    int x0 = r->x + w - 28, y0 = r->y + 10, i, j, k;
+
+    for (i = 0; i < DLG_X_SIZE; i++) {
+        int on[2];
+
+        on[0] = i;
+        on[1] = DLG_X_SIZE - 1 - i;
+        for (j = 0; j < 2; j++)
+            for (k = on[j] - 1; k <= on[j] + 1; k += 2)
+                if (k >= 0 && k < DLG_X_SIZE && k != on[1 - j])
+                    fb_fill(fb, x0 + k, y0 + i, 1, 1, DLG_X_HALO);
+        for (j = 0; j < 2; j++)
+            fb_fill(fb, x0 + on[j], y0 + i, 1, 1,
+                    (i == 0 || i == DLG_X_SIZE - 1) ? DLG_X_TIP : DLG_X_CORE);
+    }
+}
+
+/* 押せる所は絵よりずっと広く、WM_NCHITTEST が HTCLOSE と答えるのは
+   窓座標の x = W-43..W-9・y = 8..29 です（`tools/probe116.sh`、三つの
+   ダイアログで同じ）。**押すと キャンセル と同じ**で、打ち込んだものは
+   捨てられます（`tools/probe118.sh`: 縮尺の分母に 2 を打って × で
+   閉じると縮尺は変わらず、OK なら変わる）。だから当たり判定は
+   キャンセル釦の id である 2 を返します。 */
+static int dlg_close_hit(const rect_t *r, int w, int x, int y)
+{
+    return x >= r->x + w - 43 && x <= r->x + w - 9
+           && y >= r->y + 8 && y <= r->y + 29;
+}
 
 void ui_moji_rect(int cw, int ch, rect_t *r)
 {
@@ -1446,18 +1556,14 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
     }
     mj_counts(d, used);
     ui_moji_rect(fb->w, fb->h, &r);
-    /* the window: a black border, a light caption across the top and the
-       client below it */
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_MOJI_CAPTION, MJ_CAPTION_BG);
+    /* the window: its one pixel of frame, the caption across the top and
+       the client below it */
+    dlg_chrome(fb, &r, JW_MOJI_CW, JW_MOJI_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_MOJI_CAPTION - th) / 2,
                /* 書込み文字種変更 */
                "\x8f\x91\x8d\x9e\x82\xdd\x95\xb6\x8e\x9a\x8e\xed\x95\xcf\x8d"
                "X", C_BTNTEXT);
-    for (i = 0; i < 9; i++) {   /* the close cross */
-        fb_fill(fb, r.x + 381 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + 389 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_MOJI_W);
     cx = r.x + JW_MOJI_BORDER;
     cy = r.y + JW_MOJI_CAPTION;
     fb_fill(fb, cx, cy, JW_MOJI_CW, JW_MOJI_CH, C_BTNFACE);
@@ -1620,6 +1726,8 @@ int ui_moji_hit(int cw, int ch, int x, int y)
     ui_moji_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside the dialog altogether */
+    if (dlg_close_hit(&r, JW_MOJI_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_MOJI_BORDER;
     y -= r.y + JW_MOJI_CAPTION;
     for (i = 0; i < JW_NMOJI; i++) {
@@ -1692,12 +1800,8 @@ void ui_zokusel(fb_t *fb, const unsigned char *on)
     int cx, cy, i, th = jw_text_height();
 
     ui_zokusel_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_ZS_CAPTION, MJ_CAPTION_BG);
-    for (i = 0; i < 9; i++) {   /* the close cross, and no title beside it */
-        fb_fill(fb, r.x + JW_ZS_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_ZS_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_chrome(fb, &r, JW_ZS_CW, JW_ZS_CH);
+    dlg_cross(fb, &r, JW_ZS_W);
     cx = r.x + JW_ZS_BORDER;
     cy = r.y + JW_ZS_CAPTION;
     fb_fill(fb, cx, cy, JW_ZS_CW, JW_ZS_CH, C_BTNFACE);
@@ -1753,6 +1857,8 @@ int ui_zokusel_hit(int cw, int ch, int x, int y)
     ui_zokusel_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_ZS_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_ZS_BORDER;
     y -= r.y + JW_ZS_CAPTION;
     for (i = 0; i < JW_NZOKUSEL; i++) {
@@ -1795,12 +1901,8 @@ void ui_zokuhen(fb_t *fb, const unsigned char *on)
     int cx, cy, i, th = jw_text_height();
 
     ui_zokuhen_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_ZH_CAPTION, MJ_CAPTION_BG);
-    for (i = 0; i < 9; i++) {           /* the close cross, and no title */
-        fb_fill(fb, r.x + JW_ZH_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_ZH_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_chrome(fb, &r, JW_ZH_CW, JW_ZH_CH);
+    dlg_cross(fb, &r, JW_ZH_W);
     cx = r.x + JW_ZH_BORDER;
     cy = r.y + JW_ZH_CAPTION;
     fb_fill(fb, cx, cy, JW_ZH_CW, JW_ZH_CH, C_BTNFACE);
@@ -1866,6 +1968,8 @@ int ui_zokuhen_hit(int cw, int ch, int x, int y)
     ui_zokuhen_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_ZH_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_ZH_BORDER;
     y -= r.y + JW_ZH_CAPTION;
     for (i = 0; i < JW_NZOKUHEN; i++) {
@@ -1901,14 +2005,10 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr)
     int cx, cy, i, th = jw_text_height();
 
     ui_blkname_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_BN_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_BN_CW, JW_BN_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_BN_CAPTION - th) / 2, JW_BN_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_BN_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_BN_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_BN_W);
     cx = r.x + JW_BN_BORDER;
     cy = r.y + JW_BN_CAPTION;
     fb_fill(fb, cx, cy, JW_BN_CW, JW_BN_CH, C_BTNFACE);
@@ -1977,6 +2077,8 @@ int ui_blkname_hit(int cw, int ch, int x, int y)
     ui_blkname_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_BN_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_BN_BORDER;
     y -= r.y + JW_BN_CAPTION;
     for (i = 0; i < JW_NBLKNAME; i++) {
@@ -2013,14 +2115,10 @@ void ui_blkedit(fb_t *fb, const char *name, int all)
     int cx, cy, i, th = jw_text_height();
 
     ui_blkedit_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_BE_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_BE_CW, JW_BE_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_BE_CAPTION - th) / 2, JW_BE_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_BE_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_BE_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_BE_W);
     cx = r.x + JW_BE_BORDER;
     cy = r.y + JW_BE_CAPTION;
     fb_fill(fb, cx, cy, JW_BE_CW, JW_BE_CH, C_BTNFACE);
@@ -2077,6 +2175,8 @@ int ui_blkedit_hit(int cw, int ch, int x, int y)
     ui_blkedit_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_BE_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_BE_BORDER;
     y -= r.y + JW_BE_CAPTION;
     for (i = 0; i < JW_NBLKEDIT; i++) {
@@ -2146,14 +2246,10 @@ void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
     c = jw_kihon_tabs[tab].c;
     n = jw_kihon_tabs[tab].n;
     ui_kihon_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_KH_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_KH_CW, JW_KH_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_KH_CAPTION - th) / 2, JW_KH_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_KH_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_KH_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_KH_W);
     cx = r.x + JW_KH_BORDER;
     cy = r.y + JW_KH_CAPTION;
     fb_fill(fb, cx, cy, JW_KH_CW, JW_KH_CH, C_BTNFACE);
@@ -2282,6 +2378,8 @@ int ui_kihon_hit(int cw, int ch, int tab, int x, int y)
     ui_kihon_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1000;                   /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_KH_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_KH_BORDER;
     y -= r.y + JW_KH_CAPTION;
     if (y >= JW_KH_TAB_Y && y < JW_KH_TAB_Y + JW_KH_TAB_ROW + 1)
@@ -2339,14 +2437,9 @@ void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
     int cx, cy, i, th = jw_text_height();
 
     ui_jikkaku_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_JK_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_JK_CW, JW_JK_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_JK_CAPTION - th) / 2, JW_JK_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_JK_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_JK_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
     cx = r.x + JW_JK_BORDER;
     cy = r.y + JW_JK_CAPTION;
     fb_fill(fb, cx, cy, JW_JK_CW, JW_JK_CH, C_BTNFACE);
@@ -2510,14 +2603,9 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
     const jw_group *g;
 
     ui_layerdlg_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_LD_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_LD_CW, JW_LD_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_LD_CAPTION - th) / 2, JW_LD_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {
-        fb_fill(fb, r.x + JW_LD_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_LD_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
     cx = r.x + JW_LD_BORDER;
     cy = r.y + JW_LD_CAPTION;
     fb_fill(fb, cx, cy, JW_LD_CW, JW_LD_CH, C_BTNFACE);
@@ -2767,14 +2855,10 @@ void ui_shakudo(fb_t *fb, const char *num, const char *den,
     int cx, cy, i, th = jw_text_height();
 
     ui_shakudo_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_SK_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_SK_CW, JW_SK_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_SK_CAPTION - th) / 2, JW_SK_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_SK_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_SK_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_SK_W);
     cx = r.x + JW_SK_BORDER;
     cy = r.y + JW_SK_CAPTION;
     fb_fill(fb, cx, cy, JW_SK_CW, JW_SK_CH, C_BTNFACE);
@@ -2874,6 +2958,8 @@ int ui_shakudo_hit(int cw, int ch, int x, int y)
     ui_shakudo_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_SK_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_SK_BORDER;
     y -= r.y + JW_SK_CAPTION;
     for (i = 0; i < JW_NSHAKUDO; i++) {
@@ -2928,14 +3014,10 @@ void ui_sunpodlg(fb_t *fb, const unsigned char *on)
     int cx, cy, i, th = jw_text_height();
 
     ui_sunpodlg_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_SD_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_SD_CW, JW_SD_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_SD_CAPTION - th) / 2, JW_SD_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_SD_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_SD_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_SD_W);
     cx = r.x + JW_SD_BORDER;
     cy = r.y + JW_SD_CAPTION;
     fb_fill(fb, cx, cy, JW_SD_CW, JW_SD_CH, C_BTNFACE);
@@ -3023,6 +3105,8 @@ int ui_sunpodlg_hit(int cw, int ch, int x, int y)
     ui_sunpodlg_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_SD_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_SD_BORDER;
     y -= r.y + JW_SD_CAPTION;
     for (i = 0; i < JW_NSUNPODLG; i++) {
@@ -3107,14 +3191,10 @@ void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
     int cx, cy, i, th = jw_text_height();
 
     ui_bairitsu_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_BR_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_BR_CW, JW_BR_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_BR_CAPTION - th) / 2, JW_BR_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_BR_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_BR_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_BR_W);
     cx = r.x + JW_BR_BORDER;
     cy = r.y + JW_BR_CAPTION;
     fb_fill(fb, cx, cy, JW_BR_CW, JW_BR_CH, C_BTNFACE);
@@ -3193,6 +3273,8 @@ int ui_bairitsu_hit(int cw, int ch, int x, int y)
     ui_bairitsu_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_BR_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_BR_BORDER;
     y -= r.y + JW_BR_CAPTION;
     for (i = 0; i < JW_NBAIRITSU; i++) {
@@ -3257,14 +3339,10 @@ void ui_mojikijun(fb_t *fb, int base, int caret)
     int cx, cy, i, th = jw_text_height();
 
     ui_mojikijun_rect(fb->w, fb->h, &r);
-    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNTEXT);
-    fb_fill(fb, r.x, r.y, r.w, JW_MK_CAPTION, MJ_CAPTION_BG);
+    dlg_chrome(fb, &r, JW_MK_CW, JW_MK_CH);
     jw_text_px(fb, r.x + 9, r.y + (JW_MK_CAPTION - th) / 2, JW_MK_TITLE,
                C_BTNTEXT);
-    for (i = 0; i < 9; i++) {           /* the close cross */
-        fb_fill(fb, r.x + JW_MK_W - 25 + i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-        fb_fill(fb, r.x + JW_MK_W - 17 - i, r.y + 10 + i, 1, 1, MJ_CLOSE);
-    }
+    dlg_cross(fb, &r, JW_MK_W);
     cx = r.x + JW_MK_BORDER;
     cy = r.y + JW_MK_CAPTION;
     fb_fill(fb, cx, cy, JW_MK_CW, JW_MK_CH, C_BTNFACE);
@@ -3359,6 +3437,8 @@ int ui_mojikijun_hit(int cw, int ch, int x, int y)
     ui_mojikijun_rect(cw, ch, &r);
     if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
         return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_MK_W, x, y))
+        return 2;               /* 見出しの × は キャンセル */
     x -= r.x + JW_MK_BORDER;
     y -= r.y + JW_MK_CAPTION;
     for (i = 0; i < JW_NMOJIKIJUN; i++) {

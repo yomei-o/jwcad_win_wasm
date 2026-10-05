@@ -74,6 +74,17 @@
 #   dlg:<cmd>,<png>     open a dialog with a command, write its children out
 #                       and paint it into a PNG, then cancel it
 #   dlg:b<id>,<png>     the same, opened by pressing a bar button
+#   dlgnc:<cmd>         what the dialog's non-client area really is: the
+#                       visible frame (DWMWA_EXTENDED_FRAME_BOUNDS) against
+#                       GetWindowRect, and what WM_NCHITTEST answers over
+#                       the caption -- which is where the close cross is
+#                       (HTCLOSE = 20) without reading the screen
+#   dlgshot:<cmd>,<png> the dialog as it is **on the screen**, four pixels
+#                       wider each way.  This one does read the screen, and
+#                       it is only for the one pixel of frame that DWM, not
+#                       the program, draws
+#   dlgx:<cmd>,<ctl>=…  the same as dlgin: but finished with the close
+#                       cross instead of OK
 #   import:<cmd>,<path> open a file of another kind -- 32960 DXF, 32975 SFC,
 #                       32809 JWC -- through the same common dialog
 #   import:b<id>,<path> the same, opened by pressing a bar button instead of
@@ -160,9 +171,12 @@ public static class Jw {
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT r, int n);
     [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, uint d, UIntPtr e);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int c, uint f);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int c, bool rp);
@@ -262,6 +276,20 @@ public static class Jw {
         POINT p; p.X = x; p.Y = y;
         ClientToScreen(h, ref p);
         return p;
+    }
+
+    /// What is actually on the screen inside r -- the only way to see the
+    /// one pixel of frame that DWM, not the program, draws.  PrintWindow
+    /// cannot show it: it renders what the window paints, and the window
+    /// paints nothing there.
+    public static Bitmap Shot(RECT r) {
+        Bitmap b = new Bitmap(r.Right - r.Left, r.Bottom - r.Top,
+                              System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(b)) {
+            g.CopyFromScreen(r.Left, r.Top, 0, 0,
+                             new Size(r.Right - r.Left, r.Bottom - r.Top));
+        }
+        return b;
     }
 
     public static Bitmap Paint(IntPtr h) {
@@ -865,6 +893,96 @@ try {
                 break
             }
 
+            # What the dialog's non-client area really is: where Windows
+            # puts the visible frame (DWMWA_EXTENDED_FRAME_BOUNDS, 9) as
+            # against GetWindowRect, and what WM_NCHITTEST answers over the
+            # caption -- which is how the close cross is found without
+            # reading the screen.  HTCLOSE is 20, HTCAPTION 2, HTSYSMENU 3.
+            #   dlgnc:32944
+            '^dlgnc:(b?)(\d+)$' {
+                $byButton = $Matches[1] -eq 'b'
+                $id = [int]$Matches[2]
+                $before = [Jw]::Tops([uint32]$p.Id)
+                if ($byButton) {
+                    $h = Ctl $id
+                    if ($h -eq [IntPtr]::Zero) { throw "no button $id" }
+                    [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                } else {
+                    [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
+                }
+                NewDialog $before
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
+                Start-Sleep -Milliseconds 700
+                $r = New-Object Jw+RECT; [void][Jw]::GetWindowRect($dlg, [ref]$r)
+                $e = New-Object Jw+RECT
+                $rc = [Jw]::DwmGetWindowAttribute($dlg, 9, [ref]$e, 16)
+                $c = New-Object Jw+RECT; [void][Jw]::GetClientRect($dlg, [ref]$c)
+                $o = [Jw]::ScreenOf($dlg, 0, 0)
+                $w = $r.Right - $r.Left; $hh = $r.Bottom - $r.Top
+                Emit ('=== nc {0} window {1}x{2} at {3},{4}' -f $id, $w, $hh, $r.Left, $r.Top)
+                Emit ('    visible hr={0} {1}x{2}  inset l={3} t={4} r={5} b={6}' -f `
+                    $rc, ($e.Right - $e.Left), ($e.Bottom - $e.Top),
+                    ($e.Left - $r.Left), ($e.Top - $r.Top),
+                    ($r.Right - $e.Right), ($r.Bottom - $e.Bottom))
+                Emit ('    client {0}x{1} at {2},{3} in the window' -f `
+                    $c.Right, $c.Bottom, ($o.X - $r.Left), ($o.Y - $r.Top))
+                $box = @{}
+                for ($yy = 0; $yy -lt $hh; $yy++) {
+                    if ($yy -ge 40 -and $yy -lt $hh - 12 -and ($yy % 8) -ne 0) { continue }
+                    for ($xx = 0; $xx -lt $w; $xx++) {
+                        if ($yy -ge 40 -and $xx -ge 12 -and $xx -lt $w - 12 -and ($xx % 8) -ne 0) { continue }
+                        $lp = [IntPtr]((((($r.Top + $yy) -band 0xffff) -shl 16) -bor (($r.Left + $xx) -band 0xffff)))
+                        $k = [int][Jw]::SendMessageW($dlg, 0x0084, [IntPtr]::Zero, $lp)
+                        if (-not $box.ContainsKey($k)) { $box[$k] = @($xx, $yy, $xx, $yy) }
+                        else {
+                            $b = $box[$k]
+                            if ($xx -lt $b[0]) { $b[0] = $xx }
+                            if ($yy -lt $b[1]) { $b[1] = $yy }
+                            if ($xx -gt $b[2]) { $b[2] = $xx }
+                            if ($yy -gt $b[3]) { $b[3] = $yy }
+                            $box[$k] = $b
+                        }
+                    }
+                }
+                foreach ($k in ($box.Keys | Sort-Object)) {
+                    $b = $box[$k]
+                    Emit ('    HT {0,3}  x {1}..{2}  y {3}..{4}' -f $k, $b[0], $b[2], $b[1], $b[3])
+                }
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            # The dialog as it really is on the screen, frame and all,
+            # four pixels wider each way than GetWindowRect.  This one does
+            # read the screen -- there is no other way to see the pixel DWM
+            # draws -- so it is only for the frame question.
+            #   dlgshot:32944,tmp/nc_shakudo.png
+            '^dlgshot:(\d+),(.+)$' {
+                $id  = [int]$Matches[1]
+                $png = $Matches[2]
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
+                NewDialog $before
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
+                Start-Sleep -Milliseconds 900
+                $r = New-Object Jw+RECT; [void][Jw]::GetWindowRect($dlg, [ref]$r)
+                $q = New-Object Jw+RECT
+                $q.Left = $r.Left - 4; $q.Top = $r.Top - 4
+                $q.Right = $r.Right + 4; $q.Bottom = $r.Bottom + 4
+                $b = [Jw]::Shot($q)
+                $b.Save((Join-Path (Get-Location) $png),
+                        [System.Drawing.Imaging.ImageFormat]::Png)
+                $b.Dispose()
+                Emit ('=== shot {0} window {1}x{2}, the png is 4 px wider each way' -f `
+                    $id, ($r.Right - $r.Left), ($r.Bottom - $r.Top))
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             # Open a dialog, click a spot inside one of its controls, and
             # then read it -- which is how the 基本設定 tabs past the first
             # are reached: the original does not build a tab's controls
@@ -964,6 +1082,111 @@ try {
                 Emit ('=== dialog {0} filled' -f $id)
                 Dump $dlg
                 [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)   # IDOK
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            # The same as dlgin:, but finished with the close cross
+            # instead of OK -- which is how "does the X apply or cancel?"
+            # is asked of the original.
+            #   dlgx:32944,1470=5
+            '^dlgx:(b?)(\d+),(.+)$' {
+                $byButton = $Matches[1] -eq 'b'
+                $id = [int]$Matches[2]
+                $sets = $Matches[3] -split ','
+                $before = [Jw]::Tops([uint32]$p.Id)
+                if ($byButton) {
+                    $h = Ctl $id
+                    if ($h -eq [IntPtr]::Zero) { throw "no button $id" }
+                    [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                } else {
+                    [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
+                }
+                NewDialog $before
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
+                Start-Sleep -Milliseconds 700
+                foreach ($set in $sets) {
+                    if ($set -notmatch '^(\d+)=(.*)$') { continue }
+                    $cid = [int]$Matches[1]
+                    $txt = $Matches[2]
+                    $box = [IntPtr]::Zero
+                    foreach ($k in [Jw]::Kids($dlg)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq $cid) { $box = $k; break }
+                    }
+                    if ($box -eq [IntPtr]::Zero) { throw "no control $cid in the dialog" }
+                    # a lone ! means press it rather than type into it, which
+                    # is how a checkbox or a radio in a dialog is worked
+                    if ($txt -eq '!') {
+                        [void][Jw]::PostMessage($box, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                        Start-Sleep -Milliseconds 200
+                    } elseif ($txt -match '^#(\d+)$') {
+                        # a combo: pick that row and tell the dialog, which
+                        # is what Windows does when the user picks one
+                        $row = [int]$Matches[1]
+                        [void][Jw]::SendMessageW($box, 0x014E, [IntPtr]$row, [IntPtr]::Zero)   # CB_SETCURSEL
+                        $wp = ($cid -band 0xffff) -bor (1 -shl 16)                              # CBN_SELCHANGE
+                        [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]$wp, $box)
+                        Start-Sleep -Milliseconds 200
+                    } else {
+                        [void][Jw]::SetFocus($box)
+                        [void][Jw]::SendMessageW($box, 0x00B1, [IntPtr]0, [IntPtr](-1))  # EM_SETSEL
+                        Start-Sleep -Milliseconds 80
+                        Chars $box $txt
+                    }
+                }
+                Start-Sleep -Milliseconds 200
+                Emit ('=== dialog {0} filled' -f $id)
+                # Press the close cross the way a mouse does: find it with
+                # WM_NCHITTEST (HTCLOSE = 20) and send the non-client
+                # button down and up there.
+                $r = New-Object Jw+RECT; [void][Jw]::GetWindowRect($dlg, [ref]$r)
+                $hit = $null
+                for ($yy = 8; $yy -lt 30 -and $hit -eq $null; $yy++) {
+                    for ($xx = ($r.Right - $r.Left) - 30; $xx -lt ($r.Right - $r.Left) - 10; $xx++) {
+                        $lp = [IntPtr]((((($r.Top + $yy) -band 0xffff) -shl 16) -bor (($r.Left + $xx) -band 0xffff)))
+                        if ([int][Jw]::SendMessageW($dlg, 0x0084, [IntPtr]::Zero, $lp) -eq 20) {
+                            $hit = $lp; break
+                        }
+                    }
+                }
+                if ($hit -eq $null) { throw "no close box on dialog $id" }
+                [void][Jw]::PostMessage($dlg, 0x00A1, [IntPtr]20, $hit)   # WM_NCLBUTTONDOWN
+                Start-Sleep -Milliseconds 120
+                [void][Jw]::PostMessage($dlg, 0x00A2, [IntPtr]20, $hit)   # WM_NCLBUTTONUP
+                Start-Sleep -Milliseconds 400
+                Emit ('=== the cross was pressed; the dialog is {0}' -f `
+                    $(if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) { 'still up' } else { 'gone' }))
+                if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) {
+                    # DefWindowProc tracks the press with a loop of its own
+                    # that wants real mouse input, so a posted button up can
+                    # go unseen.  SC_CLOSE is what that loop ends up sending.
+                    [void][Jw]::SendMessageW($dlg, 0x0112, [IntPtr]0xF060, $hit)   # WM_SYSCOMMAND
+                    Start-Sleep -Milliseconds 400
+                    Emit ('=== SC_CLOSE sent; the dialog is {0}' -f `
+                        $(if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) { 'still up' } else { 'gone' }))
+                }
+                if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) {
+                    [void][Jw]::SendMessageW($dlg, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)   # WM_CLOSE
+                    Start-Sleep -Milliseconds 400
+                    Emit ('=== WM_CLOSE sent; the dialog is {0}' -f `
+                        $(if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) { 'still up' } else { 'gone' }))
+                }
+                if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) {
+                    # Last resort: the real pointer.  Nothing posted gets
+                    # the frame to act on its own close box, so this is the
+                    # only way to see what a person pressing it would get.
+                    $cx = ($hit.ToInt32() -band 0xffff)
+                    $cy = (($hit.ToInt32() -shr 16) -band 0xffff)
+                    [void][Jw]::SetCursorPos($cx, $cy)
+                    Start-Sleep -Milliseconds 200
+                    [Jw]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+                    Start-Sleep -Milliseconds 120
+                    [Jw]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+                    Start-Sleep -Milliseconds 500
+                    Emit ('=== the pointer pressed it; the dialog is {0}' -f `
+                        $(if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) { 'still up' } else { 'gone' }))
+                }
                 Start-Sleep -Milliseconds $StepMs
                 break
             }

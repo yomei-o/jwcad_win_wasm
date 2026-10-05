@@ -202,6 +202,10 @@ echo "=== 文字基点設定 —— 原典が描いたダイアログとの突�
 python tools/cmp.py docs/ref_mojikijun.png tests/out/mojikijun.png     -i docs/mojikijun_textareas.txt -d tests/out/mojikijun.diff.png     | head -2 | sed 's/^/    /'
 
 echo
+echo "=== ダイアログの × —— 押せる窓と、原典に × の無い窓"
+./tests/dlgclose_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 切り取り・コピー・貼り付け —— 原典が貼った六通りとの突き合わせ"
 ./tests/clip_test.exe | sed 's/^/    /'
 
