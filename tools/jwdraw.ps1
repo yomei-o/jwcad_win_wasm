@@ -1272,6 +1272,53 @@ try {
                 break
             }
 
+            # Put the real pointer at a screen point.  TrackPopupMenu
+            # takes a point from the program, so this is how to find out
+            # whether a popup follows the cursor.
+            #   cursor:800,600
+            '^cursor:(\d+),(\d+)$' {
+                [void][Jw]::SetCursorPos([int]$Matches[1], [int]$Matches[2])
+                Start-Sleep -Milliseconds 200
+                break
+            }
+
+            '^popcmd:(\d+),(.+)$' {
+                # A command whose answer is a popup menu rather than a
+                # dialog -- the status line's 用紙 box (32825) is one.
+                # Painted the same way menu: paints the menu bar's.
+                $cmdid = [int]$Matches[1]
+                $png = $Matches[2]
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$cmdid, [IntPtr]::Zero)
+                $pop = [IntPtr]::Zero
+                $deadline = (Get-Date).AddSeconds(6)
+                while ((Get-Date) -lt $deadline -and $pop -eq [IntPtr]::Zero) {
+                    Start-Sleep -Milliseconds 200
+                    foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                        if ([Jw]::Cls($t) -eq '#32768' -and [Jw]::IsWindowVisible($t)) {
+                            $pop = $t
+                        }
+                    }
+                }
+                if ($pop -eq [IntPtr]::Zero) { Tops2; throw "no popup opened for $($Matches[1])" }
+                Start-Sleep -Milliseconds 500
+                $b = [Jw]::Paint($pop)
+                $b.Save((Join-Path (Get-Location) $png),
+                        [System.Drawing.Imaging.ImageFormat]::Png)
+                $b.Dispose()
+                $r = New-Object Jw+RECT; [void][Jw]::GetWindowRect($pop, [ref]$r)
+                $c = New-Object Jw+RECT; [void][Jw]::GetClientRect($pop, [ref]$c)
+                $inf = [Jw]::RectIn($pop, $frame)
+                Emit ('=== popup {0} window {1}x{2} client {3}x{4} at {5},{6} in the frame, {7},{8} on the screen' -f `
+                    $Matches[1], ($r.Right - $r.Left), ($r.Bottom - $r.Top),
+                    $c.Right, $c.Bottom, $inf.Left, $inf.Top, $r.Left, $r.Top)
+                [void][Jw]::PostMessage($pop, 0x0100, [IntPtr]27, [IntPtr]1)     # VK_ESCAPE
+                Start-Sleep -Milliseconds 300
+                [void][Jw]::PostMessage($frame, 0x0100, [IntPtr]27, [IntPtr]1)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             '^import:(b?)(\d+),(.+)$' {
                 # Open a file of another kind: 32960 is DXFファイルを開く,
                 # 32975 SFCファイルを開く, 32809 JWCファイルを開く.  The same

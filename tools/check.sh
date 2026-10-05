@@ -206,6 +206,10 @@ echo "=== ダイアログの × —— 押せる窓と、原典に × の無い�
 ./tests/dlgclose_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 用紙サイズのポップアップ —— 状態表示の 用紙 の箱が出すもの"
+./tests/youshi_test.exe tests/out/youshi.png | sed 's/^/    /'
+
+echo
 echo "=== 切り取り・コピー・貼り付け —— 原典が貼った六通りとの突き合わせ"
 ./tests/clip_test.exe | sed 's/^/    /'
 

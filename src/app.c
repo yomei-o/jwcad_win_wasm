@@ -1256,6 +1256,23 @@ static int press_moji(int x, int y)
     return 1;
 }
 
+/* 用紙サイズ のポップアップを (x, y) に出す。印は**いまの用紙**で、
+   図面の `paper_size` がメニューのどの番号に当たるかは `jw_paper_set` の
+   裏返しです（0..4 が Ａ-０..Ａ-４、8..11 が ２Ａ..５Ａ、12..14 が
+   10ｍ・50ｍ・100m）。 */
+static void paper_popup(int x, int y)
+{
+    int n = have_drawing ? drawing.paper_size : 2, mark = 0;
+
+    if (n >= 0 && n <= 4)
+        mark = 32820 + n;
+    else if (n >= 8 && n <= 11)
+        mark = 32899 + n - 8;
+    else if (n >= 12 && n <= 14)
+        mark = 32903 + n - 12;
+    ui_popup_open_at(32820, mark, x, y, fb.w, fb.h);
+}
+
 /* One command, however it was asked for: a toolbar button, or the menu the
  * native build hands to Windows (both send the same ids -- they are the
  * original's own, out of its resources).  Returns 1 when the window wants
@@ -1313,9 +1330,17 @@ int app_command(int cmd)
         ld_start();
         return 1;
     case 32944:                         /* 縮尺・読取 */
-    case 32825:                         /* the status line's 用紙 box */
-    case 32827:                         /* and its 縮尺 box */
+    case 32827:                         /* the status line's 縮尺 box */
         sk_start();
+        return 1;
+    case 32825:                         /* その 用紙 の箱 */
+        /* without a point to hang it off, over the box itself */
+        {
+            rect_t b;
+
+            ui_status_box(0, fb.w, fb.h, &b);
+            paper_popup(b.x + b.w / 2, b.y);
+        }
         return 1;
     case 32842:                         /* 軸角・目盛・オフセット */
     case 32843:                         /* the same, from the status line */
@@ -1480,7 +1505,7 @@ int app_chrome_move(int x, int y)
 {
     int i;
 
-    if (ui_popup_top() < 0)
+    if (!ui_popup_up())
         return 0;
     /* sliding along the bar with one open moves to the next, as Windows does */
     i = ui_menu_hit(x, y);
@@ -1497,7 +1522,7 @@ int app_press(int x, int y, int button)
     /* An open popup takes the press: on an item it runs it, anywhere else it
        just shuts -- the click that closes a menu does nothing else, which is
        what Windows does too. */
-    if (ui_popup_top() >= 0) {
+    if (ui_popup_up()) {
         int cmd = ui_popup_in(x, y) ? ui_popup_press(x, y) : 0;
 
         if (cmd) {
@@ -1547,6 +1572,15 @@ int app_press(int x, int y, int button)
     if (button == 0) {
         static const int STATUS_CMD[5] = { 32825, 32827, 32829, 32843, 32844 };
         int k = ui_status_hit(x, y, fb.w, fb.h);
+        if (k == 0) {
+            /* 用紙サイズ: the original answers this one with a popup of the
+               twelve sizes rather than a window, and the popup hangs off
+               the press -- centred on it, running down from it
+               (tools/probe119.sh).  So it needs the point, which is why it
+               is here and not in app_command. */
+            paper_popup(x, y);
+            return 1;
+        }
         if (k >= 0)
             return app_command(STATUS_CMD[k]) | 1;
     }
@@ -1887,7 +1921,7 @@ int app_move(int x, int y)
     double mx, my;
     jw_obj o[JW_CMD_MAXFIG];
 
-    if (ui_popup_top() >= 0)
+    if (ui_popup_up())
         return ui_popup_move(x, y);
     if (!view_ready || !in_view(x, y))
         return 0;

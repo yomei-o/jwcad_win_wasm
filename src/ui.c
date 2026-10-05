@@ -271,6 +271,28 @@ static int pop_top = -1;        /* which name of the bar is open */
 static int pop_sub = -1;        /* the submenu entry that is open, or -1 */
 static int pop_hot = -1;        /* the entry under the mouse */
 
+/* A popup that hangs off a point instead of off the bar.
+ *
+ * 状態表示の 用紙 の箱 (32825) はダイアログでなく**ポップアップ**を出し
+ * ます —— 原典に WM_COMMAND を投げると #32768 が一つ上がってきて、中身は
+ * 用紙サイズ の十二項目、いまの用紙に印が付いています（`popcmd:` を足し
+ * ました）。窓は 127x270、`JW_POPUP_ITEM_H` 22 と `JW_POPUP_BORDER` 3 で
+ * 12 * 22 + 6 = 270 ちょうどです。
+ *
+ * **出る所はポインタに付いてきます。**カーソルを (400,300) と (900,650)
+ * に置いて同じ命令を投げると、窓はどちらも左上が (カーソル - 63, カーソル)
+ * に出ました。63 は (127-1)/2 で、つまり**横はカーソルの真ん中、縦は
+ * カーソルから下**です。 */
+static int pop_free = -1;       /* the submenu entry it shows, or -1 */
+static int pop_fx, pop_fy;      /* its top left, worked out when it opens */
+static int pop_mark = -1;       /* the entry id to tick, or -1 */
+
+/* Which depth of the tree the open popup is showing. */
+static int pop_depth(void)
+{
+    return pop_free >= 0 ? jw_menu_tree[pop_free].depth + 1 : 1;
+}
+
 /* [from,to) of the tree that belongs to top-level `t`, deeper entries and
    all. */
 static void top_range(int t, int *from, int *to)
@@ -315,6 +337,12 @@ static const char *pop_label(const char *s, char *out, int cap)
     int k = 0;
 
     while (*s && k < cap - 1) {
+        /* 用紙サイズ のポップアップだけは札の末尾の「(&0)」が付きません。
+           メニューバーのほうは出ます（原典の 設定 の popup には (S) まで
+           写っています）。Jw_cad がこのポップアップをメニュー資源の札で
+           なく自前の札で組んでいるからでしょう。 */
+        if (pop_free >= 0 && s[0] == '(' && s[1] == '&')
+            break;
         if (*s == '&') {                /* Windows' underline marker */
             s++;
             continue;
@@ -386,6 +414,16 @@ static int pop_row_y(int from, int to, int depth, int want)
 static void pop_box(int *x, int *y, int *w, int *h,
                     int *from, int *to)
 {
+    if (pop_free >= 0) {
+        int d = pop_depth();
+
+        sub_range(pop_free, from, to);
+        *w = pop_w(*from, *to, d);
+        *h = pop_h(*from, *to, d);
+        *x = pop_fx;
+        *y = pop_fy;
+        return;
+    }
     top_range(pop_top, from, to);
     *x = jw_menu[pop_top].x - 8;
     *y = 0;
@@ -428,11 +466,68 @@ static int pop_at(int from, int to, int depth, int x0, int y0, int w,
 
 int ui_popup_open(int top)
 {
-    if (pop_top == top)
+    if (pop_top == top && pop_free < 0)
         return 0;
     pop_top = top;
+    pop_free = -1;
+    pop_mark = -1;
     pop_sub = -1;
     pop_hot = -1;
+    return 1;
+}
+
+int ui_popup_open_at(int first, int mark, int x, int y, int cw, int ch)
+{
+    int i, s = -1, f, t, k, w, h;
+
+    for (i = 0; i < JW_NMENU_TREE; i++) {
+        if (jw_menu_tree[i].kind != 1)
+            continue;
+        sub_range(i, &f, &t);
+        for (k = f; k < t; k++)
+            if (jw_menu_tree[k].depth == jw_menu_tree[i].depth + 1
+                && jw_menu_tree[k].id == first) {
+                s = i;
+                break;
+            }
+        if (s >= 0)
+            break;
+    }
+    if (s < 0)
+        return 0;
+    pop_top = -1;
+    pop_sub = -1;
+    pop_hot = -1;
+    pop_free = s;
+    pop_mark = mark;
+    sub_range(s, &f, &t);
+    w = pop_w(f, t, jw_menu_tree[s].depth + 1);
+    h = pop_h(f, t, jw_menu_tree[s].depth + 1);
+    /* centred on the press and running down from it, and -- as any menu
+       does -- flipped above it when there is no room below */
+    pop_fx = x - (w - 1) / 2;
+    pop_fy = y + h <= ch ? y : y - h;
+    if (pop_fx + w > cw)
+        pop_fx = cw - w;
+    if (pop_fx < 0)
+        pop_fx = 0;
+    if (pop_fy < 0)
+        pop_fy = 0;
+    return 1;
+}
+
+int ui_popup_up(void)
+{
+    return pop_top >= 0 || pop_free >= 0;
+}
+
+int ui_popup_rect(rect_t *r)
+{
+    int from, to;
+
+    if (!ui_popup_up())
+        return 0;
+    pop_box(&r->x, &r->y, &r->w, &r->h, &from, &to);
     return 1;
 }
 
@@ -445,7 +540,7 @@ int ui_popup_hit(int x, int y)
 {
     int px, py, pw, ph, from, to, k;
 
-    if (pop_top < 0)
+    if (!ui_popup_up())
         return -1;
     if (pop_sub >= 0) {
         int sx, sy, sw, sh, sf, st;
@@ -456,14 +551,14 @@ int ui_popup_hit(int x, int y)
             return k;
     }
     pop_box(&px, &py, &pw, &ph, &from, &to);
-    return pop_at(from, to, 1, px, py, pw, x, y);
+    return pop_at(from, to, pop_depth(), px, py, pw, x, y);
 }
 
 int ui_popup_in(int x, int y)
 {
     int px, py, pw, ph, from, to;
 
-    if (pop_top < 0)
+    if (!ui_popup_up())
         return 0;
     if (pop_sub >= 0) {
         int sx, sy, sw, sh, sf, st;
@@ -542,7 +637,8 @@ static void pop_paint(fb_t *fb, int x0, int y0, int w, int h,
                        C_GRAYTEXT);
         if (m->kind == 1)               /* the arrow that says it opens */
             jw_text_px(fb, x0 + w - 16, ty, ">", C_BTNTEXT);
-        else if (m->id && (int)m->id == jw_cmd())
+        else if (m->id && ((int)m->id == jw_cmd()
+                           || (int)m->id == pop_mark))
             jw_text_px(fb, x0 + 16, ty, "*", C_BTNTEXT);
         y += JW_POPUP_ITEM_H;
     }
@@ -552,10 +648,10 @@ void ui_popup_draw(fb_t *fb)
 {
     int px, py, pw, ph, from, to;
 
-    if (pop_top < 0)
+    if (!ui_popup_up())
         return;
     pop_box(&px, &py, &pw, &ph, &from, &to);
-    pop_paint(fb, px, py, pw, ph, from, to, 1);
+    pop_paint(fb, px, py, pw, ph, from, to, pop_depth());
     if (pop_sub >= 0) {
         int sx, sy, sw, sh, sf, st;
 
@@ -917,6 +1013,16 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
  * 0x8039, 0x803b, 0x803d, 0x804b, 0x804c.  Those are the ids the resource
  * calls 用紙サイズ, scale, Layer, 軸角 and 画面表示倍率, so a box is a
  * menu command with a number painted on it. */
+/* One of the five boxes of the status line, in client coordinates --
+   so that whatever hangs off a box knows where it is. */
+void ui_status_box(int k, int cw, int ch, rect_t *r)
+{
+    r->x = ui_right(panes[k].x0, cw);
+    r->w = ui_right(panes[k].x1, cw) - r->x + 1;
+    r->y = ui_bottom(PANE_T, ch);
+    r->h = ch - r->y;
+}
+
 int ui_status_hit(int x, int y, int cw, int ch)
 {
     int k;

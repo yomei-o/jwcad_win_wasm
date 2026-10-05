@@ -82,6 +82,19 @@ int  ui_menu_hit(int x, int y);
 /* Open the popup under a name of the bar, or -1 to close.  Returns 1 when
    the screen has to be redrawn. */
 int  ui_popup_open(int top);
+
+/* A popup hung off a point rather than off a name of the bar: the status
+   line's 用紙 box puts the twelve paper sizes up that way, centred on the
+   press and running down from it, flipped above it when there is no room
+   (src/ui.c).  `first` names the submenu by the id of its first entry,
+   `mark` is the entry to tick, and `cw`/`ch` are the client it must fit. */
+int  ui_popup_open_at(int first, int mark, int x, int y, int cw, int ch);
+
+/* whether either kind is up */
+int  ui_popup_up(void);
+
+/* and where it sits, for whoever wants to cut it out of the frame */
+int  ui_popup_rect(rect_t *r);
 int  ui_popup_top(void);                /* -1 when nothing is open */
 /* The mouse moved to a client point while a popup is open. */
 int  ui_popup_move(int x, int y);
@@ -115,6 +128,8 @@ int ui_bar_ctl(unsigned cmd, int id, int *checked);
 int ui_bar_hit(int x, int y);
 /* which of the five boxes at the right of the status line, or -1 */
 int ui_status_hit(int x, int y, int cw, int ch);
+/* and where that box is */
+void ui_status_box(int k, int cw, int ch, rect_t *r);
 
 /* Which cell of the layer grids is under the point: 0 for the layer grid,
    1 for the layer group grid, -1 for neither, and *n is which of the
