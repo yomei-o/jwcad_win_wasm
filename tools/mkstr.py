@@ -50,6 +50,7 @@ WANT = [
     (10043, 'the number grabs: point at a number written in the drawing'),
     (10020, 'and the axis-angle grab leads with this'),
     (5323, 'the next point of a measuring run'),
+    (5462, 'what the point-at-a-distance command asks for once its start is down'),
     (6159, 'the tail those two modes put on: anticlockwise'),
     (6158, 'and the name of the one, the circumference'),
     (6157, 'and of the other, the angle'),

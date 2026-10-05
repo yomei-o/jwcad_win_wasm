@@ -38,6 +38,7 @@ enum {
     JW_CMD_IDOU = 0x8096,           /* 移動 -- the same class */
     JW_CMD_SUNPO = 0x804f,          /* 寸法 -- CZukeiSunpo */
     JW_CMD_SOKUTEI = 0x8081,        /* 測定 (32897) */
+    JW_CMD_KYORITEN = 0x80a2,       /* 距離指定点 (32930) */
     JW_CMD_TAKAKU = 0x807e,         /* 多角形 -- CZukeiTakakukei */
     JW_CMD_MENTORI = 0x805b,        /* 面取 -- CZukeiCorner's other half */
     JW_CMD_BUNKATSU = 0x8063,       /* 分割 -- CZukeiBunkatsu */

@@ -23,16 +23,16 @@ run() {
 R='read:59393;'
 L='off:1333;300,300;700,500;'
 
-run base "${L}saveas:p128_base"
+run base "${L}saveas:decomp/res/kyoriten_base.jww"
 # 距離 1000 (real mm), start at the line's near end, direction = its far end
-run dir  "${L}raw:f,273,32930,0;wait:800;ch:1412,1000;${R}r300,300;${R}r700,500;${R}saveas:p128_dir"
+run dir  "${L}raw:f,273,32930,0;wait:800;ch:1412,1000;${R}r300,300;${R}r700,500;${R}saveas:decomp/res/kyoriten_dir.jww"
 # and (L) on the line itself: 線上距離
 run onln "${L}raw:f,273,32930,0;wait:800;ch:1412,1000;${R}r300,300;${R}500,400;${R}saveas:p128_onln"
 # 仮点 on
-run kari "${L}raw:f,273,32930,0;wait:800;pb:1323;wait:400;ch:1412,1000;r300,300;r700,500;${R}saveas:p128_kari"
+run kari "${L}raw:f,273,32930,0;wait:800;pb:1323;wait:400;ch:1412,1000;r300,300;r700,500;${R}saveas:decomp/res/kyoriten_kari.jww"
 idle
 echo
-for f in p128_dir p128_onln p128_kari; do
+for f in decomp/res/kyoriten_dir.jww tmp/p128_onln.jww decomp/res/kyoriten_kari.jww; do
     echo "--- $f"
-    python tools/whatdid.py tmp/p128_base.jww "tmp/$f.jww" 2>&1 | head -6
+    python tools/whatdid.py decomp/res/kyoriten_base.jww "$f" 2>&1 | head -6
 done

@@ -824,6 +824,25 @@ static void sok_reset(void)
     sok_seg = 0.0;
 }
 
+/* ------------------------------------------------ 距離指定点 ----------
+ *
+ * 一点目を打つと問いかけが
+ *
+ *   線上･円周距離は線･円指示 ﾏｳｽ(L) 、 距離の方向は読取点指示 ﾏｳｽ(R)
+ *
+ * に変わり、次の読取点が**向き**を言います。置かれるのは点ひとつで、
+ * 始点からその向きへ**箱の 距離**だけ行った所です（`tools/probe128.sh`:
+ * 1/100 の紙で 距離 1000 を打ち、273.804 mm の線の一方の端を始点、
+ * もう一方を読取点にすると、点は始点から紙で 10.0000001 mm、線の上に
+ * 乗って出ました —— 1000 は実寸で、紙にはその 1/100）。
+ *
+ * **仮点 (1323) を入れると、置かれる点の種別が 1 になります**（素の点は
+ * 0）。線を指す (L) のほうは、始点が線に乗っている今回の形では読取点と
+ * 同じ答えになったので、**線から離れた所を始点にしたときは訊いていません**。
+ */
+static int kyo_step;
+static double kyo_x, kyo_y;
+
 /* the 傾き box, in radians */
 static double box_angle(int id)
 {
@@ -1690,6 +1709,7 @@ void jw_cmd_set(int id)
     }
     tail_kind = 0;              /* and the status line's readout with it */
     sok_reset();                /* a 測定 run does not cross a command */
+    kyo_step = 0;
     /* 測定 shows its readout from the moment it is entered, before any
        point is down (tools/probe125.sh) */
     if (id == JW_CMD_SOKUTEI)
@@ -2247,6 +2267,8 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_SOKUTEI:
         /* 測定 asks for a 始点 and then 次の点 over and over */
         return sok_n ? JW_STR_5323 : JW_STR_5320;
+    case JW_CMD_KYORITEN:
+        return kyo_step ? JW_STR_5462 : JW_STR_5320;
     case JW_CMD_SEN:
     case JW_CMD_KUKEI:
     case JW_CMD_RENZOKU:
@@ -8926,6 +8948,38 @@ placed:
             read_mode = 0;
             read_a = 0;
         }
+    }
+    if (current == JW_CMD_KYORITEN) {
+        double rx = x, ry = y, dx, dy, len, mm;
+
+        if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
+            return;
+        if (!kyo_step) {
+            kyo_x = rx;
+            kyo_y = ry;
+            kyo_step = 1;
+            return;
+        }
+        kyo_step = 0;
+        if (!d)
+            return;
+        dx = rx - kyo_x;
+        dy = ry - kyo_y;
+        len = sqrt(dx * dx + dy * dy);
+        mm = box_mm(d, 1412);
+        if (len <= 0.0 || mm <= 0.0)
+            return;
+        {
+            jw_obj *o = jw_add(d, JW_TEN);
+
+            if (o) {
+                o->d[0] = kyo_x + dx / len * mm;
+                o->d[1] = kyo_y + dy / len * mm;
+                o->n = jw_cmd_bar_check(1323) > 0;      /* 仮点 */
+                op_push(1);
+            }
+        }
+        return;
     }
     if (current == JW_CMD_SOKUTEI) {
         double rx = x, ry = y;

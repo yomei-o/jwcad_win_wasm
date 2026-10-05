@@ -233,6 +233,10 @@ echo "=== 数値角度・数値長 —— 図面に書いてある数字から�
 echo
 echo "=== 測定 の 距離測定 —— 状態表示の読み出しを原典と一字ずつ"
 ./tests/sokutei_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 距離指定点 —— 箱の距離だけ離れた所に点を置く"
+./tests/kyoriten_test.exe | sed 's/^/    /'
 ./tests/kankaku_test.exe | sed 's/^/    /'
 ./tests/renarc_test.exe | sed 's/^/    /'
 ./tests/copy2092_test.exe | sed 's/^/    /'
