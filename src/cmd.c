@@ -848,14 +848,36 @@ static void num3(char *out, int n, const jw_drawing *d, double mm)
  * 200 画素は紙で 122.449 mm、1/100 なので 12.2449 m —— 距離測定 と同じ
  * 換算で、画面の下は負です。小数桁も単位も同じものが効きます。
  *
- * ○単独円指定 (1068)・測定結果書込 (1071)・書込設定 (1072) はまだです。
- * 角度測定 の途中の数も同じくマウス任せで、そこは合わせていません。 */
+ * ○単独円指定 (1068) —— 押すと問いかけが「円を指示してください。」
+ * (5367) になり、**次の一手で円を一つ指す**と、その**周長**が合計に
+ * 入ります。半径 100 画素（紙で 61.2245 mm、1/100 なので実寸 6.12245 m）
+ * の円を指すと 【 38.468ｍ 】 38.4685ｍ —— 2πr そのものです
+ * （`tools/probe142.sh`）。指したあとは 始点 の問いかけに戻り、印も
+ * 下りて、次のクリックはふつうの一点目になります。
+ *
+ * 楕円・円弧・面積測定 と組んだときは訊いていません。
+ *
+ * 測定結果書込 (1071) —— 押すと**走っていた測りが 0 に戻り**、問いかけが
+ * 「文字の位置を指示して下さい」(5318) になります。次のクリックで、
+ * そのときの読み出しの数が**文字として置かれます**。三度試して三度とも
+ * 同じで、合計 24.490 のときに押しても書かれたのは `0.000ｍ` でした
+ * （投げても送っても、押す前に測っても後に測っても。`tools/probe129.sh`・
+ * `probe142.sh`・`probe143.sh`）。妙ですが、原典がそう書きます。
+ *
+ * 置かれる文字は 文字種 2・高さ 2.5・幅 2.5・間隔 0、書込ペン、
+ * 種類 1、flags 0x4000 で、クリックした所が左下です
+ * （`decomp/res/sokutei_write.jww`）。
+ *
+ * 書込設定 (1072) は押しても窓も問いかけも変わりませんでした。
+ * 角度測定 の途中の数もマウス任せで、そこは合わせていません。 */
 #define SOK_LEN  1064           /* 距離測定 */
 #define SOK_AREA 1065           /* 面積測定 */
 #define SOK_XY   1066           /* 座標測定 */
 #define SOK_ANG  1067           /* 角度測定 */
 
 static int sok_mode = SOK_LEN;
+static int sok_one;             /* ○単独円指定: the next click is a circle */
+static int sok_write;           /* 測定結果書込: the next click is where */
 static int sok_unit;            /* 0 ｍ, 1 mm */
 static int sok_dp = 3;          /* 小数桁: 0..4、5 は F（小数六桁） */
 static int sok_n;               /* how many points are down */
@@ -869,6 +891,7 @@ static void sok_reset(void)
     sok_n = 0;
     sok_total = 0.0;
     sok_seg = 0.0;
+    sok_one = 0;
 }
 
 /* how many decimals 小数桁 is asking for: F means six */
@@ -900,6 +923,32 @@ static void sok_num(char *out, int n, double v, int dp)
     }
     out[k] = 0;
 }
+
+/* The readout's number and its unit, which is also what 測定結果書込
+   writes.  `out` gets so many places and a comma every three digits. */
+static void sok_value(char *out, int n, const jw_drawing *d, double v)
+{
+    double sc = 1.0, f;
+    const char *u;
+    char num[64];
+    int g, wg = 0;
+
+    for (g = 0; d && g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    if (d && d->group[wg].scale > 0.0)
+        sc = d->group[wg].scale;
+    if (sok_mode == SOK_AREA) {
+        f = sc * sc / (sok_unit ? 1.0 : 1000000.0);
+        u = sok_unit ? "mm2" : "\x82\x8d" "2";
+    } else {
+        f = sc / (sok_unit ? 1.0 : 1000.0);
+        u = sok_unit ? "mm" : "\x82\x8d";
+    }
+    sok_num(num, (int)sizeof num, v * f, sok_places());
+    snprintf(out, (size_t)n, "%s%s", num, u);
+}
+
 
 /* ------------------------------------------------ 距離指定点 ----------
  *
@@ -2308,6 +2357,11 @@ const char *jw_cmd_status(const jw_drawing *d)
         const char *u;
         int g, wg = 0;
 
+        /* while ○単独円指定 waits for its circle the original shows the
+           question alone, with no readout at all */
+        if (sok_one)
+            return p;
+
         for (g = 0; d && g < 16; g++)
             if (d->group[g].state == 3)
                 wg = g;
@@ -2396,6 +2450,10 @@ const char *jw_cmd_prompt(void)
         if (sok_mode == SOK_ANG)
             return sok_n == 0 ? JW_STR_5404
                  : sok_n == 1 ? JW_STR_10117 : JW_STR_10118;
+        if (sok_write)
+            return JW_STR_5318;
+        if (sok_one)
+            return JW_STR_5367;
         if (sok_mode == SOK_XY)
             return sok_n == 0 ? JW_STR_5404 : JW_STR_5405;
         return sok_n ? JW_STR_5323 : JW_STR_5320;
@@ -7515,6 +7573,19 @@ int jw_cmd_bar(jw_drawing *d, int id)
             tail_set(4, 0.0, 0.0);
             return 1;
         }
+        if (id == 1068) {               /* ○単独円指定 */
+            sok_one = !sok_one;
+            return 1;
+        }
+        if (id == 1071) {               /* 測定結果書込 */
+            /* it starts the measuring over, and then asks where the
+               number goes -- so what gets written is the fresh zero
+               (src/cmd.c's 測定 note) */
+            sok_reset();
+            sok_write = 1;
+            tail_set(4, 0.0, 0.0);
+            return 1;
+        }
         if (id == 1069) {
             /* while 角度測定 is chosen this button is 【 °】／ °′″
                instead, and 度分秒 is not done -- so it does nothing
@@ -9292,6 +9363,61 @@ placed:
     if (current == JW_CMD_SOKUTEI) {
         double rx = x, ry = y;
 
+        if (sok_write) {
+            /* 測定結果書込: the click says where the number goes.  文字種
+               2's size, the writing pen, and the click at its left foot
+               (decomp/res/sokutei_write.jww). */
+            char t[64];
+            jw_obj *o;
+            double w, h, tw;
+            const char *q;
+
+            sok_write = 0;
+            if (!d)
+                return;
+            sok_value(t, (int)sizeof t, d, sok_total);
+            w = d->style[1].w > 0.0 ? d->style[1].w : 2.5;
+            h = d->style[1].h > 0.0 ? d->style[1].h : 2.5;
+            tw = 0.0;
+            for (q = t; *q; ) {
+                int wide = (unsigned char)*q >= 0x81;
+
+                tw += wide ? w : w / 2.0;
+                q += wide ? 2 : 1;
+            }
+            o = jw_add(d, JW_MOJI);
+            if (!o)
+                return;
+            o->ltype = 1;
+            o->color = (unsigned short)(d->write_color ? d->write_color : 1);
+            o->flags = (unsigned short)(o->flags | 0x4000u);
+            o->d[0] = rx;
+            o->d[1] = ry;
+            o->d[2] = rx + tw;
+            o->d[3] = ry;
+            o->d[4] = w;
+            o->d[5] = h;
+            o->d[6] = d->style[1].sp;
+            o->d[7] = 0.0;
+            o->n = 2;                   /* 文字種 2 */
+            o->text = jw_add_str(d, t);
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            op_push(1);
+            return;
+        }
+        if (sok_one) {
+            /* ○単独円指定: one circle, and its way round goes into the
+               total (src/cmd.c's 測定 note) */
+            int i = d ? jw_pick(d, v, x, y, 1) : -1;
+
+            if (i < 0 || d->obj[i].cls != JW_ENKO)
+                return;
+            sok_seg = 2.0 * PI * d->obj[i].d[2];
+            sok_total += sok_seg;
+            sok_one = 0;
+            tail_set(4, sok_total, sok_seg);
+            return;
+        }
         if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
             return;                     /* (R) with nothing to read */
         if (sok_mode == SOK_XY) {
@@ -9337,7 +9463,11 @@ placed:
         if (!sok_n) {
             sok_x0 = rx;
             sok_y0 = ry;
-            sok_seg = -0.0;             /* what the original reads out */
+            /* nothing was added, and the original reads that out as -0 --
+               unless a circle has already put something in the total, and
+               then the readout stays on that (tools/probe142.sh) */
+            if (sok_total == 0.0)
+                sok_seg = -0.0;
         } else if (sok_mode == SOK_AREA) {
             /* the triangle 始点・前の点・いまの点, with the screen's
                y-down sign -- which makes this walk positive and the
