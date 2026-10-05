@@ -227,6 +227,21 @@ void ui_shakudo(fb_t *fb, const char *num, const char *den,
                 const char *const *scales, int write_group,
                 const unsigned char *on, int caret);
 int  ui_shakudo_hit(int cw, int ch, int x, int y);
+
+/* Any of the original's dialog templates, laid out from the resource
+   (src/gen/dlgtpl.h).  `t` is an index from ui_tdlg_find(template id). */
+enum { UI_TC_PUSH, UI_TC_DEFPUSH, UI_TC_CHECK, UI_TC_RADIO, UI_TC_GROUP,
+       UI_TC_STATIC, UI_TC_EDIT, UI_TC_COMBO, UI_TC_LIST, UI_TC_FRAME,
+       UI_TC_ICON };            /* the kinds ui_tdlg_ctl hands back */
+int  ui_tdlg_find(int tpl);
+int  ui_tdlg_n(int t);
+int  ui_tdlg_ctl(int t, int i, int *id, int *kind, int *flags);
+int  ui_tdlg_index(int t, int id);
+void ui_tdlg_rect(int cw, int ch, int t, rect_t *r);
+int  ui_tdlg_ctl_rect(int cw, int ch, int t, int i, rect_t *out);
+void ui_tdlg(fb_t *fb, int t, const unsigned char *on,
+             const char *const *txt, int caret);
+int  ui_tdlg_hit(int cw, int ch, int t, int x, int y);
 int  ui_shakudo_n(void);
 int  ui_shakudo_id(int i);
 int  ui_shakudo_on(int i);

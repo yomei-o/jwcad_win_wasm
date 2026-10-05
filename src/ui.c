@@ -3921,3 +3921,256 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
         }
     }
 }
+
+/* ------------------------------------------ dialogs from the templates ---
+ * Any of the original's own dialog templates (src/gen/dlgtpl.h, laid out
+ * from decomp/res/dialog.txt by tools/mkdlgtpl.py with the same MapDialogRect
+ * sum Windows uses).  The dialogs above were each read off the running
+ * original one by one; these are every other popup dialog it has, drawn
+ * the same way -- the same chrome, the same x, the same buttons, checks,
+ * group boxes and edit boxes -- so a command whose dialog nobody has
+ * captured yet can still put the right window up.
+ *
+ * `t` is an index into jw_tdlg; `on` and `txt` are per control, in the order
+ * jw_tctl has them from jw_tdlg[t].first, and may be null.
+ */
+#include "gen/dlgtpl.h"
+
+/* src/ui.h hands the kinds out under its own names; they have to be the
+   generated ones, in the same order */
+typedef char td_kinds_agree[((int)JW_TC_PUSH == (int)UI_TC_PUSH
+                             && (int)JW_TC_RADIO == (int)UI_TC_RADIO
+                             && (int)JW_TC_EDIT == (int)UI_TC_EDIT
+                             && (int)JW_TC_ICON == (int)UI_TC_ICON) ? 1 : -1];
+
+int ui_tdlg_find(int tpl)
+{
+    int i;
+
+    for (i = 0; i < JW_NTDLG; i++)
+        if (jw_tdlg[i].tpl == tpl)
+            return i;
+    return -1;
+}
+
+int ui_tdlg_n(int t)
+{
+    return t >= 0 && t < JW_NTDLG ? jw_tdlg[t].n : 0;
+}
+
+int ui_tdlg_ctl(int t, int i, int *id, int *kind, int *flags)
+{
+    const jw_tctl_t *c;
+
+    if (t < 0 || t >= JW_NTDLG || i < 0 || i >= jw_tdlg[t].n)
+        return 0;
+    c = &jw_tctl[jw_tdlg[t].first + i];
+    if (id)
+        *id = c->id;
+    if (kind)
+        *kind = c->kind;
+    if (flags)
+        *flags = c->flags;
+    return 1;
+}
+
+/* which control (its index in the dialog) has this id, or -1 */
+int ui_tdlg_index(int t, int id)
+{
+    int i;
+
+    if (t < 0 || t >= JW_NTDLG)
+        return -1;
+    for (i = 0; i < jw_tdlg[t].n; i++)
+        if (jw_tctl[jw_tdlg[t].first + i].id == id)
+            return i;
+    return -1;
+}
+
+void ui_tdlg_rect(int cw, int ch, int t, rect_t *r)
+{
+    int w = (t >= 0 && t < JW_NTDLG ? jw_tdlg[t].cw : 0) + 2 * JW_TDLG_BORDER;
+    int h = (t >= 0 && t < JW_NTDLG ? jw_tdlg[t].ch : 0) + JW_TDLG_CAPTION
+            + JW_TDLG_BORDER;
+
+    r->w = w;
+    r->h = h;
+    r->x = (cw - w) / 2;
+    r->y = (ch - 42 - h) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+static void td_radio(fb_t *fb, int x, int y, int on)
+{
+    const unsigned int *sp = on ? jw_skradio_on : jw_skradio_off;
+    int i, j;
+
+    for (j = 0; j < JW_SKRADIO_H; j++)
+        for (i = 0; i < JW_SKRADIO_W; i++)
+            px_put(fb, x + i, y + j, sp[j * JW_SKRADIO_W + i]);
+}
+
+static void td_button(fb_t *fb, int x, int y, int w, int h, int def)
+{
+    fb_fill(fb, x, y, w, h, C_BTNFACE);
+    if (def)
+        fb_edge(fb, x, y, w, h, 0x646464u, 0x646464u);
+    fb_edge(fb, x + def, y + def, w - 2 * def, h - 2 * def,
+            C_BTNHILIGHT, C_3DDKSHADOW);
+    fb_edge(fb, x + def + 1, y + def + 1, w - 2 * def - 2, h - 2 * def - 2,
+            C_3DLIGHT, C_BTNSHADOW);
+}
+
+void ui_tdlg(fb_t *fb, int t, const unsigned char *on,
+             const char *const *txt, int caret)
+{
+    const jw_tdlg_t *g;
+    rect_t r;
+    int cx, cy, i, th = jw_text_height();
+
+    if (t < 0 || t >= JW_NTDLG)
+        return;
+    g = &jw_tdlg[t];
+    ui_tdlg_rect(fb->w, fb->h, t, &r);
+    dlg_chrome(fb, &r, g->cw, g->ch);
+    jw_text_px(fb, r.x + 9, r.y + (JW_TDLG_CAPTION - th) / 2, g->title,
+               C_BTNTEXT);
+    dlg_cross(fb, &r, r.w);
+    cx = r.x + JW_TDLG_BORDER;
+    cy = r.y + JW_TDLG_CAPTION;
+    fb_fill(fb, cx, cy, g->cw, g->ch, C_BTNFACE);
+
+    for (i = 0; i < g->n; i++) {
+        const jw_tctl_t *c = &jw_tctl[g->first + i];
+        int x = cx + c->x, y = cy + c->y;
+        int lit = on ? on[i] : 0;
+        unsigned col = (c->flags & 2) ? C_GRAYTEXT : C_BTNTEXT;
+        const char *s = txt && txt[i] ? txt[i] : c->text;
+
+        if (!(c->flags & 1))
+            continue;                   /* not WS_VISIBLE */
+        switch (c->kind) {
+        case JW_TC_PUSH:
+        case JW_TC_DEFPUSH:
+            td_button(fb, x, y, c->w, c->h, c->kind == JW_TC_DEFPUSH);
+            zs_text(fb, x + (c->w - jw_text_px_w(s)) / 2,
+                    y + (c->h - th) / 2, c->w - 6, s, col);
+            break;
+        case JW_TC_CHECK:
+            paint_checkbox(fb, x, y + (c->h - CHECK_W) / 2, lit);
+            zs_text(fb, x + CHECK_W + 3, y + (c->h - th) / 2,
+                    c->w - CHECK_W - 3, s, col);
+            break;
+        case JW_TC_RADIO:
+            td_radio(fb, x, y + (c->h - JW_SKRADIO_H) / 2, lit);
+            zs_text(fb, x + CHECK_W + 3, y + (c->h - th) / 2,
+                    c->w - CHECK_W - 3, s, col);
+            break;
+        case JW_TC_GROUP: {
+            int gy = y + th / 2, gh = c->h - th / 2;
+
+            fb_edge(fb, x, gy, c->w, gh, C_BTNSHADOW, C_BTNHILIGHT);
+            fb_edge(fb, x + 1, gy + 1, c->w - 2, gh - 2,
+                    C_BTNHILIGHT, C_BTNSHADOW);
+            if (*s) {
+                fb_fill(fb, x + 8, y, jw_text_px_w(s) + 4, th, C_BTNFACE);
+                zs_text(fb, x + 10, y, c->w - 10, s, col);
+            }
+            break;
+        }
+        case JW_TC_STATIC: {
+            int a = (int)(c->style & 3), tw = jw_text_px_w(s);
+            int tx = a == 1 ? x + (c->w - tw) / 2 : a == 2 ? x + c->w - tw : x;
+            /* SS_CENTERIMAGE (0x200) centres it up and down too */
+            int ty = (c->style & 0x200) ? y + (c->h - th) / 2 : y;
+
+            zs_text(fb, tx, ty, c->w - (tx - x), s, col);
+            break;
+        }
+        case JW_TC_EDIT:
+            mj_sunken(fb, x, y, c->w, c->h);
+            if (!(c->flags & 2))
+                fb_fill(fb, x + 2, y + 2, c->w - 4, c->h - 4, 0xffffffu);
+            zs_text(fb, x + 3, y + (c->h - th) / 2, c->w - 6,
+                    txt && txt[i] ? txt[i] : "", col);
+            if (caret == c->id)
+                fb_fill(fb, x + 3 + jw_text_px_w(txt && txt[i] ? txt[i] : ""),
+                        y + (c->h - th) / 2, 1, th, C_BTNTEXT);
+            break;
+        case JW_TC_COMBO: {
+            int bw = c->h - 4, ax = x + c->w - 2 - bw / 2, ay = y + c->h / 2;
+            int k;
+
+            mj_sunken(fb, x, y, c->w, c->h);
+            fb_fill(fb, x + 2, y + 2, c->w - 4, c->h - 4, 0xffffffu);
+            zs_text(fb, x + 3, y + (c->h - th) / 2, c->w - bw - 8,
+                    txt && txt[i] ? txt[i] : "", col);
+            td_button(fb, x + c->w - 2 - bw, y + 2, bw, c->h - 4, 0);
+            for (k = 0; k < 4; k++)     /* the little arrow */
+                fb_fill(fb, ax - 3 + k, ay - 1 + k, 7 - 2 * k, 1, C_BTNTEXT);
+            break;
+        }
+        case JW_TC_LIST:
+            mj_sunken(fb, x, y, c->w, c->h);
+            fb_fill(fb, x + 2, y + 2, c->w - 4, c->h - 4, 0xffffffu);
+            break;
+        case JW_TC_FRAME:
+            fb_edge(fb, x, y, c->w, c->h, C_BTNSHADOW, C_BTNHILIGHT);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+/* -1 outside the window (it is modal), 2 for the x, the id of the control
+   under the point, or 0 on the dialog but on nothing that answers */
+int ui_tdlg_hit(int cw, int ch, int t, int x, int y)
+{
+    const jw_tdlg_t *g;
+    rect_t r;
+    int i;
+
+    if (t < 0 || t >= JW_NTDLG)
+        return -1;
+    g = &jw_tdlg[t];
+    ui_tdlg_rect(cw, ch, t, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;
+    if (dlg_close_hit(&r, r.w, x, y))
+        return 2;
+    x -= r.x + JW_TDLG_BORDER;
+    y -= r.y + JW_TDLG_CAPTION;
+    for (i = 0; i < g->n; i++) {
+        const jw_tctl_t *c = &jw_tctl[g->first + i];
+
+        if (!(c->flags & 1) || (c->flags & 2))
+            continue;
+        if (c->kind == JW_TC_GROUP || c->kind == JW_TC_STATIC
+            || c->kind == JW_TC_FRAME || c->kind == JW_TC_ICON)
+            continue;
+        if (x >= c->x && x < c->x + c->w && y >= c->y && y < c->y + c->h)
+            return c->id;
+    }
+    return 0;
+}
+
+/* where control i of dialog t sits on the screen, for tests and taps */
+int ui_tdlg_ctl_rect(int cw, int ch, int t, int i, rect_t *out)
+{
+    rect_t r;
+    const jw_tctl_t *c;
+
+    if (t < 0 || t >= JW_NTDLG || i < 0 || i >= jw_tdlg[t].n)
+        return 0;
+    ui_tdlg_rect(cw, ch, t, &r);
+    c = &jw_tctl[jw_tdlg[t].first + i];
+    out->x = r.x + JW_TDLG_BORDER + c->x;
+    out->y = r.y + JW_TDLG_CAPTION + c->y;
+    out->w = c->w;
+    out->h = c->h;
+    return 1;
+}

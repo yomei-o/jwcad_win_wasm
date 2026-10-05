@@ -456,6 +456,9 @@ echo
 echo "=== 一歩進めて一歩戻す —— 編集の命令ごとに、戻るで図面がそっくり戻るか"
 ./tests/undostep_test.exe | sed 's/^/    /'
 
+echo "=== ダイアログの雛形 —— 原典から取った窓と同じ画素か、雛形から出す窓が開いて閉じるか"
+./tests/tdlg_test.exe | sed 's/^/    /'
+
 echo
 echo "=== 手だけで —— ツールバーの釦とクリックだけで各コマンドが動くか"
 ./tests/hand_test.exe | sed 's/^/    /'

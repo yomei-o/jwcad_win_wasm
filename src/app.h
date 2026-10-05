@@ -98,6 +98,13 @@ int  app_layerdlg_open(void);
 int  app_mojikijun_open(void);
 int  app_shakudo_open(void);
 int  app_modal(void);          /* any dialog at all */
+/* A dialog put up from the original's own template (src/gen/dlgtpl.h):
+   its index for ui_tdlg_*, or -1; the template's number; and what each of
+   its controls holds, by the control's place in the template */
+int  app_tdlg_open(void);
+int  app_tdlg_tpl(void);
+int  app_tdlg_on(int i);
+const char *app_tdlg_text(int i);
 int  app_bairitsu_open(void);
 
 /* 図形読込 (32862) -- the .jws the original would have put a file window up

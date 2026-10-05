@@ -1055,6 +1055,155 @@ static void text_put(char *s, size_t cap, int *drop, int c)
 
 static int blk_drop, be_drop;
 
+/* ---------------------------------------- dialogs from the templates -----
+ * A dialog nobody has read off the running original yet, put up from the
+ * original's own template instead (src/gen/dlgtpl.h, src/ui.c's ui_tdlg).
+ * What it holds is only what a dialog holds by itself: which checks and
+ * radios are on, what has been typed into each edit box, and which one has
+ * the caret.  OK, キャンセル and the × take it down; nothing it holds is
+ * applied to the drawing yet -- what each of these dialogs does is still
+ * to be read, one by one.
+ *
+ * The commands that put one up are the ones whose menu item did nothing at
+ * all (tests/menusweep_test.exe --list), matched to their template by the
+ * menu's words and the template's caption.
+ */
+#define TD_MAX 160
+static int td_open, td_t = -1;
+static unsigned char td_on[TD_MAX];
+static char td_txt[TD_MAX][64];
+static const char *td_txtp[TD_MAX];
+static int td_drop[TD_MAX];
+static int td_caret;                    /* the edit box being typed into */
+
+static const struct { unsigned short cmd, tpl; } TD_CMD[] = {
+    { 59392, 273 },     /* 表示 > ツールバー -- ツールバーの表示 */
+    { 32995, 384 },     /* 表示 > ブロックツリー半透明化 -- 透過率 */
+    { 57664, 100 },     /* ヘルプ > バージョン情報 */
+    { 32977, 368 },     /* ファイル操作 > ファイル一括変換 */
+    { 32979, 373 },     /* ファイル操作 > ファイル名変更 -- 名称変更 */
+};
+
+int app_tdlg_open(void)
+{
+    return td_open ? td_t : -1;
+}
+
+/* the template the dialog that is up came from, or 0 */
+int app_tdlg_tpl(void)
+{
+    int i, id;
+
+    if (!td_open)
+        return 0;
+    for (i = 0; i < (int)(sizeof TD_CMD / sizeof TD_CMD[0]); i++)
+        if (ui_tdlg_find(TD_CMD[i].tpl) == td_t)
+            return TD_CMD[i].tpl;
+    (void)id;
+    return 0;
+}
+
+int app_tdlg_on(int i)
+{
+    return td_open && i >= 0 && i < TD_MAX ? td_on[i] : 0;
+}
+
+const char *app_tdlg_text(int i)
+{
+    return td_open && i >= 0 && i < TD_MAX ? td_txt[i] : "";
+}
+
+static int td_start(int tpl)
+{
+    int t = ui_tdlg_find(tpl), i, n, group_has = 0;
+
+    if (t < 0)
+        return 0;
+    n = ui_tdlg_n(t);
+    if (n > TD_MAX)
+        n = TD_MAX;
+    memset(td_on, 0, sizeof td_on);
+    memset(td_drop, 0, sizeof td_drop);
+    td_caret = 0;
+    for (i = 0; i < n; i++) {
+        int id, kind, flags;
+
+        td_txt[i][0] = 0;
+        td_txtp[i] = 0;
+        ui_tdlg_ctl(t, i, &id, &kind, &flags);
+        if (flags & 4)
+            group_has = 0;              /* WS_GROUP: a new run of radios */
+        if (kind == UI_TC_RADIO && !group_has) {
+            td_on[i] = 1;               /* the first of each run is on */
+            group_has = 1;
+        }
+        if (kind == UI_TC_EDIT || kind == UI_TC_COMBO)
+            td_txtp[i] = td_txt[i];
+        if (kind == UI_TC_EDIT && !td_caret && !(flags & 2))
+            td_caret = id;
+    }
+    td_t = t;
+    td_open = 1;
+    return 1;
+}
+
+static int press_tdlg(int x, int y)
+{
+    int id = ui_tdlg_hit(fb.w, fb.h, td_t, x, y), i, k, n, kind, flags;
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
+        td_open = 0;
+        return 1;
+    }
+    i = ui_tdlg_index(td_t, id);
+    if (i < 0 || i >= TD_MAX || !ui_tdlg_ctl(td_t, i, 0, &kind, &flags))
+        return 1;
+    if (kind == UI_TC_CHECK)
+        td_on[i] = (unsigned char)!td_on[i];
+    else if (kind == UI_TC_RADIO) {
+        /* the run it is in: back to the control that starts the group,
+           on to the next one that starts another */
+        int a = i, b = i, f;
+
+        n = ui_tdlg_n(td_t);
+        while (a > 0 && ui_tdlg_ctl(td_t, a, 0, 0, &f) && !(f & 4))
+            a--;
+        while (b + 1 < n && ui_tdlg_ctl(td_t, b + 1, 0, 0, &f) && !(f & 4))
+            b++;
+        for (k = a; k <= b && k < TD_MAX; k++) {
+            int kk;
+
+            if (ui_tdlg_ctl(td_t, k, 0, &kk, 0) && kk == UI_TC_RADIO)
+                td_on[k] = 0;
+        }
+        td_on[i] = 1;
+    } else if (kind == UI_TC_EDIT)
+        td_caret = id;
+    return 1;
+}
+
+static int td_key(int c)
+{
+    int i = ui_tdlg_index(td_t, td_caret);
+
+    if (c == 27 || c == 13) {           /* Esc, and Enter for OK */
+        td_open = 0;
+        return 1;
+    }
+    if (i < 0 || i >= TD_MAX)
+        return 1;
+    if (c == 8) {
+        text_back(td_txt[i]);
+        td_drop[i] = 0;
+        return 1;
+    }
+    if (c >= 0x20 && c < 256)
+        text_put(td_txt[i], sizeof td_txt[i], &td_drop[i], c);
+    return 1;
+}
+
 /* One key while the ブロック編集 dialog is up: the name box takes it. */
 static int be_key(int c)
 {
@@ -1364,6 +1513,10 @@ int app_command(int cmd)
             action = JW_ACT_SAVE_COORD;
         return 1;
     }
+    /* a dialog put up from the original's own template (td_start) */
+    for (k = 0; k < (int)(sizeof TD_CMD / sizeof TD_CMD[0]); k++)
+        if (TD_CMD[k].cmd == cmd)
+            return td_start(TD_CMD[k].tpl);
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
     case 32820: case 32821: case 32822: case 32823: case 32824:
@@ -1625,6 +1778,8 @@ int app_press(int x, int y, int button)
         return press_kihon(x, y);
     if (jk_open)
         return press_jikkaku(x, y);
+    if (td_open)
+        return press_tdlg(x, y);
     if (sd_open)
         return press_sunpodlg(x, y);
     if (br_open)
@@ -1784,7 +1939,7 @@ static int dialog_open(void)
 {
     return zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
-           || sk_open || ld_open;
+           || sk_open || ld_open || td_open;
 }
 
 /* whether any of them is up, for whoever is outside */
@@ -1797,6 +1952,7 @@ static void dialog_close(void)
 {
     zoku_open = moji_open = zsel_open = jk_open = 0;
     sd_open = br_open = kh_open = zhen_open = sk_open = ld_open = 0;
+    td_open = 0;
     sd_caret = 0;
     sd_edit[0] = 0;
 }
@@ -1808,6 +1964,10 @@ int app_key(int c)
         return 1;
     }
     if (jk_open && jk_key(c)) {
+        app_paint();
+        return 1;
+    }
+    if (td_open && td_key(c)) {
         app_paint();
         return 1;
     }
@@ -2393,6 +2553,8 @@ void app_paint(void)
         ui_kihon(&fb, kh_tab, kh_on[kh_tab]);
     if (jk_open)
         ui_jikkaku(&fb, jk_angle, jk_on, 1);
+    if (td_open)
+        ui_tdlg(&fb, td_t, td_on, td_txtp, td_caret);
     if (sd_open)
         ui_sunpodlg(&fb, sd_on, sd_caret, sd_edit);
     if (br_open)

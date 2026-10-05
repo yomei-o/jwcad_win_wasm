@@ -46,6 +46,7 @@ python tools/mkfont.py font src/gen          # 東雲フォント
 python tools/mkcp932.py                      # CP932 <-> UTF-16
 python tools/mkicon.py orig/Jw_win.exe src/gen
 python tools/mkmenu.py
+python tools/mkdlgtpl.py                     # every popup dialog, laid out from its template
 python tools/mkaccel.py                      # the frame's keyboard shortcuts
 python tools/mkstr.py >/dev/null             # the prompts in the status line
 python tools/mkpen.py                        # the pens a new drawing starts with
