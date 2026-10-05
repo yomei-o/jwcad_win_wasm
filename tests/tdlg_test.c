@@ -216,6 +216,38 @@ static void copy_attributes(void)
     }
 }
 
+/* 属性選択's ブロック名指定 (2412) puts ブロック名を指定して選択 (340) up
+   on top of it; Esc takes down the one on top, and the one under it is
+   still there */
+static void block_name_over_zokusel(void)
+{
+    rect_t v;
+    int x, y, found = 0;
+
+    app_new();
+    app_command(32771);
+    app_press(400, 300, 0);
+    app_press(600, 400, 0);
+    app_command(32787);                         /* 範囲選択 */
+    ui_view_rect(1264, 741, &v);
+    app_press(v.x + 100, v.y + 100, 0);
+    app_press(v.x + v.w - 100, v.y + v.h - 100, 1);
+    ck(press_bar_id(1069) && app_zokusel_open(), "範囲選択's ＜属性選択＞ is up");
+    for (y = 0; y < 741 && !found; y++)
+        for (x = 0; x < 1264 && !found; x++)
+            if (ui_zokusel_hit(1264, 741, x, y) == 2412) {
+                app_press(x + 3, y + 3, 0);
+                found = 1;
+            }
+    ck(found && app_tdlg_tpl() == 340 && app_zokusel_open(),
+       "  ticking ブロック名指定 puts ブロック名を指定して選択 over it");
+    app_key(27);
+    ck(app_tdlg_open() < 0 && app_zokusel_open(),
+       "  Esc takes that one down and leaves 属性選択 up");
+    app_key(27);
+    ck(!app_modal(), "  and the next Esc takes 属性選択 down too");
+}
+
 int main(void)
 {
     static const struct { const char *name; int tpl; } CAP[] = {
@@ -240,6 +272,7 @@ int main(void)
     opens(32980, 371, "ファイル削除 puts up ファイル選択");
     opens(32984, 371, "ファイル属性変更 puts up ファイル選択");
     copy_attributes();
+    block_name_over_zokusel();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

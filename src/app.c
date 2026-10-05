@@ -1383,6 +1383,12 @@ static int press_zokusel(int x, int y)
         if (ui_zokusel_id(i) != id)
             continue;
         zsel_on[i] = (unsigned char)!zsel_on[i];
+        /* ブロック名指定: ticking it asks which block, in the original's
+           ブロック名を指定して選択 (template 340) on top of this one --
+           CZokuseiSelHenkouDialog's handler for 2412 builds it (its
+           message map, read by tools/cmddlg.py's method) */
+        if (id == 2412 && zsel_on[i])
+            td_start(340);
         /* the two at the bottom are one choice */
         if (zsel_on[i] && (id == 1323 || id == 1324)) {
             int k, other = id == 1323 ? 1324 : 1323;
@@ -1765,6 +1771,10 @@ int app_press(int x, int y, int button)
         return 1;                       /* a separator, or a submenu opening */
     }
 
+    /* a dialog from a template may sit on top of one of the others
+       (ブロック名を指定して選択 over 属性選択), so it hears first */
+    if (td_open)
+        return press_tdlg(x, y);
     if (zoku_open)
         return press_zoku(x, y);
     if (moji_open)
@@ -1781,8 +1791,6 @@ int app_press(int x, int y, int button)
         return press_kihon(x, y);
     if (jk_open)
         return press_jikkaku(x, y);
-    if (td_open)
-        return press_tdlg(x, y);
     if (sd_open)
         return press_sunpodlg(x, y);
     if (br_open)
@@ -1974,15 +1982,15 @@ static void dialog_close(void)
 
 int app_key(int c)
 {
+    if (td_open && td_key(c)) {         /* the one on top hears first */
+        app_paint();
+        return 1;
+    }
     if (sk_open && sk_key(c)) {
         app_paint();
         return 1;
     }
     if (jk_open && jk_key(c)) {
-        app_paint();
-        return 1;
-    }
-    if (td_open && td_key(c)) {
         app_paint();
         return 1;
     }
