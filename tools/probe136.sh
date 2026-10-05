@@ -28,12 +28,12 @@ run() {
 R='read:59393;'
 L='off:1333;300,300;700,300;300,600;700,600;cmd:32867;'
 
-run base "${L}saveas:p136_base"
-run off  "${L}pb:1324;wait:800;ch:1412,6000;${R}500,300;${R}500,600;${R}saveas:p136_off"
-run on   "${L}pb:1324;wait:800;pb:1326;wait:500;ch:1412,6000;500,300;500,600;saveas:p136_on"
+run base "${L}saveas:decomp/res/wari_base.jww"
+run off  "${L}pb:1324;wait:800;ch:1412,6000;${R}500,300;${R}500,600;${R}saveas:decomp/res/wari_off.jww"
+run on   "${L}pb:1324;wait:800;pb:1326;wait:500;ch:1412,6000;500,300;500,600;saveas:decomp/res/wari_on.jww"
 idle
 echo
 echo "--- 割付（印なし）が置いたもの"
-python tools/whatdid.py tmp/p136_base.jww tmp/p136_off.jww 2>&1 | head -12
+python tools/whatdid.py decomp/res/wari_base.jww decomp/res/wari_off.jww 2>&1 | head -12
 echo "--- 割付距離以下 を入れたとき"
-python tools/whatdid.py tmp/p136_base.jww tmp/p136_on.jww 2>&1 | head -12
+python tools/whatdid.py decomp/res/wari_base.jww decomp/res/wari_on.jww 2>&1 | head -12

@@ -409,6 +409,10 @@ echo "=== 分割 —— 原典が引いた等分線との突き合わせ"
 ./tests/bunkatsu_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 分割の 割付・振分・割付距離以下 —— 原典の六通りと"
+./tests/waritsuke_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 面取 —— 原典が切った角との突き合わせ"
 ./tests/mentori_test.exe | sed 's/^/    /'
 

@@ -3630,6 +3630,83 @@ static void bunkatsu(jw_drawing *d, int a, int b)
     op_push(made);
 }
 
+/* 分割の 割付 (1324).
+ *
+ * 割付 を押すと 分割 のバーが入れ替わり（`src/gen/bars.h` の
+ * `jw_bar_32867_1324`）、分割数 (1411) の代わりに 距離 (1412) が出て、
+ * 振分 (1325) と 割付距離以下 (1326) が付きます。歩きは 等距離分割 と
+ * 同じ二手で、線を二本指すだけです（`tools/probe115.sh`）。
+ *
+ * **間は「端どうしの距離の大きいほう」で測ります。**原典に平行でない
+ * 二本を割り付けさせて分かりました（`tools/probe138.sh`）—— 始点どうし
+ * 183.673 mm・終点どうし 244.898 mm の組に 距離 60 mm（実寸 6000、
+ * 1/100 の紙）を与えると、出てきた四本は**終点側が 60 mm ずつ**、
+ * 始点側は 45 mm ずつ。t = 60/244.898 = 0.245 の等間隔で、
+ * 本数も floor(244.898/60) = 4 でした。小さいほうで測っていたら三本です。
+ *
+ * 三つの出かた（平行な二本、間 183.673 mm、距離 60 mm。
+ * `tools/probe136.sh`・`probe137.sh`）:
+ *
+ *   割付 だけ        線Ａから 60, 60, 60 と置き、Ｂ側に 3.673 の余り
+ *   振分 (1325)      同じ三本を**真ん中に寄せ**、両端が 31.837 ずつ
+ *                    （余りを半分ずつ分けたぶん）
+ *   割付距離以下     余りが出ないように**等分**。距離を超えないいちばん
+ *   (1326)           少ない等分で、183.673/4 = 45.918 ≤ 60。
+ *                    振分 と一緒に押しても余りが無いので同じ絵
+ *
+ * 間がちょうど距離で割り切れるとき、距離が間より大きいとき、円を指した
+ * ときは訊いていません。
+ */
+static void waritsuke(jw_drawing *d, int a, int b)
+{
+    const jw_obj *p = &d->obj[a], *q = &d->obj[b];
+    double dist = box_mm(d, 1412);
+    double d0, d1, len, step, first;
+    int k, n, made = 0;
+    double ax0, ay0, ax1, ay1, bx0, by0, bx1, by1;
+
+    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN || dist <= 0.0)
+        return;
+    ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
+    bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
+    d0 = sqrt((bx0 - ax0) * (bx0 - ax0) + (by0 - ay0) * (by0 - ay0));
+    d1 = sqrt((bx1 - ax1) * (bx1 - ax1) + (by1 - ay1) * (by1 - ay1));
+    len = d0 > d1 ? d0 : d1;
+    if (len <= 0.0)
+        return;
+    if (jw_cmd_bar_check(1326) > 0) {
+        /* 割付距離以下: the fewest equal gaps that stay inside the
+           distance, and no remainder */
+        n = (int)ceil(len / dist - 1e-9);
+        if (n < 1)
+            n = 1;
+        step = 1.0 / n;
+        first = step;
+        n--;                            /* that many lines between them */
+    } else {
+        n = (int)floor(len / dist + 1e-9);
+        step = dist / len;
+        first = step;
+        if (jw_cmd_bar_check(1325) > 0)         /* 振分 */
+            first = (len - (n - 1) * dist) / 2.0 / len;
+    }
+    if (n > 10000)
+        n = 10000;
+    for (k = 0; k < n; k++) {
+        double t = first + k * step;
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        if (!o)
+            break;
+        o->d[0] = ax0 + (bx0 - ax0) * t;
+        o->d[1] = ay0 + (by0 - ay0) * t;
+        o->d[2] = ax1 + (bx1 - ax1) * t;
+        o->d[3] = ay1 + (by1 - ay1) * t;
+        made++;
+    }
+    op_push(made);
+}
+
 /* ２線.
  *
  * A line is picked to run along, then two points say where the pair starts
@@ -9968,8 +10045,12 @@ placed:
             return;
         }
         i = jw_pick_tie(d, v, x, y, 3, 1);
-        if (i >= 0 && i != corner_obj)
-            bunkatsu(d, corner_obj, i);
+        if (i >= 0 && i != corner_obj) {
+            if (jw_cmd_bar_check(1324) > 0)     /* 割付 */
+                waritsuke(d, corner_obj, i);
+            else
+                bunkatsu(d, corner_obj, i);
+        }
         corner_step = 0;
         return;
     }
