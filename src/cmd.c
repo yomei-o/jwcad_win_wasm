@@ -880,6 +880,8 @@ static int sok_one;             /* ○単独円指定: the next click is a circl
 static int sok_write;           /* 測定結果書込: the next click is where */
 static int sok_unit;            /* 0 ｍ, 1 mm */
 static int sok_dp = 3;          /* 小数桁: 0..4、5 は F（小数六桁） */
+#define SOK_MAX 256
+static double sok_rx[SOK_MAX], sok_ry[SOK_MAX];  /* every point, for 仮表示 */
 static int sok_n;               /* how many points are down */
 static double sok_px, sok_py;   /* the last one, in paper millimetres */
 static double sok_x0, sok_y0;   /* the first, which 面積 and 角度 need */
@@ -3311,6 +3313,65 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
 int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 {
     int n;
+
+    /* 測定 shows what it has measured, in 仮表示色 like anything else
+     * part way through.  The original's own window bears it out
+     * (`tools/probe145.sh`): with three points taken in 距離測定 it had
+     * 701 red pixels -- the two segments and a leg out to the cursor --
+     * and with four in 面積測定 1,293, which is those three segments,
+     * the leg to the cursor, and **a line from the cursor back to the
+     * first point**.
+     *
+     * 原典の絵は `docs/ref_sokutei_len.png`（距離測定、三点）と
+     * `docs/ref_sokutei_area.png`（面積測定、四点）で、どちらも
+     * カーソルを画面の (900,300) に置いて撮ってあります。
+     *
+     * **ここは画素まで同じにはできていません。**移植は実線で引き、
+     * 原典は点線混じりに見えます —— 横線を一画素ずつ読むと
+     * 379, 381,382,383, 385,386,387 … と三画素おきに抜けます。
+     * おそらく**実線の辺の上に、カーソルへの点線が重なって XOR で
+     * 抜けている**のですが（原典も R2_NOTXORPEN で描きます）、どの脚が
+     * どこまで伸びているのかまでは割り切れませんでした。いまの移植は
+     * 距離測定で原典の赤 805 画素を**一つ残らず**覆い、面積測定で
+     * 1,397 画素のうち 1,288 を覆います。形は合っていて、抜けだけが
+     * 違います。
+     *
+     * 座標測定 と 角度測定 の仮表示は見ていません。 */
+    if (current == JW_CMD_SOKUTEI
+        && (sok_mode == SOK_LEN || sok_mode == SOK_AREA)) {
+        int i, k = sok_n < SOK_MAX ? sok_n : SOK_MAX;
+
+        n = 0;
+        for (i = 1; i < k && n < max; i++) {
+            blank(&o[n]);
+            o[n].cls = JW_SEN;
+            o[n].d[0] = sok_rx[i - 1];
+            o[n].d[1] = sok_ry[i - 1];
+            o[n].d[2] = sok_rx[i];
+            o[n].d[3] = sok_ry[i];
+            n++;
+        }
+        if (k > 0 && tracking && n < max) {
+            blank(&o[n]);
+            o[n].cls = JW_SEN;
+            o[n].d[0] = sok_rx[k - 1];
+            o[n].d[1] = sok_ry[k - 1];
+            o[n].d[2] = tx;
+            o[n].d[3] = ty;
+            n++;
+        }
+        if (sok_mode == SOK_AREA && k > 1 && n < max) {
+            /* the ring is shown closed, whether or not the mouse is in */
+            blank(&o[n]);
+            o[n].cls = JW_SEN;
+            o[n].d[0] = sok_rx[k - 1];
+            o[n].d[1] = sok_ry[k - 1];
+            o[n].d[2] = sok_rx[0];
+            o[n].d[3] = sok_ry[0];
+            n++;
+        }
+        return n;
+    }
 
     if (current == JW_CMD_MOJI)
         return tracking ? moji(d, o, tx, ty) : 0;
@@ -9509,6 +9570,10 @@ placed:
 
             sok_seg = sqrt(dx * dx + dy * dy);
             sok_total += sok_seg;
+        }
+        if (sok_n < SOK_MAX) {
+            sok_rx[sok_n] = rx;
+            sok_ry[sok_n] = ry;
         }
         sok_px = rx;
         sok_py = ry;
