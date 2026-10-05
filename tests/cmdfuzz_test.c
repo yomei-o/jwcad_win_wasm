@@ -33,6 +33,20 @@
 #include "../src/view.h"
 #include "../src/fb.h"
 
+/* Commands with no button of their own, so jw_btn_cmd never offers them
+   to the sweep.  They were all put in on 2026-10-05 and want watching
+   like the rest. */
+static const unsigned short MENU_ONLY[] = {
+    32912,      /* 目盛基準点 */
+    32936,      /* レイヤ非表示化 */
+    32938,      /* 数値角度 */
+    32941,      /* 数値長 */
+    32962,      /* 軸角 */
+    59393,      /* ステータスバー */
+    32825,      /* 用紙サイズのポップアップ */
+    32820, 32905,       /* Ａ-０ と 100m */
+};
+
 static unsigned long rng = 20260925u;
 
 static unsigned long nextr(void)
@@ -572,8 +586,16 @@ int main(int argc, char **argv)
                 before.obj = 0, before.nobj = -1;
 
             acts++;
-            if (r < 25)
+            if (r < 23)
                 app_command(jw_btn_cmd[nextr() % JW_NBUTTONS]);
+            else if (r < 25)
+                /* the ones that are only on a menu, so jw_btn_cmd does
+                   not reach them: 目盛基準点・レイヤ非表示化・数値角度・
+                   数値長・軸角・ステータスバー and the two paper sizes
+                   either side of the common ones */
+                app_command(MENU_ONLY[nextr()
+                                      % (sizeof MENU_ONLY
+                                         / sizeof MENU_ONLY[0])]);
             else if (r < 42)
                 app_press((int)(nextr() % W), (int)(nextr() % H),
                           (int)(nextr() % 2));
