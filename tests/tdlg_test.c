@@ -248,6 +248,64 @@ static void block_name_over_zokusel(void)
     ck(!app_modal(), "  and the next Esc takes 属性選択 down too");
 }
 
+/* The command bars, against their templates.  A bar is a child dialog 462
+   units wide, laid out by the same sum, and the strip puts it 6 pixels in
+   and 5 down.  For every bar the port read off the original
+   (src/gen/bars.h), the bar template whose controls match it best is taken
+   and every control with an id is held to it. */
+#include "../src/gen/bars.h"
+static void bars_against_templates(void)
+{
+    int b, all = 0, bad = 0, unmatched = 0;
+    char msg[200];
+
+    for (b = 0; b < JW_NBARS; b++) {
+        const jw_bar_t *bar = &jw_bars[b];
+        int t, best = -1, best_hit = -1, best_n = 0, k;
+
+        for (t = 0; t < ui_tdlg_count(); t++) {
+            int hit = 0, n = 0;
+
+            if (!ui_tdlg_is_bar(t))
+                continue;
+            for (k = 0; k < bar->n; k++) {
+                const jw_ctl_t *c = &bar->c[k];
+                int i = c->id == 0xffff ? -1 : ui_tdlg_index(t, c->id);
+                rect_t r;
+
+                if (i < 0)
+                    continue;
+                n++;
+                ui_tdlg_ctl_xy(t, i, &r);
+                if (r.x + 6 == c->x && r.y + 5 == c->y && r.w == c->w)
+                    hit++;
+            }
+            if (hit > best_hit) {
+                best_hit = hit;
+                best = t;
+                best_n = n;
+            }
+        }
+        for (k = 0; k < bar->n; k++)
+            if (bar->c[k].id != 0xffff)
+                all++;
+        if (best < 0 || best_n == 0) {
+            unmatched++;
+            continue;
+        }
+        if (best_hit != best_n) {
+            if (bad < 6)
+                printf("     bar %u: template %d matches %d of %d\n", bar->cmd,
+                       ui_tdlg_tpl(best), best_hit, best_n);
+            bad += best_n - best_hit;
+        }
+    }
+    snprintf(msg, sizeof msg, "the %d command bars sit on their templates' pixels"
+             " (%d of %d controls differ, %d bars with no template)",
+             JW_NBARS, bad, all, unmatched);
+    ck(bad == 0, msg);
+}
+
 int main(void)
 {
     static const struct { const char *name; int tpl; } CAP[] = {
@@ -263,6 +321,7 @@ int main(void)
     for (i = 0; i < sizeof CAP / sizeof CAP[0]; i++)
         against(CAP[i].name, CAP[i].tpl);
 
+    bars_against_templates();
     printf("-- the dialogs put up from a template\n");
     opens(59392, 273, "表示 > ツールバー puts up ツールバーの表示");
     opens(32995, 384, "表示 > ブロックツリー半透明化 puts up its 透過率");

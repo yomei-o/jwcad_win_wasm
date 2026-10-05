@@ -242,6 +242,10 @@ int  ui_tdlg_ctl_rect(int cw, int ch, int t, int i, rect_t *out);
 void ui_tdlg(fb_t *fb, int t, const unsigned char *on,
              const char *const *txt, int caret);
 int  ui_tdlg_hit(int cw, int ch, int t, int x, int y);
+int  ui_tdlg_count(void);
+int  ui_tdlg_tpl(int t);
+int  ui_tdlg_is_bar(int t);
+int  ui_tdlg_ctl_xy(int t, int i, rect_t *out);
 int  ui_shakudo_n(void);
 int  ui_shakudo_id(int i);
 int  ui_shakudo_on(int i);

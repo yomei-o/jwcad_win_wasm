@@ -4188,3 +4188,34 @@ int ui_tdlg_ctl_rect(int cw, int ch, int t, int i, rect_t *out)
     out->h = c->h;
     return 1;
 }
+
+/* how many templates there are, and the t-th one's number and kind */
+int ui_tdlg_count(void)
+{
+    return JW_NTDLG;
+}
+
+int ui_tdlg_tpl(int t)
+{
+    return t >= 0 && t < JW_NTDLG ? jw_tdlg[t].tpl : 0;
+}
+
+int ui_tdlg_is_bar(int t)
+{
+    return t >= 0 && t < JW_NTDLG ? jw_tdlg[t].bar : 0;
+}
+
+/* control i of dialog t in the dialog's own client coordinates */
+int ui_tdlg_ctl_xy(int t, int i, rect_t *out)
+{
+    const jw_tctl_t *c;
+
+    if (t < 0 || t >= JW_NTDLG || i < 0 || i >= jw_tdlg[t].n)
+        return 0;
+    c = &jw_tctl[jw_tdlg[t].first + i];
+    out->x = c->x;
+    out->y = c->y;
+    out->w = c->w;
+    out->h = c->h;
+    return 1;
+}
