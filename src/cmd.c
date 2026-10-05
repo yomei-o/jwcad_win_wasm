@@ -466,42 +466,24 @@ void jw_cmd_sunpo_box_set(int id, const char *t)
 {
     double v;
 
+    /* **打ったものをそのまま入れます。**原典がこの箱に何を許すのか
+       ――上限・下限・弾かれたときどうなるか―― は**まだ訊いていま
+       せん**。勝手に範囲を決めると、その範囲が原典のものだと後から
+       読めてしまうので置きません。使う側は値を使うところで自分で
+       守っています（文字種は `i < 0 || i >= 10` で 0 に落とす、など）。
+       原典に訊いたら、ここにその答えを書いてください。 */
     if (!t || !*t)
         return;
     v = atof(t);
     switch (id) {
-    case 1488:                          /* 文字種類 1..10 */
-        if (v >= 1.0 && v <= 10.0)
-            sun_mojino = (int)v;
-        break;
-    case 1489:                          /* 寸法線色 */
-        if (v >= 1.0 && v <= 9.0)
-            sun_sencol = (int)v;
-        break;
-    case 2083:                          /* 引出線色 */
-        if (v >= 1.0 && v <= 9.0)
-            sun_hikicol = (int)v;
-        break;
-    case 1473:                          /* 矢印・点色 */
-        if (v >= 1.0 && v <= 9.0)
-            sun_tencol = (int)v;
-        break;
-    case 1475:                          /* 寸法線と文字の間隔 */
-        if (v >= 0.0 && v <= 1000.0)
-            sun_hanare = v;
-        break;
-    case 1477:                          /* 矢印の長さ */
-        if (v > 0.0 && v <= 1000.0)
-            sun_yalen = v;
-        break;
-    case 1479:                          /* 引出線の突出寸法 */
-        if (v >= 0.0 && v <= 1000.0)
-            sun_tsuki = v;
-        break;
-    case 1481:                          /* 矢印の角度 */
-        if (v > 0.0 && v < 90.0)
-            sun_yaang = v;
-        break;
+    case 1488: sun_mojino  = (int)v; break;     /* 文字種類 */
+    case 1489: sun_sencol  = (int)v; break;     /* 寸法線色 */
+    case 2083: sun_hikicol = (int)v; break;     /* 引出線色 */
+    case 1473: sun_tencol  = (int)v; break;     /* 矢印・点色 */
+    case 1475: sun_hanare  = v;      break;     /* 寸法線と文字の間隔 */
+    case 1477: sun_yalen   = v;      break;     /* 矢印の長さ */
+    case 1479: sun_tsuki   = v;      break;     /* 引出線の突出寸法 */
+    case 1481: sun_yaang   = v;      break;     /* 矢印の角度 */
     }
 }
 
@@ -656,6 +638,7 @@ static char *box_slot(unsigned cmd, int id)
 
 static void sel_free(void);
 static void sel_clear(jw_drawing *d);
+static int hatch_chain(const jw_drawing *d);
 
 /* 元に戻る works a command at a time, not an element at a time: drawing a
  * rectangle in Jw_cad and pressing it puts the drawing back to 46 lines, all
@@ -2040,7 +2023,12 @@ int jw_cmd_midway(void)
     case JW_CMD_SEKIEN:    return sek_step != 0;
     case JW_CMD_CHUSHIN:   return chu_step != 0;
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
-    case JW_CMD_HATCH:     return ht_n != 0 || ht_nchain != 0;
+    /* ハッチ: a circle right-clicked leaves no corners and no chain --
+       only a region -- and the original takes 戻る for that too
+       (CZukeiHachi slot 16 tests +0x224 and +0x228, which is the
+       picked list, not the corner count) */
+    case JW_CMD_HATCH:     return ht_n != 0 || ht_nchain != 0
+                                  || ht_nreg != 0;
     case JW_CMD_SUNPO:     return sun_step != sun_rest;
     case JW_CMD_HANI:
     case JW_CMD_FUKUSHA:
@@ -2073,7 +2061,7 @@ int jw_cmd_midway(void)
  * far each of them steps has not been read (コーナー and 伸縮 keep a
  * history of their own and step through it, which the port does not
  * have). */
-void jw_cmd_back(jw_drawing *d)
+int jw_cmd_back(jw_drawing *d)
 {
     if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
          || current == JW_CMD_IDOU || current == JW_CMD_SEIRI)
@@ -2082,7 +2070,7 @@ void jw_cmd_back(jw_drawing *d)
         sel_clear(d);
         sel_step = 0;
         tracking = 0;
-        return;
+        return 1;
     }
     if (current == JW_CMD_CHUSHIN && chu_step > 0) {
         chu_step--;
@@ -2091,7 +2079,7 @@ void jw_cmd_back(jw_drawing *d)
         if (chu_step < 1)
             chu_a = -1;
         tracking = 0;
-        return;
+        return 1;
     }
     /* 接円 (CZukeiSetuEn, FUN_00706a20): 3 -> 2 -> 0, the second element
        and then the first -- the port's sek_step 2 and 1 */
@@ -2102,7 +2090,7 @@ void jw_cmd_back(jw_drawing *d)
         if (sek_step < 1)
             sek_a = -1;
         tracking = 0;
-        return;
+        return 1;
     }
     /* ２線 (CZukei2Sen, slot 16 at 0x00624150): the end point's state 3
        goes back to 2, the start point's, and 2 back to 1, the line --
@@ -2112,7 +2100,7 @@ void jw_cmd_back(jw_drawing *d)
         if (nisen_step < 1)
             nisen_obj = -1;
         tracking = 0;
-        return;
+        return 1;
     }
     /* 複線 (CZukeiFukusen, slot 16 at 0x00657670): its state at +0x204 is
        3 while it waits for the side to be told and 2 while it waits for
@@ -2124,7 +2112,7 @@ void jw_cmd_back(jw_drawing *d)
         if (para_step < 1)
             para_obj = -1;
         tracking = 0;
-        return;
+        return 1;
     }
     /* 曲線 (CZukeiKyokuSen, slot 16 at 0x00621ca0 の辺り): its state at
        +0xac walks straight down, 5 -> 4 -> 3 -> 2 -> 1, one per press
@@ -2138,11 +2126,72 @@ void jw_cmd_back(jw_drawing *d)
         else
             cv_base = 0;
         tracking = 0;
-        return;
+        return 1;
+    }
+    /* ハッチ (CZukeiHachi, slot 16 at 0x00672470).  With the 実行 state
+       (+0x208) clear it looks at four things, in this order, and the
+       first one that is set is the one it undoes:
+     *
+     *   +0x220, +0x20c   two states of its own, set to 0.  The port has
+     *                    neither (they are 範囲選択's own, which the port
+     *                    settles in one press)
+     *   +0x230 >= 1      **one** off the count of lines picked with (L)
+     *                    -- the port's ht_nchain
+     *   +0x224 / +0x228  the picked list: it walks it and lets go of
+     *                    **all** of it (FUN_00672d70(-1) until nothing
+     *                    is selected any more) -- the port's ht_nreg
+     *
+     * So the chain comes off one line at a time, and once it is empty
+     * the next press drops every ring and circle taken, in one go.
+     */
+    if (current == JW_CMD_HATCH && (ht_nchain > 0 || ht_nreg > 0)) {
+        if (ht_nchain > 0) {
+            ht_nchain--;
+            if (!d || !hatch_chain(d)) {
+                ht_n = 0;       /* what is left no longer closes */
+                ht_nreg = 0;
+            }
+        } else {
+            if (d)
+                sel_clear(d);
+            ht_n = 0;
+            ht_nreg = 0;
+        }
+        tracking = 0;
+        return 1;
+    }
+    /* 寸法 (CZukeiSunpo, slot 16 at 0x0077b730).  Its walk is in [0x6f],
+     * which is the port's sun_step with the same numbers for the
+     * ordinary two-point kind -- FUN_0077cc90 picks the prompt from it,
+     * and the port's prompts line up (jw_cmd_status's case for 寸法).
+     * The ladder reads:
+     *
+     *   0 or 1  **answers 0** -- it does not take the press at all, and
+     *           the drawing's own 戻る gets it.  So the 引出線の基準点
+     *           and the 寸法線の位置 are not given back one at a time
+     *   2       -> 0
+     *   3       -> 2 (DAT_00a0bcc0 の値次第では 0。既定は分かっていない)
+     *   4, 5, 6 step down one each, but those are the original's own
+     *           numbering for the kinds the port numbers differently
+     *           (角度・寸法値・円周), so they are left alone here
+     *
+     * There is also a count at [0x1147]: while it is above zero the
+     * press takes the **last dimension drawn** off instead, which is
+     * what the drawing's 戻る does in the port.
+     */
+    if (current == JW_CMD_SUNPO && !sun_chi && !sun_kaku && !sun_enshu
+        && !sun_radius) {
+        if (sun_step == 2 || sun_step == 3) {
+            sun_step = sun_step == 3 ? 2 : 0;
+            tracking = 0;
+            return 1;
+        }
+        return 0;               /* 0 と 1 は原典も受け取りません */
     }
     /* 分割 (CZukeiBunkatsu) goes from its state 2 straight back to 0, which
        is the start; so does the rest, as far as anyone has read */
     jw_cmd_escape();
+    return 1;
 }
 
 /* Space: turn 水平・垂直 over.

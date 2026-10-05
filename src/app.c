@@ -1496,10 +1496,9 @@ int app_command(int cmd)
            command was doing, and the command kept the elements it had
            picked by their index -- which after the undo could be another
            element, or past the end. */
-        if (jw_cmd_midway()) {
-            jw_cmd_back(have_drawing ? &drawing : 0);
-            return 1;
-        }
+        if (jw_cmd_midway()
+            && jw_cmd_back(have_drawing ? &drawing : 0))
+            return 1;           /* 0 なら原典と同じく図面の 戻る へ */
         if (!jw_cmd_can_undo())
             return 0;
         jw_cmd_undo(have_drawing ? &drawing : 0);

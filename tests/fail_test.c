@@ -920,6 +920,30 @@ static void undo_part_way(void)
     ck(!jw_cmd_midway() && d->ndrawn == n0,
        "    and one 戻る drops it too");
 
+    /* 寸法 (CZukeiSunpo の slot 16) は、歩みの 0 と 1 ――引出線の
+       基準点と寸法線の位置―― では**押しを受け取りません**（0 を
+       返す）。受け取らなければ図面のほうの 戻る が動きます。2 は 0
+       へ、3 は 2 へ、と一段ずつ戻ります。 */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
+    jw_cmd_point(d, app_view(), -10.0, -25.0, 0);
+    n0 = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_bar(d, 1064);        /* リセット: 半径・角度・寸法値・円周を落とす
+                                   -- どれもコマンドを出入りしても残ります */
+    jw_cmd_point(d, app_view(), -40.0, -15.0, 0);    /* 引出線の基準点 */
+    ck(jw_cmd_midway(), "  寸法: 基準点を置いたところは作図途中");
+    app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway() && d->ndrawn == n0 - 1,
+       "    その 戻る は命令が受け取らず、図面のほうが一つ戻る");
+    jw_cmd_point(d, app_view(), -40.0, -10.0, 0);    /* 寸法線の位置 */
+    n0 = d->ndrawn;
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0,
+       "    位置まで置いてからの 戻る は歩み 2 を 0 に戻すだけ");
+    jw_cmd_set(JW_CMD_TEN);
+
     jw_cmd_set(JW_CMD_CHUSHIN);
     jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
     app_new();

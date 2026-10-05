@@ -159,7 +159,10 @@ void jw_cmd_undo(jw_drawing *d);
 int  jw_cmd_can_redo(void);
 int  jw_cmd_undo_depth(void);   /* how many steps 戻る can take back */
 int  jw_cmd_midway(void);       /* a point down or an element picked */
-void jw_cmd_back(jw_drawing *d);         /* and 戻る taken by the command itself */
+/* 戻る taken by the command itself.  It answers 1 when it took the
+   press and 0 when it did not, the way each command's vtable slot 16
+   does -- 寸法 at its first two points is one that does not. */
+int  jw_cmd_back(jw_drawing *d);
 void jw_cmd_redo(jw_drawing *d);
 
 /* Esc: let go of the points the command has taken so far, staying in the

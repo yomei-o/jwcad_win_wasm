@@ -454,11 +454,79 @@ static void pick_case(void)
     jw_free(&ref);
 }
 
+/* 作図途中の 戻る.
+ *
+ * CZukeiHachi の slot 16 (0x00672470) は、実行 の状態 (+0x208) が
+ * 立っていなければ四つを順に見て、最初に立っていたものを戻します:
+ * +0x220、+0x20c（どちらも 範囲選択 の途中の状態で、移植には段が
+ * ありません）、+0x230 ——(L) で拾った線の数—— を**一つ**減らす、
+ * そして +0x224・+0x228 ——拾った並び—— を**全部**手放す。
+ *
+ * つまり鎖は一本ずつ外れ、空になってから次の一押しで、拾った輪と円が
+ * まとめて外れます。
+ */
+static void back_case(void)
+{
+    static const int RECT[] = {
+        300, 200, 700, 200,  700, 200, 700, 500,
+        700, 500, 300, 500,  300, 500, 300, 200
+    };
+    static const int PICK[] = { 500, 200,  700, 350,  500, 500,  300, 350 };
+    const fb_t *fb;
+    rect_t r;
+    int i, before;
+
+    printf("作図途中の 戻る:\n");
+    app_new();
+    app_resize(1264, 741);
+    fb = app_fb();
+    ui_view_rect(fb->w, fb->h, &r);
+    jw_cmd_set(JW_CMD_SEN);
+    for (i = 0; i + 1 < (int)(sizeof RECT / sizeof RECT[0]); i += 2)
+        app_press(r.x + RECT[i], r.y + RECT[i + 1], 0);
+    before = app_drawing()->ndrawn;
+
+    jw_cmd_set(JW_CMD_HATCH);
+    for (i = 0; i + 1 < (int)(sizeof PICK / sizeof PICK[0]); i += 2)
+        app_press(r.x + PICK[i], r.y + PICK[i + 1], 0);
+    ck(jw_cmd_midway(), "  四本拾ったところは作図途中");
+    for (i = 0; i < 3; i++)
+        app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway() && app_drawing()->ndrawn == before,
+       "  三押しで一本残り、図面はそのまま");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && app_drawing()->ndrawn == before,
+       "  四押し目で鎖が空になる");
+    app_command(JW_CMD_UNDO);
+    ck(app_drawing()->ndrawn < before, "  その次は図面の 戻る に回る");
+
+    /* 円を (R) で拾うと、角は一つも立たず輪だけが立ちます。原典は
+       それも戻すので（+0x224・+0x228 を見ている）、移植の
+       jw_cmd_midway も ht_nreg を見ます */
+    app_new();
+    app_resize(1264, 741);
+    fb = app_fb();
+    ui_view_rect(fb->w, fb->h, &r);
+    jw_cmd_set(JW_CMD_ENKO);
+    app_press(r.x + 500, r.y + 350, 0);
+    app_press(r.x + 600, r.y + 350, 0);
+    before = app_drawing()->ndrawn;
+    ck(before == 1, "  円が一つ引けた");
+    jw_cmd_set(JW_CMD_HATCH);
+    app_press(r.x + 600, r.y + 350, 1);         /* (R) で円を拾う */
+    ck(jw_cmd_midway(), "  円を拾ったところも作図途中");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && app_drawing()->ndrawn == before,
+       "  一押しで手放し、円は残る");
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 int main(void)
 {
     static const char *const b[3] = { "30", "20", "50" };
     static const char *const j[3] = { "45", "2000", "1" };
 
+    back_case();
     run("decomp/res/hatch_circle.jww", 0, 26, 1689, 0, 0, 0,
         "a circle, 45 degrees, pitch 10:");
     run("decomp/res/hatch_rect.jww", 4, 49, 1689, 0, 0, 0,
