@@ -346,6 +346,12 @@ int  jw_cmd_read_mode_now(void);
    command is left. */
 void jw_cmd_get_mode(int mode);
 int  jw_cmd_get_mode_now(void);
+
+/* 測定 (32897): which of the four 〜測定 is chosen (the button's id),
+   whether the unit is mm rather than ｍ, and 小数桁 as 0..4 or 5 for F. */
+int  jw_cmd_sokutei_mode(void);
+int  jw_cmd_sokutei_mm(void);
+int  jw_cmd_sokutei_dp(void);
 int  jw_cmd_get_kata(double *deg);
 int  jw_cmd_get_naga(double *mm);
 /* 間隔取得 (32948): the perpendicular distance from a point to a line,

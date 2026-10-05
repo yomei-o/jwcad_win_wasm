@@ -807,21 +807,88 @@ static void num3(char *out, int n, const jw_drawing *d, double mm)
  * **小数桁 3**（バーの釦 1070 がそう言っています）、一辺のほうは
  * %g と同じ六桁です。単位は 【ｍ】（釦 1069 が mm と切り替える）。
  *
- * **一点目だけ「-0」**と出ます。なぜ負の零になるのかは分かりません。
- * 原典がそう書くので、そのとおりに出しています。
+ * **「足したものが零」のときは「-0」**と書かれます —— 距離の一点目も、
+ * 面積の輪を閉じる一手も。
  *
- * 面積測定・座標測定・角度測定・○単独円指定・mm/ｍ・小数桁・
- * 測定結果書込・書込設定 の八つはまだ訊いていません。 */
+ * 面積測定 (1065) —— 同じ読み出しで、単位が ｍ2 になります。四角を
+ * 一周させると 【 299.875ｍ2 】 149.938ｍ2。合計は多角形の面積で、右は
+ * **いま足した三角形**（始点・前の点・いまの点）。400x200 画素は実寸
+ * 24.4898 x 12.2449 m なので 299.875 m2 ちょうどです。符号は**画面の
+ * 向き**（y が下）の靴紐式そのままで、この回り方だと正になり、輪を
+ * 閉じる一手は -0 になります。**逆回りは訊いていません。**
+ *
+ * 角度測定 (1067) —— 三手です。原点 (5404) → 基準点 (10117) →
+ * 角度点 (10118) と訊き、読み出しは 【 -26.565° 】。(300,300) を原点、
+ * (700,300) を基準点、(700,500) を角度点にした答えで、つまり
+ * **原点→基準点 から 原点→角度点 までの角**です。S = 1 / … は付きません。
+ *
+ * mm /【ｍ】 (1069) —— 単位が mm になり、合計のほうだけ三桁ごとに
+ * コンマが入ります（【 24,489.796mm 】、右は 24489.8mm のまま）。札は
+ * 【mm】／ ｍ に変わり、面積の単位は mm2 になります。**角度測定 の間は
+ * この釦が 【 °】／ °′″ になり、○単独円指定 (1068) は死にます**
+ * （まだどちらも入れていません）。
+
+ * 四つの 〜測定 のうちどれが凹んで見えるかは、原典が自前で描いている
+ * ので EnumChildWindows からは分かりませんでした。**絵で測るのが次**です。
+ *
+ * 小数桁 3 (1070) —— 押すたびに **3 → 4 → F → 0 → 1 → 2 → 3** と回り、
+ * 釦の札もそのとおりに変わります（`tools/probe130.sh`）。**F は小数六桁**
+ * （24.489796）。右の一辺はいつも %g で、mm の面積だと 1.49938e+08 のように
+ * 指数まで出ます。
+ *
+ * 座標測定 (1066)・○単独円指定 (1068)・測定結果書込 (1071)・
+ * 書込設定 (1072) はまだです。座標測定 と 角度測定 の途中の数は
+ * **マウスの今の位置**を映すので、投げたクリックでは測れませんでした
+ * （`tools/probe129.sh`・`probe130.sh`）。 */
+#define SOK_LEN  1064           /* 距離測定 */
+#define SOK_AREA 1065           /* 面積測定 */
+#define SOK_XY   1066           /* 座標測定 */
+#define SOK_ANG  1067           /* 角度測定 */
+
+static int sok_mode = SOK_LEN;
+static int sok_unit;            /* 0 ｍ, 1 mm */
+static int sok_dp = 3;          /* 小数桁: 0..4、5 は F（小数六桁） */
 static int sok_n;               /* how many points are down */
 static double sok_px, sok_py;   /* the last one, in paper millimetres */
+static double sok_x0, sok_y0;   /* the first, which 面積 and 角度 need */
 static double sok_total;        /* the run so far */
-static double sok_seg;          /* the leg just added */
+static double sok_seg;          /* the leg, or triangle, just added */
 
 static void sok_reset(void)
 {
     sok_n = 0;
     sok_total = 0.0;
     sok_seg = 0.0;
+}
+
+/* how many decimals 小数桁 is asking for: F means six */
+static int sok_places(void)
+{
+    return sok_dp == 5 ? 6 : sok_dp;
+}
+
+/* 測定's numbers: so many places, and a comma every three digits.
+   num3 is the same thing with the places fixed at three and the scale
+   applied inside; here the caller has converted already. */
+static void sok_num(char *out, int n, double v, int dp)
+{
+    char buf[64];
+    int i, len, whole, k = 0, neg = v < 0.0;
+
+    if (neg)
+        v = -v;
+    snprintf(buf, sizeof buf, "%.*f", dp, v);
+    len = (int)strlen(buf);
+    whole = (int)(strchr(buf, '.') ? strchr(buf, '.') - buf : len);
+    if (neg && k < n - 1)
+        out[k++] = '-';
+    for (i = 0; i < len && k < n - 1; i++) {
+        if (i && i < whole && (whole - i) % 3 == 0)
+            out[k++] = ',';
+        if (k < n - 1)
+            out[k++] = buf[i];
+    }
+    out[k] = 0;
 }
 
 /* ------------------------------------------------ 距離指定点 ----------
@@ -1709,6 +1776,7 @@ void jw_cmd_set(int id)
     }
     tail_kind = 0;              /* and the status line's readout with it */
     sok_reset();                /* a 測定 run does not cross a command */
+    sok_mode = SOK_LEN;         /* and it comes up on 距離測定 */
     kyo_step = 0;
     /* 測定 shows its readout from the moment it is entered, before any
        point is down (tools/probe125.sh) */
@@ -2212,9 +2280,10 @@ const char *jw_cmd_status(const jw_drawing *d)
         snprintf(buf, sizeof buf, "%s      r = %s", p, a);
         return buf;
     case 4: {
-        /* 測定: the scale, the running total to three places and the leg
-           just added, all in metres (src/cmd.c's 測定 note) */
-        double sc = 1.0;
+        /* 測定: the scale, the running total to 小数桁 places and the leg
+           or triangle just added (src/cmd.c's 測定 note) */
+        double sc = 1.0, f;
+        const char *u;
         int g, wg = 0;
 
         for (g = 0; d && g < 16; g++)
@@ -2222,9 +2291,23 @@ const char *jw_cmd_status(const jw_drawing *d)
                 wg = g;
         if (d && d->group[wg].scale > 0.0)
             sc = d->group[wg].scale;
+        if (sok_mode == SOK_ANG) {
+            sok_num(a, (int)sizeof a, va, sok_places());
+            snprintf(buf, sizeof buf, "%s       \x81y %s\x81\x8b \x81z", p, a);
+            return buf;
+        }
+        if (sok_mode == SOK_AREA) {
+            f = sc * sc / (sok_unit ? 1.0 : 1000000.0);
+            u = sok_unit ? "mm2" : "\x82\x8d" "2";
+        } else {
+            f = sc / (sok_unit ? 1.0 : 1000.0);
+            u = sok_unit ? "mm" : "\x82\x8d";
+        }
+        sok_num(a, (int)sizeof a, va * f, sok_places());
+        snprintf(b, sizeof b, "%g", vb * f);
         snprintf(buf, sizeof buf,
-                 "%s      S = 1 / %g  \x81y %.3f\x82\x8d \x81z   %g\x82\x8d",
-                 p, sc, va * sc / 1000.0, vb * sc / 1000.0);
+                 "%s      S = 1 / %g  \x81y %s%s \x81z   %s%s",
+                 p, sc, a, u, b, u);
         return buf;
     }
     }
@@ -2265,7 +2348,11 @@ const char *jw_cmd_prompt(void)
     }
     switch (current) {
     case JW_CMD_SOKUTEI:
-        /* 測定 asks for a 始点 and then 次の点 over and over */
+        /* 角度測定 walks 原点 → 基準点 → 角度点; the others ask for a
+           始点 and then 次の点 over and over */
+        if (sok_mode == SOK_ANG)
+            return sok_n == 0 ? JW_STR_5404
+                 : sok_n == 1 ? JW_STR_10117 : JW_STR_10118;
         return sok_n ? JW_STR_5323 : JW_STR_5320;
     case JW_CMD_KYORITEN:
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
@@ -6946,6 +7033,13 @@ int jw_cmd_bar_check(int id)
 
 int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
+    /* 測定's bar shares its ids with 範囲選択's, and the cases below are
+       written for that one -- so they would have greyed 距離測定 and
+       面積測定 out.  On 測定's bar everything is alive except
+       ○単独円指定, which dies while 角度測定 is chosen
+       (tools/probe130.sh). */
+    if (current == JW_CMD_SOKUTEI)
+        return id == 1068 ? sok_mode != SOK_ANG : 1;
     switch (id) {
     case 1120:
         /* 寸法 has 実行 here, and it is alive at exactly one
@@ -7288,6 +7382,30 @@ int jw_cmd_bar(jw_drawing *d, int id)
     if (current == JW_CMD_SUNPO && id == 1070) {
         sun_prog = !sun_prog;
         return 1;
+    }
+    /* 測定's bar: the four 〜測定 are one choice of four, and the two on
+       the right turn the unit and the number of places (src/cmd.c's 測定
+       note).  Pressing any of them starts the run over. */
+    if (current == JW_CMD_SOKUTEI) {
+        if (id >= SOK_LEN && id <= SOK_ANG) {
+            sok_mode = id;
+            sok_reset();
+            tail_set(4, 0.0, 0.0);
+            return 1;
+        }
+        if (id == 1069) {
+            /* while 角度測定 is chosen this button is 【 °】／ °′″
+               instead, and 度分秒 is not done -- so it does nothing
+               there rather than quietly turning the length unit */
+            if (sok_mode == SOK_ANG)
+                return 0;
+            sok_unit = !sok_unit;
+            return 1;
+        }
+        if (id == 1070) {
+            sok_dp = (sok_dp + 1) % 6;  /* 0 1 2 3 4 F とめぐる */
+            return 1;
+        }
     }
     /* 複線の 両側複線 (1068)・留線付両側複線 (1069)・連続 (1064).
      *
@@ -8569,6 +8687,25 @@ int jw_cmd_get_mode_now(void)
     return get_mode;
 }
 
+/* 測定's bar draws three of its labels from the command's own state:
+   which of the four is chosen, the unit and the number of places
+   (src/cmd.c's 測定 note). */
+int jw_cmd_sokutei_mode(void)
+{
+    return sok_mode;
+}
+
+int jw_cmd_sokutei_mm(void)
+{
+    return sok_unit;
+}
+
+/* 0..4, or 5 for F */
+int jw_cmd_sokutei_dp(void)
+{
+    return sok_dp;
+}
+
 /* what the two families leave behind, for whoever draws the status line */
 int jw_cmd_get_kata(double *out)
 {
@@ -8986,13 +9123,53 @@ placed:
 
         if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
             return;                     /* (R) with nothing to read */
-        if (sok_n) {
+        if (sok_mode == SOK_ANG) {
+            /* 原点 → 基準点 → 角度点 */
+            if (sok_n == 0) {
+                sok_x0 = rx;
+                sok_y0 = ry;
+                sok_n = 1;
+                /* while it asks for the 基準点 the original shows no
+                   readout at all (tools/probe129.sh) */
+                tail_set(0, 0.0, 0.0);
+                return;
+            }
+            if (sok_n == 1) {
+                sok_px = rx;
+                sok_py = ry;
+                sok_n = 2;
+                /* and from here it follows the mouse.  The port has no
+                   live angle to show, so it reads out the last one. */
+                tail_set(4, sok_total, 0.0);
+                return;
+            }
+            sok_total = (atan2(ry - sok_y0, rx - sok_x0)
+                         - atan2(sok_py - sok_y0, sok_px - sok_x0))
+                        * 180.0 / PI;
+            while (sok_total > 180.0)
+                sok_total -= 360.0;
+            while (sok_total <= -180.0)
+                sok_total += 360.0;
+            sok_n = 0;                  /* and it asks for an origin again */
+            tail_set(4, sok_total, 0.0);
+            return;
+        }
+        if (!sok_n) {
+            sok_x0 = rx;
+            sok_y0 = ry;
+            sok_seg = -0.0;             /* what the original reads out */
+        } else if (sok_mode == SOK_AREA) {
+            /* the triangle 始点・前の点・いまの点, with the screen's
+               y-down sign -- which makes this walk positive and the
+               closing step -0 */
+            sok_seg = -((sok_px - sok_x0) * (ry - sok_y0)
+                        - (rx - sok_x0) * (sok_py - sok_y0)) / 2.0;
+            sok_total += sok_seg;
+        } else {
             double dx = rx - sok_px, dy = ry - sok_py;
 
             sok_seg = sqrt(dx * dx + dy * dy);
             sok_total += sok_seg;
-        } else {
-            sok_seg = -0.0;             /* what the original reads out */
         }
         sok_px = rx;
         sok_py = ry;

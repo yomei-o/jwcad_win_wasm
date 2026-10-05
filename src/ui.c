@@ -3709,6 +3709,27 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                         jw_cmd_sunpo_decimals());
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
+            } else if (c[i].id == 1070 && jw_cmd() == 0x8081) {
+                /* 測定 の 小数桁: the label carries the number and the
+                   capture baked in the 3 the original was at.  Pressing it
+                   walks 0 1 2 3 4 F round (tools/probe130.sh). */
+                char t[32];
+                int k = jw_cmd_sokutei_dp();
+                sprintf(t, "\x8f\xac\x90\x94\x8c\x85 %c",
+                        k == 5 ? 'F' : (char)('0' + k));
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
+            } else if (c[i].id == 1069 && jw_cmd() == 0x8081) {
+                /* 測定 の 単位: the braces mark the one in force, and
+                   while 角度測定 is chosen the button is the degree
+                   format instead (tools/probe130.sh).  度分秒 is not
+                   done, so that one is drawn and left alone. */
+                const char *t = jw_cmd_sokutei_mode() == 1067
+                    ? "\x81y \x81\x8b\x81z\x81^ \x81\x8b\x81\x8c\x81\x8d"
+                    : jw_cmd_sokutei_mm() ? "\x81ymm\x81z / \x82\x8d"
+                                          : "mm / \x81y\x82\x8d\x81z";
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1062 && jw_cmd() == 0x804f) {
                 /* 寸法 の 端部: the label says which it is, and the
                    original writes the arrow as the two characters ->
