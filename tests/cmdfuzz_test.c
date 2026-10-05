@@ -45,6 +45,9 @@ static const unsigned short MENU_ONLY[] = {
     59393,      /* ステータスバー */
     32825,      /* 用紙サイズのポップアップ */
     32820, 32905,       /* Ａ-０ と 100m */
+    /* the dialogs put up from the original's own templates (src/app.c's
+       td_*): the walk then clicks and types inside them as well */
+    59392, 32995, 57664, 32977, 32979, 32980, 32984,
 };
 
 static unsigned long rng = 20260925u;
