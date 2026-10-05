@@ -1349,6 +1349,12 @@ int app_command(int cmd)
     case 32925:                         /* 寸法設定 */
         sd_start();
         return 1;
+    case 59393:                         /* 表示 > ステータスバー */
+        /* a tick: the status line goes away and the drawing area takes
+           the room (tools/probe134.sh).  The view's clip is read from
+           ui_view_rect on every paint, so there is nothing else to do. */
+        ui_status_show(!ui_status_shown());
+        return 1;
     case 32811:                         /* 画面倍率・文字表示 */
     case 32844:                         /* the same, from the status line */
         br_start();

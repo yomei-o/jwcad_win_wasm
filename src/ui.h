@@ -128,6 +128,11 @@ int ui_bar_ctl(unsigned cmd, int id, int *checked);
 int ui_bar_hit(int x, int y);
 /* which of the five boxes at the right of the status line, or -1 */
 int ui_status_hit(int x, int y, int cw, int ch);
+/* 表示 > ステータスバー (59393): the status line can be put away, and the
+   drawing area grows by what it was using (src/ui.c). */
+void ui_status_show(int on);
+int  ui_status_shown(void);
+
 /* and where that box is */
 void ui_status_box(int k, int cw, int ch, rect_t *r);
 

@@ -245,6 +245,10 @@ echo "=== 目盛基準点 —— 目盛を刻む原点を動かす一手"
 echo
 echo "=== レイヤ非表示化 —— 指した図形のレイヤを消す一手"
 ./tests/layhide_test.exe | sed 's/^/    /'
+
+echo
+echo "=== ステータスバー —— 仕舞うと作図面が広がる"
+./tests/statusbar_test.exe | sed 's/^/    /'
 ./tests/kankaku_test.exe | sed 's/^/    /'
 ./tests/renarc_test.exe | sed 's/^/    /'
 ./tests/copy2092_test.exe | sed 's/^/    /'

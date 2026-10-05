@@ -104,12 +104,40 @@ static const bar_t bars[] = {
 #define VIEW_R   78     /* client width  - 1 - last white column    */
 #define VIEW_B   21     /* client height - 1 - last white row       */
 
+/* 表示 > ステータスバー (59393) は状態表示を仕舞い、**ビューがその分
+ * 広がります**。原典に訊くと 1264x741 のフレームで 1108x686 だったビューが
+ * 1108x705 になりました（`tools/probe134.sh` の `viewrect`）—— 19 画素です。
+ * 移植の VIEW_B は白くなる所までの 21 画素なので、仕舞うと 2 だけ残って
+ * 705 になり、原典とぴったり合います。
+ *
+ * 同じ並びの ツールバー (59392) は**ただの小見出し**で（その下に個々の
+ * バーが並ぶ `MENU 400`）、投げても割り付けは動きません。
+ * ダイアログボックス (32953) も動きませんでした —— 絵は 2,439 画素
+ * 変わるのに見出しと菜単の帯だけで、何が起きているのかは分かっていません
+ * （`tools/probe127.sh`・`probe134.sh`）。 */
+static int status_hidden;
+
+void ui_status_show(int on)
+{
+    status_hidden = !on;
+}
+
+int ui_status_shown(void)
+{
+    return !status_hidden;
+}
+
+static int view_b(void)
+{
+    return status_hidden ? 2 : VIEW_B;
+}
+
 void ui_view_rect(int cw, int ch, rect_t *r)
 {
     r->x = VIEW_L;
     r->y = VIEW_T;
     r->w = cw - VIEW_R - VIEW_L;
-    r->h = ch - VIEW_B - VIEW_T;
+    r->h = ch - view_b() - VIEW_T;
 }
 
 /* A toolbar button: two nested one-pixel rings round a face.  Not DrawEdge --
@@ -1027,6 +1055,8 @@ int ui_status_hit(int x, int y, int cw, int ch)
 {
     int k;
 
+    if (status_hidden)
+        return -1;
     if (y < ui_bottom(PANE_T, ch) || y > ch - 1)
         return -1;
     for (k = 0; k < 5; k++)
@@ -3859,7 +3889,8 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
     paint_bar(fb, d);
     paint_layer_grids(fb, d);
     paint_samples(fb, d);
-    paint_status(fb);
+    if (!status_hidden)
+        paint_status(fb);
     status_text(fb, d, zoom);
     paint_buttons(fb, saveable, undoable);
 
