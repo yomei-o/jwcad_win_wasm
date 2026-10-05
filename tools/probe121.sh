@@ -1,17 +1,19 @@
 #!/bin/sh
-# 数値角度 (32938)・数値長 (32941)・軸角 (32962) —— 取得の残り三つ。
+# 小粒の命令の第一陣を、原典に図面を描かせて測ります。
 #
 #   sh tools/probe121.sh
 #
-# `tools/probe120.sh` で問いかけだけは分かりました:
+# `tools/probe120.sh` で問いかけは分かりました。ここでは**何が起きるか**を
+# 原典の .jww で取ります。
 #
-#   32938 数値角度  「数値を指示してください。」
-#   32941 数値長    「数値を指示してください。」
-#   32962 軸角      「軸角取得  基準線を指示してください。」
+#   32938 数値角度   「数値を指示してください。」—— 図面の数字（文字）を指す？
+#   32941 数値長     同じ
+#   32962 軸角       「軸角取得 基準線を指示してください。」
+#   32936 レイヤ非表示化「非表示にするレイヤの図形を指示してください」
+#   32928 寸法図形化 「寸法図形にする［寸法線］を指示してください。」
+#   32929 寸法図形解除「解除する寸法図形を指示してください。」
 #
-# 前の二つは**図面に書いてある数字（文字要素）を指す**のでしょう。
-# `tests/getang_test.c` と同じやり方で、取った場合と取らない場合の線を
-# 並べて較べます。軸角のほうは状態表示の角度そのものを見ます。
+# `tests/getang_test.c` と同じで、取った場合と取らない場合を並べます。
 cd "$(dirname "$0")/.."
 set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
@@ -25,14 +27,19 @@ run() {
 R='read:59393;'
 # a text reading 30 at (400,400), then back to 線 with 水平･垂直 off
 T='cmd:32806;type:30;400,400;cmd:32771;off:1333;'
+# a dimension across the top, then back to 線
+S='cmd:32847;ch:1411,0;400,250;400,200;r300,300;r700,300;cmd:32771;off:1333;'
 
-run base "${T}500,600;800,650;saveas:p121_base"
-run ang  "${T}raw:f,273,32938,0;wait:700;${R}405,395;${R}500,600;800,650;saveas:p121_ang"
-run len  "${T}raw:f,273,32941,0;wait:700;${R}405,395;${R}500,600;800,650;saveas:p121_len"
+run base "${T}500,600;800,650;saveas:decomp/res/getnumplain.jww"
+run ang  "${T}raw:f,273,32938,0;wait:700;${R}405,395;${R}500,600;800,650;saveas:decomp/res/getnumang.jww"
+run len  "${T}raw:f,273,32941,0;wait:700;${R}405,395;${R}500,600;800,650;saveas:decomp/res/getnumlen.jww"
 run jik  "off:1333;300,300;700,500;${R}raw:f,273,32962,0;wait:700;${R}500,400;${R}500,600;800,650;saveas:p121_jik"
+run hide "off:1333;300,300;700,500;raw:f,273,32936,0;wait:700;${R}500,400;${R}saveas:p121_hide"
+run dim  "${S}saveas:p121_dimbase"
+run dimg "${S}raw:f,273,32928,0;wait:700;${R}350,300;${R}saveas:p121_dimfig"
 idle
 echo
-for f in p121_base p121_ang p121_len p121_jik; do
+for f in p121_base p121_ang p121_len p121_jik p121_hide p121_dimbase p121_dimfig; do
     echo "--- $f"
-    python tools/jww.py "tmp/$f.jww" 2>/dev/null | grep -i "CDataSen\|CDataMoji" | sed 's/^/    /'
+    python tools/jww.py "tmp/$f.jww" 2>/dev/null | sed 's/^/    /' | head -24
 done

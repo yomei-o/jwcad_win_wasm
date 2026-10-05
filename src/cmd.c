@@ -685,22 +685,29 @@ static void op_push(int n)
  * the box is empty or the drawing is not there, which is what tells the
  * command to work the free way instead.
  */
+static double write_scale(const jw_drawing *d)
+{
+    int i, wg = 0;
+
+    if (!d)
+        return 1.0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    return d->group[wg].scale > 0.0 ? d->group[wg].scale : 1.0;
+}
+
 static double box_mm(const jw_drawing *d, int id)
 {
     const char *t = jw_cmd_box(id);
     double v;
-    int i, wg = 0;
 
     if (!t || !*t || !d)
         return 0.0;
     v = atof(t);
     if (v <= 0.0)
         return 0.0;
-    for (i = 0; i < 16; i++)
-        if (d->group[i].state == 3)
-            wg = i;
-    if (d->group[wg].scale > 0.0)
-        v /= d->group[wg].scale;
+    v /= write_scale(d);
     return box_len_ok(v) ? v : 0.0;
 }
 
@@ -2159,6 +2166,22 @@ const char *jw_cmd_prompt(void)
             return JW_STR_10118;
         if (get_mode == 32934)
             return get_step ? JW_STR_10118 : JW_STR_10117;
+        /* 数値角度・数値長 ask for a number written in the drawing
+           instead of a line (tools/probe120.sh) */
+        if (get_mode == 32938 || get_mode == 32941)
+            return JW_STR_10043;
+        /* 軸角 leads with its own word and then asks for the line the
+           way the others do (tools/probe120.sh) */
+        if (get_mode == 32962) {
+            static char jik[96];
+
+            if (!jik[0]) {
+                strncpy(jik, JW_STR_10020, sizeof jik - 1);
+                strncat(jik, "  ", sizeof jik - strlen(jik) - 1);
+                strncat(jik, JW_STR_5345, sizeof jik - strlen(jik) - 1);
+            }
+            return jik;
+        }
         return JW_STR_5345;
     }
     switch (current) {
@@ -8545,6 +8568,35 @@ static int get_click(jw_drawing *d, const jw_view *v,
 
     if (!d)
         return 1;
+    /* 数値角度 (32938) と 数値長 (32941).
+     *
+     * 問いかけは「数値を指示してください。」で、指すのは**図面に書いて
+     * ある数字**、つまり文字要素です。文字「30」を指したあとの一本を
+     * 原典に引かせると（`tools/probe121.sh`、縮尺 1/100 の図面）:
+     *
+     *   数値角度  線は **30 度**に出ます。長さはクリックをその向きへ
+     *             落としたぶん —— 線角度 (32932) とまったく同じ形で、
+     *             原典は 183.673, -30.612 のクリックから 143.77 mm の
+     *             線を引きました（183.673 cos30 − 30.612 sin30）
+     *   数値長    線は紙の上で **0.300 mm**。30 ÷ 100 なので、**30 は
+     *             実寸**です —— バーの箱とまったく同じ決まり（box_mm）
+     *
+     * 全角の数字や単位つきの文字を原典がどう読むかは訊いていません。 */
+    if (get_mode == 32938 || get_mode == 32941) {
+        const char *t;
+
+        i = jw_pick(d, v, x, y, 0);
+        if (i < 0 || d->obj[i].cls != JW_MOJI)
+            return 1;
+        t = jw_str(d, d->obj[i].text);
+        if (!t || !*t)
+            return 1;
+        if (get_mode == 32938)
+            get_take_angle(atof(t) * PI / 180.0);
+        else
+            get_take_length(atof(t) / write_scale(d));
+        return 1;
+    }
     if (get_mode == 32948) {
         /* a line first, then a point */
         if (get_step == 0) {
@@ -8608,6 +8660,19 @@ static int get_click(jw_drawing *d, const jw_view *v,
         const jw_obj *o = &d->obj[i];
         double a = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]);
 
+        /* 軸角 (32962) is the odd one out of the 角度取得 submenu: it does
+         * not leave a number for the next line, it **turns the drawing's
+         * axis**.  Asked of the original with a reference line at
+         * -26.565 degrees (tools/probe123.sh), the next line drawn with
+         * 水平･垂直 on came out along -26.565 instead of horizontal, and
+         * its length was the click projected on to that way -- exactly
+         * what 水平･垂直 does round any axis.  The problem it asks is
+         * 「軸角取得  基準線を指示してください。」. */
+        if (get_mode == 32962) {
+            jw_cmd_set_axis(a * 180.0 / PI);
+            get_mode = 0;
+            return 1;
+        }
         if (get_mode == 32939)
             get_take_length(sqrt((o->d[2] - o->d[0]) * (o->d[2] - o->d[0])
                                  + (o->d[3] - o->d[1]) * (o->d[3] - o->d[1])));

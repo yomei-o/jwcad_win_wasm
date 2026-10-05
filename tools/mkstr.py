@@ -47,6 +47,8 @@ WANT = [
     (10119, 'the far end of the two-point length grab'),
     (10117, 'the base point of the two-point angle grab'),
     (10118, 'and its angle point, which X-axis angle shows for both'),
+    (10043, 'the number grabs: point at a number written in the drawing'),
+    (10020, 'and the axis-angle grab leads with this'),
     (6159, 'the tail those two modes put on: anticlockwise'),
     (6158, 'and the name of the one, the circumference'),
     (6157, 'and of the other, the angle'),

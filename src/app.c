@@ -1377,8 +1377,11 @@ int app_command(int cmd)
     case 32933:                         /* 同           X軸角度 */
     case 32934:                         /* 同           ２点間角度 */
     case 32935:                         /* 同           線鉛直角度 */
+    case 32938:                         /* 同           数値角度 */
+    case 32962:                         /* 同           軸角 */
     case 32939:                         /* 設定 > 長さ取得 > 線長 */
     case 32940:                         /* 同           ２点間長 */
+    case 32941:                         /* 同           数値長 */
     case 32948:                         /* 同           間隔取得 */
         jw_cmd_get_mode(cmd);
         return 1;
