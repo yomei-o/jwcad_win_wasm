@@ -15,6 +15,13 @@
 # takes twenty.
 #
 #   -q   stop before the parts that run the original
+#   -r   run none of the original, but make src/gen again all the same from
+#        what it answered before: those answers -- decomp/res/bars.txt and the
+#        rest -- are committed, and only the generators that read them are
+#        run.  A machine that did not drive the original itself (a build VM,
+#        a second checkout) otherwise keeps a src/gen/bars.h that is missing
+#        every bar captured since, and the tests of those commands fail there
+#        and nowhere else.
 set -e
 cd "$(dirname "$0")/.."
 [ -f orig/Jw_win.exe ] || { echo "expand the installer into orig/ first -- see README.md" >&2; exit 1; }
@@ -67,17 +74,28 @@ $CC -O2 -o tmp/gdiwide.exe tools/gdiwide.c -lgdi32
 say 'where GDI puts the dashes on an arc'
 # Not baked into src/gen: nothing reads it yet.  It is the evidence for what
 # the port still gets wrong about a dashed arc -- see RESUME.md.
+# (and not with -r: on a build VM over ssh it never comes back -- GDI
+# there is the emulator's -- and the table it writes is committed)
+if [ "$1" != "-r" ]; then
 $CC -O2 -o tmp/gdiarc.exe tools/gdiarc.c -lgdi32 -lm
 ./tmp/gdiarc.exe --table > decomp/res/arcdash.txt
+fi
 python tools/mkwide.py
 
 [ "$1" = "-q" ] && { echo; echo "stopped before the parts that run the original"; exit 0; }
 
+# -r: everything below still runs, but not the original
+REGEN=
+[ "$1" = "-r" ] && REGEN=1
+ps() { [ -n "$REGEN" ] && return 0; powershell "$@"; }
+refenv() { [ -n "$REGEN" ] && return 0; sh tools/refenv.sh "$@"; }
+[ -n "$REGEN" ] && { echo; echo "-r: the original's answers in decomp/res are used as they are"; }
+
 say 'the original has to run from here on'
-sh tools/refenv.sh
+refenv
 
 say 'the command bar for each command, read out of the running original'
-powershell -ExecutionPolicy Bypass -File tools/bars.ps1 -Out decomp/res/bars.txt >/dev/null
+ps -ExecutionPolicy Bypass -File tools/bars.ps1 -Out decomp/res/bars.txt >/dev/null
 # and the bar a few commands put up once a range is settled, which
 # tools/bars.ps1 cannot reach -- one run each, because after the first the
 # command is still holding a copy and the next one's clicks miss
@@ -86,30 +104,32 @@ powershell -ExecutionPolicy Bypass -File tools/bars.ps1 -Out decomp/res/bars.txt
 # further down.  On a fresh tree that left all three of these bars out of
 # src/gen/bars.h, so draw it here when it is not there yet.
 if [ ! -f decomp/res/new.jww ]; then
-    sh tools/refenv.sh >/dev/null
-    powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1         -Open '' -Clicks 'saveas:decomp/res/new.jww' >/dev/null
+    refenv >/dev/null
+    ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1         -Open '' -Clicks 'saveas:decomp/res/new.jww' >/dev/null
 fi
+if [ -z "$REGEN" ]; then
 : > decomp/res/bars2.txt
 for c in 32804 32918 32910; do
-    sh tools/refenv.sh >/dev/null
-    powershell -ExecutionPolicy Bypass -File tools/bars2.ps1 \
+    refenv >/dev/null
+    ps -ExecutionPolicy Bypass -File tools/bars2.ps1 \
         -Cmd $c -Out tmp/bar2_$c.txt >/dev/null
     cat tmp/bar2_$c.txt >> decomp/res/bars2.txt
 done
+fi
 # and the bars again with one box ticked -- a command bar is not one fixed
 # row of controls: 矩形's ソリッド takes 多重 away and brings (対角線)・
 # 任意色・the colour button.  Without these the port draws the bar it was
 # captured in and the rest of the command cannot be reached.
-sh tools/refenv.sh >/dev/null
-powershell -ExecutionPolicy Bypass -File tools/bars3.ps1     -Pairs '32772:1334' -Out decomp/res/bars3.txt >/dev/null
+refenv >/dev/null
+ps -ExecutionPolicy Bypass -File tools/bars3.ps1     -Pairs '32772:1334' -Out decomp/res/bars3.txt >/dev/null
 python tools/mkbars.py
 
 say '線属性 dialog, likewise'
 # The picture goes to tmp/: docs/ref_zoku.png is the committed reference and
 # tests/zoku_test.c scores the port against it.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Open tmp/rect.jww -NoSave -Out decomp/res/zoku.txt \
     -Clicks 'dlg:32807,tmp/zoku.png' >/dev/null
 python tools/mkzoku.py
@@ -118,66 +138,66 @@ say '書込み文字種変更 dialog, likewise'
 # The 文字 command's bar has the button that opens it, so the command has to
 # be in force first.  docs/ref_moji.png is the committed reference and
 # tests/moji_test.c scores the port against it.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Open tmp/rect.jww -NoSave -Out decomp/res/moji.txt \
     -Clicks 'cmd:32806;dlg:b1843,tmp/moji.png' >/dev/null
 python tools/mkmoji.py
 
-say '文字基点設定 dialog, the 文字 bar's 基点 (1064)'
+say "文字基点設定 dialog, the 文字 bar's 基点 (1064)"
 # docs/ref_mojikijun.png is the committed reference and
 # tests/mojikijun_test.c scores the port against it.  What the nine radios
 # do to a placed text is tools/probe62.sh and tests/mojidraw_test.c.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/mojikijun.txt     -Clicks 'cmd:32806;dlg:b1064,docs/ref_mojikijun.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/mojikijun.txt     -Clicks 'cmd:32806;dlg:b1064,docs/ref_mojikijun.png' >/dev/null
 python tools/mkmojikijun.py
 
 say '属性選択 dialog, likewise'
 # 範囲選択 with a box already in has the button that opens it, so the command
 # and the box have to come first.  docs/ref_zokusel.png is the committed
 # reference and tests/zokusel_test.c scores the port against it.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokusel.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1069,docs/ref_zokusel.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokusel.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1069,docs/ref_zokusel.png' >/dev/null
 python tools/mkzokusel.py
 
 say 'ブロック化 dialog, likewise'
 # The command asks for a name once a range is in.  docs/ref_blkname.png is
 # the committed reference and tests/blkmake_test.c scores the port against it.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkname.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:32853,docs/ref_blkname.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkname.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:32853,docs/ref_blkname.png' >/dev/null
 python tools/mkblkname.py
 
 say '属性変更 dialog -- the other half of the 属性選択 window'
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokuhen.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1070,docs/ref_zokuhen.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/zokuhen.txt     -Clicks 'cmd:32787;250,250;850,550;dlg:b1070,docs/ref_zokuhen.png' >/dev/null
 python tools/mkzokuhen.py
 
 say '寸法設定 dialog'
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/sunpodlg.txt     -Clicks 'dlg:32925,docs/ref_sunpodlg.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/sunpodlg.txt     -Clicks 'dlg:32925,docs/ref_sunpodlg.png' >/dev/null
 python tools/mksunpodlg.py
 
 say '画面倍率・文字表示 dialog'
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/bairitsu.txt     -Clicks 'dlg:32811,docs/ref_bairitsu.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/bairitsu.txt     -Clicks 'dlg:32811,docs/ref_bairitsu.png' >/dev/null
 python tools/mkbairitsu.py
 
 say '軸角・目盛・オフセット dialog'
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/jikkaku.txt     -Clicks 'dlg:32842,docs/ref_jikkaku.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/jikkaku.txt     -Clicks 'dlg:32842,docs/ref_jikkaku.png' >/dev/null
 python tools/mkjikkaku.py
 
 say '縮尺・読取設定のダイアログ'
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/shakudo.txt     -Clicks 'dlg:32944,docs/ref_shakudo.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/shakudo.txt     -Clicks 'dlg:32944,docs/ref_shakudo.png' >/dev/null
 python tools/mkshakudo.py
 python tools/mkskradio.py
 
@@ -186,10 +206,10 @@ say 'レイヤ設定のダイアログと、その釦に載るレイヤ状態の
 # layers are in a mix of states and only some of them have anything on
 # them, which is what the eight button faces need.
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/layerdlg.txt     -Clicks 'dlg:32808,docs/ref_layerdlg.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/layerdlg.txt     -Clicks 'dlg:32808,docs/ref_layerdlg.png' >/dev/null
 python tools/mklayerdlg.py
-sh tools/probe11.sh >/dev/null 2>&1 || true
-sh tools/probe12.sh >/dev/null 2>&1 || true
+[ -n "$REGEN" ] || sh tools/probe11.sh >/dev/null 2>&1 || true
+[ -n "$REGEN" ] || sh tools/probe12.sh >/dev/null 2>&1 || true
 python tools/mklayicon.py
 python tools/mkgrpicon.py
 python tools/mklaytab.py
@@ -197,9 +217,9 @@ python tools/mklaytab.py
 say '基本設定 dialog, all eight tabs'
 # The original does not build a tab's controls until it is shown, so each
 # one is read with a dlgat: -- open the dialog, click that tab, read it.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/kihon.txt     -Clicks 'dlgat:32891,docs/ref_kihon1.png,12320,26,10;dlgat:32891,docs/ref_kihon2.png,12320,77,10;dlgat:32891,docs/ref_kihon3.png,12320,128,10;dlgat:32891,docs/ref_kihon4.png,12320,180,10;dlgat:32891,docs/ref_kihon5.png,12320,227,10;dlgat:32891,docs/ref_kihon6.png,12320,275,10;dlgat:32891,docs/ref_kihon7.png,12320,323,10;dlgat:32891,docs/ref_kihon8.png,12320,380,10' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/kihon.txt     -Clicks 'dlgat:32891,docs/ref_kihon1.png,12320,26,10;dlgat:32891,docs/ref_kihon2.png,12320,77,10;dlgat:32891,docs/ref_kihon3.png,12320,128,10;dlgat:32891,docs/ref_kihon4.png,12320,180,10;dlgat:32891,docs/ref_kihon5.png,12320,227,10;dlgat:32891,docs/ref_kihon6.png,12320,275,10;dlgat:32891,docs/ref_kihon7.png,12320,323,10;dlgat:32891,docs/ref_kihon8.png,12320,380,10' >/dev/null
 python tools/mkkihon.py
 
 say 'what the original puts at the top of a DXF'
@@ -208,20 +228,20 @@ say 'what the original puts at the top of a DXF'
 # DXF, and the colours it gives each pen are in the entities.
 $CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c
 ./tmp/mkpens.exe orig/Test5.jww tmp/pens.jww
-sh tools/refenv.sh >/dev/null
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
+refenv >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \
     -Open tmp/pens.jww -NoSave -Clicks 'export:32961,decomp/res/pens.dxf' >/dev/null
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 python tools/mkdxf.py
 
 say 'the drawings the original itself makes, which the tests are scored against'
-sh tools/refanswers.sh
+[ -n "$REGEN" ] || sh tools/refanswers.sh
 
 say 'ブロック編集 dialog, which needs the block drawing refanswers.sh has just made'
 # It needs a drawing with a block in it and a range over it.
-sh tools/refenv.sh >/dev/null
+refenv >/dev/null
 cp decomp/res/blkmake.jww tmp/rect.jww
-powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/blkedit.txt     -Clicks 'cmd:32787;100,100;r1150,650;dlg:32986,docs/ref_blkedit.png' >/dev/null
 python tools/mkblkedit.py
 
 python tools/mknew.py decomp/res/new.jww src/gen
