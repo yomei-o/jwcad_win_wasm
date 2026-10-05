@@ -4109,6 +4109,9 @@ void ui_tdlg(fb_t *fb, int t, const unsigned char *on,
             fb_fill(fb, x + 2, y + 2, c->w - 4, c->h - 4, 0xffffffu);
             zs_text(fb, x + 3, y + (c->h - th) / 2, c->w - bw - 8,
                     txt && txt[i] ? txt[i] : "", col);
+            if (caret == c->id)         /* a combo that can be typed into */
+                fb_fill(fb, x + 3 + jw_text_px_w(txt && txt[i] ? txt[i] : ""),
+                        y + (c->h - th) / 2, 1, th, C_BTNTEXT);
             td_button(fb, x + c->w - 2 - bw, y + 2, bw, c->h - 4, 0);
             for (k = 0; k < 4; k++)     /* the little arrow */
                 fb_fill(fb, ax - 3 + k, ay - 1 + k, 7 - 2 * k, 1, C_BTNTEXT);
@@ -4219,4 +4222,56 @@ int ui_tdlg_ctl_xy(int t, int i, rect_t *out)
     out->w = c->w;
     out->h = c->h;
     return 1;
+}
+
+/* A combo's list, dropped under it: `n` rows of `items`, eight at most
+   showing, `sel` lit.  The original's dropdown has not been photographed,
+   so this is drawn the way the 色No. one is. */
+#define TDROP_ROWS 8
+static int tdrop_rect(int cw, int ch, int t, int i, int n, rect_t *r)
+{
+    rect_t c;
+
+    if (n <= 0 || !ui_tdlg_ctl_rect(cw, ch, t, i, &c))
+        return 0;
+    if (n > TDROP_ROWS)
+        n = TDROP_ROWS;
+    r->x = c.x;
+    r->y = c.y + c.h;
+    r->w = c.w;
+    r->h = n * jw_text_height() + 2;
+    return 1;
+}
+
+void ui_tdlg_drop(fb_t *fb, int t, int i, const char *const *items, int n,
+                  int sel)
+{
+    rect_t r;
+    int k, th = jw_text_height();
+
+    if (!tdrop_rect(fb->w, fb->h, t, i, n, &r))
+        return;
+    fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNHILIGHT);
+    fb_edge(fb, r.x, r.y, r.w, r.h, C_3DDKSHADOW, C_3DDKSHADOW);
+    for (k = 0; k < n && k < TDROP_ROWS; k++) {
+        int yy = r.y + 1 + k * th;
+
+        if (k == sel)
+            fb_fill(fb, r.x + 1, yy, r.w - 2, th, C_BTNSHADOW);
+        zs_text(fb, r.x + 3, yy, r.w - 6, items[k],
+                k == sel ? C_BTNHILIGHT : C_BTNTEXT);
+    }
+}
+
+/* the row of the dropped list under (x,y), -1 if none */
+int ui_tdlg_drop_hit(int cw, int ch, int t, int i, int n, int x, int y)
+{
+    rect_t r;
+    int row;
+
+    if (!tdrop_rect(cw, ch, t, i, n, &r) || x < r.x || x >= r.x + r.w
+        || y < r.y + 1 || y >= r.y + r.h - 1)
+        return -1;
+    row = (y - r.y - 1) / jw_text_height();
+    return row >= 0 && row < n && row < TDROP_ROWS ? row : -1;
 }

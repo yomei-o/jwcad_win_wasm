@@ -315,7 +315,17 @@ static void zsel_start(void)
 
     for (i = 0; i < n && i < (int)sizeof zsel_on; i++)
         zsel_on[i] = (unsigned char)(ui_zokusel_id(i) == 1323);
+    jw_cmd_zokusel_name("");
     zsel_open = 1;
+}
+
+static void zsel_tick(int id, int on)
+{
+    int i, n = ui_zokusel_n();
+
+    for (i = 0; i < n && i < (int)sizeof zsel_on; i++)
+        if (ui_zokusel_id(i) == id)
+            zsel_on[i] = (unsigned char)(on != 0);
 }
 
 /* Which kinds the ticks add up to, for jw_cmd_zokusel. */
@@ -1083,6 +1093,11 @@ static const char *td_txtp[TD_MAX];
 static int td_drop[TD_MAX];
 static int td_caret;                    /* the edit box being typed into */
 static int td_tpl;                      /* the template it came from */
+/* a combo's list, dropped: which control (-1 for none) and its rows */
+#define TD_LIST 64
+static char td_items[TD_LIST][64];
+static const char *td_itemp[TD_LIST];
+static int td_nitems, td_dl = -1;
 
 static const struct { unsigned short cmd, tpl; } TD_CMD[] = {
     { 59392, 273 },     /* 表示 > ツールバー -- ツールバーの表示 */
@@ -1149,15 +1164,160 @@ static int td_start(int tpl)
     td_t = t;
     td_tpl = tpl;
     td_open = 1;
+    td_dl = -1;
     return 1;
+}
+
+static int td_item_cmp(const void *a, const void *b)
+{
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* What a combo lists, for the ones the port fills: ブロック名を指定して選択's
+   name box has the drawing's blocks, sorted as its CBS_SORT keeps them and
+   without the @@SfigorgFlag@@n on the end.  0 when it lists nothing. */
+static int td_fill_list(int id)
+{
+    int i, k;
+
+    td_nitems = 0;
+    if (td_tpl != 340 || id != 2435 || !have_drawing)
+        return 0;
+    for (i = drawing.ndrawn; i < drawing.nobj && td_nitems < TD_LIST; i++) {
+        const char *p, *q;
+        size_t n;
+        char *t = td_items[td_nitems];
+
+        if (drawing.obj[i].cls != JW_LIST)
+            continue;
+        p = jw_str(&drawing, drawing.obj[i].text);
+        q = strstr(p, "@@");
+        n = q ? (size_t)(q - p) : strlen(p);
+        if (n > sizeof td_items[0] - 1)
+            n = sizeof td_items[0] - 1;
+        memcpy(t, p, n);
+        t[n] = 0;
+        for (k = 0; k < td_nitems && strcmp(td_items[k], t); k++)
+            ;
+        if (k == td_nitems && n)
+            td_itemp[td_nitems++] = t;
+    }
+    qsort(td_itemp, (size_t)td_nitems, sizeof td_itemp[0], td_item_cmp);
+    return td_nitems;
+}
+
+/* ブロック名を指定して選択 (340) closing over 属性選択, as FUN_00609a10
+   has it: OK keeps the name and ticks ブロック指定 (1802) as well, and
+   anything else takes ブロック名指定 back off */
+static void bn_close(int ok)
+{
+    int i = ui_tdlg_index(td_t, 2435);
+
+    td_open = 0;
+    if (!ok) {
+        zsel_tick(2412, 0);
+        jw_cmd_zokusel_name("");
+        return;
+    }
+    jw_cmd_zokusel_name(i >= 0 && i < TD_MAX ? td_txt[i] : "");
+    zsel_tick(1802, 1);
+}
+
+/* 作図属性設定 (342): its four 書込み ticks are 複写・移動's (src/cmd.c's
+   za_on), the others are kept here from one opening to the next and do
+   nothing yet */
+static const short ZA_ID[4] = { 1324, 1323, 1325, 1326 };
+static const short ZA_KEEP_ID[5] = { 1322, 2114, 1328, 2250, 2556 };
+static unsigned char za_keep[5];
+
+static void za_tick(int id, int on)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    if (i >= 0 && i < TD_MAX)
+        td_on[i] = (unsigned char)(on != 0);
+}
+
+static int za_ticked(int id)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    return i >= 0 && i < TD_MAX && td_on[i];
+}
+
+static void za_open(void)
+{
+    int k;
+
+    if (!td_start(342))
+        return;
+    for (k = 0; k < 4; k++)
+        za_tick(ZA_ID[k], jw_cmd_zuzoku(k));
+    for (k = 0; k < 5; k++)
+        za_tick(ZA_KEEP_ID[k], za_keep[k]);
+}
+
+static void za_save(void)
+{
+    int k;
+
+    for (k = 0; k < 4; k++)
+        jw_cmd_zuzoku_set(k, za_ticked(ZA_ID[k]));
+    for (k = 0; k < 5; k++)
+        za_keep[k] = (unsigned char)za_ticked(ZA_KEEP_ID[k]);
+}
+
+/* the dialog's own answers (FUN_004aec10, 004aec70, 004aecb0):
+   ◇元レイヤ・元線色・元線種 takes the four off and closes as OK does, and
+   書込み【レイヤ】 and 書込みレイヤグループ each take the other off */
+static int za_press(int id)
+{
+    int k;
+
+    if (id == 1)
+        za_save();
+    if (id == 1064) {
+        for (k = 0; k < 4; k++)
+            za_tick(ZA_ID[k], 0);
+        za_save();
+        td_open = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static void za_after(int id)
+{
+    if (id == 1325 && za_ticked(1325))
+        za_tick(1326, 0);
+    if (id == 1326 && za_ticked(1326))
+        za_tick(1325, 0);
 }
 
 static int press_tdlg(int x, int y)
 {
-    int id = ui_tdlg_hit(fb.w, fb.h, td_t, x, y), i, k, n, kind, flags;
+    int id, i, k, n, kind, flags;
 
+    if (td_dl >= 0) {                   /* a list is down: it takes the press */
+        int row = ui_tdlg_drop_hit(fb.w, fb.h, td_t, td_dl, td_nitems, x, y);
+
+        if (row >= 0) {
+            strncpy(td_txt[td_dl], td_itemp[row], sizeof td_txt[0] - 1);
+            td_txt[td_dl][sizeof td_txt[0] - 1] = 0;
+            td_drop[td_dl] = 0;
+        }
+        td_dl = -1;
+        return 1;
+    }
+    id = ui_tdlg_hit(fb.w, fb.h, td_t, x, y);
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
+    if (td_tpl == 342 && za_press(id))
+        return 1;
+    if (td_tpl == 340 && (id == 1 || id == 2)) {
+        bn_close(id == 1);
+        return 1;
+    }
     if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
         td_open = 0;
         return 1;
@@ -1165,9 +1325,11 @@ static int press_tdlg(int x, int y)
     i = ui_tdlg_index(td_t, id);
     if (i < 0 || i >= TD_MAX || !ui_tdlg_ctl(td_t, i, 0, &kind, &flags))
         return 1;
-    if (kind == UI_TC_CHECK)
+    if (kind == UI_TC_CHECK) {
         td_on[i] = (unsigned char)!td_on[i];
-    else if (kind == UI_TC_RADIO) {
+        if (td_tpl == 342)
+            za_after(id);
+    } else if (kind == UI_TC_RADIO) {
         /* the run it is in: back to the control that starts the group,
            on to the next one that starts another */
         int a = i, b = i, f;
@@ -1186,6 +1348,8 @@ static int press_tdlg(int x, int y)
         td_on[i] = 1;
     } else if (kind == UI_TC_EDIT)
         td_caret = id;
+    else if (kind == UI_TC_COMBO && td_fill_list(id))
+        td_dl = i;
     return 1;
 }
 
@@ -1396,6 +1560,13 @@ static int td_key(int c)
 {
     int i = ui_tdlg_index(td_t, td_caret);
 
+    td_dl = -1;                         /* a key puts the list away */
+    if (c == 13 && td_tpl == 342)       /* Enter is OK */
+        za_save();
+    if ((c == 13 || c == 27) && td_tpl == 340) {
+        bn_close(c == 13);
+        return 1;
+    }
     if (c == 13 && td_tpl == 314) {     /* 数値入力's OK writes back */
         kp_ok();
         return 1;
@@ -1596,8 +1767,10 @@ static int press_zokusel(int x, int y)
            ブロック名を指定して選択 (template 340) on top of this one --
            CZokuseiSelHenkouDialog's handler for 2412 builds it (its
            message map, read by tools/cmddlg.py's method) */
-        if (id == 2412 && zsel_on[i])
-            td_start(340);
+        if (id == 2412 && zsel_on[i] && td_start(340))
+            td_caret = 2435;            /* the name box takes the typing */
+        if (id == 2412 && !zsel_on[i])
+            jw_cmd_zokusel_name("");
         /* the two at the bottom are one choice */
         if (zsel_on[i] && (id == 1323 || id == 1324)) {
             int k, other = id == 1323 ? 1324 : 1323;
@@ -2049,7 +2222,7 @@ int app_press(int x, int y, int button)
            range selection's. */
         if (id == 1070 && jw_cmd_sel_stage() == 3
             && (jw_cmd() == JW_CMD_FUKUSHA || jw_cmd() == JW_CMD_IDOU)) {
-            td_start(342);
+            za_open();
             return 1;
         }
         if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
@@ -2791,8 +2964,11 @@ void app_paint(void)
         ui_kihon(&fb, kh_tab, kh_on[kh_tab]);
     if (jk_open)
         ui_jikkaku(&fb, jk_angle, jk_on, 1);
-    if (td_open)
+    if (td_open) {
         ui_tdlg(&fb, td_t, td_on, td_txtp, td_caret);
+        if (td_dl >= 0)
+            ui_tdlg_drop(&fb, td_t, td_dl, td_itemp, td_nitems, -1);
+    }
     if (sd_open)
         ui_sunpodlg(&fb, sd_on, sd_caret, sd_edit);
     if (br_open)

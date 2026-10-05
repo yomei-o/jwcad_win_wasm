@@ -23,6 +23,7 @@
 #include "../src/cmd.h"
 
 static int fails;
+static void press_ctl(int id, int button);
 
 static void ck(int ok, const char *what)
 {
@@ -217,6 +218,55 @@ static void copy_attributes(void)
     }
 }
 
+/* 作図属性設定's 書込み ticks: what 複写 puts down takes the write layer and
+   colour instead of its own.  The decompilation's reading (FUN_00653fe0),
+   not asked of the original. */
+static void copy_takes_write_attributes(void)
+{
+    jw_drawing *d;
+    const jw_obj *o;
+    int n;
+
+    app_new();
+    app_command(32771);                 /* 線, on layer 0 in colour 2 */
+    app_press(400, 300, 0);
+    app_press(600, 400, 0);
+    app_command(32804);                 /* 複写 */
+    app_press(300, 200, 0);
+    app_press(700, 500, 0);
+    app_move(500, 350);
+    press_bar_id(1120);
+    press_bar_id(1070);
+    ck(app_tdlg_tpl() == 342, "作図属性設定 is up for the ticks");
+    press_ctl(1323, 0);                 /* 書込み線色 */
+    press_ctl(1326, 0);                 /* 書込みレイヤグループ */
+    press_ctl(1325, 0);                 /* 書込み【レイヤ】, which takes it off */
+    ck(app_tdlg_on(ui_tdlg_index(app_tdlg_open(), 1325))
+       && !app_tdlg_on(ui_tdlg_index(app_tdlg_open(), 1326)),
+       "  書込み【レイヤ】 takes 書込みレイヤグループ off");
+    press_ctl(1, 0);
+    ck(!app_modal() && jw_cmd_zuzoku(1) && jw_cmd_zuzoku(2)
+       && !jw_cmd_zuzoku(0) && !jw_cmd_zuzoku(3), "  OK keeps the ticks");
+    d = (jw_drawing *)app_drawing();
+    d->group[0].write_layer = 5;
+    d->write_ltype = 1;
+    d->write_color = 6;
+    n = d->ndrawn;
+    app_press(800, 300, 0);             /* where the copy goes */
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == n + 1 && o->layer == 5 && o->color == 6 && o->ltype == 1,
+       "  and the copy goes onto the write layer in the write colour");
+    ck(d->obj[0].layer == 0 && d->obj[0].color != 6,
+       "  while the line it was copied from keeps its own");
+    press_bar_id(1070);
+    ck(app_tdlg_tpl() == 342
+       && app_tdlg_on(ui_tdlg_index(app_tdlg_open(), 1323)),
+       "  opened again it has them ticked");
+    press_ctl(1064, 0);                 /* ◇元レイヤ・元線色・元線種 */
+    ck(!app_modal() && !jw_cmd_zuzoku(1) && !jw_cmd_zuzoku(2),
+       "  and ◇元レイヤ・元線色・元線種 takes them all off and closes");
+}
+
 /* 属性選択's ブロック名指定 (2412) puts ブロック名を指定して選択 (340) up
    on top of it; Esc takes down the one on top, and the one under it is
    still there */
@@ -329,6 +379,118 @@ static void keypad(void)
        "  and Esc leaves the box as it was");
 }
 
+/* the control with this id in 属性選択, pressed */
+static int press_zokusel_id(int id)
+{
+    int x, y;
+
+    for (y = 0; y < 741; y++)
+        for (x = 0; x < 1264; x++)
+            if (ui_zokusel_hit(1264, 741, x, y) == id) {
+                app_press(x + 3, y + 3, 0);
+                return 1;
+            }
+    return 0;
+}
+
+/* a block named `name` made of the line in the box (x0,y0)-(x1,y1) */
+static void make_block(int x0, int y0, int x1, int y1, const char *name)
+{
+    app_command(32787);                 /* 範囲選択 */
+    app_press(x0, y0, 0);
+    app_press(x1, y1, 1);
+    app_command(32853);                 /* ブロック化 */
+    while (*name)
+        app_key(*name++);
+    app_key(13);
+}
+
+/* ブロック名指定 with a name: 属性選択 keeps the references to that block
+   and drops the others.  That OK ticks ブロック指定 as well and anything
+   else takes ブロック名指定 off is FUN_00609a10's; matching the name whole
+   is the port's guess. */
+static void block_name_narrows(void)
+{
+    const jw_drawing *d;
+    rect_t v;
+    int i, n = 0, which = -1;
+
+    app_new();
+    app_command(32771);
+    app_press(400, 300, 0);
+    app_press(450, 320, 0);
+    app_press(700, 300, 0);
+    app_press(750, 320, 0);
+    make_block(380, 280, 470, 340, "A");
+    make_block(680, 280, 770, 340, "B");
+    d = app_drawing();
+    for (i = 0; i < d->ndrawn; i++)
+        n += d->obj[i].cls == JW_BLOCK;
+    ck(n == 2, "two blocks, A and B, to pick from");
+    app_command(32787);
+    ui_view_rect(1264, 741, &v);
+    app_press(v.x + 20, v.y + 20, 0);
+    app_press(v.x + v.w - 20, v.y + v.h - 20, 1);
+    ck(jw_cmd_sel_count(d) == 2, "  a box round both picks both");
+    press_bar_id(1069);
+    press_zokusel_id(2412);
+    ck(app_tdlg_tpl() == 340, "  ブロック名指定 asks for the name");
+    {   /* its box drops the drawing's blocks, sorted: A is the first row */
+        int t = app_tdlg_open(), c = ui_tdlg_index(t, 2435), x, y, got = 0;
+
+        press_ctl(2435, 0);
+        for (y = 0; y < 741 && !got; y++)
+            for (x = 0; x < 1264 && !got; x++)
+                if (ui_tdlg_drop_hit(1264, 741, t, c, 2, x, y) == 0) {
+                    app_press(x, y, 0);
+                    got = 1;
+                }
+        ck(got && !strcmp(app_tdlg_text(c), "A"),
+           "  its box lists the blocks, and the first row is A");
+    }
+    app_key(13);
+    ck(app_tdlg_open() < 0 && app_zokusel_open(),
+       "  Enter takes the small one down, 属性選択 stays");
+    for (i = 0; i < ui_zokusel_n(); i++)
+        if (ui_zokusel_id(i) == 1802)
+            which = i;
+    ck(which >= 0 && app_zokusel_on()[which],
+       "  and ブロック指定 has been ticked with it");
+    press_zokusel_id(1);
+    n = 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel) {
+            n++;
+            which = i;
+        }
+    ck(n == 1 && d->obj[which].cls == JW_BLOCK,
+       "  OK leaves the one block picked");
+    {   /* and it is A's: the reference whose definition is named A */
+        int k, ok = 0;
+
+        for (k = d->ndrawn; k < d->nobj; k++)
+            if (d->obj[k].cls == JW_LIST
+                && d->obj[k].list[0] == d->obj[which].block)
+                ok = !strncmp(jw_str(d, d->obj[k].text), "A", 1)
+                     && jw_str(d, d->obj[k].text)[1] != 'B';
+        ck(ok, "  and it is the one named A");
+    }
+
+    /* キャンセル takes ブロック名指定 back off */
+    app_command(32787);
+    app_press(v.x + 20, v.y + 20, 0);
+    app_press(v.x + v.w - 20, v.y + v.h - 20, 1);
+    press_bar_id(1069);
+    press_zokusel_id(2412);
+    app_key(27);
+    for (i = 0, which = -1; i < ui_zokusel_n(); i++)
+        if (ui_zokusel_id(i) == 2412)
+            which = i;
+    ck(app_tdlg_open() < 0 && which >= 0 && !app_zokusel_on()[which],
+       "  Esc there takes ブロック名指定 back off");
+    app_key(27);
+}
+
 /* The command bars, against their templates.  A bar is a child dialog 462
    units wide, laid out by the same sum, and the strip puts it 6 pixels in
    and 5 down.  For every bar the port read off the original
@@ -414,6 +576,8 @@ int main(void)
     copy_attributes();
     block_name_over_zokusel();
     keypad();
+    copy_takes_write_attributes();
+    block_name_narrows();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

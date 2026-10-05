@@ -228,6 +228,8 @@ enum {
  */
 int  jw_cmd_zokusel(jw_drawing *d, int mask, int exclude, int color,
                     int ltype);
+/* the block name ブロック名指定 narrows ブロック指定 to, "" for none */
+void jw_cmd_zokusel_name(const char *name);
 
 /* 属性変更 (範囲選択's 1070) -- the same dialog with its other half showing.
  * Only the two that could be driven are done: 書込【レイヤ】に変更 moves
@@ -423,5 +425,10 @@ int  jw_cmd_box_focus(void);
 void jw_cmd_box_click(int id);      /* a press on one: it takes the typing */
 int  jw_cmd_box_key(int c);         /* a character; 1 if it was taken */
 int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
+
+/* 作図属性設定's four ticks for 複写・移動: 0 書込み線種, 1 書込み線色,
+   2 書込み【レイヤ】, 3 書込みレイヤグループ */
+int  jw_cmd_zuzoku(int k);
+void jw_cmd_zuzoku_set(int k, int on);
 
 #endif

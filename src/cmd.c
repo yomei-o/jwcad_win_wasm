@@ -7140,6 +7140,42 @@ int jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
     return n;
 }
 
+/* ブロック名指定: the name ブロック名を指定して選択 was given, "" for any.
+   With one, ブロック指定 means the references to that block only.  The
+   original keeps the name (CZokuseiSelHenkouDialog +0xe0) and ticks
+   ブロック指定 as the small dialog closes (FUN_00609a10); that the name is
+   matched whole, without the @@SfigorgFlag@@n on the end, is the port's
+   guess and has not been asked of the original. */
+static char zok_name[80];
+static const jw_drawing *zok_d;
+
+void jw_cmd_zokusel_name(const char *name)
+{
+    strncpy(zok_name, name ? name : "", sizeof zok_name - 1);
+    zok_name[sizeof zok_name - 1] = 0;
+}
+
+static int zok_named(const jw_obj *o)
+{
+    int i;
+
+    if (!zok_name[0] || !zok_d)
+        return 1;
+    for (i = zok_d->ndrawn; i < zok_d->nobj; i++) {
+        const jw_obj *l = &zok_d->obj[i];
+        const char *p, *q;
+        size_t n;
+
+        if (l->cls != JW_LIST || l->list[0] != o->block)
+            continue;
+        p = jw_str(zok_d, l->text);
+        q = strstr(p, "@@");
+        n = q ? (size_t)(q - p) : strlen(p);
+        return n == strlen(zok_name) && !strncmp(p, zok_name, n);
+    }
+    return 0;
+}
+
 /* Whether an element is one of the kinds the 属性選択 dialog has ticked. */
 static int zok_is(const jw_obj *o, int mask)
 {
@@ -7151,7 +7187,7 @@ static int zok_is(const jw_obj *o, int mask)
     case JW_TEN:   return (mask & JW_ZOK_TEN) != 0;
     case JW_MOJI:  return (mask & JW_ZOK_MOJI) != 0;
     case JW_SOLID: return (mask & JW_ZOK_SOLID) != 0;
-    case JW_BLOCK: return (mask & JW_ZOK_BLOCK) != 0;
+    case JW_BLOCK: return (mask & JW_ZOK_BLOCK) != 0 && zok_named(o);
     default:       return 0;
     }
 }
@@ -7174,6 +7210,7 @@ int jw_cmd_zokusel(jw_drawing *d, int mask, int exclude, int color,
 
     if (!d)
         return 0;
+    zok_d = d;
     for (i = 0; i < d->ndrawn; i++) {
         jw_obj *o = &d->obj[i];
         int off = 0;
@@ -7283,6 +7320,56 @@ static double sel_turn(void)
     return box_num(t, 0.0) * PI / 180.0;
 }
 
+/* 作図属性設定 (template 342), which the second bar's 作図属性 (1070)
+ * puts up.  Four of its ticks say what the elements 複写 and 移動 put down
+ * take from the ones being written now rather than keep their own:
+ * 書込み線種 (1324), 書込み線色 (1323), 書込み【レイヤ】 (1325) and
+ * 書込みレイヤグループ (1326).  The original keeps them on the bar
+ * (+0xc80, +0xc84, +0xc88, +0xc8c, in that order -- FUN_00651bb0 hands
+ * them to the dialog and back), copies them into CZukeiFukusha
+ * (+0xfd5c..+0xfd68) and applies them element by element as it places
+ * (FUN_00653fe0):
+ *
+ *   レイヤ or グループ  the element's group is the write group
+ *   レイヤ              and its layer the write layer
+ *   線種                its line type the write one -- not a solid's
+ *   線色                its colour and width the write ones
+ *
+ * That is the decompilation's reading and has not been asked of the
+ * original.  A text's colour is left alone: CDataMoji's own setter is
+ * behind the call and has not been read. */
+static int za_on[4];
+
+int jw_cmd_zuzoku(int k)
+{
+    return k >= 0 && k < 4 ? za_on[k] : 0;
+}
+
+void jw_cmd_zuzoku_set(int k, int on)
+{
+    if (k >= 0 && k < 4)
+        za_on[k] = on != 0;
+}
+
+static void za_apply(const jw_drawing *d, jw_obj *p)
+{
+    int g, wg = 0;
+
+    for (g = 0; g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    if (za_on[2] || za_on[3])
+        p->lgroup = (unsigned short)wg;
+    if (za_on[2])
+        p->layer = (unsigned short)(d->group[wg].write_layer & 15);
+    if (za_on[0] && p->cls != JW_SOLID)
+        p->ltype = (unsigned char)(d->write_ltype ? d->write_ltype : 1);
+    if (za_on[1] && p->cls != JW_MOJI) {
+        p->color = (unsigned short)(d->write_ltype ? d->write_color : 2);
+        p->width = (unsigned short)(d->write_ltype ? d->write_width : 0);
+    }
+}
+
 /* 反転: every picked element across the line that was just pointed at.  A
  * copy for 複写, in place for 移動 -- the same split sel_place() makes. */
 static void sel_mirror(jw_drawing *d, const jw_obj *axis)
@@ -7306,6 +7393,7 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis)
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
             jw_obj_mirror(&d->obj[at], axis->d[0], axis->d[1], ux, uy);
+            za_apply(d, &d->obj[at]);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
@@ -7321,6 +7409,7 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis)
                 break;
             *p = sel_was[i];
             jw_obj_mirror(p, axis->d[0], axis->d[1], ux, uy);
+            za_apply(d, p);
             p->flags = (unsigned short)(p->flags & ~2u);
             p->sel = 0;
             p->id = 0;
@@ -7370,6 +7459,7 @@ static void sel_place(jw_drawing *d, double x, double y)
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
             jw_obj_xform(&d->obj[at], base_x, base_y, sc, ang, dx, dy);
+            za_apply(d, &d->obj[at]);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
@@ -7387,6 +7477,7 @@ static void sel_place(jw_drawing *d, double x, double y)
             at = (int)(p - d->obj);
             *p = sel_was[i];
             jw_obj_xform(p, base_x, base_y, sc, ang, dx, dy);
+            za_apply(d, p);
             /* a copy is not itself selected: in the original the new
                elements come out in their own colours while the ones that
                were picked stay pink */

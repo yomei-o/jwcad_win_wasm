@@ -250,6 +250,10 @@ int  ui_tdlg_count(void);
 int  ui_tdlg_tpl(int t);
 int  ui_tdlg_is_bar(int t);
 int  ui_tdlg_ctl_xy(int t, int i, rect_t *out);
+/* a combo's list dropped under control i, and which row is under (x,y) */
+void ui_tdlg_drop(fb_t *fb, int t, int i, const char *const *items, int n,
+                  int sel);
+int  ui_tdlg_drop_hit(int cw, int ch, int t, int i, int n, int x, int y);
 int  ui_shakudo_n(void);
 int  ui_shakudo_id(int i);
 int  ui_shakudo_on(int i);
