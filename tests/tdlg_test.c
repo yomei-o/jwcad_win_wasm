@@ -42,11 +42,14 @@ static int sized_at_run(const char *name, int id)
     return 0;
 }
 
-/* and one it moves as well: 寸法設定's combo 1423 came out at 143,30
-   107 wide, where the template puts it at 144,30 133 wide */
+/* and one it moves as well: combo 1423, in both dialogs that have it.
+   寸法設定's came out at 143,30 107 wide where the template puts it at
+   144,30 133 wide, and 書込み文字種変更's at 84,26 156 wide where the
+   template says 77,27 149 -- the same control, set up by the same code. */
 static int moved_at_run(const char *name, int id)
 {
-    return !strcmp(name, "sunpodlg") && id == 1423;
+    return (!strcmp(name, "sunpodlg") || !strcmp(name, "moji"))
+           && id == 1423;
 }
 
 /* one capture against one template */
@@ -176,7 +179,7 @@ int main(void)
         { "shakudo", 277 }, { "jikkaku", 282 }, { "sunpodlg", 311 },
         { "bairitsu", 312 }, { "zoku", 271 }, { "blkname", 335 },
         { "blkedit", 354 }, { "layerdlg", 269 }, { "zokusel", 317 },
-        { "zokuhen", 317 },
+        { "zokuhen", 317 }, { "moji", 270 }, { "mojikijun", 276 },
     };
     unsigned i;
 

@@ -37,7 +37,12 @@ from mkmoji import esc                            # noqa: E402
 SRC = 'decomp/res/dialog.txt'
 OUT = 'src/gen/dlgtpl.h'
 
-FONTS = {('ＭＳ Ｐゴシック', 9): (7, 12)}
+FONTS = {('ＭＳ Ｐゴシック', 9): (7, 12),
+         # 書込み文字種変更 (270) and 文字基点設定 (276), both read off the
+         # original, are 260x224 and 159x133 units and came out 390x336 and
+         # 239x200 pixels: 6 across, 12 down (tests/tdlg_test.c holds every
+         # control of both to it)
+         ('ＭＳ ゴシック', 9): (6, 12)}
 WS_CHILD = 0x40000000
 WS_CAPTION = 0x00C00000
 WS_VISIBLE = 0x10000000
