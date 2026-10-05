@@ -237,6 +237,10 @@ echo "=== 測定 の 距離測定 —— 状態表示の読み出しを原典と
 echo
 echo "=== 距離指定点 —— 箱の距離だけ離れた所に点を置く"
 ./tests/kyoriten_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 目盛基準点 —— 目盛を刻む原点を動かす一手"
+./tests/mesh_test.exe | sed 's/^/    /'
 ./tests/kankaku_test.exe | sed 's/^/    /'
 ./tests/renarc_test.exe | sed 's/^/    /'
 ./tests/copy2092_test.exe | sed 's/^/    /'

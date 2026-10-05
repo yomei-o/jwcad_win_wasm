@@ -1383,6 +1383,8 @@ int app_command(int cmd)
     case 32940:                         /* 同           ２点間長 */
     case 32941:                         /* 同           数値長 */
     case 32948:                         /* 同           間隔取得 */
+    case 32912:                         /* 設定 > 環境設定ファイル >
+                                           目盛基準点 */
         jw_cmd_get_mode(cmd);
         return 1;
     case 32862:                         /* 図形読込 */

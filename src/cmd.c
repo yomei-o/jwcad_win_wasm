@@ -2332,6 +2332,8 @@ const char *jw_cmd_prompt(void)
            instead of a line (tools/probe120.sh) */
         if (get_mode == 32938 || get_mode == 32941)
             return JW_STR_10043;
+        if (get_mode == 32912)          /* 目盛基準点 */
+            return JW_STR_5314;
         /* 軸角 leads with its own word and then asks for the line the
            way the others do (tools/probe120.sh) */
         if (get_mode == 32962) {
@@ -8803,6 +8805,25 @@ static int get_click(jw_drawing *d, const jw_view *v,
      *             実寸**です —— バーの箱とまったく同じ決まり（box_mm）
      *
      * 全角の数字や単位つきの文字を原典がどう読むかは訊いていません。 */
+    /* 目盛基準点 (32912).
+     *
+     * 問いかけは「■■■■    基準点を指示して下さい  (L)free  (R)Read
+     * ■■■■」（5314）で、一手で終わります。**動かすのは図面の
+     * `mesh_ox`/`mesh_oy`** —— `src/draw.c` が目盛を刻む原点で、.jww に
+     * 書かれているものです。だから絵でなくファイルで測れました
+     * （`tools/probe132.sh`・`tools/mesh.exe`）。目盛間隔を 10 にして
+     * 目盛を出した原典で、この命令のあと格子がずれることも撮ってあります
+     * （`tools/probe131.sh`、5,706 画素）。 */
+    if (get_mode == 32912) {
+        double rx = x, ry = y;
+
+        if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
+            return 1;
+        d->mesh_ox = rx;
+        d->mesh_oy = ry;
+        get_mode = 0;
+        return 1;
+    }
     if (get_mode == 32938 || get_mode == 32941) {
         const char *t;
 
