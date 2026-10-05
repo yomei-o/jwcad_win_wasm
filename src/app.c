@@ -1065,8 +1065,15 @@ static int blk_drop, be_drop;
  * to be read, one by one.
  *
  * The commands that put one up are the ones whose menu item did nothing at
- * all (tests/menusweep_test.exe --list), matched to their template by the
- * menu's words and the template's caption.
+ * all (tests/menusweep_test.exe --list).  Which template each one builds is
+ * the original's own answer where it could be read: tools/cmddlg.py takes
+ * the WM_COMMAND entries of its message maps out of orig/Jw_win.exe and
+ * follows each handler in the decompilation to the CDialog constructor it
+ * calls (FUN_00797f57 with the template's number) -- that is where
+ * ツールバー (273), ファイル一括変換 (368) and the three file operations
+ * (371, ファイル選択) come from.  バージョン情報 and ブロックツリー半透明化
+ * are not found that way (MFC's own handler, and one too deep) and are
+ * matched by the template's caption.
  */
 #define TD_MAX 160
 static int td_open, td_t = -1;
@@ -1081,7 +1088,9 @@ static const struct { unsigned short cmd, tpl; } TD_CMD[] = {
     { 32995, 384 },     /* 表示 > ブロックツリー半透明化 -- 透過率 */
     { 57664, 100 },     /* ヘルプ > バージョン情報 */
     { 32977, 368 },     /* ファイル操作 > ファイル一括変換 */
-    { 32979, 373 },     /* ファイル操作 > ファイル名変更 -- 名称変更 */
+    { 32979, 371 },     /* ファイル操作 > ファイル名変更 -- ファイル選択 */
+    { 32980, 371 },     /* ファイル操作 > ファイル削除 -- ファイル選択 */
+    { 32984, 371 },     /* ファイル操作 > ファイル属性変更 -- ファイル選択 */
 };
 
 int app_tdlg_open(void)

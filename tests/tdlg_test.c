@@ -193,7 +193,9 @@ int main(void)
     opens(32995, 384, "表示 > ブロックツリー半透明化 puts up its 透過率");
     opens(57664, 100, "ヘルプ > バージョン情報");
     opens(32977, 368, "ファイル一括変換");
-    opens(32979, 373, "ファイル名変更 puts up 名称変更");
+    opens(32979, 371, "ファイル名変更 puts up ファイル選択");
+    opens(32980, 371, "ファイル削除 puts up ファイル選択");
+    opens(32984, 371, "ファイル属性変更 puts up ファイル選択");
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
