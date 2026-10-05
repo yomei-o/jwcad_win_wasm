@@ -229,6 +229,10 @@ echo "=== 角度取得・長さ取得 —— 原典が二度描いた線との�
 echo
 echo "=== 数値角度・数値長 —— 図面に書いてある数字から取る二つ"
 ./tests/getnum_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 測定 の 距離測定 —— 状態表示の読み出しを原典と一字ずつ"
+./tests/sokutei_test.exe | sed 's/^/    /'
 ./tests/kankaku_test.exe | sed 's/^/    /'
 ./tests/renarc_test.exe | sed 's/^/    /'
 ./tests/copy2092_test.exe | sed 's/^/    /'

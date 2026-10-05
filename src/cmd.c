@@ -746,7 +746,7 @@ static double box_mm2(const jw_drawing *d, int id)
  * places with a comma every three digits.  Before anything is drawn there
  * is no tail at all, while the first point is down it reads 0.000 until
  * the mouse moves, and leaving the command takes it away again. */
-static int tail_kind;           /* 0 none, 1 線, 2 矩形, 3 円 */
+static int tail_kind;           /* 0 none, 1 線, 2 矩形, 3 円, 4 測定 */
 static double tail_a, tail_b;   /* in paper millimetres, or degrees */
 
 static void tail_set(int kind, double a, double b)
@@ -784,6 +784,44 @@ static void num3(char *out, int n, const jw_drawing *d, double mm)
             out[k++] = buf[i];
     }
     out[k] = 0;
+}
+
+/* -------------------------------------------------------- 測定 --------
+ *
+ * 距離測定 —— 命令の既定の歩きです。点を打つたびに、状態表示の末尾が
+ *
+ *     S = 1 / 100  【 73.469ｍ 】   12.2449ｍ
+ *
+ * になります。【】の中が**これまでの合計**、その右が**いま足した一辺**。
+ * 原典に 400x200 画素の四角を一周させて読みました（`tools/probe125.sh`、
+ * 1/100 の紙）:
+ *
+ *   打つ前     【 0.000ｍ 】   0ｍ
+ *   一点目     【 0.000ｍ 】   -0ｍ
+ *   二点目     【 24.490ｍ 】   24.4898ｍ
+ *   三点目     【 36.735ｍ 】   12.2449ｍ
+ *   四点目     【 61.224ｍ 】   24.4898ｍ
+ *   五点目     【 73.469ｍ 】   12.2449ｍ
+ *
+ * 400 画素は紙で 244.898 mm、1/100 なので実寸 24.4898 m —— 合計は
+ * **小数桁 3**（バーの釦 1070 がそう言っています）、一辺のほうは
+ * %g と同じ六桁です。単位は 【ｍ】（釦 1069 が mm と切り替える）。
+ *
+ * **一点目だけ「-0」**と出ます。なぜ負の零になるのかは分かりません。
+ * 原典がそう書くので、そのとおりに出しています。
+ *
+ * 面積測定・座標測定・角度測定・○単独円指定・mm/ｍ・小数桁・
+ * 測定結果書込・書込設定 の八つはまだ訊いていません。 */
+static int sok_n;               /* how many points are down */
+static double sok_px, sok_py;   /* the last one, in paper millimetres */
+static double sok_total;        /* the run so far */
+static double sok_seg;          /* the leg just added */
+
+static void sok_reset(void)
+{
+    sok_n = 0;
+    sok_total = 0.0;
+    sok_seg = 0.0;
 }
 
 /* the 傾き box, in radians */
@@ -1651,6 +1689,11 @@ void jw_cmd_set(int id)
         ika_lt = -1;
     }
     tail_kind = 0;              /* and the status line's readout with it */
+    sok_reset();                /* a 測定 run does not cross a command */
+    /* 測定 shows its readout from the moment it is entered, before any
+       point is down (tools/probe125.sh) */
+    if (id == JW_CMD_SOKUTEI)
+        tail_set(4, 0.0, 0.0);
     /* leaving a command drops whatever 角度取得 or 長さ取得 had given --
        asked of the original: 線, 線角度, then 円 and back to 線, and the
        next line came out plain (tools/probe21.sh) */
@@ -2148,6 +2191,22 @@ const char *jw_cmd_status(const jw_drawing *d)
         num3(a, (int)sizeof a, d, va);
         snprintf(buf, sizeof buf, "%s      r = %s", p, a);
         return buf;
+    case 4: {
+        /* 測定: the scale, the running total to three places and the leg
+           just added, all in metres (src/cmd.c's 測定 note) */
+        double sc = 1.0;
+        int g, wg = 0;
+
+        for (g = 0; d && g < 16; g++)
+            if (d->group[g].state == 3)
+                wg = g;
+        if (d && d->group[wg].scale > 0.0)
+            sc = d->group[wg].scale;
+        snprintf(buf, sizeof buf,
+                 "%s      S = 1 / %g  \x81y %.3f\x82\x8d \x81z   %g\x82\x8d",
+                 p, sc, va * sc / 1000.0, vb * sc / 1000.0);
+        return buf;
+    }
     }
     return p;
 }
@@ -2185,6 +2244,9 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5345;
     }
     switch (current) {
+    case JW_CMD_SOKUTEI:
+        /* 測定 asks for a 始点 and then 次の点 over and over */
+        return sok_n ? JW_STR_5323 : JW_STR_5320;
     case JW_CMD_SEN:
     case JW_CMD_KUKEI:
     case JW_CMD_RENZOKU:
@@ -8864,6 +8926,25 @@ placed:
             read_mode = 0;
             read_a = 0;
         }
+    }
+    if (current == JW_CMD_SOKUTEI) {
+        double rx = x, ry = y;
+
+        if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
+            return;                     /* (R) with nothing to read */
+        if (sok_n) {
+            double dx = rx - sok_px, dy = ry - sok_py;
+
+            sok_seg = sqrt(dx * dx + dy * dy);
+            sok_total += sok_seg;
+        } else {
+            sok_seg = -0.0;             /* what the original reads out */
+        }
+        sok_px = rx;
+        sok_py = ry;
+        sok_n++;
+        tail_set(4, sok_total, sok_seg);
+        return;
     }
     if (current == JW_CMD_HOURAKU) {
         if (hou_step == 0) {
