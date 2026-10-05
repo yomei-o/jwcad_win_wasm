@@ -2030,6 +2030,11 @@ int jw_cmd_midway(void)
     case JW_CMD_HATCH:     return ht_n != 0 || ht_nchain != 0
                                   || ht_nreg != 0;
     case JW_CMD_SUNPO:     return sun_step != sun_rest;
+    /* 文字 の 連 with one text picked (ren_first, held by its place) and
+       the second, or the place for it, still to come.  CZukeiMoji's slot
+       16 (FUN_006bd270) takes the press while any of its own part-way
+       states is up (+0x5d0, +0x5d4, +0x5e0 ...), lowering it. */
+    case JW_CMD_MOJI:      return ren_step >= 2;
     case JW_CMD_HANI:
     case JW_CMD_FUKUSHA:
     case JW_CMD_IDOU:
@@ -2063,6 +2068,11 @@ int jw_cmd_midway(void)
  * have). */
 int jw_cmd_back(jw_drawing *d)
 {
+    if (current == JW_CMD_MOJI && ren_step >= 2) {
+        ren_step = 1;           /* let go of the text; 連 stays on */
+        tracking = 0;
+        return 1;
+    }
     if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
          || current == JW_CMD_IDOU || current == JW_CMD_SEIRI)
         && sel_step != 0) {
@@ -2366,11 +2376,12 @@ void jw_cmd_undo(jw_drawing *d)
  * command (its +0x3c declines, and the drawing's step goes back) leaves the
  * pick where it was; here a step put back **at the front** moves every
  * element along, and the held places with them have to move by as much. */
+static int read_pick;            /* (defined with 線上点, further down) */
 static void picks_shift(int by)
 {
     int *const P[] = { &cut_obj, &corner_obj, &stretch_obj, &para_obj,
                        &para_last, &chu_a, &chu_b, &ses_a, &sek_a, &sek_b,
-                       &nisen_obj, &get_obj };
+                       &nisen_obj, &get_obj, &ren_first, &read_pick };
     unsigned k;
     int i;
 

@@ -951,6 +951,35 @@ static void undo_part_way(void)
     jw_cmd_set(JW_CMD_TEN);
 }
 
+/* 文字 の 連 with one text picked, then 戻る: the pick goes, the drawing
+   stays (CZukeiMoji's slot 16 lowers its own part-way state and takes the
+   press) */
+static void undo_text_join(void)
+{
+    jw_drawing *d;
+    int t, n0;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    app_command(JW_CMD_MOJI);
+    app_key('A');
+    app_key('B');
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);        /* place "AB" */
+    t = d->ndrawn - 1;
+    ck(t >= 0 && d->obj[t].cls == JW_MOJI, "  a text to pick");
+    if (t < 0 || d->obj[t].cls != JW_MOJI)
+        return;
+    jw_cmd_bar(d, 1068);                             /* 連 */
+    jw_cmd_point(d, app_view(), (d->obj[t].d[0] + d->obj[t].d[2]) / 2,
+                 d->obj[t].d[1] + 0.5, 0);
+    n0 = d->ndrawn;
+    ck(jw_cmd_midway(), "  文字 連 with a text picked is part way");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0,
+       "  戻る lets go of the text and leaves the drawing alone");
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 /* 移動 with its selection settled, then 戻る.  The selection is held by
    places in the drawing, and putting the moved elements down writes each
    back at its place -- so a step of the drawing taken off in between had
@@ -1160,6 +1189,7 @@ int main(void)
     one_letter_commands();
     rubbish_in_every_dialog();
     huge_curve();
+    undo_text_join();
     move_after_undo();
     parallel_carries_on();
     undo_part_way();
