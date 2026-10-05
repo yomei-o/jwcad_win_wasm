@@ -887,6 +887,39 @@ static void undo_part_way(void)
     app_command(JW_CMD_UNDO);
     ck(!jw_cmd_midway(), "    and the third drops it");
 
+    /* コーナー処理 and 線伸縮 go **straight** back to their start, one
+       press, which is what the port already did by falling through to
+       jw_cmd_escape.  It is read out of each one's slot 16:
+
+         CZukeiCorner (FUN_00634220): with the topmost entry of its own
+           history a 2 -- a line picked -- and +0x204 == 2, it sets
+           +0x204 = 0 and answers 1.  There is no middle state to stop
+           at.  (With nothing picked it instead walks back through that
+           history, which is the drawing's own 戻る; the port's
+           jw_cmd_midway lets that through.)
+         CZukeiShinshuku (slot 16): +0x20c is 1, 3 or 4 while a line is
+           picked and every one of them goes to 0.
+
+       So there is nothing in between to watch -- only that one press is
+       enough and that it does not reach the drawing. */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_CORNER);
+    n0 = d->ndrawn;
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);    /* 線【Ａ】 */
+    ck(jw_cmd_midway(), "  コーナー: a line picked is part way");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0,
+       "    and one 戻る drops it, with the drawing left alone");
+
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SHINSHUKU);
+    n0 = d->ndrawn;
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);    /* 伸縮する線 */
+    ck(jw_cmd_midway(), "  伸縮: a line picked is part way");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0,
+       "    and one 戻る drops it too");
+
     jw_cmd_set(JW_CMD_CHUSHIN);
     jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
     app_new();
