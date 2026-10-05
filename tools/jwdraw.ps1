@@ -1276,6 +1276,24 @@ try {
             # takes a point from the program, so this is how to find out
             # whether a popup follows the cursor.
             #   cursor:800,600
+            # Where the view sits now.  The bars can be turned off
+            # (59392 ツールバー, 59393 ステータスバー, 32953 ダイアログ
+            # ボックス) and then the frame lays itself out again, so this
+            # is how to measure what each band was worth.
+            #   viewrect
+            '^viewrect$' {
+                $v2 = [Jw]::Biggest($frame)
+                $fc2 = New-Object Jw+RECT
+                [void][Jw]::GetClientRect($frame, [ref]$fc2)
+                $vc2 = New-Object Jw+RECT
+                [void][Jw]::GetClientRect($v2, [ref]$vc2)
+                $vr2 = [Jw]::RectIn($v2, $frame)
+                Emit ('=== view {0}x{1} at {2},{3} in a frame of {4}x{5}' -f `
+                    $vc2.Right, $vc2.Bottom, $vr2.Left, $vr2.Top,
+                    $fc2.Right, $fc2.Bottom)
+                break
+            }
+
             '^cursor:(\d+),(\d+)$' {
                 [void][Jw]::SetCursorPos([int]$Matches[1], [int]$Matches[2])
                 Start-Sleep -Milliseconds 200

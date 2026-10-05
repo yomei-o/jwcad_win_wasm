@@ -2334,6 +2334,8 @@ const char *jw_cmd_prompt(void)
             return JW_STR_10043;
         if (get_mode == 32912)          /* 目盛基準点 */
             return JW_STR_5314;
+        if (get_mode == 32936)          /* レイヤ非表示化 */
+            return JW_STR_5264;
         /* 軸角 leads with its own word and then asks for the line the
            way the others do (tools/probe120.sh) */
         if (get_mode == 32962) {
@@ -8821,6 +8823,36 @@ static int get_click(jw_drawing *d, const jw_view *v,
             return 1;
         d->mesh_ox = rx;
         d->mesh_oy = ry;
+        get_mode = 0;
+        return 1;
+    }
+    /* レイヤ非表示化 (32936).
+     *
+     * 問いかけは「非表示にするレイヤの図形を指示してください」（5264）で、
+     * 一手。指した要素の**レイヤが非表示 (0) になります** ——
+     * orig/Test5.jww（書込レイヤは 8）のレイヤ 0 の線を (L) で指すと、
+     * 保存した図面のレイヤ 0 が 2 から 0 に変わりました
+     * （`tools/probe133.sh`、`tools/laystate.py`）。
+     *
+     * ここまで三度空振りしています（`probe122`〜`probe124`）。指した所に
+     * 図形が無かったのだろうと思いますが、確かなことは分かりません ——
+     * 効いたのは、移植に図面を読ませて**線の通る所を計算してから**
+     * 指したときでした。
+     *
+     * 書込レイヤ（状態 3）の図形を指したらどうなるかは**訊いていません**。
+     * 消せないはずなので、そのままにしてあります。別のレイヤグループの
+     * 図形も訊いていません。 */
+    if (get_mode == 32936) {
+        int i = jw_pick(d, v, x, y, 0);
+
+        if (i < 0)
+            return 1;
+        {
+            int g = d->obj[i].lgroup & 15, l = d->obj[i].layer & 15;
+
+            if (d->group[g].layer[l].state != 3)
+                d->group[g].layer[l].state = 0;
+        }
         get_mode = 0;
         return 1;
     }

@@ -1385,6 +1385,7 @@ int app_command(int cmd)
     case 32948:                         /* 同           間隔取得 */
     case 32912:                         /* 設定 > 環境設定ファイル >
                                            目盛基準点 */
+    case 32936:                         /* 同           レイヤ非表示化 */
         jw_cmd_get_mode(cmd);
         return 1;
     case 32862:                         /* 図形読込 */

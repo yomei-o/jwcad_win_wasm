@@ -23,12 +23,12 @@ run() {
 }
 R='read:59393;'
 
-run base  "saveas:p133_base"
-run hideL "raw:f,273,32936,0;wait:700;${R}395,534;${R}saveas:p133_hideL"
+run base  "saveas:decomp/res/layhide_base.jww"
+run hideL "raw:f,273,32936,0;wait:700;${R}395,534;${R}saveas:decomp/res/layhide.jww"
 run hideR "raw:f,273,32936,0;wait:700;r395,534;${R}saveas:p133_hideR"
 idle
 echo
-for f in p133_hideL p133_hideR; do
+for f in decomp/res/layhide.jww tmp/p133_hideR.jww; do
     echo "--- $f"
-    python tools/laystate.py tmp/p133_base.jww "tmp/$f.jww" 2>&1 | head -6
+    python tools/laystate.py decomp/res/layhide_base.jww "$f" 2>&1 | head -6
 done
