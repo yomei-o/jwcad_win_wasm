@@ -858,6 +858,21 @@ static void undo_part_way(void)
     ck(!jw_cmd_midway() && d->ndrawn == n0 - 1, "    and the next drops it");
     type_box(1412, "");
 
+    /* 複線 too: CZukeiFukusen's own +0x40 takes its state 3 to 2 and then
+       2 to 0, which are the port's para_step 2 and 1 */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    n0 = d->ndrawn;
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);    /* the line */
+    ck(jw_cmd_midway(), "  複線: a line picked is part way");
+    jw_cmd_point(d, app_view(), -40.0, -40.0, 0);    /* the side, no box */
+    ck(jw_cmd_midway() && d->ndrawn == n0,
+       "    and the offset taken is still part way, with nothing drawn");
+    app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway(), "    戻る keeps the line");
+    app_command(JW_CMD_UNDO);
+    ck(!jw_cmd_midway() && d->ndrawn == n0, "    and the next drops it");
+
     jw_cmd_set(JW_CMD_CHUSHIN);
     jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
     app_new();

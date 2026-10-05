@@ -1964,6 +1964,18 @@ void jw_cmd_back(jw_drawing *d)
         tracking = 0;
         return;
     }
+    /* 複線 (CZukeiFukusen, slot 16 at 0x00657670): its state at +0x204 is
+       3 while it waits for the side to be told and 2 while it waits for
+       the offset, and the press takes 3 to 2 and then 2 to 0 -- one step
+       back each time, and the second one lets go of the picked line
+       (+0x20c = 0).  The port's para_step 2 and 1 are those two. */
+    if (current == JW_CMD_FUKUSEN && para_step > 0) {
+        para_step--;
+        if (para_step < 1)
+            para_obj = -1;
+        tracking = 0;
+        return;
+    }
     /* 分割 (CZukeiBunkatsu) goes from its state 2 straight back to 0, which
        is the start; so does the rest, as far as anyone has read */
     jw_cmd_escape();
