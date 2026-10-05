@@ -2382,6 +2382,21 @@ const char *jw_cmd_status(const jw_drawing *d)
         if (d && d->group[wg].scale > 0.0)
             sc = d->group[wg].scale;
         if (sok_mode == SOK_ANG) {
+            /* while it waits for the 角度点 the readout follows the
+               mouse: the angle from 原点→基準点 round to 原点→カーソル
+               (tools/probe144.sh -- with the origin at (300,300) and the
+               base at (700,300), the cursor at (700,500) read -26.565,
+               at (300,500) -90.000, at (700,100) 26.565 and at (900,300)
+               0.000) */
+            if (sok_n == 2 && tracking) {
+                va = (atan2(ty - sok_y0, tx - sok_x0)
+                      - atan2(sok_py - sok_y0, sok_px - sok_x0))
+                     * 180.0 / PI;
+                while (va > 180.0)
+                    va -= 360.0;
+                while (va <= -180.0)
+                    va += 360.0;
+            }
             sok_num(a, (int)sizeof a, va, sok_places());
             snprintf(buf, sizeof buf, "%s       \x81y %s\x81\x8b \x81z", p, a);
             return buf;

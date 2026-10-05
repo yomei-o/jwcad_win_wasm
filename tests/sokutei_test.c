@@ -33,8 +33,12 @@
  * 24.490 のときに押しても書かれるのは `0.000ｍ` で、三度試して三度とも
  * そうでした（`decomp/res/sokutei_write2.jww`）。
  *
- * 角度測定 の**途中の数**だけはマウス任せのままで、そこは合わせて
- * いません。書込設定 (1072) は押しても何も変わりませんでした。
+ * 角度測定 の**途中の数**も合いました —— 基準点 を置いたあとは
+ * 原点→基準点 から 原点→カーソル までの角を映します（`m<x>,<y>` で
+ * 読みました。`tools/probe144.sh`）。
+ *
+ * **これで 測定 で合っていないところはありません。**書込設定 (1072) は
+ * 押しても何も変わらないので、入れるものがありません。
  *
  * 四つの 〜測定 のうちどれが選ばれているかを、原典は**何も印して
  * いません** —— バーを撮り比べると動くのは Windows の点線の焦点枠だけ
@@ -220,6 +224,20 @@ int main(void)
     cktext(ANG[1], "  原点のあとは読み出しが消える");
     app_press(PT[1].x, PT[1].y, 0);
     cktext(ANG[2], "  基準点のあとはまた出る");
+    /* and while it waits, the readout follows the mouse.  The points
+       above went in with app_press, so these are the frame's own
+       coordinates too -- what matters is where they are from the
+       origin. */
+    {
+        app_move(700, 500);
+        cktext("       \x81y -26.565\x81\x8b \x81z", "  カーソル (700,500) で -26.565 度");
+        app_move(300, 500);
+        cktext("       \x81y -90.000\x81\x8b \x81z", "  カーソル (300,500) で -90 度");
+        app_move(700, 100);
+        cktext("       \x81y 26.565\x81\x8b \x81z", "  カーソル (700,100) で 26.565 度");
+        app_move(900, 300);
+        cktext("       \x81y 0.000\x81\x8b \x81z", "  カーソル (900,300) で 0 度");
+    }
     app_press(PT[2].x, PT[2].y, 0);
     cktext(ANG[3], "  角度点で -26.565 度");
     ck(app_drawing()->ndrawn == 0, "  角度測定も図面に何も足さない");
