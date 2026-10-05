@@ -20,6 +20,7 @@
 
 #include "../src/app.h"
 #include "../src/ui.h"
+#include "../src/cmd.h"
 
 static int fails;
 
@@ -248,6 +249,86 @@ static void block_name_over_zokusel(void)
     ck(!app_modal(), "  and the next Esc takes 属性選択 down too");
 }
 
+/* press the control with this id in the dialog from a template that is up */
+static void press_ctl(int id, int button)
+{
+    int t = app_tdlg_open(), i = t >= 0 ? ui_tdlg_index(t, id) : -1;
+    rect_t r;
+
+    if (i < 0 || !ui_tdlg_ctl_rect(1264, 741, t, i, &r))
+        return;
+    app_press(r.x + r.w / 2, r.y + r.h / 2, button);
+}
+
+static const char *ctl_text(int id)
+{
+    int t = app_tdlg_open();
+
+    return t >= 0 ? app_tdlg_text(ui_tdlg_index(t, id)) : "";
+}
+
+/* A right press on a bar's box puts up 数値入力 (314).  Its sums are the
+   decompilation's, not asked of the original: a column holds one digit of
+   its place and the number is their sum, ± turns it over, 「，」 goes on to
+   a second number, a right press on a digit is OK as well, and OK writes
+   it back into the box. */
+static void keypad(void)
+{
+    int x, y, hit = 0;
+    const char *t;
+
+    app_new();
+    app_command(0x807e);                        /* 多角形 */
+    for (y = 0; y < 60 && !hit; y += 2)
+        for (x = 0; x < 1264 && !hit; x += 2)
+            if (ui_bar_hit(x, y) == 1411) {
+                app_press(x, y, 1);
+                hit = 1;
+            }
+    ck(hit && app_tdlg_tpl() == 314,
+       "a right press on 多角形's 寸法 puts up 数値入力");
+    app_paint();
+    t = ctl_text(1764);
+    ck(!strcmp(t, "1000"), "  showing what the box holds");
+    press_ctl(1200, 0);                         /* 200 */
+    press_ctl(1209, 0);                         /* 3,000 */
+    press_ctl(1160, 0);                         /* 8 */
+    press_ctl(1186, 0);                         /* 0.7 */
+    press_ctl(1201, 0);                         /* 400, over the 200 */
+    t = ctl_text(1764);
+    ck(!strcmp(t, "3408.7"), "  each column holds one digit, and they add up");
+    press_ctl(1, 0);
+    t = jw_cmd_box(1411);
+    ck(!app_modal() && t && !strcmp(t, "3408.7"),
+       "  and OK writes the sum into the box");
+
+    app_press(x - 2, y - 2, 1);
+    ck(app_tdlg_tpl() == 314, "the table comes up again");
+    press_ctl(1157, 0);                         /* 5 */
+    press_ctl(1172, 0);                         /* ± */
+    press_ctl(1199, 1);                         /* 200, with the right button */
+    t = jw_cmd_box(1411);
+    ck(!app_modal() && t && !strcmp(t, "-205"),
+       "  ± turns it over, and a right press on a digit is OK as well");
+
+    app_press(x - 2, y - 2, 1);
+    press_ctl(1174, 0);                         /* 「，」 */
+    press_ctl(1159, 0);                         /* 7 */
+    ck(!strcmp(ctl_text(1765), "7"), "  「，」 goes on to a second number");
+    app_key(13);
+    t = jw_cmd_box(1411);
+    ck(!app_modal() && t && !strcmp(t, "-205 , 7"),
+       "  which Enter writes after the first, as the original's two-number "
+       "boxes have it");
+
+    app_press(x - 2, y - 2, 1);
+    press_ctl(1161, 0);
+    app_key(27);
+    t = jw_cmd_box(1411);
+    ck(!app_modal() && t && !strcmp(t, "-205 , 7"),
+       "  and Esc leaves the box as it was");
+}
+
 /* The command bars, against their templates.  A bar is a child dialog 462
    units wide, laid out by the same sum, and the strip puts it 6 pixels in
    and 5 down.  For every bar the port read off the original
@@ -332,6 +413,7 @@ int main(void)
     opens(32984, 371, "ファイル属性変更 puts up ファイル選択");
     copy_attributes();
     block_name_over_zokusel();
+    keypad();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

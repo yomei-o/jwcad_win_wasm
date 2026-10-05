@@ -422,5 +422,6 @@ const char *jw_cmd_box(int id);
 int  jw_cmd_box_focus(void);
 void jw_cmd_box_click(int id);      /* a press on one: it takes the typing */
 int  jw_cmd_box_key(int c);         /* a character; 1 if it was taken */
+int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
 
 #endif

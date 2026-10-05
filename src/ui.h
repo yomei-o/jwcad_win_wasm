@@ -233,6 +233,10 @@ int  ui_shakudo_hit(int cw, int ch, int x, int y);
 enum { UI_TC_PUSH, UI_TC_DEFPUSH, UI_TC_CHECK, UI_TC_RADIO, UI_TC_GROUP,
        UI_TC_STATIC, UI_TC_EDIT, UI_TC_COMBO, UI_TC_LIST, UI_TC_FRAME,
        UI_TC_ICON };            /* the kinds ui_tdlg_ctl hands back */
+/* ui_tdlg's `on` is 1 for a ticked box or a chosen radio; a dialog that
+   hides or greys some of its controls as it goes (数値入力 does) sets these
+   on top */
+enum { UI_TD_GREY = 0x40, UI_TD_HIDE = 0x80 };
 int  ui_tdlg_find(int tpl);
 int  ui_tdlg_n(int t);
 int  ui_tdlg_ctl(int t, int i, int *id, int *kind, int *flags);

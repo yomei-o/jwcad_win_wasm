@@ -8024,6 +8024,15 @@ const char *jw_cmd_box(int id)
     return box_slot(bar_cmd(), id);
 }
 
+/* what a dialog hands back to a box, as if it had been typed in */
+int jw_cmd_box_put(int id, const char *v)
+{
+    if (!jw_cmd_box(id))
+        return 0;
+    box_put(id, v);
+    return 1;
+}
+
 int jw_cmd_box_focus(void)
 {
     return box_focus;

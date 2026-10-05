@@ -4046,12 +4046,13 @@ void ui_tdlg(fb_t *fb, int t, const unsigned char *on,
     for (i = 0; i < g->n; i++) {
         const jw_tctl_t *c = &jw_tctl[g->first + i];
         int x = cx + c->x, y = cy + c->y;
-        int lit = on ? on[i] : 0;
-        unsigned col = (c->flags & 2) ? C_GRAYTEXT : C_BTNTEXT;
+        int st = on ? on[i] : 0, lit = st & 1;
+        unsigned col = (c->flags & 2) || (st & UI_TD_GREY) ? C_GRAYTEXT
+                                                          : C_BTNTEXT;
         const char *s = txt && txt[i] ? txt[i] : c->text;
 
-        if (!(c->flags & 1))
-            continue;                   /* not WS_VISIBLE */
+        if (!(c->flags & 1) || (st & UI_TD_HIDE))
+            continue;                   /* not WS_VISIBLE, or hidden since */
         switch (c->kind) {
         case JW_TC_PUSH:
         case JW_TC_DEFPUSH:

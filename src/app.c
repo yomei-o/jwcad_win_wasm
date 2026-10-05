@@ -1112,7 +1112,9 @@ int app_tdlg_on(int i)
 
 const char *app_tdlg_text(int i)
 {
-    return td_open && i >= 0 && i < TD_MAX ? td_txt[i] : "";
+    if (!td_open || i < 0 || i >= TD_MAX)
+        return "";
+    return td_txtp[i] ? td_txtp[i] : td_txt[i];
 }
 
 static int td_start(int tpl)
@@ -1187,10 +1189,217 @@ static int press_tdlg(int x, int y)
     return 1;
 }
 
+/* ---------------------------------------------------- 数値入力 (314) -----
+ * A right press on one of a command bar's boxes puts up the original's table
+ * of numbers: CMy02ComboBox and its kin answer WM_RBUTTONUP by building
+ * template 314 (FUN_00589e20 and three others like it), handing it what the
+ * box holds, and writing back what it says when it closes with OK.  None of
+ * this has been asked of the original -- it is the decompilation's reading
+ * (FUN_005d7cb0, FUN_005d87c0, FUN_005d5300, FUN_005d8140), so it is the
+ * table's sums, not its looks under use, that the port has from it.
+ *
+ * Each column holds one digit of its own place (00,000 is the ten
+ * thousands, 0.00 the hundredths) and the number is their sum: pressing 3
+ * in the 000 column and then 5 in it again makes 500, not 800.  A right
+ * press on a digit puts it in and closes the table with OK, as the
+ * original's CMy3Button does (it reports a right release as 2, and 2 is
+ * OnOK).  「，」 moves on to a second number, for the boxes that take two
+ * ("横,縦"), and back.  The calculator underneath, the °′″ row and the
+ * arrows are drawn but do nothing yet -- coming from a box, the original
+ * hides the °′″ row and the arrows anyway.
+ */
+static int kp_box;              /* the bar's box it writes back to */
+static double kp_v[2];          /* the two numbers (+0xc8, +0xd0) */
+static double kp_sign[2];       /* their signs (+0xe0, +0xe8) */
+static double kp_place[7];      /* one digit's worth per column */
+static double kp_keep;          /* the second number, put by (+0xd8) */
+static int kp_which;            /* 0 the first number, 1 the second */
+static int kp_raw[2];           /* untouched since it came in (+0xbc/+0xc0) */
+static int kp_two;              /* the box had two numbers in it */
+static int kp_shown2;           /* the second number has been shown */
+static char kp_txt[3][32];
+
+/* The column and the digit a button stands for: columns from 0 (0.0x) to 6
+   (x0,000), as FUN_005d7cb0 has them; -1 if it is not one of them. */
+static int kp_digit(int id, int *d)
+{
+    static const short first[7] = { 1176, 1175, 1152, 1162, 1177, 1178,
+                                    1179 };
+    static const short rest[7] = { 1189, 1180, 0, 0, 1198, 1207, 1216 };
+    int g;
+
+    for (g = 0; g < 7; g++) {
+        if (id == first[g]) {
+            *d = 0;
+            return g;
+        }
+        if (!rest[g] && id > first[g] && id <= first[g] + 9) {
+            *d = id - first[g];
+            return g;
+        }
+        if (rest[g] && id >= rest[g] && id < rest[g] + 9) {
+            *d = id - rest[g] + 1;
+            return g;
+        }
+    }
+    return -1;
+}
+
+/* FUN_005d8730: ten figures, and %lg below a thousandth */
+static void kp_fmt(char *out, size_t n, double v)
+{
+    snprintf(out, n, (v < 0 ? -v : v) >= 0.001 ? "%.10g" : "%g", v);
+}
+
+static void kp_set(int id, int bits, const char *txt)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    if (i < 0 || i >= TD_MAX)
+        return;
+    td_on[i] = (unsigned char)bits;
+    if (txt)
+        td_txtp[i] = txt;
+}
+
+/* what is shown and what is greyed, FUN_005d5300 the way a box opens it */
+static void kp_show(void)
+{
+    static const short hide[] = { 2076, 2077, 2078, 2079, 1767, 1225, 1768,
+                                  1226, 1769, 1227, 2075 };
+    int k;
+
+    for (k = 0; k < (int)(sizeof hide / sizeof hide[0]); k++)
+        kp_set(hide[k], UI_TD_HIDE, 0);
+    kp_fmt(kp_txt[0], sizeof kp_txt[0], kp_v[0]);
+    kp_fmt(kp_txt[1], sizeof kp_txt[1], kp_v[1]);
+    kp_fmt(kp_txt[2], sizeof kp_txt[2], kp_v[kp_which]);
+    kp_set(1764, kp_which ? UI_TD_GREY : 0, kp_txt[0]);
+    kp_set(1172, kp_which ? UI_TD_GREY : 0, 0);
+    kp_set(1173, kp_which ? 0 : UI_TD_GREY, 0);
+    kp_set(1765, kp_which ? 0 : UI_TD_GREY, kp_shown2 ? kp_txt[1] : 0);
+    kp_set(1770, 0, kp_txt[2]);
+}
+
+static void kp_sum(void)
+{
+    double s = 0.0;
+    int g;
+
+    for (g = 0; g < 7; g++)
+        s += kp_place[g];
+    kp_raw[kp_which] = 0;
+    kp_v[kp_which] = kp_sign[kp_which] * s;
+}
+
+static int kp_start(int box)
+{
+    const char *t = jw_cmd_box(box), *p;
+
+    if (!t || !td_start(314))
+        return 0;
+    kp_box = box;
+    kp_v[0] = atof(t);
+    p = strchr(t, ',');
+    kp_two = p != 0;
+    /* FUN_005899b0: the second number is the first again when the box
+       holds only one */
+    kp_v[1] = kp_keep = p ? atof(p + 1) : kp_v[0];
+    kp_sign[0] = kp_sign[1] = 1.0;
+    memset(kp_place, 0, sizeof kp_place);
+    kp_which = 0;
+    kp_raw[0] = kp_raw[1] = 1;
+    kp_shown2 = 0;
+    kp_show();
+    return 1;
+}
+
+/* OK: back into the box, two numbers the way FUN_0058ae50 writes them */
+static void kp_ok(void)
+{
+    char a[32], b[32], out[72];
+
+    kp_fmt(a, sizeof a, kp_v[0]);
+    if (kp_two || kp_shown2) {
+        kp_fmt(b, sizeof b, kp_v[1]);
+        snprintf(out, sizeof out, "%s , %s", a, b);
+    } else
+        snprintf(out, sizeof out, "%s", a);
+    jw_cmd_box_put(kp_box, out);
+    td_open = 0;
+}
+
+static int press_kp(int x, int y, int button)
+{
+    int id = ui_tdlg_hit(fb.w, fb.h, td_t, x, y), i, g, d;
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 2) {                      /* the × */
+        td_open = 0;
+        return 1;
+    }
+    i = ui_tdlg_index(td_t, id);
+    if (i >= 0 && i < TD_MAX && (td_on[i] & (UI_TD_HIDE | UI_TD_GREY)))
+        return 1;
+    if (id == 1) {
+        kp_ok();
+        return 1;
+    }
+    if ((g = kp_digit(id, &d)) >= 0) {
+        static const double place[7] = { 0.01, 0.1, 1, 10, 100, 1000,
+                                         10000 };
+
+        kp_place[g] = d * place[g];
+        kp_sum();
+        kp_show();
+        if (button == 1)
+            kp_ok();
+        return 1;
+    }
+    switch (id) {
+    case 1172:                          /* the first number's ± */
+        if (kp_which || kp_raw[0])
+            kp_v[0] = -kp_v[0];
+        else {
+            kp_sign[0] = -kp_sign[0];
+            kp_sum();
+        }
+        break;
+    case 1173:                          /* the second's */
+        if (kp_raw[1])
+            kp_v[1] = -kp_v[1];
+        else {
+            kp_sign[1] = -kp_sign[1];
+            kp_sum();
+        }
+        break;
+    case 1174:                          /* 「，」: over to the other number */
+        if (!kp_which) {
+            kp_which = 1;
+            kp_v[1] = kp_keep;
+            kp_shown2 = 1;
+        } else {
+            kp_which = 0;
+            kp_keep = kp_v[1];
+        }
+        memset(kp_place, 0, sizeof kp_place);
+        break;
+    default:
+        return 1;
+    }
+    kp_show();
+    return 1;
+}
+
 static int td_key(int c)
 {
     int i = ui_tdlg_index(td_t, td_caret);
 
+    if (c == 13 && td_tpl == 314) {     /* 数値入力's OK writes back */
+        kp_ok();
+        return 1;
+    }
     if (c == 27 || c == 13) {           /* Esc, and Enter for OK */
         td_open = 0;
         return 1;
@@ -1774,7 +1983,7 @@ int app_press(int x, int y, int button)
     /* a dialog from a template may sit on top of one of the others
        (ブロック名を指定して選択 over 属性選択), so it hears first */
     if (td_open)
-        return press_tdlg(x, y);
+        return td_tpl == 314 ? press_kp(x, y, button) : press_tdlg(x, y);
     if (zoku_open)
         return press_zoku(x, y);
     if (moji_open)
@@ -1824,6 +2033,12 @@ int app_press(int x, int y, int button)
             return app_command(STATUS_CMD[k]) | 1;
     }
 
+    if (button == 1 && (id = ui_bar_hit(x, y)) != 0 && jw_cmd_box(id)) {
+        /* a right press on one of the bar's boxes: 数値入力 */
+        jw_cmd_box_click(0);
+        kp_start(id);
+        return 1;
+    }
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
         /* 複写・移動 once the range is settled: their second bar has its
            own 1070, 作図属性, and that one puts up 作図属性設定 (template
