@@ -4120,6 +4120,20 @@ void ui_tdlg(fb_t *fb, int t, const unsigned char *on,
         case JW_TC_FRAME:
             fb_edge(fb, x, y, c->w, c->h, C_BTNSHADOW, C_BTNHILIGHT);
             break;
+        case JW_TC_ICON: {
+            /* SS_ICON.  The only one in these templates is バージョン情報's
+               "#320", the program's own icon group, drawn at its 32x32
+               (tools/mkicon.py) from the control's top left as Windows
+               draws it */
+            int ix, iy;
+
+            for (iy = 0; iy < JW_ICON32; iy++)
+                for (ix = 0; ix < JW_ICON32; ix++)
+                    if (jw_icon32_mask[iy * JW_ICON32 + ix])
+                        px_put(fb, x + ix, y + iy,
+                               jw_icon32[iy * JW_ICON32 + ix]);
+            break;
+        }
         default:
             break;
         }

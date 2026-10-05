@@ -10,6 +10,10 @@ it was picked out of the fourteen.
 
 What comes out is the colours and the AND mask, so the browser build can draw
 the same caption the native window gets from Windows.
+
+Number 1 goes in too, 32x32: icon group 320 holds the two of them, and 320
+is what the バージョン情報 dialog's SS_ICON names ("#320" in its template),
+so that is the one a 32x32 icon control draws (src/ui.c, ui_tdlg).
 """
 import os
 import struct
@@ -22,7 +26,7 @@ WANT = 2                # which RT_ICON, see above
 SIZE = 16
 
 
-def decode(d):
+def decode(d, SIZE=SIZE):
     """An RT_ICON is a DIB: header, palette, colours bottom-up, then mask."""
     w, h, planes, bits = struct.unpack_from('<iiHH', d, 4)
     hdr = struct.unpack_from('<I', d, 0)[0]
@@ -63,13 +67,16 @@ def decode(d):
 def main():
     exe, outdir = sys.argv[1], sys.argv[2]
     p = rsrc.PE(exe)
-    d = None
+    d = d32 = None
     for t, n, lang, rva, sz in p.resources():
         if t == 3 and str(n) == str(WANT):
             d = p.res_data(rva, sz)
-    if d is None:
-        raise SystemExit('no RT_ICON %s in %s' % (WANT, exe))
+        if t == 3 and str(n) == '1':
+            d32 = p.res_data(rva, sz)
+    if d is None or d32 is None:
+        raise SystemExit('no RT_ICON %s or 1 in %s' % (WANT, exe))
     rgb, mask = decode(d)
+    rgb32, mask32 = decode(d32, 32)
     os.makedirs(outdir, exist_ok=True)
     with open(os.path.join(outdir, 'jwicon.h'), 'w',
               encoding='ascii', newline='\n') as f:
@@ -84,6 +91,16 @@ def main():
         f.write('/* 1 where the icon paints, 0 where the caption shows through */\n')
         f.write('static const unsigned char jw_icon_mask[%d] = {\n' % (SIZE * SIZE))
         for row in mask:
+            f.write('    ' + ' '.join('%d,' % m for m in row) + '\n')
+        f.write('};\n\n')
+        f.write('/* and RT_ICON 1, the 32x32 of the same group (320) */\n')
+        f.write('#define JW_ICON32 32\n')
+        f.write('static const unsigned int jw_icon32[%d] = {\n' % (32 * 32))
+        for row in rgb32:
+            f.write('    ' + ' '.join('0x%06xu,' % c for c in row) + '\n')
+        f.write('};\n\n')
+        f.write('static const unsigned char jw_icon32_mask[%d] = {\n' % (32 * 32))
+        for row in mask32:
             f.write('    ' + ' '.join('%d,' % m for m in row) + '\n')
         f.write('};\n\n#endif\n')
     print('src/gen/jwicon.h: %dx%d from RT_ICON %d' % (SIZE, SIZE, WANT))
