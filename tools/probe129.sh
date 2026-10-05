@@ -26,8 +26,8 @@ run coord "${S}pb:1066;wait:500;${R}500,400;${R}"
 run angle "${S}pb:1067;wait:500;${R}300,300;${R}700,300;${R}700,500;${R}"
 run unit  "${S}pb:1069;wait:500;${R}300,300;${R}700,300;${R}"
 run digit "${S}pb:1070;wait:500;${R}300,300;700,300;${R}pb:1070;wait:500;${R}pb:1070;wait:500;${R}"
-run write "${S}300,300;700,300;${R}pb:1071;wait:600;${R}500,600;${R}saveas:p129_write"
+run write "${S}300,300;700,300;${R}pb:1071;wait:600;${R}500,600;${R}saveas:decomp/res/sokutei_write.jww"
 idle
 echo
 echo "--- 測定結果書込 が置いたもの"
-python tools/whatdid.py decomp/res/new.jww tmp/p129_write.jww 2>&1 | head -6
+python tools/whatdid.py decomp/res/new.jww decomp/res/sokutei_write.jww 2>&1 | head -6
