@@ -836,10 +836,20 @@ static void num3(char *out, int n, const jw_drawing *d, double mm)
  * （24.489796）。右の一辺はいつも %g で、mm の面積だと 1.49938e+08 のように
  * 指数まで出ます。
  *
- * 座標測定 (1066)・○単独円指定 (1068)・測定結果書込 (1071)・
- * 書込設定 (1072) はまだです。座標測定 と 角度測定 の途中の数は
- * **マウスの今の位置**を映すので、投げたクリックでは測れませんでした
- * （`tools/probe129.sh`・`probe130.sh`）。 */
+ * 座標測定 (1066) —— 原点 (5404) を置くと、そこからの**マウスの今の
+ * 位置**を 【 x , y 】 で映します。投げたクリックでは測れないので、
+ * `m<x>,<y>` で本物のカーソルを動かして読みました
+ * （`tools/probe141.sh`）。原点を画面の (300,300) に置いて:
+ *
+ *   カーソル (500,400)   【 12.245ｍ , -6.122ｍ 】
+ *   カーソル (700,300)   【 24.490ｍ , 0.000ｍ 】
+ *   カーソル (300,300)   【 0.000ｍ , 0.000ｍ 】
+ *
+ * 200 画素は紙で 122.449 mm、1/100 なので 12.2449 m —— 距離測定 と同じ
+ * 換算で、画面の下は負です。小数桁も単位も同じものが効きます。
+ *
+ * ○単独円指定 (1068)・測定結果書込 (1071)・書込設定 (1072) はまだです。
+ * 角度測定 の途中の数も同じくマウス任せで、そこは合わせていません。 */
 #define SOK_LEN  1064           /* 距離測定 */
 #define SOK_AREA 1065           /* 面積測定 */
 #define SOK_XY   1066           /* 座標測定 */
@@ -2308,6 +2318,23 @@ const char *jw_cmd_status(const jw_drawing *d)
             snprintf(buf, sizeof buf, "%s       \x81y %s\x81\x8b \x81z", p, a);
             return buf;
         }
+        if (sok_mode == SOK_XY) {
+            /* the cursor's place, measured from the origin */
+            double dx = 0.0, dy = 0.0;
+
+            if (sok_n && tracking) {
+                dx = tx - sok_x0;
+                dy = ty - sok_y0;
+            }
+            f = sc / (sok_unit ? 1.0 : 1000.0);
+            u = sok_unit ? "mm" : "\x82\x8d";
+            sok_num(a, (int)sizeof a, dx * f, sok_places());
+            sok_num(b, (int)sizeof b, dy * f, sok_places());
+            snprintf(buf, sizeof buf,
+                     "%s      S = 1 / %g  \x81y %s%s , %s%s \x81z",
+                     p, sc, a, u, b, u);
+            return buf;
+        }
         if (sok_mode == SOK_AREA) {
             f = sc * sc / (sok_unit ? 1.0 : 1000000.0);
             u = sok_unit ? "mm2" : "\x82\x8d" "2";
@@ -2369,6 +2396,8 @@ const char *jw_cmd_prompt(void)
         if (sok_mode == SOK_ANG)
             return sok_n == 0 ? JW_STR_5404
                  : sok_n == 1 ? JW_STR_10117 : JW_STR_10118;
+        if (sok_mode == SOK_XY)
+            return sok_n == 0 ? JW_STR_5404 : JW_STR_5405;
         return sok_n ? JW_STR_5323 : JW_STR_5320;
     case JW_CMD_KYORITEN:
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
@@ -9265,6 +9294,15 @@ placed:
 
         if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
             return;                     /* (R) with nothing to read */
+        if (sok_mode == SOK_XY) {
+            /* 座標測定 only ever wants the origin; after that it is the
+               cursor that is read out */
+            sok_x0 = rx;
+            sok_y0 = ry;
+            sok_n = 1;
+            tail_set(4, 0.0, 0.0);
+            return;
+        }
         if (sok_mode == SOK_ANG) {
             /* 原点 → 基準点 → 角度点 */
             if (sok_n == 0) {

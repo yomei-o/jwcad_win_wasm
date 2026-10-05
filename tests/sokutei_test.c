@@ -16,10 +16,17 @@
  * **「足したものが零」のときは「-0」**と書かれます —— 距離の一点目も、
  * 面積の輪を閉じる一手も。
  *
- * 座標測定 と 角度測定 の**途中の数はマウスの今の位置**を映すので、
- * 投げたクリックでは測れませんでした。そこは原典と合いません（ここでも
- * 較べていません）。座標測定・○単独円指定・測定結果書込・書込設定 は
- * まだ入れていません。
+ * 座標測定 (1066) も入りました —— 原点を置くと、そこからの**マウスの
+ * 今の位置**を 【 x , y 】 で映します。`m<x>,<y>` で本物のカーソルを
+ * 動かして読みました（`tools/probe141.sh`）。
+ *
+ * 角度測定 の**途中の数**だけはマウス任せのままで、そこは合わせて
+ * いません。○単独円指定・測定結果書込・書込設定 はまだです。
+ *
+ * 四つの 〜測定 のうちどれが選ばれているかを、原典は**何も印して
+ * いません** —— バーを撮り比べると動くのは Windows の点線の焦点枠だけ
+ * でした（`tools/probe141.sh`）。移植は焦点枠を描かないので、ここは
+ * 差が出ません。
  */
 #include <stdio.h>
 #include <string.h>
@@ -27,6 +34,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/jww.h"
+#include "../src/ui.h"
 
 static int fails;
 
@@ -69,6 +77,13 @@ static const char *const MM[] = {
 
 /* 角度測定: on entering, while it asks for the 基準点 (no readout at all),
    while it asks for the 角度点, and the angle it ends on */
+/* 座標測定: before the origin, and then the cursor at three places */
+static const char *const XY[] = {
+    "      S = 1 / 100  \x81y 0.000\x82\x8d , 0.000\x82\x8d \x81z",
+    "      S = 1 / 100  \x81y 12.245\x82\x8d , -6.122\x82\x8d \x81z",
+    "      S = 1 / 100  \x81y 24.490\x82\x8d , 0.000\x82\x8d \x81z",
+};
+
 static const char *const ANG[] = {
     "              \x81y 0.000\x81\x8b \x81z",
     "(R)Read",
@@ -195,6 +210,26 @@ int main(void)
     app_press(PT[2].x, PT[2].y, 0);
     cktext(ANG[3], "  角度点で -26.565 度");
     ck(app_drawing()->ndrawn == 0, "  角度測定も図面に何も足さない");
+
+    /* ------------------------------------------------------ 座標測定 --- */
+    {
+        rect_t vr;
+
+        app_command(32897);
+        bar(1066);
+        ck(jw_cmd_sokutei_mode() == 1066, "座標測定 を選べる");
+        cktext(XY[0], "  原点を置く前は 0, 0");
+        ui_view_rect(1264, 741, &vr);
+        app_press(vr.x + 300, vr.y + 300, 0);
+        cktext(XY[0], "  原点を置いた直後も 0, 0");
+        app_move(vr.x + 500, vr.y + 400);
+        cktext(XY[1], "  カーソル (500,400) で 12.245, -6.122");
+        app_move(vr.x + 700, vr.y + 300);
+        cktext(XY[2], "  カーソル (700,300) で 24.490, 0.000");
+        app_move(vr.x + 300, vr.y + 300);
+        cktext(XY[0], "  原点へ戻ると 0, 0");
+        ck(app_drawing()->ndrawn == 0, "  座標測定も図面に何も足さない");
+    }
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
