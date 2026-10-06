@@ -61,6 +61,28 @@ static int corner_obj;
 static double corner_x, corner_y;
 /* 面取 works the same way and keeps its pick in the same three */
 
+/* 点 (32785) -- 原典の名は 仮実点 (string 5251)。そのバーは
+ * 1323 仮点・1064 仮点消去・1065 全仮点消去・1066 交点 の四つです。
+ *
+ * **どれが仮点かは原典に訊いて決めました**（tools/probe151.sh）:
+ *
+ *   素のクリック      要素の kind (+0x68) が **0**。画面では 5 画素の十字
+ *   1323 を押して     kind が **1**。画面では 11 画素の環
+ *   全仮点消去 (1065) 消えるのは **kind=1 のほう**。混ぜて置いてから
+ *                     押すと、kind=0 だけが残りました
+ *   仮点消去 (1064)   押すと「【消去】する仮点を指示してください。」に
+ *                     なり、**その状態が続きます** —— 三つ置いて二回
+ *                     クリックしたら一つ残りました
+ *   交点 (1066)       「線・円（Ａ）を指示してください。」→「線・円【Ｂ】
+ *                     …」の二段で、二本の交点に kind=0 の点が落ちます
+ *
+ * つまり **kind=1 が仮点**です。`src/draw.c` の注は逆のことを書いて
+ * いましたが、画素のほうは前から合っています（環を n==1 に描く）。
+ */
+static int ten_del;             /* 仮点消去 の状態 */
+static int ten_cross;           /* 交点: 0 切 / 1 （Ａ）待ち / 2 【Ｂ】待ち */
+static int ten_a = -1;          /* 交点 の 線・円（Ａ） */
+
 /* 線伸縮: the line, while its end is being moved. */
 static int stretch_step;
 static int stretch_obj;
@@ -1990,6 +2012,9 @@ void jw_cmd_escape(void)
     cv_n = 0;
     ht_n = 0;
     ht_nchain = 0;
+    ten_del = 0;
+    ten_cross = 0;
+    ten_a = -1;
     sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
 }
 
@@ -2651,6 +2676,12 @@ const char *jw_cmd_prompt(void)
            this string with the size added to it live. */
         return step == 0 ? JW_STR_5320 : JW_STR_5321;
     case JW_CMD_TEN:
+        /* 原典の言葉。仮点消去 と 交点 はそれぞれ自前の行を出します
+           （tools/probe150.sh・probe151.sh で読んだもの）。 */
+        if (ten_del)
+            return JW_STR_5503;
+        if (ten_cross)
+            return ten_cross == 1 ? JW_STR_5623 : JW_STR_5624;
         return JW_STR_5376;
     case JW_CMD_MOJI:
         if (ren_step)
@@ -3596,6 +3627,85 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 /* Take an element out and remember it, so 元に戻る can put it back.  `o` is
    the step it belongs to, so a cut can record the removal and the two pieces
    that replace it as one press-worth. */
+/* 仮点消去 が狙うのは **kind=1 の点だけ**です。原典は普通の拾い方
+   （FUN_0044a270）に点だけの枠を渡しているはずですが、そこは読んで
+   いないので、ここは移植の `jw_pick` と同じ画素の近さで拾います。 */
+static int pick_kariten(const jw_drawing *d, const jw_view *v,
+                        double x, double y)
+{
+    int i, best = -1;
+    double bd = 0.0;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        double dx, dy, r;
+
+        if (o->cls != JW_TEN || o->n != 1)
+            continue;
+        dx = o->d[0] - x;
+        dy = o->d[1] - y;
+        r = dx * dx + dy * dy;
+        if (best < 0 || r < bd) {
+            best = i;
+            bd = r;
+        }
+    }
+    if (best < 0)
+        return -1;
+    /* 拾う幅は移植のほかの拾い方と同じもの */
+    {
+        double lim = jw_pick_tol(v);
+
+        if (bd > lim * lim)
+            return -1;
+    }
+    return best;
+}
+
+/* 二つの要素の交点。クリックの近いほうを選びます ——
+   二つある円の交点でどちらを採るかは**原典に訊いていません**。 */
+static int cross_point(const jw_drawing *d, int ia, int ib,
+                       double px, double py, double *ox, double *oy)
+{
+    const jw_obj *a = &d->obj[ia], *b = &d->obj[ib];
+    double cand[4][2];
+    int n = 0, i, best = -1;
+    double bd = 0.0;
+
+    if (a->cls == JW_SEN && b->cls == JW_SEN) {
+        double ax = a->d[2] - a->d[0], ay = a->d[3] - a->d[1];
+        double bx = b->d[2] - b->d[0], by = b->d[3] - b->d[1];
+        double den = ax * by - ay * bx;
+
+        if (den == 0.0)
+            return 0;
+        {
+            double t = ((b->d[0] - a->d[0]) * by
+                        - (b->d[1] - a->d[1]) * bx) / den;
+
+            cand[n][0] = a->d[0] + t * ax;
+            cand[n][1] = a->d[1] + t * ay;
+            n++;
+        }
+    } else {
+        return 0;                       /* 線×円・円×円 はまだ訊いていません */
+    }
+    for (i = 0; i < n; i++) {
+        double dx = cand[i][0] - px, dy = cand[i][1] - py;
+        double r = dx * dx + dy * dy;
+
+        if (best < 0 || r < bd) {
+            best = i;
+            bd = r;
+        }
+    }
+    if (best < 0)
+        return 0;
+    *ox = cand[best][0];
+    *oy = cand[best][1];
+    return 1;
+}
+
 static void erase(jw_drawing *d, int i, op_t *o)
 {
     op_keep(o, d, i, 1);
@@ -7893,6 +8003,42 @@ int jw_cmd_bar(jw_drawing *d, int id)
         sun_prog = !sun_prog;
         return 1;
     }
+    /* 点 (仮実点) のバー。原典に訊いた動き（src/cmd.c の 点 の注）:
+       1064 仮点消去 は押しっぱなしの状態、1065 全仮点消去 はその場で
+       kind=1 を全部落とす、1066 交点 は（Ａ）【Ｂ】の二段。 */
+    if (current == JW_CMD_TEN) {
+        if (id == 1064) {
+            ten_del = 1;
+            ten_cross = 0;
+            ten_a = -1;
+            return 1;
+        }
+        if (id == 1065) {
+            int i;
+            op_t *rec = 0;
+
+            if (d)
+                for (i = d->ndrawn - 1; i >= 0; i--)
+                    if (d->obj[i].cls == JW_TEN && d->obj[i].n == 1) {
+                        if (!rec)
+                            rec = op_new();
+                        erase(d, i, rec);
+                    }
+            ten_del = 0;
+            return 1;
+        }
+        if (id == 1066) {
+            ten_cross = 1;
+            ten_del = 0;
+            ten_a = -1;
+            return 1;
+        }
+        if (id == 1323) {               /* 仮点: 置くものが変わるだけ */
+            ten_del = 0;                /* 印はこの下の chk_slot が動かす */
+            ten_cross = 0;
+            ten_a = -1;
+        }
+    }
     /* 測定's bar: the four 〜測定 are one choice of four, and the two on
        the right turn the unit and the number of places (src/cmd.c's 測定
        note).  Pressing any of them starts the run over. */
@@ -10735,13 +10881,57 @@ placed:
         return;
     }
     if (current == JW_CMD_TEN) {
-        /* CZukeiTen: one point and it is placed.  Its own prompt never
-           changes while it waits (FUN_004efbb0(0x1500)). */
-        if (d) {
+        /* CZukeiTen の slot 9 (FUN_00732730) は三つに分かれます ——
+           +0x140 が立っていれば 仮点消去、+0x148 が立っていれば 交点
+           （その中で +0x148 が 1 と 2 を行き来して（Ａ）【Ｂ】を拾い、
+           拾えなければ **0 を返して段を進めません**）、どちらでも
+           なければ点を置く。 */
+        if (!d)
+            return;
+        if (ten_del) {                  /* 仮点消去 */
+            int i = pick_kariten(d, v, x, y);
+
+            if (i >= 0)
+                erase(d, i, op_new());
+            return;
+        }
+        if (ten_cross) {                /* 交点 */
+            int i = jw_pick(d, v, x, y, 3);
+
+            if (i < 0 || (d->obj[i].cls != JW_SEN
+                          && d->obj[i].cls != JW_ENKO))
+                return;                 /* 拾えなければ段は進みません */
+            if (ten_cross == 1) {
+                ten_a = i;
+                ten_cross = 2;
+                return;
+            }
+            if (ten_a >= 0 && ten_a < d->ndrawn && ten_a != i) {
+                double cx, cy;
+
+                if (cross_point(d, ten_a, i, x, y, &cx, &cy)) {
+                    jw_obj *o = jw_add(d, JW_TEN);
+
+                    if (o) {
+                        o->d[0] = cx;
+                        o->d[1] = cy;
+                        o->n = 0;       /* 交点に落ちるのは実点 */
+                        op_push(1);
+                    }
+                }
+            }
+            ten_a = -1;
+            ten_cross = 1;
+            return;
+        }
+        {
             jw_obj *o = jw_add(d, JW_TEN);
+
             if (o) {
                 o->d[0] = x;
                 o->d[1] = y;
+                /* 1323 仮点 を押していれば kind=1 -- 原典に訊いた値 */
+                o->n = jw_cmd_bar_check(1323) > 0 ? 1 : 0;
                 op_push(1);
             }
         }

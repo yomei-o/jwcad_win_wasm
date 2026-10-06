@@ -2657,8 +2657,16 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         case JW_TEN: {
             int x = jw_sx(v, o->d[0]), y = jw_sy(v, o->d[1]), k;
-            /* 実点 -- the trailing long is 1 -- wears a little ring; 仮点,
-             * where it is 0, is the one pixel on its own.  The ring is the
+            /* **The trailing long is 1 for a 仮点**, and that is the one
+             * that wears the little ring; the 実点 (0) is the small shape
+             * below.  This comment used to have the two the other way
+             * round.  The original settled it (tools/probe151.sh): the 点
+             * command's plain click writes 0 and draws a five-pixel cross,
+             * pressing 仮点 (1323) writes 1 and draws the eleven-pixel
+             * ring, and 全仮点消去 takes away exactly the 1s.  The pixels
+             * here were right all along -- only the names were swapped.
+             *
+             * The ring is the
              * same eleven pixels wherever it appears, and it is not
              * symmetric: read off two isolated points of Test3.jww, which
              * agreed exactly.  Whatever the original hands GDI, this is what
