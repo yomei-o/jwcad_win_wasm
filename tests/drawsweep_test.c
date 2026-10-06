@@ -43,14 +43,17 @@ static unsigned char *slurp(const char *path, long *n)
     return b;
 }
 
-/* その絵に何がいくつあるか。種類ごとの数だけ見ます。 */
-static void tally(const jw_drawing *d, int from, int *cnt)
+/* その絵に何がいくつあるか。種類ごとの数だけ見ます。
+ *
+ * **末尾から数えてはいけません。**原典は書き出すとき新しい要素を
+ * いちばん後ろに置くとは限らないので、下敷きぶんを引く形にします。 */
+static void tally(const jw_drawing *d, int *cnt)
 {
     int i;
 
     for (i = 0; i < 8; i++)
         cnt[i] = 0;
-    for (i = from; i < d->ndrawn; i++) {
+    for (i = 0; i < d->ndrawn; i++) {
         int c = d->obj[i].cls;
 
         if (c >= 0 && c < 8)
@@ -58,8 +61,17 @@ static void tally(const jw_drawing *d, int from, int *cnt)
     }
 }
 
+static void minus(int *a, const int *b)
+{
+    int i;
+
+    for (i = 0; i < 8; i++)
+        a[i] -= b[i];
+}
+
+/* src/jww.h の enum のとおり */
 static const char *CLSNAME[8] = {
-    "?", "線", "円弧", "点", "文字", "ソリッド", "連続線", "?"
+    "線", "円弧", "点", "文字", "ソリッド", "ブロック", "定義", "?"
 };
 
 static void show(const char *who, const int *c)
@@ -81,20 +93,24 @@ int main(int argc, char **argv)
     };
     /* tools/drawsweep.sh と同じ三クリック（作図領域の座標） */
     static const int CLICK[3][2] = { { 400, 350 }, { 600, 450 }, { 500, 420 } };
-    jw_drawing ref;
+    jw_drawing ref, base;
     unsigned char *b;
     long n;
     int k, i, want = argc > 1 ? atoi(argv[1]) : 0;
-    int base_n = 0;
+    int base_n = 0, basec[8];
 
     /* 下敷き */
+    memset(&base, 0, sizeof base);
     b = slurp("decomp/res/sweep_base.jww", &n);
-    if (!b) {
-        printf("BAD  decomp/res/sweep_base.jww がありません"
+    if (!b || !jw_parse(&base, b, n)) {
+        printf("BAD  decomp/res/sweep_base.jww が読めません"
                " -- tools/drawsweep.sh を走らせてください\n");
+        free(b);
         return 1;
     }
     free(b);
+    tally(&base, basec);
+    base_n = base.ndrawn;
 
     for (k = 0; k < (int)(sizeof CMD / sizeof CMD[0]); k++) {
         char path[64];
@@ -128,19 +144,21 @@ int main(int argc, char **argv)
         }
         free(b);
         d = app_drawing();
-        base_n = d->ndrawn;
         fb = app_fb();
         ui_view_rect(fb->w, fb->h, &r);
         app_command(CMD[k]);
         for (i = 0; i < 3; i++)
             app_press(r.x + CLICK[i][0], r.y + CLICK[i][1], 0);
 
-        tally(d, base_n, mine);
-        tally(&ref, base_n, theirs);
+        tally(d, mine);
+        tally(&ref, theirs);
+        minus(mine, basec);
+        minus(theirs, basec);
         for (i = 0; i < 8; i++)
             if (mine[i] != theirs[i])
                 same = 0;
-        printf("%-4s %d\n", same ? "ok" : "差", CMD[k]);
+        printf("%-4s %d   （下敷き %d、原典 %d、移植 %d）\n",
+               same ? "ok" : "差", CMD[k], base_n, ref.ndrawn, d->ndrawn);
         if (!same) {
             show("原典", theirs);
             show("移植", mine);
