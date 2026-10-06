@@ -72,7 +72,22 @@ one() {
     idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
     $PS -Open tmp/rect.jww -NoSave -Clicks "${BASE}${steps}" 2>&1 |
         grep -aoE "saved tmp...bsw_[0-9_]+\.jww|no control [0-9]+" |
-        sed 's/^/    /'
+        sed 's/^/    /' | tee tmp/bsw_one.txt
+
+    # **一人ずつの採り直し。**つまみの中には、押すとバーそのものを
+    # 差し替えてしまうものがあります —— 曲線 で ベジェ曲線 (1692) を
+    # 押すと 連結線指定 (1068) が消え、連続線 で 連続弧 (2492) を押すと
+    # 基準角度 (1065)・基点 (1066)・手書線 (1774) が消えて 弧反転 (1067)
+    # が出てきます。積み上げ式の一本道では、そのあとのつまみに手が
+    # 届きません。消えていたものは**素の状態からそれ一つだけ**押して
+    # 採り直し、`bsw_<cmd>_<id>_solo.jww` に残します。
+    # 試験はこの綴りを見て、一つ前ではなく**下敷きとの差**で読みます。
+    for id in $(sed -n 's/.*no control \([0-9]*\).*/\1/p' tmp/bsw_one.txt | sort -u); do
+        idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
+        $PS -Open tmp/rect.jww -NoSave -Clicks \
+            "${BASE}cmd:${cmd};pb:${id};dlgoff;${CLICKS}saveas:bsw_${cmd}_${id}_solo;" \
+            2>&1 | grep -aoE "no control [0-9]+" | sed 's/^/    solo /'
+    done
 }
 
 if [ $# -gt 0 ]; then

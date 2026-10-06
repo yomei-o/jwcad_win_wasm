@@ -756,8 +756,20 @@ try {
                 # BM_CLICK posted rather than sent: a button that opens a
                 # modal dialog would otherwise hold this script until the
                 # dialog closes, and nothing here can close it.
-                $h = Ctl ([int]$Matches[1])
-                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                #
+                # **無ければ黙って先へ進みます。**掃き出しでは一本の起動で
+                # 何十も押すので、一つ見つからないだけで残り全部を
+                # 取りこぼしていました（連続線 の 1065 がそれ）。
+                $h = [IntPtr]::Zero
+                for ($try = 0; $try -lt 10; $try++) {
+                    $h = Ctl ([int]$Matches[1])
+                    if ($h -ne [IntPtr]::Zero) { break }
+                    Start-Sleep -Milliseconds 100
+                }
+                if ($h -eq [IntPtr]::Zero) {
+                    Write-Host "no control $($Matches[1])"
+                    break
+                }
                 [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
                 Start-Sleep -Milliseconds $StepMs
                 break

@@ -141,6 +141,7 @@ int main(int argc, char **argv)
 
     for (k = 0; k < (int)(sizeof CMD / sizeof CMD[0]); k++) {
         int ids[32], nid, step;
+        int solo[32], nsolo, si;
 
         if (want && CMD[k] != want)
             continue;
@@ -187,6 +188,7 @@ int main(int argc, char **argv)
             }
         }
 
+        nsolo = 0;
         for (step = 0; step <= nid; step++) {
             char path[64];
             const jw_drawing *d = app_drawing();
@@ -208,9 +210,20 @@ int main(int argc, char **argv)
             memset(&ref, 0, sizeof ref);
             b = slurp(path, &n);
             if (!b || !jw_parse(&ref, b, n)) {
-                printf("     %5d  答えなし\n", id);
-                nmiss++;
+                /* 積み上げの一本道では届かなかったつまみ。素の
+                   状態からそれ一つだけ押した答えがあるなら、
+                   あとで下の「一人ずつ」で見ます。 */
+                snprintf(path, sizeof path,
+                         "decomp/res/bsw_%d_%d_solo.jww", CMD[k], id);
                 free(b);
+                b = slurp(path, &n);
+                if (b) {
+                    solo[nsolo++] = id;
+                    free(b);
+                } else {
+                    printf("     %5d  答えなし\n", id);
+                    nmiss++;
+                }
                 continue;
             }
             free(b);
@@ -251,6 +264,77 @@ int main(int argc, char **argv)
         memset(&prev, 0, sizeof prev);
         jw_free(&pmine);
         memset(&pmine, 0, sizeof pmine);
+
+        /* ------------------------------------------- 一人ずつ ---------
+           つまみの中には、押すとバーそのものを差し替えてしまうものが
+           あります —— 曲線 で ベジェ曲線 (1692) を押すと 連結線指定
+           (1068) が消え、連続線 で 連続弧 (2492) を押すと 基準角度
+           (1065)・基点 (1066)・手書線 (1774) が消えます。積み上げの
+           一本道ではそのあとのつまみに手が届かないので、原典にも素の
+           状態から**それ一つだけ**押させた答えを別に採ってあります
+           （`bsw_<cmd>_<id>_solo.jww`。`tools/barsweep.sh`）。
+           ここもそれに合わせ、**下敷きとの差**で比べます。 */
+        for (si = 0; si < nsolo; si++) {
+            char path[72];
+            const jw_drawing *d;
+            const fb_t *fb;
+            rect_t r;
+            int i, id = solo[si];
+            const jw_obj *ta[96], *ma[96];
+            int tn, mn, miss = 0;
+
+            snprintf(path, sizeof path, "decomp/res/bsw_%d_%d_solo.jww",
+                     CMD[k], id);
+            memset(&ref, 0, sizeof ref);
+            b = slurp(path, &n);
+            if (!b || !jw_parse(&ref, b, n)) {
+                free(b);
+                printf("     %5d  答えなし\n", id);
+                nmiss++;
+                continue;
+            }
+            free(b);
+
+            b = slurp("decomp/res/sweep_base.jww", &n);
+            app_new();
+            app_resize(1264, 741);
+            if (!b || !app_open(b, n)) {
+                free(b);
+                jw_free(&ref);
+                printf("BAD  下敷きが開けません\n");
+                return 1;
+            }
+            free(b);
+            d = app_drawing();
+            fb = app_fb();
+            app_command(32771);
+            if (jw_cmd_bar_check(1333) > 0)
+                jw_cmd_bar((jw_drawing *)d, 1333);
+            app_command(32785);
+            app_command(CMD[k]);
+            jw_cmd_bar((jw_drawing *)d, id);
+            ui_view_rect(fb->w, fb->h, &r);
+            for (i = 0; i < 3; i++)
+                app_press(r.x + CLICK[i][0], r.y + CLICK[i][1], 0);
+
+            tn = fresh(&ref, &base, ta, 96);
+            mn = fresh(d, &base, ma, 96);
+            for (i = 0; i < tn; i++)
+                if (!found_in(ta[i], ma, mn))
+                    miss++;
+            for (i = 0; i < mn; i++)
+                if (!found_in(ma[i], ta, tn))
+                    miss++;
+            if (miss) {
+                printf("     %5d  差: 原典 %d・移植 %d（合わない %d）"
+                       "［一人］\n", id, tn, mn, miss);
+                ndiff++;
+            } else {
+                nsame++;
+            }
+            jw_free(&ref);
+            memset(&ref, 0, sizeof ref);
+        }
     }
     printf("一致 %d、差 %d、答えなし %d\n", nsame, ndiff, nmiss);
     return 0;
