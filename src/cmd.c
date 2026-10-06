@@ -3662,8 +3662,26 @@ static int pick_kariten(const jw_drawing *d, const jw_view *v,
     return best;
 }
 
-/* 二つの要素の交点。クリックの近いほうを選びます ——
-   二つある円の交点でどちらを採るかは**原典に訊いていません**。 */
+/* 交点が二つあるとき、原典は**二度目のクリックに近いほう**を落とします。
+ * 円と水平線で確かめました（tools/probe155.sh、答えは
+ * decomp/res/ten_lc_*.jww）—— 中心 (-33.0612, -34.8980)・半径 61.2245 の
+ * 円と y = -53.2653 の線で、交点は x が -91.4657 と 25.3432。
+ * 【Ｂ】を線の左端で押すと前者、右端で押すと後者が落ちました。
+ *
+ * **円弧と楕円は訊いていません。**ここは環を丸ごとの円として扱います。
+ */
+static int circle_of(const jw_obj *o, double *cx, double *cy, double *r)
+{
+    if (o->cls != JW_ENKO || o->d[2] <= 0.0)
+        return 0;
+    if (o->d[6] != 0.0 && o->d[6] != 1.0)
+        return 0;                       /* 扁平率つきは訊いていません */
+    *cx = o->d[0];
+    *cy = o->d[1];
+    *r = o->d[2];
+    return 1;
+}
+
 static int cross_point(const jw_drawing *d, int ia, int ib,
                        double px, double py, double *ox, double *oy)
 {
@@ -3671,6 +3689,7 @@ static int cross_point(const jw_drawing *d, int ia, int ib,
     double cand[4][2];
     int n = 0, i, best = -1;
     double bd = 0.0;
+    double cx, cy, r, cx2, cy2, r2;
 
     if (a->cls == JW_SEN && b->cls == JW_SEN) {
         double ax = a->d[2] - a->d[0], ay = a->d[3] - a->d[1];
@@ -3687,8 +3706,68 @@ static int cross_point(const jw_drawing *d, int ia, int ib,
             cand[n][1] = a->d[1] + t * ay;
             n++;
         }
+    } else if ((a->cls == JW_SEN) != (b->cls == JW_SEN)) {
+        /* 線と円 */
+        const jw_obj *ln = a->cls == JW_SEN ? a : b;
+        const jw_obj *ci = a->cls == JW_SEN ? b : a;
+        double dx, dy, fx, fy, A, B, C, disc;
+
+        if (!circle_of(ci, &cx, &cy, &r))
+            return 0;
+        dx = ln->d[2] - ln->d[0];
+        dy = ln->d[3] - ln->d[1];
+        fx = ln->d[0] - cx;
+        fy = ln->d[1] - cy;
+        A = dx * dx + dy * dy;
+        B = 2.0 * (fx * dx + fy * dy);
+        C = fx * fx + fy * fy - r * r;
+        if (A == 0.0)
+            return 0;
+        disc = B * B - 4.0 * A * C;
+        if (disc < 0.0)
+            return 0;
+        disc = sqrt(disc);
+        for (i = 0; i < 2; i++) {
+            double t = (-B + (i ? -disc : disc)) / (2.0 * A);
+
+            cand[n][0] = ln->d[0] + t * dx;
+            cand[n][1] = ln->d[1] + t * dy;
+            n++;
+            if (disc == 0.0)
+                break;
+        }
+    } else if (a->cls == JW_ENKO && b->cls == JW_ENKO) {
+        /* 円と円 */
+        double L, h2;
+
+        if (!circle_of(a, &cx, &cy, &r) || !circle_of(b, &cx2, &cy2, &r2))
+            return 0;
+        {
+            double dx = cx2 - cx, dy = cy2 - cy;
+
+            L = sqrt(dx * dx + dy * dy);
+            if (L == 0.0 || L > r + r2 || L < fabs(r - r2))
+                return 0;
+            {
+                double t = (r * r - r2 * r2 + L * L) / (2.0 * L);
+                double mx = cx + t * dx / L, my = cy + t * dy / L;
+
+                h2 = r * r - t * t;
+                if (h2 < 0.0)
+                    h2 = 0.0;
+                h2 = sqrt(h2);
+                cand[n][0] = mx + h2 * (-dy) / L;
+                cand[n][1] = my + h2 * dx / L;
+                n++;
+                if (h2 > 0.0) {
+                    cand[n][0] = mx - h2 * (-dy) / L;
+                    cand[n][1] = my - h2 * dx / L;
+                    n++;
+                }
+            }
+        }
     } else {
-        return 0;                       /* 線×円・円×円 はまだ訊いていません */
+        return 0;
     }
     for (i = 0; i < n; i++) {
         double dx = cand[i][0] - px, dy = cand[i][1] - py;
