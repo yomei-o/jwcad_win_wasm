@@ -1186,6 +1186,30 @@ try {
                 break
             }
 
+            # Close whatever modal window is up, if any.  A bar button
+            # like 寸法 の 設定 (1071) puts one up, and the rest of the
+            # run then has nowhere to go -- this gets back to the frame.
+            # Does nothing when no window is up.
+            '^dlgoff$' {
+                $shut = 0
+                for ($try = 0; $try -lt 12; $try++) {
+                    $any = [IntPtr]::Zero
+                    foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                        if ($t -eq $frame) { continue }
+                        if (-not [Jw]::IsWindowVisible($t)) { continue }
+                        if ([Jw]::Cls($t) -ne '#32770') { continue }
+                        $any = $t; break
+                    }
+                    if ($any -eq [IntPtr]::Zero) { break }
+                    [void][Jw]::PostMessage($any, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+                    $shut++
+                    Start-Sleep -Milliseconds 250
+                }
+                if ($shut) { Emit ('=== dlgoff shut {0}' -f $shut) }
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             # Open a dialog, type into some of its boxes and press OK.
             #   dlgin:b1843,1491=30,1492=40,1493=2
             # A value of ! presses the control instead, for a checkbox:
