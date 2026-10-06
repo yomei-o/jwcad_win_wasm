@@ -270,6 +270,33 @@ int  ui_layerdlg_layer(int id);
 /* 寸法設定 -- the dialog 32925 puts up.  The picture only: nothing on it is
    wired up yet.  `on` is one byte per control of src/gen/sunpodlg.h. */
 void ui_sunpodlg_rect(int cw, int ch, rect_t *r);
+/* 色の設定（Windows の ChooseColor、CC_FULLOPEN）。原典に出させた窓を
+   そのまま写したもので、算術も Windows の HLS です。 */
+typedef struct {
+    unsigned int rgb;           /* いまの色 */
+    int h, s, l;                /* その HLS（0..239 / 0..240 / 0..240） */
+    unsigned int custom[16];    /* 作成した色 */
+    int basic_sel;              /* いまの色と同じ基本色の升、-1 なら無し */
+    int custom_sel;             /* 同じく 作成した色、-1 なら無し */
+    int focus;                  /* 点線の輪の載っている枠（720 か 721） */
+    int focus_cell;             /* その中の升 */
+    int caret;                  /* 打ち込み中の箱の id、0 なら無し */
+    const char *edit;           /* その中身 */
+} jw_cd_state;
+
+unsigned int jw_hls_to_rgb(int h, int l, int s);
+void jw_rgb_to_hls(unsigned int rgb, int *ph, int *pl, int *ps);
+void ui_colordlg_rect(int cw, int ch, rect_t *r);
+int  ui_colordlg_n(void);
+int  ui_colordlg_id(int i);
+unsigned int ui_colordlg_basic(int i);
+unsigned int ui_colordlg_startup_custom(int i);
+void ui_colordlg(fb_t *fb, const jw_cd_state *st);
+int  ui_colordlg_hit(int cw, int ch, int x, int y);
+int  ui_colordlg_cell(int cw, int ch, int which, int x, int y);
+int  ui_colordlg_hs(int cw, int ch, int x, int y, int *ph, int *ps);
+int  ui_colordlg_lum(int cw, int ch, int x, int y, int *pl);
+
 void ui_sunpodlg(fb_t *fb, const unsigned char *on, int caret,
                  const char *edit);
 int  ui_sunpodlg_hit(int cw, int ch, int x, int y);

@@ -20,4 +20,10 @@ void jw_draw_box(fb_t *fb, const jw_view *v,
 /* one bit of a line type's pattern, for drawing a sample of it */
 int jw_ltype_bit(int ltype, int i);
 
+/* 基本設定 の 色・画面 の、図面に属さない色の行（13 グレー・
+   15 選択色・16 仮表示色）。行番号は原典の CGamenPage の受け手
+   FUN_004c4af0 に渡るものと同じです。 */
+unsigned int jw_row_rgb(int row);
+int jw_row_rgb_set(int row, unsigned int rgb);
+
 #endif

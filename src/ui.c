@@ -22,6 +22,7 @@
 #include "gen/layicon.h"
 #include "gen/laytab.h"
 #include "gen/sunpodlg.h"
+#include "gen/colordlg.h"
 #include "gen/bairitsu.h"
 #include "gen/pens.h"
 #include "gen/menu.h"
@@ -3248,6 +3249,548 @@ void ui_sunpodlg(fb_t *fb, const unsigned char *on, int caret,
             break;
         }
     }
+}
+
+/* ------------------------------------------------- 色の設定 ----------
+ *
+ * 基本設定 (32891) の 色・画面 の 色１ などが出す窓です。**これは
+ * Jw_cad の窓ではなく Windows の共通ダイアログ**（comdlg32 の
+ * ChooseColor、CC_FULLOPEN 付き）なので、形も色も Windows が持って
+ * います。原典に出させた窓をそのまま読んで作りました ——
+ * `decomp/res/colordlg.txt` と `docs/ref_colordlg.png`、
+ * 寸法と升目は `tools/mkcolordlg.py` が絵から数えます。
+ *
+ * 中の算術は Windows の HLS（HLSMAX 240・RGBMAX 255）で、MFC が持って
+ * いるのと同じ整数の式です。虹の升をこの式と 60x30 の段で塗ると、
+ * 原典の撮った絵と**印の十字 35 画素を除いて一致**しました。
+ */
+#define HLSMAX 240
+#define RGBMAX 255
+
+static int hue_bit(int n1, int n2, int hue)
+{
+    if (hue < 0)
+        hue += HLSMAX;
+    if (hue > HLSMAX)
+        hue -= HLSMAX;
+    if (hue < HLSMAX / 6)
+        return n1 + (((n2 - n1) * hue + HLSMAX / 12) / (HLSMAX / 6));
+    if (hue < HLSMAX / 2)
+        return n2;
+    if (hue < HLSMAX * 2 / 3)
+        return n1 + (((n2 - n1) * ((HLSMAX * 2 / 3) - hue) + HLSMAX / 12)
+                     / (HLSMAX / 6));
+    return n1;
+}
+
+unsigned int jw_hls_to_rgb(int h, int l, int s)
+{
+    int m1, m2, r, g, b;
+
+    if (s == 0) {
+        r = g = b = (l * RGBMAX) / HLSMAX;
+    } else {
+        if (l <= HLSMAX / 2)
+            m2 = (l * (HLSMAX + s) + HLSMAX / 2) / HLSMAX;
+        else
+            m2 = l + s - ((l * s) + HLSMAX / 2) / HLSMAX;
+        m1 = 2 * l - m2;
+        r = (hue_bit(m1, m2, h + HLSMAX / 3) * RGBMAX + HLSMAX / 2) / HLSMAX;
+        g = (hue_bit(m1, m2, h) * RGBMAX + HLSMAX / 2) / HLSMAX;
+        b = (hue_bit(m1, m2, h - HLSMAX / 3) * RGBMAX + HLSMAX / 2) / HLSMAX;
+    }
+    if (r < 0) r = 0;
+    if (r > 255) r = 255;
+    if (g < 0) g = 0;
+    if (g > 255) g = 255;
+    if (b < 0) b = 0;
+    if (b > 255) b = 255;
+    return ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
+}
+
+void jw_rgb_to_hls(unsigned int rgb, int *ph, int *pl, int *ps)
+{
+    int r = (int)((rgb >> 16) & 0xff);
+    int g = (int)((rgb >> 8) & 0xff);
+    int b = (int)(rgb & 0xff);
+    int mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    int mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    int h, l, s, dr, dg, db, d = mx - mn;
+
+    l = (((mx + mn) * HLSMAX) + RGBMAX) / (2 * RGBMAX);
+    if (d == 0) {
+        s = 0;
+        h = HLSMAX * 2 / 3;             /* 原典と同じ「不定」の値 */
+    } else {
+        if (l <= HLSMAX / 2)
+            s = ((d * HLSMAX) + (mx + mn) / 2) / (mx + mn);
+        else
+            s = ((d * HLSMAX) + (2 * RGBMAX - mx - mn) / 2)
+                / (2 * RGBMAX - mx - mn);
+        dr = (((mx - r) * (HLSMAX / 6)) + d / 2) / d;
+        dg = (((mx - g) * (HLSMAX / 6)) + d / 2) / d;
+        db = (((mx - b) * (HLSMAX / 6)) + d / 2) / d;
+        if (r == mx)
+            h = db - dg;
+        else if (g == mx)
+            h = (HLSMAX / 3) + dr - db;
+        else
+            h = (2 * HLSMAX / 3) + dg - dr;
+        if (h < 0)
+            h += HLSMAX;
+        if (h > HLSMAX)
+            h -= HLSMAX;
+    }
+    if (ph) *ph = h;
+    if (pl) *pl = l;
+    if (ps) *ps = s;
+}
+
+void ui_colordlg_rect(int cw, int ch, rect_t *r)
+{
+    r->w = JW_CD_W;
+    r->h = JW_CD_H;
+    r->x = (cw - JW_CD_W) / 2;
+    r->y = (ch - 42 - JW_CD_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+int ui_colordlg_n(void)
+{
+    return JW_NCOLORDLG;
+}
+
+int ui_colordlg_id(int i)
+{
+    return i >= 0 && i < JW_NCOLORDLG ? jw_colordlg[i].id : 0;
+}
+
+unsigned int ui_colordlg_basic(int i)
+{
+    return i >= 0 && i < (int)(sizeof jw_cd_basic / sizeof jw_cd_basic[0])
+           ? jw_cd_basic[i] : 0;
+}
+
+unsigned int ui_colordlg_startup_custom(int i)
+{
+    return i >= 0 && i < (int)(sizeof jw_cd_custom / sizeof jw_cd_custom[0])
+           ? jw_cd_custom[i] : 0xffffffu;
+}
+
+/* Where one control sits, in the frame. */
+static int cd_ctl(int cw, int ch, int id, rect_t *out)
+{
+    rect_t r;
+    int i;
+
+    ui_colordlg_rect(cw, ch, &r);
+    for (i = 0; i < JW_NCOLORDLG; i++)
+        if (jw_colordlg[i].id == id) {
+            out->x = r.x + JW_CD_BORDER + jw_colordlg[i].x;
+            out->y = r.y + JW_CD_CAPTION + jw_colordlg[i].y;
+            out->w = jw_colordlg[i].w;
+            out->h = jw_colordlg[i].h;
+            return 1;
+        }
+    return 0;
+}
+
+/* A label with Windows' ampersand in it: the & goes, and the letter
+   after it gets an underline -- which is what the original's window
+   shows (docs/ref_colordlg.png: 基本色(B): with the B underlined). */
+static void cd_text(fb_t *fb, int x, int y, int w, const char *s,
+                    unsigned int col)
+{
+    char t[128];
+    int i = 0, k = 0, mark = -1;
+
+    while (s[i] && k + 2 < (int)sizeof t) {
+        if (s[i] == '&' && s[i + 1] == '&') {
+            t[k++] = '&';
+            i += 2;
+            continue;
+        }
+        if (s[i] == '&') {
+            mark = k;
+            i++;
+            continue;
+        }
+        t[k++] = s[i++];
+    }
+    t[k] = 0;
+    zs_text(fb, x, y, w, t, col);
+    if (mark >= 0 && mark < k) {
+        char pre[128], one[4];
+        int n = jw_is_lead((unsigned char)t[mark]) && t[mark + 1] ? 2 : 1;
+        int ux, uw;
+
+        memcpy(pre, t, (size_t)mark);
+        pre[mark] = 0;
+        memcpy(one, t + mark, (size_t)n);
+        one[n] = 0;
+        ux = x + jw_text_px_w(pre);
+        uw = jw_text_px_w(one);
+        if (ux + uw <= x + w)
+            fb_hline(fb, ux, y + jw_text_height() - 1, uw, col);
+    }
+}
+
+/* One swatch: the same four-colour border mj_sunken draws, with the
+   colour where the white would be. */
+static void cd_swatch(fb_t *fb, int x, int y, unsigned int rgb)
+{
+    mj_sunken(fb, x, y, JW_CD_CELLW, JW_CD_CHH);
+    fb_fill(fb, x + 2, y + 2, JW_CD_CELLW - 4, JW_CD_CHH - 4, rgb);
+}
+
+/* Two different rings go round a swatch, and the original's picture
+ * shows both at once:
+ *
+ *   the keyboard focus -- a dotted rectangle **three pixels** outside
+ *     the swatch, in 0f0f0f, every other pixel, set where x + y is
+ *     even in the frame.  It is on the first 基本色 when the window
+ *     opens
+ *   the colour the window is holding -- a **solid black** rectangle
+ *     one pixel outside the swatch.  It was on the first 作成した色,
+ *     which is the colour 色１ went in with
+ */
+static void cd_focus(fb_t *fb, int x, int y, int w, int h)
+{
+    int i;
+
+    for (i = 0; i < w; i++) {
+        if (((x + i) + y) % 2 == 0)
+            fb_fill(fb, x + i, y, 1, 1, 0x0f0f0fu);
+        if (((x + i) + y + h - 1) % 2 == 0)
+            fb_fill(fb, x + i, y + h - 1, 1, 1, 0x0f0f0fu);
+    }
+    for (i = 0; i < h; i++) {
+        if ((x + y + i) % 2 == 0)
+            fb_fill(fb, x, y + i, 1, 1, 0x0f0f0fu);
+        if ((x + w - 1 + y + i) % 2 == 0)
+            fb_fill(fb, x + w - 1, y + i, 1, 1, 0x0f0f0fu);
+    }
+}
+
+static void cd_grid(fb_t *fb, const rect_t *host, int rows,
+                    const unsigned int *col, int focus, int sel)
+{
+    int c, r;
+
+    for (r = 0; r < rows; r++)
+        for (c = 0; c < JW_CD_COLS; c++) {
+            int x = host->x + JW_CD_X0 + c * JW_CD_PX;
+            int y = host->y + JW_CD_Y0 + r * JW_CD_PY;
+            int k = r * JW_CD_COLS + c;
+
+            cd_swatch(fb, x, y, col[k]);
+            if (sel == k)
+                fb_edge(fb, x - 1, y - 1, JW_CD_CELLW + 2, JW_CD_CHH + 2,
+                        0x000000u, 0x000000u);
+            if (focus == k)
+                cd_focus(fb, x - 3, y - 3, JW_CD_CELLW + 6, JW_CD_CHH + 6);
+        }
+}
+
+/* The three painted panels all have the same one-pixel frame: the
+   button shadow along the top and the left, white along the bottom and
+   the right (docs/ref_colordlg.png -- the corners of 710, 702 and 709
+   all read a0a0a0 / ffffff). */
+static void cd_panel(fb_t *fb, const rect_t *host)
+{
+    fb_edge(fb, host->x, host->y, host->w, host->h,
+            C_BTNSHADOW, C_BTNHILIGHT);
+}
+
+/* The rainbow: 60 bands of hue across and 30 of saturation down, at a
+   fixed luminance.  Both counts come out of the original's own picture
+   (tools/mkcolordlg.py). */
+static void cd_rainbow(fb_t *fb, const rect_t *host)
+{
+    int w = host->w - 2, h = host->h - 2, k, b;
+
+    cd_panel(fb, host);
+    for (k = 0; k < JW_CD_NHUE; k++) {
+        int x0 = k * w / JW_CD_NHUE, x1 = (k + 1) * w / JW_CD_NHUE;
+
+        for (b = 0; b < JW_CD_NSAT; b++) {
+            int y0 = b * h / JW_CD_NSAT, y1 = (b + 1) * h / JW_CD_NSAT;
+
+            fb_fill(fb, host->x + 1 + x0, host->y + 1 + y0, x1 - x0, y1 - y0,
+                    jw_hls_to_rgb(k * JW_CD_HSTEP, JW_CD_RAINBOW_L,
+                                  JW_CD_SAT0 - b * JW_CD_SSTEP));
+        }
+    }
+}
+
+/* The luminance bar is **not** laid out like the rainbow.  Its 31
+ * steps are samples spread end to end, so the first and the last band
+ * are half width: in the original's picture the top band is 4 rows,
+ * the bottom 4, and the 29 between are 7 or 8 (216 rows in all).
+ *
+ * Band b starts at round((2b-1) * h / 60), which is where the picture
+ * has every one of its boundaries -- 4, 11, 18, 25, 32, 40, 47 … for
+ * h = 216.  (Nearest-sample, round(y*30/h), is **not** the same: it
+ * puts the fourth boundary at 26 and the picture has it at 25.) */
+#define CD_LUM_DEN (2 * (JW_CD_NLUM - 1))       /* 60 */
+
+static int cd_lum_edge(int b, int h)
+{
+    if (b <= 0)
+        return 0;
+    if (b >= JW_CD_NLUM)
+        return h;
+    return ((2 * b - 1) * 2 * h + CD_LUM_DEN) / (2 * CD_LUM_DEN);
+}
+
+static void cd_lumbar(fb_t *fb, const rect_t *host, int h_, int s)
+{
+    int w = host->w - 2, h = host->h - 2, b;
+
+    cd_panel(fb, host);
+    for (b = 0; b < JW_CD_NLUM; b++) {
+        int y0 = cd_lum_edge(b, h), y1 = cd_lum_edge(b + 1, h);
+
+        if (y1 > y0)
+            fb_fill(fb, host->x + 1, host->y + 1 + y0, w, y1 - y0,
+                    jw_hls_to_rgb(h_, JW_CD_LUM0 - b * JW_CD_LSTEP, s));
+    }
+}
+
+/* The cross the original puts where the colour is in the rainbow.
+ * Counted off its picture: four arms, each three across and reaching
+ * from five to nine away from the middle, with nothing in the middle
+ * nine.  With 色合い120・鮮やかさ240 the middle came out at 102,0 of
+ * the panel's 205x216 inside, which is h*(w-1)/240 and
+ * (240-s)*(h-1)/240.  The top half is then clipped away, and the 35
+ * black pixels left are exactly what the picture has. */
+#define CD_MARK_IN  5           /* 中の空き */
+#define CD_MARK_OUT 9           /* 腕の先 */
+
+static void cd_dot(fb_t *fb, const rect_t *host, int x, int y)
+{
+    if (x > host->x && x < host->x + host->w - 1
+        && y > host->y && y < host->y + host->h - 1)
+        fb_fill(fb, x, y, 1, 1, 0x000000u);
+}
+
+static void cd_cross(fb_t *fb, const rect_t *host, int h_, int s)
+{
+    int w = host->w - 2, hh = host->h - 2;
+    int cx = host->x + 1 + (h_ * (w - 1)) / HLSMAX;
+    int cy = host->y + 1 + ((HLSMAX - s) * (hh - 1)) / HLSMAX;
+    int i, k;
+
+    for (i = CD_MARK_IN; i <= CD_MARK_OUT; i++)
+        for (k = -1; k <= 1; k++) {
+            cd_dot(fb, host, cx - i, cy + k);
+            cd_dot(fb, host, cx + i, cy + k);
+            cd_dot(fb, host, cx + k, cy - i);
+            cd_dot(fb, host, cx + k, cy + i);
+        }
+}
+
+/* And the arrow beside the luminance bar: a triangle pointing left,
+ * seven across and thirteen down, its point one pixel past the bar's
+ * right edge and on the row the luminance puts it. */
+static void cd_arrow(fb_t *fb, const rect_t *host, int l)
+{
+    int hh = host->h - 2;
+    int y = host->y + 1 + ((HLSMAX - l) * (hh - 1)) / HLSMAX;
+    int k;
+
+    for (k = 0; k < 7; k++)
+        fb_fill(fb, host->x + host->w + 1 + k, y - k, 1, 2 * k + 1,
+                0x000000u);
+}
+
+void ui_colordlg(fb_t *fb, const jw_cd_state *st)
+{
+    rect_t r, b;
+    int cx, cy, i, th = jw_text_height();
+
+    ui_colordlg_rect(fb->w, fb->h, &r);
+    dlg_chrome(fb, &r, JW_CD_CW, JW_CD_CH);
+    jw_text_px(fb, r.x + 9, r.y + (JW_CD_CAPTION - th) / 2, JW_CD_TITLE,
+               C_BTNTEXT);
+    dlg_cross(fb, &r, JW_CD_W);
+    cx = r.x + JW_CD_BORDER;
+    cy = r.y + JW_CD_CAPTION;
+    fb_fill(fb, cx, cy, JW_CD_CW, JW_CD_CH, C_BTNFACE);
+
+    for (i = 0; i < JW_NCOLORDLG; i++) {
+        const jw_cd_t *z = &jw_colordlg[i];
+        int x = cx + z->x, y = cy + z->y;
+
+        if (y + z->h > cy + JW_CD_CH)
+            continue;                   /* clipped off the client */
+        switch (z->kind) {
+        case JW_CD_PUSH: {
+            int k2 = z->id == 1;        /* BS_DEFPUSHBUTTON on the OK */
+
+            fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
+            if (k2)
+                fb_edge(fb, x, y, z->w, z->h, 0x646464u, 0x646464u);
+            fb_edge(fb, x + k2, y + k2, z->w - 2 * k2, z->h - 2 * k2,
+                    C_BTNHILIGHT, C_3DDKSHADOW);
+            fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
+                    z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
+            cd_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
+                    y + (z->h - th) / 2, z->w - 6, z->text,
+                    z->enabled ? C_BTNTEXT : C_GRAYTEXT);
+            break;
+        }
+        case JW_CD_EDIT: {
+            char t[16];
+            int v = 0;
+
+            switch (z->id) {
+            case 703: v = st->h; break;
+            case 704: v = st->s; break;
+            case 705: v = st->l; break;
+            case 706: v = (int)((st->rgb >> 16) & 0xff); break;
+            case 707: v = (int)((st->rgb >> 8) & 0xff); break;
+            case 708: v = (int)(st->rgb & 0xff); break;
+            }
+            mj_sunken(fb, x, y, z->w, z->h);
+            if (st->caret == z->id && st->edit)
+                snprintf(t, sizeof t, "%s", st->edit);
+            else
+                snprintf(t, sizeof t, "%d", v);
+            jw_text_px(fb, x + 3, y + (z->h - th) / 2, t, C_BTNTEXT);
+            if (st->caret == z->id)
+                fb_fill(fb, x + 3 + jw_text_px_w(t), y + (z->h - th) / 2,
+                        1, th, C_BTNTEXT);
+            break;
+        }
+        case JW_CD_STATIC:
+            b.x = x;
+            b.y = y;
+            b.w = z->w;
+            b.h = z->h;
+            switch (z->id) {
+            case 720:
+                cd_grid(fb, &b, JW_CD_BROWS, jw_cd_basic,
+                        st->focus == 720 ? st->focus_cell : -1,
+                        st->basic_sel);
+                break;
+            case 721:
+                cd_grid(fb, &b, JW_CD_CROWS, st->custom,
+                        st->focus == 721 ? st->focus_cell : -1,
+                        st->custom_sel);
+                break;
+            case 710:
+                cd_rainbow(fb, &b);
+                cd_cross(fb, &b, st->h, st->s);
+                break;
+            case 702:
+                cd_lumbar(fb, &b, st->h, st->s);
+                cd_arrow(fb, &b, st->l);
+                break;
+            case 709:
+                cd_panel(fb, &b);
+                fb_fill(fb, x + 1, y + 1, z->w - 2, z->h - 2, st->rgb);
+                break;
+            default:
+                cd_text(fb, x, y + (z->h - th) / 2, z->w, z->text, C_BTNTEXT);
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+int ui_colordlg_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+    int i;
+
+    ui_colordlg_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;                      /* outside it: the dialog is modal */
+    if (dlg_close_hit(&r, JW_CD_W, x, y))
+        return 2;                       /* 見出しの × は キャンセル */
+    x -= r.x + JW_CD_BORDER;
+    y -= r.y + JW_CD_CAPTION;
+    for (i = 0; i < JW_NCOLORDLG; i++) {
+        const jw_cd_t *z = &jw_colordlg[i];
+
+        if (z->kind == JW_CD_STATIC && z->id != 720 && z->id != 721
+            && z->id != 710 && z->id != 702)
+            continue;
+        if (!z->enabled)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
+            return z->id;
+    }
+    return 0;                           /* on the dialog, on nothing */
+}
+
+/* Which swatch of a grid the press landed on, or -1. */
+int ui_colordlg_cell(int cw, int ch, int which, int x, int y)
+{
+    rect_t b;
+    int rows = which == 720 ? JW_CD_BROWS : JW_CD_CROWS, c, r;
+
+    if (!cd_ctl(cw, ch, which, &b))
+        return -1;
+    for (r = 0; r < rows; r++)
+        for (c = 0; c < JW_CD_COLS; c++) {
+            int sx = b.x + JW_CD_X0 + c * JW_CD_PX;
+            int sy = b.y + JW_CD_Y0 + r * JW_CD_PY;
+
+            if (x >= sx && x < sx + JW_CD_CELLW
+                && y >= sy && y < sy + JW_CD_CHH)
+                return r * JW_CD_COLS + c;
+        }
+    return -1;
+}
+
+/* Where in the rainbow, as a hue and a saturation. */
+int ui_colordlg_hs(int cw, int ch, int x, int y, int *ph, int *ps)
+{
+    rect_t b;
+    int w, h;
+
+    if (!cd_ctl(cw, ch, 710, &b))
+        return 0;
+    w = b.w - 2;
+    h = b.h - 2;
+    x -= b.x + 1;
+    y -= b.y + 1;
+    if (x < 0) x = 0;
+    if (x >= w) x = w - 1;
+    if (y < 0) y = 0;
+    if (y >= h) y = h - 1;
+    *ph = (x * HLSMAX) / w;
+    *ps = HLSMAX - (y * HLSMAX) / h;
+    if (*ps > HLSMAX) *ps = HLSMAX;
+    if (*ps < 0) *ps = 0;
+    return 1;
+}
+
+/* Where on the luminance bar. */
+int ui_colordlg_lum(int cw, int ch, int x, int y, int *pl)
+{
+    rect_t b;
+    int h;
+
+    (void)x;
+    if (!cd_ctl(cw, ch, 702, &b))
+        return 0;
+    h = b.h - 2;
+    y -= b.y + 1;
+    if (y < 0) y = 0;
+    if (y >= h) y = h - 1;
+    *pl = HLSMAX - (y * HLSMAX) / h;
+    if (*pl > HLSMAX) *pl = HLSMAX;
+    if (*pl < 0) *pl = 0;
+    return 1;
 }
 
 int ui_sunpodlg_hit(int cw, int ch, int x, int y)

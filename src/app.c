@@ -12,6 +12,7 @@
 #include "gen/layout.h"
 #include "gen/cmds.h"
 #include "gen/newjww.h"
+#include "gen/pens.h"
 
 static fb_t fb;
 /* the caption and menu bar, painted above the client for the build that has
@@ -927,6 +928,210 @@ static int mk_key(int c)
     return jw_cmd_moji_zure_key(mk_caret, c);
 }
 
+/* ------------------------------------------------ 色の設定 ----------
+ *
+ * 基本設定 (32891) の 色・画面 の 色１ などが出す窓です。原典では
+ * Windows の共通ダイアログ（ChooseColor、CC_FULLOPEN）で、移植は
+ * `src/gen/colordlg.h` に写した原典の窓をそのまま描きます。
+ *
+ * どの釦がどのペンかは、原典のその窓を一つずつ開かせて、出てきた
+ * 「いまの色」で確かめたものです（tools/probe148.sh）。
+ */
+static int cd_open;
+static int cd_row;                      /* 書き戻す先の行、-1 なら書かない */
+static jw_cd_state cd;
+static char cd_edit[8];
+
+int app_colordlg_open(void)
+{
+    return cd_open;
+}
+
+static void cd_sync_from_rgb(void)
+{
+    jw_rgb_to_hls(cd.rgb, &cd.h, &cd.l, &cd.s);
+}
+
+static void cd_sync_from_hls(void)
+{
+    cd.rgb = jw_hls_to_rgb(cd.h, cd.l, cd.s);
+}
+
+static void cd_start(int row, unsigned int rgb)
+{
+    int i;
+
+    cd_row = row;
+    cd.rgb = rgb;
+    cd_sync_from_rgb();
+    for (i = 0; i < 16; i++)
+        cd.custom[i] = ui_colordlg_startup_custom(i);
+    /* 原典の窓は、開いた途端に **基本色 の一つ目に点線の輪**（鍵盤の
+       焦点）が付き、**いまの色と同じ升に黒い輪**が付きます
+       （docs/ref_colordlg.png では 作成した色 の一つ目）。 */
+    cd.focus = 720;
+    cd.focus_cell = 0;
+    cd.basic_sel = -1;
+    cd.custom_sel = -1;
+    for (i = 0; i < 48; i++)
+        if (ui_colordlg_basic(i) == rgb) {
+            cd.basic_sel = i;
+            cd.focus_cell = i;          /* 焦点もそこへ移ります */
+            break;
+        }
+    for (i = 0; i < 16; i++)
+        if (cd.custom[i] == rgb) {
+            cd.custom_sel = i;
+            break;
+        }
+    cd.caret = 0;
+    cd.edit = cd_edit;
+    cd_edit[0] = 0;
+    cd_open = 1;
+}
+
+static void cd_commit(void)
+{
+    if (!cd.caret)
+        return;
+    if (cd_edit[0]) {
+        int v = atoi(cd_edit);
+
+        if (v < 0)
+            v = 0;
+        switch (cd.caret) {
+        case 703: cd.h = v > 239 ? 239 : v; cd_sync_from_hls(); break;
+        case 704: cd.s = v > 240 ? 240 : v; cd_sync_from_hls(); break;
+        case 705: cd.l = v > 240 ? 240 : v; cd_sync_from_hls(); break;
+        case 706:
+            cd.rgb = (cd.rgb & 0x00ffffu) | ((unsigned)(v > 255 ? 255 : v) << 16);
+            cd_sync_from_rgb();
+            break;
+        case 707:
+            cd.rgb = (cd.rgb & 0xff00ffu) | ((unsigned)(v > 255 ? 255 : v) << 8);
+            cd_sync_from_rgb();
+            break;
+        case 708:
+            cd.rgb = (cd.rgb & 0xffff00u) | (unsigned)(v > 255 ? 255 : v);
+            cd_sync_from_rgb();
+            break;
+        }
+        cd.basic_sel = cd.custom_sel = -1;
+    }
+    cd.caret = 0;
+    cd_edit[0] = 0;
+}
+
+static int cd_key(int c)
+{
+    size_t n;
+
+    if (!cd.caret)
+        return 0;
+    if (c == 13) {
+        cd_commit();
+        return 1;
+    }
+    n = strlen(cd_edit);
+    if (c == 8) {
+        if (n > 0)
+            cd_edit[n - 1] = 0;
+        return 1;
+    }
+    if (c >= '0' && c <= '9' && n + 1 < sizeof cd_edit) {
+        cd_edit[n] = (char)c;
+        cd_edit[n + 1] = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static int press_colordlg(int x, int y)
+{
+    int id = ui_colordlg_hit(fb.w, fb.h, x, y), k, h, sat, lum;
+
+    if (id < 0)
+        return 0;                       /* outside it: the dialog is modal */
+    if (id == 1) {                      /* OK */
+        cd_commit();
+        /* 原典と同じく、OK のときだけ書き戻します */
+        if (cd_row >= 1 && cd_row <= 9) {
+            if (have_drawing)
+                drawing.pen_rgb[cd_row] = cd.rgb;
+        } else {
+            jw_row_rgb_set(cd_row, cd.rgb);
+        }
+        cd_open = 0;
+        return 1;
+    }
+    if (id == 2) {                      /* キャンセル と 見出しの × */
+        cd.caret = 0;
+        cd_edit[0] = 0;
+        cd_open = 0;
+        return 1;
+    }
+    cd_commit();
+    switch (id) {
+    case 720:                           /* 基本色 */
+        k = ui_colordlg_cell(fb.w, fb.h, 720, x, y);
+        if (k >= 0) {
+            cd.basic_sel = k;
+            cd.custom_sel = -1;
+            cd.focus = 720;
+            cd.focus_cell = k;
+            cd.rgb = ui_colordlg_basic(k);
+            cd_sync_from_rgb();
+        }
+        return 1;
+    case 721:                           /* 作成した色 */
+        k = ui_colordlg_cell(fb.w, fb.h, 721, x, y);
+        if (k >= 0) {
+            cd.custom_sel = k;
+            cd.basic_sel = -1;
+            cd.focus = 721;
+            cd.focus_cell = k;
+            cd.rgb = cd.custom[k];
+            cd_sync_from_rgb();
+        }
+        return 1;
+    case 710:                           /* 虹の升: 色相と彩度 */
+        if (ui_colordlg_hs(fb.w, fb.h, x, y, &h, &sat)) {
+            cd.h = h;
+            cd.s = sat;
+            cd_sync_from_hls();
+            cd.basic_sel = cd.custom_sel = -1;
+        }
+        return 1;
+    case 702:                           /* 明るさの帯 */
+        if (ui_colordlg_lum(fb.w, fb.h, x, y, &lum)) {
+            cd.l = lum;
+            cd_sync_from_hls();
+            cd.basic_sel = cd.custom_sel = -1;
+        }
+        return 1;
+    case 712:                           /* 色の追加: 作成した色の次の枠へ */
+        for (k = 0; k < 16; k++)
+            if (cd.custom[k] == cd.rgb)
+                break;
+        if (k == 16) {
+            for (k = 15; k > 0; k--)
+                cd.custom[k] = cd.custom[k - 1];
+            cd.custom[0] = cd.rgb;
+            k = 0;
+        }
+        cd.custom_sel = k;
+        cd.basic_sel = -1;
+        return 1;
+    case 703: case 704: case 705:
+    case 706: case 707: case 708:
+        cd.caret = id;
+        cd_edit[0] = 0;
+        return 1;
+    default:
+        return 1;                       /* 絵だけの部品。窓は modal */
+    }
+}
+
 static int kh_open, kh_tab;
 static unsigned char kh_on[8][256];
 
@@ -946,6 +1151,63 @@ static void kh_start(void)
     kh_open = 1;
 }
 
+/* 色・画面 の左の列（画面の色）の釦と、原典の行番号。
+ *
+ * **デコンパイルから引いたものです。**CGamenPage の振り分け表
+ * （`python tools/msgmap.py 1059` で出ます。表は 0095edc0、38 項目）
+ * はこの十二個をどれも同じ受け手に入れていて、渡すのは行番号だけ
+ * でした:
+ *
+ *   FUN_004c3530 → FUN_004c4af0(1)    釦 1059 色１
+ *   …                                 1060→2 1061→3 1062→4
+ *                                      1901→5 1902→6 1903→7 1904→8
+ *   FUN_004c3630 → FUN_004c4af0(0xd)  釦 1905 グレー
+ *   FUN_004c3650 → FUN_004c4af0(9)    釦 1120
+ *   FUN_004c3670 → FUN_004c4af0(0xf)  釦 1121
+ *   FUN_004c3690 → FUN_004c4af0(0x10) 釦 1122
+ *
+ * 受け手 FUN_004c4af0 は CColorDialog をその行の色で開き、**戻りが
+ * 1（OK）のときだけ** R・G・B を書き戻します。
+ *
+ * どの行がどの色かは原典にその窓を出させて確かめました
+ * （tools/probe149.sh、見本枠の画素）: 1059 が 00c0c0、1120 が
+ * ff80ff —— それぞれ画面ペン 1 と 9 です。1905 は c0c0c0 で
+ * どのペンでもなく「グレー」、1121 は ff00ff の選択色、1122 は
+ * ff0000 の仮表示色でした。
+ *
+ * 右の列（釦 1074..1082 など）はプリンタ出力の色です。原典は同じ
+ * 受け手に 100 を足した行番号を渡し（釦 1074 は FUN_004c4af0(0x65)）、
+ * `param_1 % 100` の行の**別の欄**を書きます。移植はプリンタ側の色を
+ * 持っていないので、そこは触りません。
+ */
+static int kihon_row(int id)
+{
+    switch (id) {
+    case 1059: return 1;
+    case 1060: return 2;
+    case 1061: return 3;
+    case 1062: return 4;
+    case 1901: return 5;
+    case 1902: return 6;
+    case 1903: return 7;
+    case 1904: return 8;
+    case 1120: return 9;
+    case 1905: return 13;               /* グレー */
+    case 1121: return 15;               /* 選択色 */
+    case 1122: return 16;               /* 仮表示色 */
+    }
+    return -1;
+}
+
+/* その行がいま持っている色。 */
+static unsigned int kihon_row_rgb(int row)
+{
+    if (row >= 1 && row <= 9)
+        return have_drawing ? drawing.pen_rgb[row]
+                            : jw_default_pen_rgb[row];
+    return jw_row_rgb(row);
+}
+
 static int press_kihon(int x, int y)
 {
     int id = ui_kihon_hit(fb.w, fb.h, kh_tab, x, y), i, n;
@@ -961,6 +1223,14 @@ static int press_kihon(int x, int y)
            the boxes mean has not been worked out */
         kh_open = 0;
         return 1;
+    }
+    if (kh_tab == 2) {                  /* 色・画面 */
+        int row = kihon_row(id);
+
+        if (row >= 0) {
+            cd_start(row, kihon_row_rgb(row));
+            return 1;
+        }
     }
     n = ui_kihon_n(kh_tab);
     for (i = 0; i < n && i < 256; i++)
@@ -2169,6 +2439,8 @@ int app_press(int x, int y, int button)
         return press_blkname(x, y);
     if (be_open)
         return press_blkedit(x, y);
+    if (cd_open)
+        return press_colordlg(x, y);    /* 基本設定 の上に重なる */
     if (kh_open)
         return press_kihon(x, y);
     if (jk_open)
@@ -2391,6 +2663,10 @@ int app_key(int c)
         return 1;
     }
     if (moji_open && moji_focus && moji_key(c)) {
+        app_paint();
+        return 1;
+    }
+    if (cd_open && cd.caret && cd_key(c)) {
         app_paint();
         return 1;
     }
@@ -2962,6 +3238,8 @@ void app_paint(void)
         ui_blkedit(&fb, be_name, be_all);
     if (kh_open)
         ui_kihon(&fb, kh_tab, kh_on[kh_tab]);
+    if (cd_open)
+        ui_colordlg(&fb, &cd);
     if (jk_open)
         ui_jikkaku(&fb, jk_angle, jk_on, 1);
     if (td_open) {

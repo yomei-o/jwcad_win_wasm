@@ -171,6 +171,8 @@ echo
 echo "=== 寸法設定 —— 原典が描いたダイアログとの突き合わせ"
 ./tests/sunpodlg_test.exe tests/out/sunpodlg.png | sed 's/^/    /'
 python tools/cmp.py docs/ref_sunpodlg.png tests/out/sunpodlg.png     -i docs/sunpodlg_textareas.txt -d tests/out/sunpodlg.diff.png     | head -2 | sed 's/^/    /'
+./tests/colordlg_test.exe tests/out/colordlg.png | sed 's/^/    /'
+python tools/cmp.py docs/ref_colordlg.png tests/out/colordlg.png     -i docs/colordlg_textareas.txt -d tests/out/colordlg.diff.png     | head -2 | sed 's/^/    /'
 
 echo
 echo "=== 寸法値 —— 原典が置いた寸法値との突き合わせ"

@@ -1,0 +1,44 @@
+# comdlg32.dll.mui の DIALOG 資源（CHOOSECOLOR）。
+#
+#   python tools/rsrc.py C:/Windows/System32/ja-JP/comdlg32.dll.mui tmp/comdlgja
+#
+# 色の設定 の窓は Jw_cad のものではなく Windows の共通ダイアログで、
+# 雛形はこの DLL が持っています。Jw_win.exe の資源と同じ書き方なので、
+# tools/mkcolordlg.py がそのまま単位から画素に直します（MulDiv、
+# Yu Gothic UI 9 の基準は 7 と 15）。
+#
+# これは Microsoft の DLL から機械が読み出した表で、Jw_cad の一部では
+# ありません。原典を動かして撮った窓（decomp/res/colordlg.txt と
+# docs/ref_colordlg.png）と突き合わせる土台として置いてあります。
+
+=== DIALOG CHOOSECOLOR (1164 bytes)
+DIALOGEX 2, 0, 302, 184  style=0x80c800c4 exstyle=0x00000000
+  CAPTION "色の設定"
+  FONT 9, "Yu Gothic UI"
+  CONTROL STATIC    id=65535     4,   4, 140,   9  style=0x50020000  "基本色(&B):"
+  CONTROL STATIC    id=720       4,  14, 140,  86  style=0x5003000b  ""
+  CONTROL STATIC    id=65535     4, 106, 140,   9  style=0x50020000  "作成した色(&C):"
+  CONTROL STATIC    id=721       4, 116, 140,  28  style=0x5003000b  ""
+  CONTROL BUTTON    id=719       4, 150, 138,  14  style=0x50030000  "色の作成(&D) >>"
+  CONTROL BUTTON    id=1         4, 166,  44,  14  style=0x50030001  "OK"
+  CONTROL BUTTON    id=2        52, 166,  44,  14  style=0x50030000  "キャンセル"
+  CONTROL BUTTON    id=1038    100, 166,  44,  14  style=0x50030000  "ヘルプ(&H)"
+  CONTROL STATIC    id=710     152,   4, 118, 116  style=0x5000100b  ""
+  CONTROL STATIC    id=702     280,   4,   8, 116  style=0x5000100b  ""
+  CONTROL STATIC    id=709     152, 124,  40,  26  style=0x5000100b  ""
+  CONTROL BUTTON    id=713     296, 200,   6,  14  style=0x50030000  "O(&O)"
+  CONTROL STATIC    id=730     152, 152,  11,   9  style=0x50020002  "色"
+  CONTROL STATIC    id=731     167, 152,  30,   9  style=0x50020000  "| 純色(&O)"
+  CONTROL STATIC    id=723     194, 126,  38,   9  style=0x50020002  "色合い(&E):"
+  CONTROL EDIT      id=703     233, 124,  18,  12  style=0x50830000  ""
+  CONTROL STATIC    id=724     194, 140,  38,   9  style=0x50020002  "鮮やかさ(&S):"
+  CONTROL EDIT      id=704     233, 138,  18,  12  style=0x50830000  ""
+  CONTROL STATIC    id=725     202, 154,  30,   9  style=0x50020002  "明るさ(&L):"
+  CONTROL EDIT      id=705     233, 152,  18,  12  style=0x50830000  ""
+  CONTROL STATIC    id=726     251, 126,  24,   9  style=0x50020002  "赤(&R):"
+  CONTROL EDIT      id=706     277, 124,  18,  12  style=0x50830000  ""
+  CONTROL STATIC    id=727     251, 140,  24,   9  style=0x50020002  "緑(&G):"
+  CONTROL EDIT      id=707     277, 138,  18,  12  style=0x50830000  ""
+  CONTROL STATIC    id=728     251, 154,  24,   9  style=0x50020002  "青(&U):"
+  CONTROL EDIT      id=708     277, 152,  18,  12  style=0x50830000  ""
+  CONTROL BUTTON    id=712     152, 166, 143,  14  style=0x50030000  "色の追加(&A)"

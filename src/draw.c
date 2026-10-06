@@ -664,6 +664,52 @@ static int shown(const jw_drawing *d, const jw_obj *o)
  * colour is -- 0xc0c0c0, which is pen 9.  日影図.jww keeps nine of its
  * sixteen layers that way, and drawing them in their own colours makes the
  * screen look nothing like the original's. */
+/* 基本設定 の 色・画面 には、図面のペンではない色の行もあります。
+ * 原典はどの行も同じ受け手 FUN_004c4af0(row) に行番号で入れていて
+ * （CGamenPage の振り分け表。`python tools/msgmap.py 1905` で引けます）、
+ * OK のときだけ
+ * R・G・B を書き戻します:
+ *
+ *   行 1..8   画面ペン 1..8     （釦 1059,1060,1061,1062,1901..1904）
+ *   行 9      画面ペン 9        （釦 1120）
+ *   行 13     グレー            （釦 1905）
+ *   行 15     選択色            （釦 1121）
+ *   行 16     仮表示色          （釦 1122）
+ *
+ * 1..9 は図面の pen_rgb に入りますが、13・15・16 は図面の外です。
+ * 初期値は原典にその窓を出させて読んだもので、グレーが c0c0c0、
+ * 選択色が ff00ff、仮表示色が ff0000 でした（tools/probe149.sh）。
+ *
+ * **グレーを読むところはまだありません** —— 移植に「画面をグレーで
+ * 描く」(1324) がないからで、入れた値はしまってあるだけです。
+ */
+#define JW_ROW_GRAY 13
+#define JW_ROW_SEL  15
+#define JW_ROW_KARI 16
+
+static unsigned int row_gray = 0xc0c0c0u;
+static unsigned int row_sel  = JW_SEL_RGB;
+static unsigned int row_kari = JW_KARI_RGB;
+
+unsigned int jw_row_rgb(int row)
+{
+    switch (row) {
+    case JW_ROW_GRAY: return row_gray;
+    case JW_ROW_SEL:  return row_sel;
+    case JW_ROW_KARI: return row_kari;
+    }
+    return 0;
+}
+
+int jw_row_rgb_set(int row, unsigned int rgb)
+{
+    switch (row) {
+    case JW_ROW_GRAY: row_gray = rgb; return 1;
+    case JW_ROW_SEL:  row_sel = rgb;  return 1;
+    case JW_ROW_KARI: row_kari = rgb; return 1;
+    }
+    return 0;
+}
 /* While this is set, everything goes down the way the original puts
  * its provisional figure down: the 仮表示色 pen through **R2_NOTXORPEN**,
  * so a pixel becomes ~(pen ^ what was there).
@@ -690,7 +736,7 @@ static int shown(const jw_drawing *d, const jw_obj *o)
 static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
 {
     if (jw_draw_kari)
-        return JW_KARI_RGB;
+        return row_kari;
     if (shown(d, o) == 1)
         return d->pen_rgb[9];
     /* An element picked *in this session* is drawn in Pen/Color10 whatever
@@ -700,7 +746,7 @@ static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
        bit already set is not shown picked.  天空率表.jww ships with 245 of
        them and the original draws every one in its own pen. */
     if (o->sel)
-        return JW_SEL_RGB;
+        return row_sel;
     return pen_colour(d, o->color);
 }
 
@@ -2750,8 +2796,8 @@ void jw_draw_box(fb_t *fb, const jw_view *v,
     double c = jw_ux(v, x1), e = jw_uy(v, y1);
     double ppb = pix_per_bit(v);
 
-    line(fb, v, a, b, c, b, JW_RANGE_RGB, 1, 1, ppb, 0);
-    line(fb, v, c, b, c, e, JW_RANGE_RGB, 1, 1, ppb, 0);
-    line(fb, v, c, e, a, e, JW_RANGE_RGB, 1, 1, ppb, 0);
-    line(fb, v, a, e, a, b, JW_RANGE_RGB, 1, 1, ppb, 0);
+    line(fb, v, a, b, c, b, row_kari, 1, 1, ppb, 0);
+    line(fb, v, c, b, c, e, row_kari, 1, 1, ppb, 0);
+    line(fb, v, c, e, a, e, row_kari, 1, 1, ppb, 0);
+    line(fb, v, a, e, a, b, row_kari, 1, 1, ppb, 0);
 }

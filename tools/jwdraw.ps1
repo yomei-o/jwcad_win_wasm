@@ -1022,6 +1022,72 @@ try {
                 break
             }
 
+            # Open a dialog, click a spot inside one of its controls (to
+            # reach a property-sheet page), press one of its buttons, and
+            # then read **the dialog that button puts up** -- a dialog on
+            # top of a dialog, which is how 基本設定 の 色・画面 の 色１
+            # reaches the colour picker.
+            #   dlgsub:32891,tmp/sub.png,12320,128,10,1059
+            # The tab part is skipped with a control id of 0.
+            '^dlgsub:(\d+),([^,]+),(\d+),(-?\d+),(-?\d+),(\d+)$' {
+                $id  = [int]$Matches[1]
+                $png = $Matches[2]
+                $cid = [int]$Matches[3]
+                $cx  = [int]$Matches[4]
+                $cy  = [int]$Matches[5]
+                $bid = [int]$Matches[6]
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
+                NewDialog $before
+                $outer = $script:dlg
+                if ($outer -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
+                Start-Sleep -Milliseconds 700
+                if ($cid -ne 0) {
+                    $box = [IntPtr]::Zero
+                    foreach ($k in [Jw]::Kids($outer)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq $cid) { $box = $k; break }
+                    }
+                    if ($box -eq [IntPtr]::Zero) { throw "no control $cid in the dialog" }
+                    Click $box $cx $cy $false $false
+                    Start-Sleep -Milliseconds 700
+                }
+                # the button lives on the page, which is a child dialog, so
+                # look for it all the way down
+                $btn = [IntPtr]::Zero
+                $stack = New-Object System.Collections.Stack
+                $stack.Push($outer)
+                while ($stack.Count -gt 0 -and $btn -eq [IntPtr]::Zero) {
+                    $w = $stack.Pop()
+                    foreach ($k in [Jw]::Kids($w)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq $bid) { $btn = $k; break }
+                        $stack.Push($k)
+                    }
+                }
+                if ($btn -eq [IntPtr]::Zero) { Dump $outer; throw "no button $bid" }
+                $seen = [Jw]::Tops([uint32]$p.Id)
+                Click $btn 5 5 $false $false
+                NewDialog $seen
+                $sub = $script:dlg
+                if ($sub -eq [IntPtr]::Zero) { Tops2; throw "button $bid put nothing up" }
+                Start-Sleep -Milliseconds 700
+                $b = [Jw]::Paint($sub)
+                $b.Save((Join-Path (Get-Location) $png),
+                        [System.Drawing.Imaging.ImageFormat]::Png)
+                $b.Dispose()
+                $r = New-Object Jw+RECT; [void][Jw]::GetWindowRect($sub, [ref]$r)
+                $c = New-Object Jw+RECT; [void][Jw]::GetClientRect($sub, [ref]$c)
+                Emit ('=== sub dialog of {0} button {1} class "{2}" title "{3}" window {4}x{5} client {6}x{7}' -f `
+                    $id, $bid, [Jw]::Cls($sub), [Jw]::Txt($sub),
+                    ($r.Right - $r.Left), ($r.Bottom - $r.Top),
+                    $c.Right, $c.Bottom)
+                Dump $sub
+                [void][Jw]::SendMessageW($sub, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds 400
+                [void][Jw]::SendMessageW($outer, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             # Open a dialog, type into some of its boxes and press OK.
             #   dlgin:b1843,1491=30,1492=40,1493=2
             # A value of ! presses the control instead, for a checkbox:

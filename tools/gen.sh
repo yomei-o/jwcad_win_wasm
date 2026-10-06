@@ -223,6 +223,35 @@ cp orig/Test5.jww tmp/rect.jww
 ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/kihon.txt     -Clicks 'dlgat:32891,docs/ref_kihon1.png,12320,26,10;dlgat:32891,docs/ref_kihon2.png,12320,77,10;dlgat:32891,docs/ref_kihon3.png,12320,128,10;dlgat:32891,docs/ref_kihon4.png,12320,180,10;dlgat:32891,docs/ref_kihon5.png,12320,227,10;dlgat:32891,docs/ref_kihon6.png,12320,275,10;dlgat:32891,docs/ref_kihon7.png,12320,323,10;dlgat:32891,docs/ref_kihon8.png,12320,380,10' >/dev/null
 python tools/mkkihon.py
 
+say '色の設定 -- the Windows colour dialog the 色・画面 tab puts up'
+# これは Jw_cad の窓ではなく comdlg32 の共通ダイアログです。雛形は
+# その DLL が持っているので、そちらからも読みます（下の mkcolordlg.py
+# が decomp/res/comdlg32.txt を見ます）。ここでは原典に実際に出させた
+# 窓を控えて、雛形の直し方が合っているか突き合わせる材料にします。
+refenv >/dev/null
+cp decomp/res/new.jww tmp/rect.jww
+ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/colordlg.txt     -Clicks 'dlgsub:32891,docs/ref_colordlg.png,12320,128,10,1059' >/dev/null
+# comdlg32 の資源を取り直すなら、その DLL から（日本語の雛形は MUI
+# のほうに入っています）。取れなくても decomp/res/comdlg32.txt が
+# あるので、そのまま進みます。
+if [ -f /c/Windows/System32/ja-JP/comdlg32.dll.mui ]; then
+    python tools/rsrc.py /c/Windows/System32/ja-JP/comdlg32.dll.mui tmp/comdlgja >/dev/null
+    python - <<'EOF'
+import io
+src = io.open('tmp/comdlgja/dialog.txt', encoding='utf-8').read()
+i = src.index('=== DIALOG CHOOSECOLOR (')
+j = src.index('=== DIALOG CHOOSECOLORFLIPPED')
+old = io.open('decomp/res/comdlg32.txt', encoding='utf-8').read()
+head = old[:old.index('=== DIALOG CHOOSECOLOR (')]
+io.open('decomp/res/comdlg32.txt', 'w', encoding='utf-8',
+        newline='
+').write(head + src[i:j].rstrip() + '
+')
+EOF
+fi
+python tools/mkcolordlg.py
+python tools/mkcdareas.py
+
 say 'what the original puts at the top of a DXF'
 # A drawing of one line per pen and per line type, written by the port's own
 # writer, exported by the original: the tables in it are the same in every

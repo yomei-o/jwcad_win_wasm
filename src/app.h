@@ -88,6 +88,7 @@ int  app_blkedit_open(void);
 const char *app_blkedit_name(void);
 /* 基本設定: whether its dialog is up */
 int  app_kihon_open(void);
+int  app_colordlg_open(void);  /* 色の設定。基本設定の上に重なります */
 int  app_kihon_tab(void);
 /* 軸角・目盛・オフセット: whether it is up, and what its 軸角 box holds */
 int  app_jikkaku_open(void);
