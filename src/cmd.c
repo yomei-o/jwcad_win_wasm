@@ -2223,6 +2223,22 @@ int jw_cmd_back(jw_drawing *d)
         }
         return 0;               /* 0 と 1 は原典も受け取りません */
     }
+    /* 円 (CZukeiEnko) は**押しを受け取りません**。原典に押させて
+     * 確かめました（tools/probe156.sh）—— 中心を置いた状態でも、
+     * 円弧 で二点置いた状態でも、**状態行がまったく動きません**:
+     *
+     *   素の円、中心だけ置いて 戻る   「円位置を指示してください」のまま
+     *   円弧、中心だけ               「円弧の始点を…」のまま
+     *   円弧、二点置いて二回押す     「◆　終点を…」のまま
+     *
+     * そして**描き終えた円は図面の 戻る で消えます**。slot 16
+     * (FUN_006471c0) が 0 を返す枝に落ちているということで、受け取ら
+     * なければ呼んだ側の 戻る が動く、という形です。
+     *
+     * （その関数の +0x308 は 5 → 2 → 0 と降りる別の状態で、クリックの
+     * 段ではありません。何なのかは分かっていません。） */
+    if (current == JW_CMD_ENKO)
+        return 0;
     /* 分割 (CZukeiBunkatsu) goes from its state 2 straight back to 0, which
        is the start; so does the rest, as far as anyone has read */
     jw_cmd_escape();
@@ -2380,7 +2396,16 @@ void jw_cmd_undo(jw_drawing *d)
     /* the items stay: 進む may bring this step back, and then 戻る
        has to be able to take it away again */
     nop--;
-    step = 0;
+    /* **円 は歩みを手放しません。**原典に押させると、中心を置いた
+       状態で 戻る を押しても状態行が「円位置を指示してください」の
+       ままで、描き終えた円のほうが消えました（tools/probe156.sh）。
+       命令が押しを受け取らない (jw_cmd_back が 0 を返す) ので、
+       命令の側は何も変わらないわけです。
+       ほかの命令でここを空にしているのは、拾った要素を**番号で**
+       覚えているものがあるからで（番号は戻したあとずれます）、
+       円 が覚えているのは座標だけなので残して差し支えありません。 */
+    if (current != JW_CMD_ENKO)
+        step = 0;
     tracking = 0;
 }
 

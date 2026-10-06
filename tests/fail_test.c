@@ -920,6 +920,25 @@ static void undo_part_way(void)
     ck(!jw_cmd_midway() && d->ndrawn == n0,
        "    and one 戻る drops it too");
 
+    /* 円 (CZukeiEnko の slot 16) は押しを受け取りません。原典に
+       押させると、中心を置いた状態でも 円弧 で二点置いた状態でも
+       状態行がまったく動きませんでした（tools/probe156.sh）。
+       描き終えた円のほうは図面の 戻る で消えます。 */
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, app_view(), -40.0, -25.0, 0);
+    jw_cmd_point(d, app_view(), -10.0, -25.0, 0);
+    n0 = d->ndrawn;
+    jw_cmd_set(JW_CMD_ENKO);
+    type_box(1411, "");                 /* 半径が入っていると一発で描けます */
+    jw_cmd_point(d, app_view(), -40.0, -15.0, 0);    /* 中心 */
+    ck(jw_cmd_midway() && d->ndrawn == n0,
+       "  円: 中心を置いたところは作図途中");
+    app_command(JW_CMD_UNDO);
+    ck(jw_cmd_midway() && d->ndrawn == n0 - 1,
+       "    命令は押しを受け取らず、図面のほうが一つ戻る");
+    jw_cmd_set(JW_CMD_TEN);
+
     /* 寸法 (CZukeiSunpo の slot 16) は、歩みの 0 と 1 ――引出線の
        基準点と寸法線の位置―― では**押しを受け取りません**（0 を
        返す）。受け取らなければ図面のほうの 戻る が動きます。2 は 0
