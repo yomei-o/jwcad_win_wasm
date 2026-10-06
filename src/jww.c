@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "gen/pens.h"
 #include "cp932.h"
 
 /* CArchive, reading.  Every read is bounds checked; a short file sets `bad`
@@ -241,10 +242,26 @@ static void read_header(ar_t *a, jw_drawing *d)
         for (i = 0; i < 10; i++) {
             unsigned c = (unsigned)ar_l(a);
             /* COLORREF is 0x00bbggrr; the framebuffer wants 0x00rrggbb */
-            d->pen_rgb[i] = ((c & 0xff) << 16) | (c & 0xff00)
-                            | ((c >> 16) & 0xff);
-            d->pen_width[i] = ar_l(a);
+            unsigned rgb = ((c & 0xff) << 16) | (c & 0xff00)
+                           | ((c >> 16) & 0xff);
+            int w = ar_l(a);
+
+            /* **The tenth is the grey, not pen 9.**  CMiniDoc's reader
+               puts this one in slot 13 (`if (i == 9) k = 0xd;`), which
+               is the 色・画面 page's グレー row.  Pen 9 keeps what the
+               settings hold -- the original's own window shows ff80ff
+               for it (tools/probe149.sh, button 1120) while its グレー
+               row shows the c0c0c0 that is in the file. */
+            if (i == 9) {
+                d->gray_rgb = rgb;
+                d->gray_width = w;
+            } else {
+                d->pen_rgb[i] = rgb;
+                d->pen_width[i] = w;
+            }
         }
+        d->pen_rgb[9] = jw_default_pen_rgb[9];
+        d->pen_width[9] = jw_default_pen_width[9];
         for (i = 0; i < 10; i++) {
             unsigned c = (unsigned)ar_l(a);
             d->print_rgb[i] = c;

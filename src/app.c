@@ -1058,6 +1058,10 @@ static int press_colordlg(int x, int y)
         if (cd_row >= 1 && cd_row <= 9) {
             if (have_drawing)
                 drawing.pen_rgb[cd_row] = cd.rgb;
+        } else if (cd_row == 13) {
+            if (have_drawing)
+                drawing.gray_rgb = cd.rgb;
+            jw_row_rgb_set(13, cd.rgb);
         } else {
             jw_row_rgb_set(cd_row, cd.rgb);
         }
@@ -1199,12 +1203,16 @@ static int kihon_row(int id)
     return -1;
 }
 
-/* その行がいま持っている色。 */
+/* その行がいま持っている色。行 13（グレー）は図面が持っています ——
+   ファイルの十本目の画面ペンがそこに入るからで、原典もそう読みます
+   （src/jww.h の gray_rgb）。 */
 static unsigned int kihon_row_rgb(int row)
 {
     if (row >= 1 && row <= 9)
         return have_drawing ? drawing.pen_rgb[row]
                             : jw_default_pen_rgb[row];
+    if (row == 13)
+        return have_drawing ? drawing.gray_rgb : jw_row_rgb(13);
     return jw_row_rgb(row);
 }
 

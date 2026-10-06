@@ -661,9 +661,14 @@ static int shown(const jw_drawing *d, const jw_obj *o)
 }
 
 /* Shown-but-not-editable is drawn in one flat grey whatever the element's own
- * colour is -- 0xc0c0c0, which is pen 9.  日影図.jww keeps nine of its
- * sixteen layers that way, and drawing them in their own colours makes the
- * screen look nothing like the original's. */
+ * colour is -- 0xc0c0c0.  日影図.jww keeps nine of its sixteen layers that
+ * way, and drawing them in their own colours makes the screen look nothing
+ * like the original's.
+ *
+ * That grey is the **tenth** screen colour in the file, which the original
+ * keeps in slot 13 rather than as pen 9 (see `gray_rgb` in src/jww.h).  It
+ * used to be read into pen_rgb[9] here, and the 線属性 dialog then drew its
+ * 線色9 swatch in it -- the original draws that swatch ff80ff. */
 /* 基本設定 の 色・画面 には、図面のペンではない色の行もあります。
  * 原典はどの行も同じ受け手 FUN_004c4af0(row) に行番号で入れていて
  * （CGamenPage の振り分け表。`python tools/msgmap.py 1905` で引けます）、
@@ -738,7 +743,7 @@ static unsigned int obj_colour(const jw_drawing *d, const jw_obj *o)
     if (jw_draw_kari)
         return row_kari;
     if (shown(d, o) == 1)
-        return d->pen_rgb[9];
+        return d->gray_rgb;
     /* An element picked *in this session* is drawn in Pen/Color10 whatever
        its own colour is: the original's own screen has a live selection in
        ff00ff.  Not bit 1 of +0x44 -- that is what it writes to the file for

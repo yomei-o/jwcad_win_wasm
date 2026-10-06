@@ -226,6 +226,13 @@ int main(int argc, char **argv)
         ck(jw_row_rgb(15) == 0xff00ffu,
            "行15（選択色）はキャンセルなら ff00ff のまま");
 
+        /* 行13（グレー）は図面が持っています —— ファイルの十本目の
+           画面ペンがそこに入るので（src/jww.h の gray_rgb）。原典の
+           その窓も c0c0c0 を見せました */
+        ck(app_drawing()->gray_rgb == 0xc0c0c0u,
+           "図面のグレーは c0c0c0（ファイルの十本目）");
+        ck(app_drawing()->pen_rgb[9] == 0xff80ffu,
+           "画面ペン9 は控えの ff80ff で、ファイルからは来ない");
         ck(open_from_kihon(1905), "グレー (1905) でも出る");
         ctl(2, &x2, &y2);
         app_press(x2, y2, 0);

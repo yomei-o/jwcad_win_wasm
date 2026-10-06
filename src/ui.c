@@ -1318,6 +1318,18 @@ static void zk_sample(fb_t *fb, int x, int y, int w, int lt, unsigned int col)
             fb_fill(fb, x + i, y, 1, 1, col);
 }
 
+/* 線属性 の見本の色。原典の CColorButton::DrawItem (FUN_0041b490) は
+   `doc + 0x52f0 + 釦の番号 * 4` を塗ります —— 図面が持っている**生きた
+   色表**で、焼き付けた既定の表ではありません。基本設定 の 色・画面 で
+   ペンの色を変えれば、この窓の見本もそれになります。移植ではその表が
+   `d->pen_rgb` です。 */
+static unsigned int zk_pen(const jw_drawing *d, int n)
+{
+    if (n < 1 || n > 9)
+        n = 2;
+    return d ? d->pen_rgb[n] : jw_default_pen_rgb[n];
+}
+
 void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype)
 {
     (void)d;    /* the swatches are the settings' colours, not the file's */
@@ -1343,7 +1355,7 @@ void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype)
         fb_edge(fb, cx + 34, cy + 218, 136, 24, C_BTNTEXT, C_BTNTEXT);
         fb_fill(fb, cx + 35, cy + 219, 134, 22, C_WINDOW);
         zk_sample(fb, cx + 46, cy + 230, 113, ltype,
-                  jw_default_pen_rgb[colour % 10]);
+                  zk_pen(d, colour));
         fb_fill(fb, cx + 176, cy + 220, 89, 19, ZK_FACE);
         fb_fill(fb, cx + 186, cy + 229, 72, 2, C_BTNTEXT);
     }
@@ -1356,8 +1368,7 @@ void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype)
             on = z->n == colour;
             zk_button(fb, x, y, z->w, z->h, on);
             fb_fill(fb, x + ZK_SWATCH_X + on, y + ZK_SWATCH_Y + on,
-                    ZK_SWATCH_W, ZK_SWATCH_H,
-                    jw_default_pen_rgb[z->n % 10]);
+                    ZK_SWATCH_W, ZK_SWATCH_H, zk_pen(d, z->n));
             break;
         case JW_ZK_TYPE:
             on = z->n == ltype;

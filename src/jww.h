@@ -94,6 +94,17 @@ typedef struct {
     /* the ten screen pens.  The file stores a COLORREF, 0x00bbggrr. */
     unsigned int pen_rgb[10];
     int pen_width[10];
+    /* 画面の色の**十本目**。ファイルには画面ペンが 10 本並んでいますが、
+       原典はその十本目を 9 番ではなく **13 番の枠**に入れます ——
+       CMiniDoc の読み込みが `if (i == 9) k = 0xd;` と振り替えていて、
+       13 番は 基本設定 の 色・画面 の「グレー」の行です
+       （`python tools/msgmap.py 1905` → FUN_004c4af0(0xd)）。
+       移植はそこを「見えるが書き込めない層」の色に使っています
+       （src/draw.c の shown() == 1）。
+       **9 番はファイルから来ません**。原典のその行（釦 1120）は
+       ff80ff を見せていて、それは控えの Pen/Color09 です。 */
+    unsigned int gray_rgb;
+    int gray_width;
     /* and the ten printing pens, kept as the file has them (0x00bbggrr).
        Reading a DXF matches its colours against these, not the screen ones
        -- DXF colour 1, pure red, comes out as 線色8 because 線色8 prints
