@@ -321,6 +321,58 @@ int main(int argc, char **argv)
         jw_cmd_set(JW_CMD_TEN);
     }
 
+    /* --------------------------------- 矩形 の 任意色 からも開く --- */
+    /* 原典の `FUN_005bde40`（釦 2552 の受け手）は二手に分かれます:
+         任意色 (2553) が切  線属性 の窓（FUN_004eed20）
+         入                  CColorDialog を開いて、OK なら doc+0x5e1c へ
+       移植はいつも線属性を出していました。使う人の報告で気づきました。 */
+    {
+        int x2, y2, found = 0;
+        jw_drawing *d;
+
+        app_new();
+        app_resize(1264, 741);
+        d = (jw_drawing *)app_drawing();
+        app_command(32772);             /* 矩形 */
+        jw_cmd_bar(d, 1334);            /* ソリッド */
+        jw_cmd_bar(d, 2553);            /* 任意色 */
+        ck(jw_cmd_bar_check(2553) > 0, "任意色が入った");
+        ck(jw_cmd_any_color() == 0x808080u, "任意色の既定は 808080");
+
+        /* バーのその釦を押す */
+        for (y2 = 0; y2 < 120 && !found; y2++)
+            for (x2 = 0; x2 < 1264; x2++)
+                if (ui_bar_hit(x2, y2) == 2552) {
+                    app_press(x2, y2, 0);
+                    found = 1;
+                    break;
+                }
+        ck(found, "  バーに 2552 がある");
+        ck(app_colordlg_open(), "  任意色が入なら 色の設定 が出る");
+
+        /* 基本色の二つ目にして OK */
+        swatch(720, 1, 0, &x2, &y2);
+        app_press(x2, y2, 0);
+        ctl(1, &x2, &y2);
+        app_press(x2, y2, 0);
+        ck(!app_colordlg_open() && jw_cmd_any_color() == ui_colordlg_basic(1),
+           "  選んだ色が任意色になる");
+
+        /* 切なら線属性のほう */
+        jw_cmd_bar(d, 2553);
+        ck(jw_cmd_bar_check(2553) == 0, "任意色を切った");
+        found = 0;
+        for (y2 = 0; y2 < 120 && !found; y2++)
+            for (x2 = 0; x2 < 1264; x2++)
+                if (ui_bar_hit(x2, y2) == 2552) {
+                    app_press(x2, y2, 0);
+                    found = 1;
+                    break;
+                }
+        ck(!app_colordlg_open() && app_zoku_open(),
+           "  切なら 線属性 のほうが出る");
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

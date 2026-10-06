@@ -363,6 +363,11 @@ int  jw_cmd_sokutei_dp(void);
    should show and answers 1; the ones that are not done yet answer 0 and
    are drawn empty.  See the 寸法設定 note in src/cmd.c for what each one
    was measured to do. */
+/* 任意色（ソリッドの色 10）。窓とのやりとりは 0x00rrggbb で、
+   中では原典と同じ COLORREF のまま持っています。 */
+unsigned int jw_cmd_any_color(void);
+void jw_cmd_any_color_set(unsigned int rgb);
+
 int  jw_cmd_sunpo_box(int id, char *out, int n);
 void jw_cmd_sunpo_box_set(int id, const char *t);
 int  jw_cmd_get_kata(double *deg);

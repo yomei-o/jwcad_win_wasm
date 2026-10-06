@@ -938,7 +938,10 @@ static int mk_key(int c)
  * 「いまの色」で確かめたものです（tools/probe148.sh）。
  */
 static int cd_open;
-static int cd_row;                      /* 書き戻す先の行、-1 なら書かない */
+/* 書き戻す先。1..9 は画面ペン、13・15・16 は 色・画面 の行（src/draw.c の
+   jw_row_rgb）、CD_ROW_ANY は 矩形 の 任意色。-1 なら書きません。 */
+#define CD_ROW_ANY (-2)
+static int cd_row;
 static jw_cd_state cd;
 static char cd_edit[8];
 
@@ -1055,7 +1058,9 @@ static int press_colordlg(int x, int y)
     if (id == 1) {                      /* OK */
         cd_commit();
         /* 原典と同じく、OK のときだけ書き戻します */
-        if (cd_row >= 1 && cd_row <= 9) {
+        if (cd_row == CD_ROW_ANY) {
+            jw_cmd_any_color_set(cd.rgb);
+        } else if (cd_row >= 1 && cd_row <= 9) {
             if (have_drawing)
                 drawing.pen_rgb[cd_row] = cd.rgb;
         } else if (cd_row == 13) {
@@ -2518,10 +2523,19 @@ int app_press(int x, int y, int button)
             return 1;
         }
         if (id == 2552) {
-            /* 矩形 の ソリッド の横の無名の釦（任意□）.  The original
-               puts the 線属性 dialog up from it -- pressed on the original
-               with ソリッド ticked, that is the window that came up -- so
-               the colour a solid is filled with is picked there. */
+            /* 矩形 の 任意色 の横の無名の釦。**原典は二通りに分かれます**
+               （`FUN_005bde40`）:
+
+                 任意色 (2553) が切  線属性 の窓（`FUN_004eed20`）
+                 入                  色の設定（`CColorDialog`）を開いて、
+                                     OK なら任意色に書き戻す
+
+               はじめは切のほうしか見ていなくて、いつも線属性を出して
+               いました。 */
+            if (jw_cmd_bar_check(2553) > 0) {
+                cd_start(CD_ROW_ANY, jw_cmd_any_color());
+                return 1;
+            }
             zoku_ask(0);
             return 1;
         }

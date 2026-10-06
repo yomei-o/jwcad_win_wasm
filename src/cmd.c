@@ -83,6 +83,34 @@ static int ten_del;             /* 仮点消去 の状態 */
 static int ten_cross;           /* 交点: 0 切 / 1 （Ａ）待ち / 2 【Ｂ】待ち */
 static int ten_a = -1;          /* 交点 の 線・円（Ａ） */
 
+/* 任意色 —— ソリッドの色 10 で使う色。原典は `doc+0x5e1c` に
+ * **COLORREF**（0x00bbggrr）で持っていて、そこへ書くのはバーの
+ * 無名の釦 2552 です（`FUN_005bde40`）:
+ *
+ *   任意色 (2553) が切  `FUN_004eed20` —— 線属性 の窓のほう
+ *   入               `CColorDialog` を開いて、OK なら doc+0x5e1c へ
+ *
+ * 2553 のほうは `doc+0x5e18` にソリッドの色を入れるだけで、切なら 0、
+ * 入なら 10（`FUN_005be3c0`）。既定の色は 0x808080 です。
+ *
+ * ここは原典と同じ COLORREF のまま持ちます（要素の末尾の long が
+ * そのまま COLORREF なので。`src/jww.c` の JW_SOLID を見てください）。
+ */
+static unsigned int solid_any = 0x808080u;
+
+/* 窓に渡すときは 0x00rrggbb に直します */
+unsigned int jw_cmd_any_color(void)
+{
+    return ((solid_any & 0xff) << 16) | (solid_any & 0xff00u)
+           | ((solid_any >> 16) & 0xff);
+}
+
+void jw_cmd_any_color_set(unsigned int rgb)
+{
+    solid_any = ((rgb & 0xff) << 16) | (rgb & 0xff00u)
+                | ((rgb >> 16) & 0xff);
+}
+
 /* 線伸縮: the line, while its end is being moved. */
 static int stretch_step;
 static int stretch_obj;
@@ -3320,10 +3348,11 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
             }
             if (jw_cmd_bar_check(2553) > 0) {
                 /* 任意色: colour 10 is Jw_cad's "any colour" pen and the
-                 * trailing long is the RGB.  The original's own default,
-                 * with nothing picked in the colour button, is 0x808080. */
+                 * trailing long is the colour.  原典は 2553 を押したとき
+                 * `doc+0x5e18` に 10 を入れ（`FUN_005be3c0`）、色そのものは
+                 * `doc+0x5e1c` に持ちます。既定は 0x808080 でした。 */
                 o->color = 10;
-                o->n = 0x808080;
+                o->n = (int)solid_any;
             }
             return (sx != x && sy != y) ? 1 : 0;
         }
