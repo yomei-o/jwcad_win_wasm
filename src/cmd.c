@@ -4271,6 +4271,21 @@ static void waritsuke(jw_drawing *d, int a, int b)
  * first 10 mm to the right of the way the line runs and the second 5 mm to
  * the left, and drawing the same line the other way round swapped them over
  * while clicking above or below it changed nothing. */
+/* ２線の間隔。箱 (1412) は 「a」 か 「a,b」 で、a が片側、b がもう
+ * 片側です。**箱が空なら 50 と同じ**になります —— 原典に訊きました
+ * （tools/probe158.sh、答えは decomp/res/nisen_*.jww）:
+ *
+ *   箱が空     拾った線から ±0.5 図寸mm
+ *   「50」     同じく ±0.5
+ *   「100」    ±1.0
+ *   「0,200」  片側 0.0、もう片側 -2.0
+ *
+ * 書込レイヤグループの縮尺は 1/100 だったので、箱の数は**図面の単位**で、
+ * 縮尺で割った図寸が間隔です（100 ÷ 100 = 1.0mm）。空のときの 50 が
+ * 図面の単位なのか図寸 0.5mm なのかは、その縮尺では分かれません。
+ */
+#define NISEN_DEFAULT 50.0
+
 static int nisen_gap(const jw_drawing *d)
 {
     const char *t = jw_cmd_box(1412);
@@ -4279,9 +4294,9 @@ static int nisen_gap(const jw_drawing *d)
     double s;
 
     if (!t || !*t)
-        return 0;
-    nisen_a = box_num(t, 0.0);
-    p = strchr(t, ',');
+        t = 0;
+    nisen_a = t ? box_num(t, 0.0) : NISEN_DEFAULT;
+    p = t ? strchr(t, ',') : 0;
     nisen_b = p ? box_num(p + 1, 0.0) : nisen_a;
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
