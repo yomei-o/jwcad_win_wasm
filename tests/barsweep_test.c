@@ -4,10 +4,9 @@
  *   tests/barsweep_test.exe 32773       一つの命令だけ
  *
  * `tools/barsweep.sh` が原典に同じことをさせて
- * `decomp/res/bsw_<cmd>_<id>.jww` を作ります。押したものは**次へ
- * 持ち越されます** —— 一つの命令につき Jw_cad を一度だけ起動して、
- * 押しては三クリック、押しては三クリック、と進むからです。だから
- * ここで見るのは「そこまで順に押していったときの絵」です。
+ * `decomp/res/bsw_<cmd>_<id>.jww` を作ります。**つまみごとに下敷きから
+ * 引き直し**ます —— 押した途端にバーの姿が変わるものがあるので、
+ * 台本のほうも Jw_cad を起動し直しています。
  *
  * `tests/drawsweep_test.c` と同じで、**合っていると言うための試験では
  * ありません。**食い違ったところが次に原典へ訊きに行く場所です。
@@ -95,7 +94,11 @@ static int press_ids(int cmd, int *out, int max)
             const jw_ctl_t *c = &jw_bars[i].c[k];
             int j, dup = 0;
 
-            if (c->kind != JW_CTL_BUTTON || !c->enabled)
+            /* 原典の控え（decomp/res/bars.txt）は窓の階級で並べていて、
+               チェックボックスも階級は Button です。掃き出しの台本も
+               そちらを見ているので、ここも両方拾います。 */
+            if ((c->kind != JW_CTL_BUTTON && c->kind != JW_CTL_CHECK)
+                || !c->enabled)
                 continue;
             for (j = 0; j < n; j++)
                 if (out[j] == c->id)
@@ -137,29 +140,31 @@ int main(int argc, char **argv)
         nid = press_ids(CMD[k], ids, 32);
         printf("=== %d  (%d の釦)\n", CMD[k], nid);
 
-        /* 移植も一度きりの流れで、押しては三クリック、を繰り返します */
-        b = slurp("decomp/res/sweep_base.jww", &n);
-        app_new();
-        app_resize(1264, 741);
-        if (!b || !app_open(b, n)) {
-            printf("BAD  下敷きが開けません\n");
-            free(b);
-            return 1;
-        }
-        free(b);
-        app_command(CMD[k]);
-        if (jw_cmd_bar_check(1333) > 0)
-            jw_cmd_bar((jw_drawing *)app_drawing(), 1333);
-
         for (step = 0; step <= nid; step++) {
             char path[64];
-            const jw_drawing *d = app_drawing();
-            const fb_t *fb = app_fb();
+            const jw_drawing *d;
+            const fb_t *fb;
             rect_t r;
             int i, id = step ? ids[step - 1] : 0;
             const jw_obj *ta[96], *ma[96];
             int tn, mn, miss = 0;
 
+            /* つまみごとに下敷きから引き直します */
+            b = slurp("decomp/res/sweep_base.jww", &n);
+            app_new();
+            app_resize(1264, 741);
+            if (!b || !app_open(b, n)) {
+                printf("BAD  下敷きが開けません\n");
+                free(b);
+                return 1;
+            }
+            free(b);
+            d = app_drawing();
+            fb = app_fb();
+            app_command(CMD[k]);
+            /* 下敷きを引くとき台本が 水平・垂直 を切っています */
+            if (jw_cmd_bar_check(1333) > 0)
+                jw_cmd_bar((jw_drawing *)d, 1333);
             if (step)
                 jw_cmd_bar((jw_drawing *)d, id);
             ui_view_rect(fb->w, fb->h, &r);
