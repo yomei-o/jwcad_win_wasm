@@ -328,6 +328,29 @@ static double ses_lx, ses_ly, ses_ux, ses_uy, ses_t0;
 /* which of the bar's four buttons is in force: 0 円→円 (1689), 1 点→円
    (1690).  角度指定 (1691) and 円上点指定 (1692) are not done. */
 static int ses_mode = 1689;     /* the bar button: 1689..1692 */
+/* 多角形 (32894) の左の四択。原典のバーでは 1690 中心→頂点指定 に
+ * 印が付いた状態で出てきます（`decomp/res/bars.txt`）。
+ *
+ * **寸法 (1411) の箱が何を指すかが、この四択で変わります。**原典に
+ * 寸法 1000（縮尺 1/100 なので図寸 10mm）・角数 5 で引かせて測りました
+ * （`tools/barsweep.sh`、答えは `decomp/res/bsw_32894_*.jww`）:
+ *
+ *   1690 中心→頂点指定  外接半径が 10      —— 辺は 11.7557
+ *   1691 中心→辺指定    内接半径が 10      —— 辺は 14.5309、外接 12.3607
+ *   1692 辺寸法指定      辺そのものが 10    —— 外接 8.5065
+ *
+ * どれも中心はクリックした点のままです。1689 ２辺 は押しても何も
+ * 変わりませんでした（二本を拾う別のやり方なので、三クリックでは
+ * 出てきません）。
+ *
+ * **1068 は分かっていません。**掃き出しでは押したあと多角形が
+ * (+辺/2, +内接半径) ずれました（クリックが頂点になる形）が、
+ * 同じ釦を続けて押させる `tools/probe160.sh` では、一度押した途端に
+ * 状態行が「範囲選択の始点をﾏｳｽ(L)で、連続線をﾏｳｽ(R)で指示して
+ * ください。」になり、以後は何も引かなくなりました。二つの結果が
+ * 食い違っているので、**決めつけずに手を付けていません**。
+ */
+static int tk_mode = 1690;
 /* 接円: the two elements picked, then a click that says which of the four
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
@@ -7938,6 +7961,10 @@ static int bar_press(jw_drawing *d, int id)
         }
         return 0;
     }
+    if (current == JW_CMD_TAKAKU && id >= 1689 && id <= 1692) {
+        tk_mode = id;
+        return 1;
+    }
     if (current == JW_CMD_SESSEN) {
         /* the four ways of drawing a tangent */
         if (id >= 1689 && id <= 1692) {
@@ -8479,6 +8506,11 @@ static void takaku(jw_drawing *d, double cx, double cy)
             wg = i;
     if (d->group[wg].scale > 0.0)
         r /= d->group[wg].scale;
+    /* 箱の数が何を指すかは左の四択しだい（上の tk_mode の注） */
+    if (tk_mode == 1691)
+        r /= cos(PI / n);               /* 内接半径 → 外接半径 */
+    else if (tk_mode == 1692)
+        r /= 2.0 * sin(PI / n);         /* 辺の長さ → 外接半径 */
     a0 = (a0 - 90.0 - 180.0 / n) * PI / 180.0;
     for (i = 0; i < n; i++) {
         double t0 = a0 + 2.0 * PI * i / n, t1 = a0 + 2.0 * PI * (i + 1) / n;

@@ -4,9 +4,14 @@
  *   tests/barsweep_test.exe 32773       一つの命令だけ
  *
  * `tools/barsweep.sh` が原典に同じことをさせて
- * `decomp/res/bsw_<cmd>_<id>.jww` を作ります。**つまみごとに下敷きから
- * 引き直し**ます —— 押した途端にバーの姿が変わるものがあるので、
- * 台本のほうも Jw_cad を起動し直しています。
+ * `decomp/res/bsw_<cmd>_<id>.jww` を作ります。**一つの命令につき
+ * Jw_cad は一度だけ**起動して、
+ *
+ *     命令を送り直す → つまみを押す → 三クリック → 保存 → 押し戻す
+ *
+ * を繰り返します。絵は消さずに積み上がるので、一枚ごとの中身は
+ * 「そこまでに引いた全部」で、**そのつまみが引いたものは一つ前との
+ * 差**です。ここもそう読み、移植にも同じ順でやらせます。
  *
  * `tests/drawsweep_test.c` と同じで、**合っていると言うための試験では
  * ありません。**食い違ったところが次に原典へ訊きに行く場所です。
@@ -118,12 +123,14 @@ int main(int argc, char **argv)
         32873, 32874, 32883, 32892, 32894, 32908
     };
     static const int CLICK[3][2] = { { 400, 350 }, { 600, 450 }, { 500, 420 } };
-    jw_drawing ref, base;
+    jw_drawing ref, base, prev, pmine;
     unsigned char *b;
     long n;
     int k, want = argc > 1 ? atoi(argv[1]) : 0;
 
     memset(&base, 0, sizeof base);
+    memset(&prev, 0, sizeof prev);
+    memset(&pmine, 0, sizeof pmine);
     b = slurp("decomp/res/sweep_base.jww", &n);
     if (!b || !jw_parse(&base, b, n)) {
         printf("BAD  decomp/res/sweep_base.jww が読めません\n");
@@ -140,31 +147,31 @@ int main(int argc, char **argv)
         nid = press_ids(CMD[k], ids, 32);
         printf("=== %d  (%d の釦)\n", CMD[k], nid);
 
+        /* 一つの命令ぶんを、台本と同じ順で通します */
+        b = slurp("decomp/res/sweep_base.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        if (!b || !app_open(b, n)) {
+            printf("BAD  下敷きが開けません\n");
+            free(b);
+            return 1;
+        }
+        free(b);
+        app_command(CMD[k]);
+        /* 下敷きを引くとき台本が 水平・垂直 を切っています */
+        if (jw_cmd_bar_check(1333) > 0)
+            jw_cmd_bar((jw_drawing *)app_drawing(), 1333);
+
         for (step = 0; step <= nid; step++) {
             char path[64];
-            const jw_drawing *d;
-            const fb_t *fb;
+            const jw_drawing *d = app_drawing();
+            const fb_t *fb = app_fb();
             rect_t r;
             int i, id = step ? ids[step - 1] : 0;
             const jw_obj *ta[96], *ma[96];
             int tn, mn, miss = 0;
 
-            /* つまみごとに下敷きから引き直します */
-            b = slurp("decomp/res/sweep_base.jww", &n);
-            app_new();
-            app_resize(1264, 741);
-            if (!b || !app_open(b, n)) {
-                printf("BAD  下敷きが開けません\n");
-                free(b);
-                return 1;
-            }
-            free(b);
-            d = app_drawing();
-            fb = app_fb();
-            app_command(CMD[k]);
-            /* 下敷きを引くとき台本が 水平・垂直 を切っています */
-            if (jw_cmd_bar_check(1333) > 0)
-                jw_cmd_bar((jw_drawing *)d, 1333);
+            app_command(CMD[k]);        /* 台本も毎回送り直します */
             if (step)
                 jw_cmd_bar((jw_drawing *)d, id);
             ui_view_rect(fb->w, fb->h, &r);
@@ -182,8 +189,9 @@ int main(int argc, char **argv)
                 continue;
             }
             free(b);
-            tn = fresh(&ref, &base, ta, 96);
-            mn = fresh(d, &base, ma, 96);
+            /* 一つ前の段との差が、そのつまみの引いたもの */
+            tn = fresh(&ref, &prev, ta, 96);
+            mn = fresh(d, &pmine, ma, 96);
             for (i = 0; i < tn; i++)
                 if (!found_in(ta[i], ma, mn))
                     miss++;
@@ -197,8 +205,29 @@ int main(int argc, char **argv)
             } else {
                 nsame++;
             }
-            jw_free(&ref);
+            /* 次の段のために、いまを控えておきます */
+            jw_free(&prev);
+            prev = ref;
+            memset(&ref, 0, sizeof ref);
+            jw_free(&pmine);
+            memset(&pmine, 0, sizeof pmine);
+            if (d->ndrawn > 0) {
+                pmine.obj = (jw_obj *)malloc((size_t)d->ndrawn
+                                             * sizeof *pmine.obj);
+                if (pmine.obj) {
+                    memcpy(pmine.obj, d->obj,
+                           (size_t)d->ndrawn * sizeof *pmine.obj);
+                    pmine.ndrawn = pmine.nobj = d->ndrawn;
+                }
+            }
+            /* 押し戻し: 台本の off: と同じで、印の付いたものだけ */
+            if (step && jw_cmd_bar_check(id) > 0)
+                jw_cmd_bar((jw_drawing *)d, id);
         }
+        jw_free(&prev);
+        memset(&prev, 0, sizeof prev);
+        jw_free(&pmine);
+        memset(&pmine, 0, sizeof pmine);
     }
     printf("一致 %d、差 %d、答えなし %d\n", nsame, ndiff, nmiss);
     return 0;

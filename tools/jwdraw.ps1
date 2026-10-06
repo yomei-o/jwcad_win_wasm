@@ -770,9 +770,18 @@ try {
                 Start-Sleep -Milliseconds $StepMs; break
             }
 
+            # 「押してあったら押し戻す」。**無ければ何もしません** ——
+            # 掃き出しで、保存の直後はバーの部品が一瞬見えなくなることが
+            # あって、そこで止まっていました。戻すものが無いのは誤りでは
+            # ないので、黙って先へ進みます。
             '^off:(\d+)$' {
-                $h = Ctl ([int]$Matches[1])
-                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                $h = [IntPtr]::Zero
+                for ($try = 0; $try -lt 10; $try++) {
+                    $h = Ctl ([int]$Matches[1])
+                    if ($h -ne [IntPtr]::Zero) { break }
+                    Start-Sleep -Milliseconds 100
+                }
+                if ($h -eq [IntPtr]::Zero) { break }
                 if ([int][Jw]::SendMessageW($h, $BM_GETCHECK, [IntPtr]::Zero, [IntPtr]::Zero)) {
                     [void][Jw]::SendMessageW($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
                 }

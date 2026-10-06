@@ -2,35 +2,36 @@
 # 作図コマンドの**つまみを一つずつ押して**、原典に同じ三クリックで
 # 引かせる。
 #
-#   sh tools/barsweep.sh             作図メニューの全部（一時間ほど）
+#   sh tools/barsweep.sh             作図メニューの全部（五分ほど）
 #   sh tools/barsweep.sh 32773       一つだけ
 #
 # `tools/drawsweep.sh` は素の状態だけを見ます。こちらはそのバーの釦を
 # 一つずつ押してから引かせるので、つまみが効いているかどうかの地図に
 # なります。答えは `decomp/res/bsw_<cmd>_<id>.jww`。
 #
-# **つまみごとに Jw_cad を起動し直します。**まとめて押していくと、
-# 矩形 (1332) のように押した途端にバーの姿が変わるものがあって、次の
-# つまみが見つからなくなるからです（最初はそれで三つしか取れません
-# でした）。そのぶん遅く、全部で一時間ほどかかります。
+# **一つの命令につき Jw_cad は一度だけ起動します。**つまみごとに
+# 起動し直していたときは八十七回で四十分かかりました。起動と終了が
+# ほとんどの時間だったので、一回の中で
+#
+#     命令を送り直す → つまみを押す → 三クリック → 保存 → 押し戻す
+#
+# を繰り返します。押し戻しは `off:` で、**印の付いているものだけ**
+# 押すので、押し釦には何もしません。矩形 (1332) のように押した途端に
+# バーの姿が変わるものも、これで元に戻ります。
+#
+# 絵は消さずに積み上がっていきます。だから一枚ごとの中身は「そこまでに
+# 引いた全部」で、**そのつまみが引いたものは一つ前との差**です。
+# `tests/barsweep_test.c` がそう読みます。
 cd "$(dirname "$0")/.."
 set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
-idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 120 ] && break; sleep 1; done; }
+idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 60 ] && { taskkill //F //IM Jw_win.exe >/dev/null 2>&1; break; }; sleep 1; done; }
 
-# 下敷き: 交わる二本と円一つ。最後に 線 へ戻しておきます —— 同じ命令を
-# 続けて送ると別の姿のバーになることがあるので。
-BASE='cmd:32771;off:1333;300,300;700,500;300,500;700,300;cmd:32773;500,250;560,250;cmd:32771;'
+# 下敷き: 交わる二本と円一つ。最後に 点 へ逃がしておきます —— 同じ命令を
+# 続けて送ると別の姿のバーになることがあり（線 を二度送ると 矩形 の
+# つまみが見えなくなりました）、点 はどれとも重ならないので。
+BASE='cmd:32771;off:1333;300,300;700,500;300,500;700,300;cmd:32773;500,250;560,250;cmd:32785;'
 CLICKS='400,350;600,450;500,420;'
-
-draw() {   # draw <cmd> <id> <押す手順>
-    idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
-    printf '    %-6s ' "$2"
-    $PS -Open tmp/rect.jww -NoSave \
-        -Clicks "${BASE}cmd:$1;$3${CLICKS}saveas:bsw_$1_$2;" 2>&1 |
-        grep -oE "saved tmp...[a-z0-9_]+\.jww|no control [0-9]+" | head -1
-    echo
-}
 
 ids_of() {
     python - "$1" <<'PYEOF'
@@ -53,12 +54,17 @@ PYEOF
 }
 
 one() {
-    ids=$(ids_of "$1")
-    echo "=== $1  ($ids)"
-    draw "$1" 0 ''
+    cmd=$1
+    ids=$(ids_of "$cmd")
+    echo "=== $cmd  ($ids)"
+    steps="cmd:${cmd};${CLICKS}saveas:bsw_${cmd}_0;"
     for id in $ids; do
-        draw "$1" "$id" "btn:${id};"
+        steps="${steps}cmd:${cmd};btn:${id};${CLICKS}saveas:bsw_${cmd}_${id};off:${id};"
     done
+    idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
+    $PS -Open tmp/rect.jww -NoSave -Clicks "${BASE}${steps}" 2>&1 |
+        grep -aoE "saved tmp...bsw_[0-9_]+\.jww|no control [0-9]+" |
+        sed 's/^/    /'
 }
 
 if [ $# -gt 0 ]; then
