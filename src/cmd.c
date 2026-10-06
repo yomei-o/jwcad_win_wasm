@@ -4361,13 +4361,36 @@ static int nisen_gap(const jw_drawing *d)
     return 1;
 }
 
+/* ２線 の 留線 (1323) と 留線常駐 (1324) —— 二本の端をつなぐ蓋。
+ *
+ * 原典に訊きました（`tools/probe161.sh`、答えは `decomp/res/nisen_tome*.jww`）。
+ * 拾った線に沿う長さを s、線からの隔たりを t とすると、何も押さない
+ * ときの二本は**二つのクリックの射影のあいだ**ちょうどに引かれます。
+ *
+ *   留線 (1323)      手前の端（一つ目のクリックの側）が **0.5 図寸mm
+ *                    外へ伸び**、そこに二本をつなぐ蓋が一本
+ *   留線常駐 (1324)  両端が 0.5 ずつ外へ伸び、蓋が両端に
+ *
+ * **伸びる量は間隔によりません。**間隔を ±0.5・-1/+3・0/+20 と three
+ * 通り変えても、伸びはどれも 0.5 図寸mm でした。縮尺は 1/100 でしか
+ * 試していないので、これが図寸 0.5mm なのか図面の 50 単位なのかは
+ * 分かれていません（間隔の既定 50 と同じ数なのは、たまたまかも
+ * しれません）。
+ *
+ * 書き出す順も原典のとおり —— 蓋・一本目・二本目、常駐ならそのあとに
+ * もう一つの蓋。
+ */
+#define NISEN_TOME 0.5          /* 図寸mm。上の注 */
+
 static void nisen(jw_drawing *d, double x, double y)
 {
     const jw_obj *o = &d->obj[nisen_obj];
     double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
     double len = sqrt(dx * dx + dy * dy), ux, uy, vx, vy;
     double s0, s1, t0, made = 0;
-    int k;
+    double oa, ob, e0 = 0.0, e1 = 0.0;
+    int k, tome = jw_cmd_bar_check(1323) > 0;
+    int jochu = jw_cmd_bar_check(1324) > 0;
 
     if (len == 0.0)
         return;
@@ -4380,6 +4403,26 @@ static void nisen(jw_drawing *d, double x, double y)
     s1 = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
     t0 = (o->d[0]) * 0.0;       /* the line itself is the zero of the offset */
     (void)t0;
+    /* 蓋の付く端は外へ伸びます。どちらが外かは二点の並び順しだい */
+    if (tome || jochu)
+        e0 = s0 > s1 ? NISEN_TOME : -NISEN_TOME;
+    if (jochu)
+        e1 = s0 > s1 ? -NISEN_TOME : NISEN_TOME;
+    s0 += e0;
+    s1 += e1;
+    oa = nisen_flip ? nisen_a : -nisen_a;
+    ob = nisen_flip ? -nisen_b : nisen_b;
+    if (tome || jochu) {        /* 手前の蓋が先に出ます */
+        jw_obj *n = jw_add(d, JW_SEN);
+
+        if (n) {
+            n->d[0] = o->d[0] + ux * s0 + vx * oa;
+            n->d[1] = o->d[1] + uy * s0 + vy * oa;
+            n->d[2] = o->d[0] + ux * s0 + vx * ob;
+            n->d[3] = o->d[1] + uy * s0 + vy * ob;
+            made++;
+        }
+    }
     for (k = 0; k < 2; k++) {
         /* 間隔反転 (1064) turns the pair over: the original left the two
            numbers in the box alone when it was pressed, so what it reverses
@@ -4396,6 +4439,17 @@ static void nisen(jw_drawing *d, double x, double y)
         n->d[2] = o->d[0] + ux * s1 + vx * off;
         n->d[3] = o->d[1] + uy * s1 + vy * off;
         made++;
+    }
+    if (jochu) {                /* 常駐なら向こうの端にも */
+        jw_obj *n = jw_add(d, JW_SEN);
+
+        if (n) {
+            n->d[0] = o->d[0] + ux * s1 + vx * oa;
+            n->d[1] = o->d[1] + uy * s1 + vy * oa;
+            n->d[2] = o->d[0] + ux * s1 + vx * ob;
+            n->d[3] = o->d[1] + uy * s1 + vy * ob;
+            made++;
+        }
     }
     op_push((int)made);
 }
@@ -8279,11 +8333,17 @@ int jw_cmd_bar(jw_drawing *d, int id)
             nisen_flip = !nisen_flip;
             return 1;
         }
-        if (!t || !*t)
-            return 1;
-        a = box_num(t, 0.0);
-        p = strchr(t, ',');
-        b = p ? box_num(p + 1, 0.0) : a;
+        /* 箱が空でも効きます —— 空は 50 と同じ扱いなので（上の
+           NISEN_DEFAULT の注）、1/2 間隔 で 25 になります。原典に
+           空のまま押させると、引いた二本が ±0.25 図寸mm になりました
+           （`tools/barsweep.sh`、`decomp/res/bsw_32892_1065.jww`）。 */
+        if (t && *t) {
+            a = box_num(t, 0.0);
+            p = strchr(t, ',');
+            b = p ? box_num(p + 1, 0.0) : a;
+        } else {
+            a = b = NISEN_DEFAULT;
+        }
         if (id == 1065) {
             a /= 2.0;
             b /= 2.0;
