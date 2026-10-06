@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "tategu.h"
 
@@ -426,4 +427,71 @@ int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
         n++;
     }
     return n;
+}
+
+/* --------------------------------------------- 図面の要素にする ----- */
+
+int jw_tategu_objs(jw_drawing *d, const jw_tg_out *o, int n,
+                   double ox, double oy)
+{
+    int i, made = 0;
+
+    if (!d || !o)
+        return 0;
+    for (i = 0; i < n; i++) {
+        const jw_tg_out *p = &o[i];
+        jw_obj *e;
+
+        switch (p->cls) {
+        case JW_TG_LINE:
+            e = jw_add(d, JW_SEN);
+            if (!e)
+                return made;
+            e->d[0] = ox + p->x0;
+            e->d[1] = oy + p->y0;
+            e->d[2] = ox + p->x1;
+            e->d[3] = oy + p->y1;
+            break;
+        case JW_TG_POINT:
+            e = jw_add(d, JW_TEN);
+            if (!e)
+                return made;
+            e->d[0] = ox + p->x0;
+            e->d[1] = oy + p->y0;
+            /* 線種の欄が実点種類。説明の 14 */
+            e->n = p->kind;
+            break;
+        case JW_TG_ARC: {
+            double dx = p->x1 - p->x0, dy = p->y1 - p->y0;
+            double r = sqrt(dx * dx + dy * dy);
+
+            if (r <= 0.0)
+                continue;
+            e = jw_add(d, JW_ENKO);
+            if (!e)
+                return made;
+            e->d[0] = ox + p->x0;       /* 中心 */
+            e->d[1] = oy + p->y0;
+            e->d[2] = r;
+            e->d[3] = atan2(dy, dx);    /* 始点の角 */
+            e->d[4] = p->sweep * 3.14159265358979323846 / 180.0;
+            e->d[5] = 0.0;
+            e->d[6] = 1.0;
+            e->n = 0;
+            break;
+        }
+        default:
+            /* 文字はまだです —— 文字種類の桁で基点と縦書きが変わり、
+               フォントも付くので、そこは原典に訊いてからにします */
+            continue;
+        }
+        if (p->color > 0)
+            e->color = (unsigned short)p->color;
+        if (p->ltype > 0)
+            e->ltype = (unsigned char)p->ltype;
+        if (p->layer >= 0)
+            e->layer = (unsigned char)p->layer;
+        made++;
+    }
+    return made;
 }

@@ -10,6 +10,8 @@
  * ここは**読むだけ**です。読んだものをどう伸ばして図面に置くかは
  * まだ入っていません（伸縮則は上の説明の 4・5 にあります）。
  */
+#include "jww.h"
+
 #ifndef JW_TATEGU_H
 #define JW_TATEGU_H
 
@@ -111,3 +113,20 @@ int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
                     jw_tg_out *out, int max);
 
 #endif
+
+/* 並べたものを図面の要素にする。
+ *
+ * `ox`・`oy` は**ブロック①の原点**を図面のどこに置くか。向きは
+ * そのままで、回転も反転もしません。
+ *
+ * **どこに置くのかは原典に訊けていません。**原典は「建具位置を指示して
+ * ください」(string 5346) と訊いてきますが、その点が図形のどこに来るのか
+ * を測るには建具を一つ置かせる必要があり、選択窓が駆動できないので
+ * まだです（docs/notes-formats.md）。だからここは**置き場所を引数で
+ * もらう**だけにしてあります。
+ *
+ * 色・線種・レイヤが 0 や -1 のものは図面の書込み属性になります。
+ * 返すのは入れた要素の数。
+ */
+int jw_tategu_objs(jw_drawing *d, const jw_tg_out *o, int n,
+                   double ox, double oy);

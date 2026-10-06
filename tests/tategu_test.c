@@ -245,6 +245,50 @@ int main(void)
         }
     }
 
+    /* ------------------------------------------- 図面に入れる ----- */
+    /* 並べたものを要素にするところ。**どこに置くかは原典に訊けて
+       いない**ので、置き場所は引数でもらう形にしてあります。 */
+    {
+        static jw_tg_out o[64];
+        static jw_drawing dr;
+        int k, i, found = 0, nline = 0;
+
+        b = slurp("orig/JW_OPT1B.DAT", &n);
+        if (b) {
+            jw_tategu_parse(&t, b, n);
+            free(b);
+            for (i = 0; i < t.nitem; i++)
+                if (strstr(t.item[i].name, "100*100"))
+                    found = i + 1;
+            if (found) {
+                k = jw_tategu_place(&t, found - 1, 100.0, 50.0, 1720.0,
+                                    o, 64);
+                memset(&dr, 0, sizeof dr);
+                i = jw_tategu_objs(&dr, o, k, 1000.0, 2000.0);
+                ck(i == k, "部材がそのまま要素になる");
+                for (i = 0; i < dr.ndrawn; i++)
+                    if (dr.obj[i].cls == JW_SEN)
+                        nline++;
+                ck(nline == k, "  どれも線（この件は線だけ）");
+                /* ブロック① の柱の左下は (0,0) -> 置き場所そのもの */
+                {
+                    double lo = 1e9;
+
+                    for (i = 0; i < dr.ndrawn; i++) {
+                        if (dr.obj[i].d[0] < lo) lo = dr.obj[i].d[0];
+                        if (dr.obj[i].d[2] < lo) lo = dr.obj[i].d[2];
+                    }
+                    ck(fabs(lo - (1000.0 - 100.0)) < 1e-9,
+                       "  置き場所にブロック①の原点が来る");
+                }
+                ck(dr.obj[0].color == 3 && dr.obj[0].ltype == 1
+                   && dr.obj[0].layer == 0xa,
+                   "  線色３・線種１・レイヤＡ がそのまま");
+                jw_free(&dr);
+            }
+        }
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
