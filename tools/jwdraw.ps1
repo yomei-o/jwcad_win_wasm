@@ -1141,6 +1141,42 @@ try {
                 break
             }
 
+            # Send keys to one control of the dialog that is up, by its
+            # window class.  The 建具 chooser's tree takes no posted
+            # click, so this walks it with the arrow keys instead.
+            #   dlgvk:SysTreeView32,40,9      VK_DOWN nine times
+            '^dlgvk:([A-Za-z0-9_]+),(\d+),(\d+)$' {
+                $cls = $Matches[1]
+                $vk  = [int]$Matches[2]
+                $rep = [int]$Matches[3]
+                $dlg = [IntPtr]::Zero
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if (-not [Jw]::IsWindowVisible($t)) { continue }
+                    if ([Jw]::Cls($t) -ne '#32770') { continue }
+                    $dlg = $t; break
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no dialog is up' }
+                $h = [IntPtr]::Zero
+                $stack = New-Object System.Collections.Stack
+                $stack.Push($dlg)
+                while ($stack.Count -gt 0 -and $h -eq [IntPtr]::Zero) {
+                    $w = $stack.Pop()
+                    foreach ($k in [Jw]::Kids($w)) {
+                        if ([Jw]::Cls($k) -eq $cls) { $h = $k; break }
+                        $stack.Push($k)
+                    }
+                }
+                if ($h -eq [IntPtr]::Zero) { throw "no $cls in the dialog" }
+                for ($i = 0; $i -lt $rep; $i++) {
+                    [void][Jw]::PostMessage($h, 0x0100, [IntPtr]$vk, [IntPtr]1)
+                    [void][Jw]::PostMessage($h, 0x0101, [IntPtr]$vk, [IntPtr]1)
+                    Start-Sleep -Milliseconds 90
+                }
+                Emit ('=== dlgvk {0} vk={1} x{2}' -f $cls, $vk, $rep)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             # Open a dialog, type into some of its boxes and press OK.
             #   dlgin:b1843,1491=30,1492=40,1493=2
             # A value of ! presses the control instead, for a checkbox:

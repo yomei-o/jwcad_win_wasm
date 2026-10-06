@@ -2,30 +2,39 @@
 # 作図コマンドの**つまみを一つずつ押して**、原典に同じ三クリックで
 # 引かせる。
 #
-#   sh tools/barsweep.sh             作図メニューの全部
+#   sh tools/barsweep.sh             作図メニューの全部（一時間ほど）
 #   sh tools/barsweep.sh 32773       一つだけ
 #
-# `tools/drawsweep.sh` は素の状態だけを見ます。こちらはそのバーの釦と
-# チェックを一つずつ押してから引かせるので、つまみが効いているかどうかの
-# 地図になります。答えは `decomp/res/bsw_<cmd>_<id>.jww`。
+# `tools/drawsweep.sh` は素の状態だけを見ます。こちらはそのバーの釦を
+# 一つずつ押してから引かせるので、つまみが効いているかどうかの地図に
+# なります。答えは `decomp/res/bsw_<cmd>_<id>.jww`。
 #
-# 一つの命令につき Jw_cad を一度だけ起動して、押しては引き、押しては
-# 引きを繰り返します（毎回起動すると何時間もかかるので）。**押した
-# ものは次に持ち越されます**ので、ここで取れるのは「順に押していった
-# ときの絵」です。素の絵との差があれば、そのつまみは効いています。
+# **つまみごとに Jw_cad を起動し直します。**まとめて押していくと、
+# 矩形 (1332) のように押した途端にバーの姿が変わるものがあって、次の
+# つまみが見つからなくなるからです（最初はそれで三つしか取れません
+# でした）。そのぶん遅く、全部で一時間ほどかかります。
 cd "$(dirname "$0")/.."
 set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
 idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 120 ] && break; sleep 1; done; }
 
-BASE='cmd:32771;off:1333;300,300;700,500;300,500;700,300;cmd:32773;500,250;560,250;'
+# 下敷き: 交わる二本と円一つ。最後に 線 へ戻しておきます —— 同じ命令を
+# 続けて送ると別の姿のバーになることがあるので。
+BASE='cmd:32771;off:1333;300,300;700,500;300,500;700,300;cmd:32773;500,250;560,250;cmd:32771;'
 CLICKS='400,350;600,450;500,420;'
 
-one() {
-    cmd=$1
-    # そのバーの、押せる部品の id（静的なものは除く）
-    ids=$(python - "$cmd" <<'PYEOF'
-import io, re, sys
+draw() {   # draw <cmd> <id> <押す手順>
+    idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
+    printf '    %-6s ' "$2"
+    $PS -Open tmp/rect.jww -NoSave \
+        -Clicks "${BASE}cmd:$1;$3${CLICKS}saveas:bsw_$1_$2;" 2>&1 |
+        grep -oE "saved tmp...[a-z0-9_]+\.jww|no control [0-9]+" | head -1
+    echo
+}
+
+ids_of() {
+    python - "$1" <<'PYEOF'
+import io, sys
 want = sys.argv[1]
 out, on = [], False
 for l in io.open('decomp/res/bars.txt', encoding='utf-8'):
@@ -36,21 +45,20 @@ for l in io.open('decomp/res/bars.txt', encoding='utf-8'):
     if not on:
         continue
     f = l.split('|')
-    if len(f) >= 10 and f[0] in ('Button', 'ComboBox') and f[8] == '1':
+    # 押せる釦だけ。コンボは打ち込むもので、押すものではありません
+    if len(f) >= 10 and f[0] == 'Button' and f[8] == '1':
         out.append(f[1])
 print(' '.join(out[:24]))
 PYEOF
-)
-    [ -z "$ids" ] && { echo "$cmd: no controls"; return; }
-    steps=""
+}
+
+one() {
+    ids=$(ids_of "$1")
+    echo "=== $1  ($ids)"
+    draw "$1" 0 ''
     for id in $ids; do
-        steps="${steps}btn:${id};${CLICKS}saveas:bsw_${cmd}_${id};"
+        draw "$1" "$id" "btn:${id};"
     done
-    idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
-    echo "=== $cmd  ($ids)"
-    $PS -Open tmp/rect.jww -NoSave \
-        -Clicks "${BASE}cmd:${cmd};${CLICKS}saveas:bsw_${cmd}_0;${steps}" 2>&1 |
-        grep -cE "saved tmp" | sed 's/^/    saved /'
 }
 
 if [ $# -gt 0 ]; then
