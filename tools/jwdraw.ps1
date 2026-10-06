@@ -1088,6 +1088,59 @@ try {
                 break
             }
 
+            # Press a spot inside the dialog that is already up, by its
+            # position in the dialog's client area.  The 建具 and 図形
+            # choosers lay their panes out as child windows that all carry
+            # id 1, so `Ctl` cannot tell them apart -- this walks down to
+            # the deepest child at that point and clicks it.
+            #   dlgpos:300,60
+            '^dlgpos(R?)(L?L?):(-?\d+),(-?\d+)$' {
+                $realc = $Matches[1] -eq 'R'
+                $dbl = $Matches[2] -eq 'LL'
+                $cx = [int]$Matches[3]
+                $cy = [int]$Matches[4]
+                $dlg = [IntPtr]::Zero
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if (-not [Jw]::IsWindowVisible($t)) { continue }
+                    if ([Jw]::Cls($t) -ne '#32770') { continue }
+                    $dlg = $t; break
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no dialog is up' }
+                # the deepest child whose rectangle holds the point
+                $h = $dlg
+                $hx = $cx
+                $hy = $cy
+                for ($depth = 0; $depth -lt 8; $depth++) {
+                    $next = [IntPtr]::Zero
+                    foreach ($k in [Jw]::Kids($h)) {
+                        if (-not [Jw]::IsWindowVisible($k)) { continue }
+                        $r = [Jw]::RectIn($k, $h)
+                        if ($hx -ge $r.Left -and $hx -lt $r.Right -and
+                            $hy -ge $r.Top  -and $hy -lt $r.Bottom) {
+                            $next = $k
+                            $nx = $hx - $r.Left
+                            $ny = $hy - $r.Top
+                            break
+                        }
+                    }
+                    if ($next -eq [IntPtr]::Zero) { break }
+                    $h = $next; $hx = $nx; $hy = $ny
+                }
+                Emit ('=== dlgpos {0},{1} -> {2} [{3}] at {4},{5}' -f `
+                    $cx, $cy, $h, [Jw]::Cls($h), $hx, $hy)
+                Click $h $hx $hy $false $realc
+                if ($dbl) {
+                    # a chooser pane wants a double click: the second
+                    # press has to be a real WM_LBUTTONDBLCLK
+                    $l2 = LParam $hx $hy
+                    [void][Jw]::PostMessage($h, 0x0203, [IntPtr]1, $l2)
+                    [void][Jw]::PostMessage($h, 0x0202, [IntPtr]0, $l2)
+                    Start-Sleep -Milliseconds 200
+                }
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             # Open a dialog, type into some of its boxes and press OK.
             #   dlgin:b1843,1491=30,1492=40,1493=2
             # A value of ! presses the control instead, for a checkbox:
