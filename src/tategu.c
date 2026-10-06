@@ -180,6 +180,9 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
                 it->has_s = 1;
                 it->base_mikomi = k > 0 ? d[0] : 100.0;
                 it->base_wakuhaba = k > 1 ? d[1] : 100.0;
+                /* 三つ目は芯ずれの自動計算と反転の指定。原典の読み手は
+                   1.5 より大きいかどうかで見ています */
+                it->s_flip = k > 2 && d[2] > 1.5;
             }
             continue;
         }
@@ -321,4 +324,106 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
         }
     }
     return t->nitem;
+}
+
+/* --------------------------------------------- 伸ばして並べる ------- */
+
+/* その端がどこへ行くか。`b` はブロック番号（1 から）。 */
+static double map_x(const jw_tg_item *it, int b, double x,
+                    double wakuhaba, double uchinori)
+{
+    int last = it->nblock;
+    double org, k;
+
+    if (b < 1)
+        b = 1;
+    if (b > last)
+        b = last;
+    /* ブロックの原点: ① が 0、最後が 内法、中間はその等分。
+       説明の「部材構成例」の図のとおりです */
+    org = last > 1 ? uchinori * (double)(b - 1) / (double)(last - 1) : 0.0;
+
+    if (it->base_wakuhaba <= 0.0)
+        return org + x;
+    k = wakuhaba / it->base_wakuhaba;
+    if (it->has_s) {
+        /* 説明の 5-1): 枠幅の基準を基準に平均に伸縮。
+           5-2): 中間ブロックは動きません */
+        if (b == 1 || b == last)
+            x *= k;
+    } else {
+        /* 説明の 4): 25mm を基準に、左ブロックでは -20 以下、
+           右ブロックでは 20 以上の端だけ。枠幅が 20 以下なら全部 */
+        if (wakuhaba <= 20.0) {
+            if (b == 1 || b == last)
+                x *= k;
+        } else if (b == 1) {
+            if (x <= -20.0)
+                x *= k;
+        } else if (b == last) {
+            if (x >= 20.0)
+                x *= k;
+        }
+    }
+    return org + x;
+}
+
+static double map_y(const jw_tg_item *it, double y, double mikomi)
+{
+    if (it->base_mikomi <= 0.0)
+        return y;
+    return y * mikomi / it->base_mikomi;
+}
+
+int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
+                    double wakuhaba, double uchinori,
+                    jw_tg_out *out, int max)
+{
+    const jw_tg_item *it;
+    int i, n = 0;
+
+    if (!t || !out || item < 0 || item >= t->nitem)
+        return 0;
+    it = &t->item[item];
+    /* 区切りの後ろに書かれた固定値があれば、そちらが勝ちます（説明の 10） */
+    if (it->fix_mikomi > 0.0)
+        mikomi = it->fix_mikomi;
+    if (it->fix_wakuhaba > 0.0)
+        wakuhaba = it->fix_wakuhaba;
+
+    for (i = 0; i < it->n && n < max; i++) {
+        const jw_tg_part *p = &t->part[it->first + i];
+        jw_tg_out *o = &out[n];
+
+        memset(o, 0, sizeof *o);
+        o->x0 = map_x(it, p->b0, p->x0, wakuhaba, uchinori);
+        o->y0 = map_y(it, p->y0, mikomi);
+        o->x1 = map_x(it, p->b1, p->x1, wakuhaba, uchinori);
+        o->y1 = map_y(it, p->y1, mikomi);
+        o->color = p->color;
+        o->ltype = p->ltype;
+        o->width = p->width;
+        o->layer = p->layer;
+        o->plain = p->plain;
+        o->loose = p->loose;
+        o->kind = p->kind;
+        o->text = p->text[0] ? p->text : 0;
+        o->font = p->font[0] ? p->font : 0;
+        o->italic = p->italic;
+        if (p->color == JW_TG_TEN) {
+            o->cls = JW_TG_POINT;
+            o->color = 0;               /* 30000 は目印なので色ではありません */
+        } else if (p->color == JW_TG_MOJI) {
+            o->cls = JW_TG_TEXT_O;
+            o->color = 0;
+        } else if (p->arc) {
+            o->cls = JW_TG_ARC;
+            o->sweep = p->sweep;
+            o->sector = p->sector;
+        } else {
+            o->cls = JW_TG_LINE;
+        }
+        n++;
+    }
+    return n;
 }

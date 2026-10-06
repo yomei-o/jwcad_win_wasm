@@ -52,6 +52,9 @@ typedef struct {
     int has_s;                  /* S 行があったか */
     double base_mikomi;         /* 見込の基準。S 行が無ければ 70 */
     double base_wakuhaba;       /* 枠幅の基準。S 行が無ければ 25 */
+    /* S 行の三つ目。1.5 より大きいと「芯ずれ＝（内出−外出）／２」の
+       自動計算と、建具反転と同時の左右反転（JW_OPT1C.DAT の注）。 */
+    int s_flip;
     int has_w;
     double uchinori;            /* W 行の内法の初期値 */
     double show;                /* 区切りの 990..999 → 0.1..1.0 */
@@ -71,5 +74,40 @@ typedef struct {
 
 /* `b` は CP932 のままの中身。読めた建具の数を返します（0 なら駄目）。 */
 int jw_tategu_parse(jw_tategu *t, const char *b, long n);
+
+/* ------------------------------------------------ 置くときの形 ------ */
+
+enum { JW_TG_LINE, JW_TG_ARC, JW_TG_POINT, JW_TG_TEXT_O };
+
+typedef struct {
+    int cls;                    /* 上の四つ */
+    double x0, y0, x1, y1;      /* 線は両端、円弧は中心と始点、点は位置、
+                                   文字は始点と終点（向きを決めます） */
+    double sweep;               /* 円弧の角度（度、左回りが +） */
+    int sector;
+    int color, ltype, width, layer;
+    int plain, loose;
+    int kind;                   /* 実点種類・文字種類（原文のまま） */
+    const char *text, *font;
+    int italic;
+} jw_tg_out;
+
+/* 一件を、指定の 見込・枠幅・内法 で伸ばして並べます。
+ *
+ * 座標の原点は**ブロック①の原点**（左の枠幅と内法の境目）で、
+ * Y は下が 0、上が 見込 です。伸縮則は原典の説明の 4・5 のとおり:
+ *
+ *   Y    見込の基準（S 行が無ければ 70mm）を基準に平均に伸縮
+ *   X    S 行があれば枠幅の基準で平均に伸縮。無ければ 25mm を基準に、
+ *        左ブロックでは x ≤ -20、右ブロックでは x ≥ 20 の端だけ。
+ *        ただし枠幅が 20 以下なら全部が伸縮
+ *        中間ブロックは動きません
+ *   位置 ブロック① が 0、ブロック⑬（最後）が 内法、中間はその等分
+ *
+ * 返すのは並べた部材の数。`max` に入りきらなければそこまでです。
+ */
+int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
+                    double wakuhaba, double uchinori,
+                    jw_tg_out *out, int max);
 
 #endif

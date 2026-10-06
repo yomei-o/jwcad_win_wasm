@@ -166,6 +166,85 @@ int main(void)
         }
     }
 
+    /* ------------------------------------------- 伸ばして並べる ---- */
+    /* `orig/JW_OPT1B.DAT` の「木造柱(100*100固定)と窓」。原典の注が
+       **答えを書いています** —— ｢見込を１００、枠幅を５０にすると柱の
+       寸法が１００×１００で作成できる。外枠の位置が柱の中心となる。
+       内法寸法を1720にすると柱芯間が1820となる。｣
+       その件は S 行が無いので基準は 見込 70・枠幅 25 で、区切りの
+       `999  100  50` が見込 100・枠幅 50 を固定します。
+       柱は ブロック① の (0,0)-(0,70)-(-50,70)-(-50,0) の四本。 */
+    {
+        static jw_tg_out o[64];
+        int k, i, found = 0;
+        double lo = 1e9, hi = -1e9, ytop = -1e9;
+
+        b = slurp("orig/JW_OPT1B.DAT", &n);
+        if (!b) {
+            printf("BAD  cannot read orig/JW_OPT1B.DAT\n");
+            fails++;
+        } else {
+            jw_tategu_parse(&t, b, n);
+            free(b);
+            for (i = 0; i < t.nitem; i++)
+                if (strstr(t.item[i].name, "100*100"))
+                    found = i + 1;
+            ck(found > 0, "「木造柱(100*100固定)と窓」が見つかる");
+            if (found) {
+                const jw_tg_item *it = &t.item[found - 1];
+
+                ck(!it->has_s && near(it->base_mikomi, 70.0)
+                   && near(it->base_wakuhaba, 25.0),
+                   "  S 行が無いので基準は 70 と 25");
+                ck(near(it->fix_mikomi, 100.0)
+                   && near(it->fix_wakuhaba, 50.0),
+                   "  区切りが 見込100・枠幅50 を固定している");
+
+                /* 固定があるので、何を渡しても同じになります */
+                k = jw_tategu_place(&t, found - 1, 999.0, 999.0, 1720.0,
+                                    o, 64);
+                ck(k == it->n, "  部材がそのぶん出てくる");
+                /* ブロック① の柱の四本は x が 0 と -100、y が 0 と 100 */
+                for (i = 0; i < k; i++) {
+                    const jw_tg_part *p = &t.part[it->first + i];
+
+                    if (p->b0 != 1 || p->b1 != 1)
+                        continue;
+                    if (o[i].x0 < lo) lo = o[i].x0;
+                    if (o[i].x1 < lo) lo = o[i].x1;
+                    if (o[i].x0 > hi) hi = o[i].x0;
+                    if (o[i].x1 > hi) hi = o[i].x1;
+                    if (o[i].y0 > ytop) ytop = o[i].y0;
+                    if (o[i].y1 > ytop) ytop = o[i].y1;
+                }
+                ck(near(lo, -100.0) && near(hi, 0.0),
+                   "  柱の幅は 100（-100 から 0）");
+                ck(near(ytop, 100.0), "  柱の奥行きも 100");
+
+                /* 「内法寸法を1720にすると柱芯間が1820となる」。
+                   柱の芯は ブロック① なら -50（枠幅のぶん外）、
+                   ブロック③ なら 1720+50。その差が 1820 です。 */
+                {
+                    double rlo = 1e9, rhi = -1e9;
+
+                    for (i = 0; i < k; i++) {
+                        const jw_tg_part *p = &t.part[it->first + i];
+
+                        if (p->b0 != 3 || p->b1 != 3)
+                            continue;
+                        if (o[i].x0 < rlo) rlo = o[i].x0;
+                        if (o[i].x1 < rlo) rlo = o[i].x1;
+                        if (o[i].x0 > rhi) rhi = o[i].x0;
+                        if (o[i].x1 > rhi) rhi = o[i].x1;
+                    }
+                    ck(near(rhi - rlo, 100.0), "  右の柱も 100 幅");
+                    ck(near((rlo + rhi) / 2 - (lo + hi) / 2, 1820.0),
+                       "  内法 1720 で柱芯間が 1820");
+                }
+            }
+        }
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
