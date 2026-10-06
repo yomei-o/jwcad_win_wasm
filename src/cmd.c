@@ -11362,6 +11362,29 @@ placed:
                     o->d[5] = 0.0;
                     o->d[6] = 1.0;
                     o->n = 1;
+                    /* **円弧 (1318) も押してあれば、環ではなく弧**です。
+                     * 原典に両方押させて三点を取らせると、一点目から
+                     * 二点目までの、三点目を通る側の弧が出ました
+                     * （`tools/barsweep.sh`、`decomp/res/bsw_32773_1321.jww`
+                     * は中心 59.540816,150.306122・半径 218.085390・
+                     * 始角 -2.353713・掃き 0.638538）。 */
+                    if (jw_cmd_bar_check(1318) > 0) {
+                        double a1 = atan2(ay - cy, ax - cx);
+                        double a2a = atan2(by - cy, bx - cx);
+                        double a3 = atan2(y - cy, x - cx);
+                        double w = a2a - a1, w3 = a3 - a1;
+
+                        while (w <= -PI) w += 2.0 * PI;
+                        while (w > PI) w -= 2.0 * PI;
+                        while (w3 <= -PI) w3 += 2.0 * PI;
+                        while (w3 > PI) w3 -= 2.0 * PI;
+                        /* 三点目が挟まっていなければ、反対回り */
+                        if ((w > 0.0) != (w3 > 0.0) || fabs(w3) > fabs(w))
+                            w += w > 0.0 ? -2.0 * PI : 2.0 * PI;
+                        o->d[3] = a1;
+                        o->d[4] = w;
+                        o->n = 0;       /* 弧は n=0 で出ていました */
+                    }
                     op_push(1);
                 }
             }

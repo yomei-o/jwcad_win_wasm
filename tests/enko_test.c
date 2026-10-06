@@ -274,6 +274,67 @@ int main(void)
         compare(r->what, &theirs, (jw_drawing *)app_drawing());
         jw_free(&theirs);
     }
+    /* ------------------------------ 円弧 (1318) ＋ ３点指示 (1321) --- */
+    /* ３点指示 だけなら三点を通る**環**です（原典もそう ——
+       `decomp/res/enko_3ten.jww`）。**円弧 も一緒に押すと弧**になり、
+       一点目から二点目まで、三点目を通る側を回ります
+       （`decomp/res/enko_arc3ten.jww`。原典の数は 中心
+       59.540816,150.306122・半径 218.085390・始角 -2.353713・
+       掃き 0.638538）。 */
+    {
+        jw_drawing *d;
+        const fb_t *fb;
+        rect_t r;
+        unsigned char *b;
+        long n;
+        int base;
+
+        b = slurp("decomp/res/sweep_base.jww", &n);
+        if (!b) {
+            printf("BAD  decomp/res/sweep_base.jww が読めません" "\n");
+            fails++;
+        } else {
+            app_new();
+            app_resize(1264, 741);
+            app_open(b, n);
+            free(b);
+            d = (jw_drawing *)app_drawing();
+            fb = app_fb();
+            ui_view_rect(fb->w, fb->h, &r);
+            app_command(32773);
+            /* 前の節が 扁平率 や 傾き を入れたままにしています */
+            type_box(1411, "");
+            type_box(1412, "");
+            type_box(1413, "");
+            if (jw_cmd_bar_check(1318) > 0)
+                jw_cmd_bar(d, 1318);
+            if (jw_cmd_bar_check(1320) > 0)
+                jw_cmd_bar(d, 1320);
+            if (jw_cmd_bar_check(1321) > 0)
+                jw_cmd_bar(d, 1321);
+            jw_cmd_bar(d, 1318);
+            jw_cmd_bar(d, 1321);
+            base = d->ndrawn;
+            app_press(r.x + 400, r.y + 350, 0);
+            app_press(r.x + 600, r.y + 450, 0);
+            app_press(r.x + 500, r.y + 420, 0);
+            ck(d->ndrawn == base + 1, "円弧＋３点指示で一つ出る");
+            if (d->ndrawn == base + 1) {
+                const jw_obj *o = &d->obj[base];
+
+                ck(o->cls == JW_ENKO
+                   && fabs(o->d[0] - 59.540816) < 1e-5
+                   && fabs(o->d[1] - 150.306122) < 1e-5
+                   && fabs(o->d[2] - 218.085390) < 1e-5,
+                   "  中心と半径が原典の数");
+                ck(fabs(o->d[3] - (-2.353713)) < 1e-5
+                   && fabs(o->d[4] - 0.638538) < 1e-5,
+                   "  始角と掃きも");
+                ck(o->n == 0, "  弧なので n=0");
+            }
+        }
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

@@ -157,10 +157,35 @@ int main(int argc, char **argv)
             return 1;
         }
         free(b);
-        app_command(CMD[k]);
-        /* 下敷きを引くとき台本が 水平・垂直 を切っています */
+        /* 台本の下敷きと同じ順にバーの状態を作ります —— 線 に入って
+           水平・垂直 を切り、点 へ逃がす。**ここで命令を余分に送ると
+           いけません**: 線 をもう一度送ると原典も移植も 水平・垂直 を
+           裏返すので（src/cmd.c の jw_cmd_set）、段ごとの送り直しと
+           合わなくなります。 */
+        app_command(32771);
         if (jw_cmd_bar_check(1333) > 0)
             jw_cmd_bar((jw_drawing *)app_drawing(), 1333);
+        app_command(32785);
+        /* 一段目は下敷きとの差を見ます（空と比べると下敷きごと
+           並んでしまって、何が新しいのか分からなくなります） */
+        jw_free(&prev);
+        memset(&prev, 0, sizeof prev);
+        jw_free(&pmine);
+        memset(&pmine, 0, sizeof pmine);
+        if (base.ndrawn > 0) {
+            prev.obj = (jw_obj *)malloc((size_t)base.ndrawn
+                                        * sizeof *prev.obj);
+            pmine.obj = (jw_obj *)malloc((size_t)base.ndrawn
+                                         * sizeof *pmine.obj);
+            if (prev.obj && pmine.obj) {
+                memcpy(prev.obj, base.obj,
+                       (size_t)base.ndrawn * sizeof *prev.obj);
+                memcpy(pmine.obj, base.obj,
+                       (size_t)base.ndrawn * sizeof *pmine.obj);
+                prev.ndrawn = prev.nobj = base.ndrawn;
+                pmine.ndrawn = pmine.nobj = base.ndrawn;
+            }
+        }
 
         for (step = 0; step <= nid; step++) {
             char path[64];
@@ -220,9 +245,7 @@ int main(int argc, char **argv)
                     pmine.ndrawn = pmine.nobj = d->ndrawn;
                 }
             }
-            /* 押し戻し: 台本の off: と同じで、印の付いたものだけ */
-            if (step && jw_cmd_bar_check(id) > 0)
-                jw_cmd_bar((jw_drawing *)d, id);
+            /* 押し戻しはしません（台本も同じ。上の注） */
         }
         jw_free(&prev);
         memset(&prev, 0, sizeof prev);
