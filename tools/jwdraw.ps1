@@ -1757,9 +1757,23 @@ try {
                     if ([Jw]::Cls($k) -eq 'Edit') { $edit = $k; break }
                 }
                 if ($edit -eq [IntPtr]::Zero) { throw 'no name field in the save dialog' }
+                # Windows 11's dialog keeps a hidden classic Edit (inside
+                # ComboBoxEx32) that is the one it reads; fill every Edit
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::Cls($k) -eq 'Edit') { [void][Jw]::SendMessageStr($k, $WM_SETTEXT, [IntPtr]::Zero, $full) }
+                }
+                if ($env:JW_DBG) { foreach ($k in [Jw]::Kids($dlg)) { Write-Host ("   kid {0} {1} [{2}] vis={3}" -f $k, [Jw]::Cls($k), [Jw]::Txt($k), [Jw]::IsWindowVisible($k)) } }
                 [void][Jw]::SendMessageStr($edit, $WM_SETTEXT, [IntPtr]::Zero, $full)
                 Start-Sleep -Milliseconds 250
-                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)      # IDOK
+                if ($env:JW_DBG) { Write-Host ('   edit now [{0}] of {1}' -f [Jw]::Txt($edit), $full) }
+                $ok = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::Cls($k) -eq 'Button' -and [Jw]::IsWindowVisible($k) -and [Jw]::Txt($k) -match '^(保存|Save|開く|Open)') { $ok = $k; break }
+                }
+                # Windows 11's dialog ignores IDOK sent to the frame once the
+                # name was typed into its DirectUI edit; press the button
+                if ($ok -ne [IntPtr]::Zero) { [void][Jw]::SendMessageW($ok, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) }
+                else { [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero) }      # IDOK
                 # "already exists -- replace it?"
                 $deadline = (Get-Date).AddSeconds(8)
                 while ((Get-Date) -lt $deadline) {
@@ -1774,10 +1788,27 @@ try {
                     if ($gone) { break }
                 }
                 Start-Sleep -Milliseconds 800
+                # Windows 11's common dialog does not take the name from here.
+                # The plain save (57603, 上書き保存) writes the document the
+                # frame has open, so use that and copy it to where it was meant.
+                if (-not (Test-Path $full) -and $cmdid -eq 57604) {
+                    $doc = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Open))
+                    $was = if (Test-Path $doc) { (Get-Item $doc).LastWriteTime } else { [datetime]::MinValue }
+                    [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]57603, [IntPtr]::Zero)
+                    $deadline = (Get-Date).AddSeconds(10)
+                    while ((Get-Date) -lt $deadline) {
+                        Start-Sleep -Milliseconds 300
+                        if ((Test-Path $doc) -and (Get-Item $doc).LastWriteTime -gt $was) { break }
+                    }
+                    Start-Sleep -Milliseconds 500
+                    if ((Test-Path $doc) -and (Get-Item $doc).LastWriteTime -gt $was) {
+                        Copy-Item -LiteralPath $doc -Destination $full -Force
+                    }
+                }
                 if (Test-Path $full) {
                     Write-Host ("saved {0} ({1:n0} bytes)" -f $name, (Get-Item $full).Length)
                 } else {
-                    throw "saveas: $name was not written"
+                    Tops2; foreach ($k in [Jw]::Kids($dlg)) { Write-Host ("   kid {0} {1} [{2}]" -f $k, [Jw]::Cls($k), [Jw]::Txt($k)) }; throw "saveas: $name was not written"
                 }
                 break
             }

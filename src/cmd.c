@@ -914,6 +914,104 @@ static double box_mm2(const jw_drawing *d, int id)
     return box_len_ok(v) ? v : 0.0;
 }
 
+/* 連続線 の 丸面辺寸法 (1411) と 実寸 (2096).
+ *
+ * 原典に直角・鋭角・短い辺・一直線・五点で引かせた答え
+ * （`tools/probe159.sh`・`tools/probe162.sh`、`decomp/res/p159_*.jww`・
+ * `p162_*.jww`）から。箱の数は**半径ではなく角からの辺の長さ**で、
+ * 円弧は両辺に接します。実寸 を点けると箱は実寸で（図寸は 割る 縮尺）、
+ * 点けないと**図寸 mm のまま**です（ほかの箱と逆）。
+ *
+ * 次の点が来るたびに、ひとつ前の辺と、その終わりの角の弧が出ます:
+ * 辺は（前の角で削った始点）から（角から辺寸法だけ手前）まで、弧は
+ * 辺寸法 t と 振れ角 から 半径 t·tan(φ/2)（φ は角の内角）。
+ * **辺の向きは削った始点から角へ向けて引き直す**ので、辺が t より短い
+ * と手前が先へ突き抜けます。一直線（φ=180°）は何も出ません。 */
+static double rn_sx, rn_sy;     /* 辺の（削った）始点 */
+
+static double renzoku_edge(const jw_drawing *d)
+{
+    const char *t = jw_cmd_box(1411);
+    double v = t && *t ? atof(t) : 0.0;
+
+    if (v <= 0.0)
+        return 0.0;
+    if (jw_cmd_bar_check(2096) > 0)
+        v /= write_scale(d);
+    return box_len_ok(v) ? v : 0.0;
+}
+
+static void renzoku_round(jw_drawing *d, double t, double nx, double ny)
+{
+    double px = rx, py = ry;
+    double dx = px - rn_sx, dy = py - rn_sy;
+    double ex = nx - px, ey = ny - py;
+    double dl = sqrt(dx * dx + dy * dy), el = sqrt(ex * ex + ey * ey);
+    double cr, dt, turn, phi, r, bx, by, bl, cdist, cx, cy, t1x, t1y, t2x, t2y;
+    jw_obj *o;
+    int made = 0;
+
+    if (dl <= 0.0 || el <= 0.0) {
+        rn_sx = px;
+        rn_sy = py;
+        return;
+    }
+    dx /= dl;
+    dy /= dl;
+    ex /= el;
+    ey /= el;
+    cr = dx * ey - dy * ex;
+    dt = dx * ex + dy * ey;
+    if (fabs(cr) < 1e-9) {      /* 一直線（かUターン）は何も出ない */
+        rn_sx = px;
+        rn_sy = py;
+        return;
+    }
+    turn = atan2(cr, dt);
+    phi = PI - fabs(turn);      /* 内角 */
+    r = t * tan(phi / 2.0);
+    t1x = px - t * dx;
+    t1y = py - t * dy;
+    t2x = px + t * ex;
+    t2y = py + t * ey;
+    bx = -dx + ex;
+    by = -dy + ey;
+    bl = sqrt(bx * bx + by * by);
+    if (bl <= 0.0) {
+        rn_sx = px;
+        rn_sy = py;
+        return;
+    }
+    cdist = t / cos(phi / 2.0);
+    cx = px + bx / bl * cdist;
+    cy = py + by / bl * cdist;
+    o = jw_add(d, JW_SEN);
+    if (o) {
+        o->d[0] = rn_sx;
+        o->d[1] = rn_sy;
+        o->d[2] = t1x;
+        o->d[3] = t1y;
+        made++;
+    }
+    o = jw_add(d, JW_ENKO);
+    if (o) {
+        o->d[0] = cx;
+        o->d[1] = cy;
+        o->d[2] = r;
+        o->d[3] = atan2(t1y - cy, t1x - cx);
+        o->d[4] = turn;
+        o->d[5] = 0.0;
+        o->d[6] = 1.0;
+        o->n = 0;
+        made++;
+    }
+    if (made)
+        op_push(made);
+    rn_sx = t2x;
+    rn_sy = t2y;
+}
+
+
 /* The readout the original hangs off the end of the status line while a
  * command is drawing.  Asked of it (tools/probe26.sh), with a 1/100 sheet:
  *
@@ -1226,6 +1324,8 @@ static double naga_mm(const jw_drawing *d)
  * so: three points make the first arc, and every click after that adds
  * one more.  ra_ux/ra_uy is the way out of the last centre through the
  * join, which is what makes the next one leave tangentially. */
+static double ra_pend[5];       /* 控えてある弧: 中心・半径・始角・掃き */
+static int ra_have_pend;
 static int ra_step;             /* 0 none, 1 after the start, 2 running */
 static int ra_have;             /* an arc is laid, so ra_u is good */
 static double ra_jx, ra_jy;     /* where the chain has got to */
@@ -1978,6 +2078,32 @@ int jw_cmd_hv(void)
     return hv;
 }
 
+/* 連続線 は ひとつ手前の線だけ画面にあって図面に入っていない
+ * （`step == 3`）。命令を送り直す／別の命令へ移ると、その線が入ります。
+ * `tools/probe164.sh` が原典に訊いた: 三点を取って 実寸 (2096) を押しても
+ * 入らず、32883 を送り直す・線 (32771) へ移るとどちらでも入りました。
+ * 右クリックの終了では入りません（n-2 の決まり）。 */
+static void ra_commit(jw_drawing *d);
+
+void jw_cmd_flush(jw_drawing *d)
+{
+    if (d && current == JW_CMD_RENZOKU)
+        ra_commit(d);
+    if (d && current == JW_CMD_RENZOKU && step == 3
+        && jw_cmd_bar_check(2492) <= 0) {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        if (o) {
+            o->d[0] = renzoku_edge(d) > 0.0 ? rn_sx : sx;
+            o->d[1] = renzoku_edge(d) > 0.0 ? rn_sy : sy;
+            o->d[2] = rx;
+            o->d[3] = ry;
+            op_push(1);
+        }
+        step = 0;
+    }
+}
+
 void jw_cmd_set(int id)
 {
     prev = current;
@@ -2008,6 +2134,7 @@ void jw_cmd_set(int id)
     }
     ren_step = 0;               /* 文字の 連 is not carried out of the command */
     ra_step = ra_have = 0;      /* and neither is a 連続弧 part way through */
+    ra_have_pend = 0;
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
@@ -3060,6 +3187,27 @@ static double turn_pos(double a)
     return a;
 }
 
+/* 控えてある弧を図面へ入れる */
+static void ra_commit(jw_drawing *d)
+{
+    if (ra_have_pend && d) {
+        jw_obj *o = jw_add(d, JW_ENKO);
+
+        if (o) {
+            o->d[0] = ra_pend[0];
+            o->d[1] = ra_pend[1];
+            o->d[2] = ra_pend[2];
+            o->d[3] = ra_pend[3];
+            o->d[4] = ra_pend[4];
+            o->d[5] = 0.0;
+            o->d[6] = 1.0;
+            o->n = 0;
+            op_push(1);
+        }
+    }
+    ra_have_pend = 0;
+}
+
 /* One arc of a 連続弧 chain, and the way out of its centre through its
    far end, which the next one leaves along. */
 static int ren_arc_add(jw_drawing *d, double cx, double cy,
@@ -3076,16 +3224,16 @@ static int ren_arc_add(jw_drawing *d, double cx, double cy,
         return 0;
     if (!ccw)
         sw -= 2.0 * PI;
-    o = jw_add(d, JW_ENKO);
-    if (!o)
-        return 0;
-    o->d[0] = cx;
-    o->d[1] = cy;
-    o->d[2] = r;
-    o->d[3] = a0;
-    o->d[4] = sw;
-    o->d[5] = 0.0;
-    o->d[6] = 1.0;
+    (void)d;
+    /* 連続線と同じく、**ひとつ手前の弧だけ画面にあって、次のクリックで
+       図面に入ります**（`tools/probe163.sh`: 三点では何も入らず、四点目で
+       一つ目の弧が入る）。ここでは控えておくだけです。 */
+    ra_pend[0] = cx;
+    ra_pend[1] = cy;
+    ra_pend[2] = r;
+    ra_pend[3] = a0;
+    ra_pend[4] = sw;
+    ra_have_pend = 1;
     ra_ux = (ex - cx) / r;
     ra_uy = (ey - cy) / r;
     ra_dx = ccw ? -ra_uy : ra_uy;
@@ -11266,6 +11414,7 @@ placed:
          * laid for them and the chain goes on. */
         if (!d)
             return;
+        ra_commit(d);
         if (ra_step == 0) {
             ra_jx = x;
             ra_jy = y;
@@ -11286,10 +11435,8 @@ placed:
                 double a1 = atan2(y - cy, x - cx);
                 int ccw = turn_pos(am - a0) < turn_pos(a1 - a0);
 
-                if (ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw)) {
+                if (ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw))
                     ra_have = 1;
-                    op_push(1);
-                }
             }
             ra_jx = x;
             ra_jy = y;
@@ -11308,8 +11455,7 @@ placed:
                 double vx = -(ra_jy - cy), vy = ra_jx - cx;
                 int ccw = vx * ra_dx + vy * ra_dy > 0.0;
 
-                if (ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw))
-                    op_push(1);
+                ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw);
             }
             ra_jx = x;
             ra_jy = y;
@@ -11322,6 +11468,8 @@ placed:
         if (step == 0) {
             sx = x;
             sy = y;
+            rn_sx = x;
+            rn_sy = y;
             step = 2;
         } else if (step == 2) {
             rx = x;
@@ -11329,13 +11477,20 @@ placed:
             step = 3;
         } else {
             if (d) {
-                jw_obj *o = jw_add(d, JW_SEN);
-                if (o) {
-                    o->d[0] = sx;
-                    o->d[1] = sy;
-                    o->d[2] = rx;
-                    o->d[3] = ry;
-                    op_push(1);
+                double t = renzoku_edge(d);
+                if (t > 0.0) {
+                    renzoku_round(d, t, x, y);
+                } else {
+                    jw_obj *o = jw_add(d, JW_SEN);
+                    if (o) {
+                        o->d[0] = sx;
+                        o->d[1] = sy;
+                        o->d[2] = rx;
+                        o->d[3] = ry;
+                        op_push(1);
+                    }
+                    rn_sx = rx;
+                    rn_sy = ry;
                 }
             }
             sx = rx;

@@ -77,6 +77,7 @@ enum {
 
 int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
+void jw_cmd_flush(jw_drawing *d);   /* 連続線 の手前の線を図面へ */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */
 
 /* The 文字 command's line, as CP932 bytes.  Jw_cad wants the text typed

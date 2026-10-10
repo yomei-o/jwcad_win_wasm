@@ -2175,6 +2175,8 @@ int app_command(int cmd)
            ON_UPDATE_COMMAND_UI for it, so its button is never shown pressed
            -- but it does become the command: the click after it is what
            picks the element to take the pen from. */
+        if (have_drawing)
+            jw_cmd_flush(&drawing);
         jw_cmd_set(cmd);
         /* 消去 with a settled range in hand empties it at once */
         if (cmd == JW_CMD_SHOUKYO && have_drawing)

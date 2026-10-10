@@ -365,6 +365,9 @@ echo "=== 包絡処理 —— 原典が包絡した 9 通りとの突き合わ�
 echo
 echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 ./tests/chushin_test.exe | sed 's/^/    /'
+echo
+echo "=== 連続線の 丸面辺寸法・実寸 —— 原典に引かせた直角・鋭角・短い辺・一直線・五点"
+./tests/renzoku_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 属性変更 —— 原典が変えた要素との突き合わせ"
