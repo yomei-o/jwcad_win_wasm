@@ -225,6 +225,30 @@ int main(void)
         snprintf(nm, sizeof nm, "p187_D%d", i);
         run(nm, jw_tgdat_index(1, 3), i - 1, base());
     }
+    for (i = 1; i <= 16; i++) {
+        snprintf(nm, sizeof nm, "p190_32866_A%d", i);
+        run(nm, jw_tgdat_index(2, 0), i - 1, base());
+    }
+    for (i = 1; i <= 16; i++) {
+        snprintf(nm, sizeof nm, "p190_32866_B%d", i);
+        run(nm, jw_tgdat_index(2, 1), i - 1, base());
+    }
+    for (i = 1; i <= 10; i++) {            /* 11・12 番はますが窓の外 */
+        snprintf(nm, sizeof nm, "p190_32866_C%d", i);
+        run(nm, jw_tgdat_index(2, 2), i - 1, base());
+    }
+    p = base();
+    p.wakuhaba = 50;
+    run("p191_w50", jw_tgdat_index(2, 0), 0, p);
+    p = base();
+    p.mikomi = 100;
+    run("p191_m100", jw_tgdat_index(2, 0), 0, p);
+    p = base();
+    p.uchinori = 1000;
+    run("p191_n1000", jw_tgdat_index(2, 0), 0, p);
+    p = base();
+    p.shinzure = 10;
+    run("p191_z10", jw_tgdat_index(2, 0), 0, p);
     p = base();
     p.flip_lr = 1;
     run("p182_s4", 0, 3, p);

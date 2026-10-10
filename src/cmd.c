@@ -352,6 +352,8 @@ static int ses_mode = 1689;     /* the bar button: 1689..1692 */
  * 食い違っているので、**決めつけずに手を付けていません**。
  */
 
+#define TG_IS(c) ((c) == JW_CMD_TATEGU || (c) == JW_CMD_TATEGU_DAN)
+
 /* 建具平面 (32848).  選ぶ（ファイル選択の窓）→ 基準線 → 位置、を繰り返す。
  * 原典に置かせた答え（tools/probe179〜186.sh、tests/tategu2_test.c）:
  *  ・基準線は壁の線（L）か、二点を読む（R、「２点間の始点指示」）。向きは
@@ -363,6 +365,7 @@ static int tg_need_pick;
 static int tg_step;                     /* 0 基準線 1 位置、R の二点の途中は 2 */
 static double tg_ax, tg_ay, tg_ux, tg_uy;
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
+static int tg_last;                     /* 平面か断面か（最後に入った方） */
 
 int jw_cmd_tategu_need_pick(void)
 {
@@ -569,6 +572,12 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TATEGU, 1427, "0" },       /*        芯ずれ */
     { JW_CMD_TATEGU, 1428, "75" },      /*        内出（S の建具だけ） */
     { JW_CMD_TATEGU, 1429, "75" },      /*        外出 */
+    { JW_CMD_TATEGU_DAN, 1424, "70" },      /* 建具の 見込 */
+    { JW_CMD_TATEGU_DAN, 1425, "35" },      /*        枠幅 */
+    { JW_CMD_TATEGU_DAN, 1426, "1700" },    /*        内法 */
+    { JW_CMD_TATEGU_DAN, 1427, "0" },       /*        芯ずれ */
+    { JW_CMD_TATEGU_DAN, 1428, "75" },      /*        内出（S の建具だけ） */
+    { JW_CMD_TATEGU_DAN, 1429, "75" },      /*        外出 */
     { JW_CMD_TAKAKU, 1412, "1000 , 1000" },     /* ２辺の「横 , 縦」 */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
@@ -2264,7 +2273,10 @@ void jw_cmd_set(int id)
         nisen_step = 0;
         nisen_obj = -1;
     }
-    if (id == JW_CMD_TATEGU) {
+    if (TG_IS(id)) {
+        if (tg_last != id)
+            tg_cat = -1;            /* 平面と断面で建具の一覧は別 */
+        tg_last = id;
         tg_step = 0;
         tg_page2 = 0;
         tg_need_pick = 1;       /* 入るとすぐ ファイル選択 が出る */
@@ -3214,6 +3226,7 @@ const char *jw_cmd_prompt(void)
             return JW_STR_5314;
         return JW_STR_5383;
     case JW_CMD_TATEGU:
+    case JW_CMD_TATEGU_DAN:
         /* 選ぶまでは「建具を選択してください。」、選んだら基準線、壁を
            指したら位置。(R) で二点を読むあいだは 線の「終点」の問い */
         if (tg_cat < 0)
@@ -8382,9 +8395,9 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
-    if (id == 1146 && current == JW_CMD_TATEGU)
+    if (id == 1146 && TG_IS(current))
         return tg_page2;            /* ＞ で替わる二枚目 */
-    if ((id == 1428 || id == 2448) && current == JW_CMD_TATEGU) {
+    if ((id == 1428 || id == 2448) && TG_IS(current)) {
         /* S の行のある建具には 内出・外出 の箱と 基準厚 が出る。
            S の三つ目があると基準厚に (A) が付く */
         const jw_tategu *t = tg_cat >= 0 ? jw_tategu_load(tg_cat) : 0;
@@ -8579,11 +8592,11 @@ static int bar_press(jw_drawing *d, int id)
         tk_mode = id;
         return 1;
     }
-    if (current == JW_CMD_TATEGU && id == 1064) {
+    if (TG_IS(current) && id == 1064) {
         tg_need_pick = 1;
         return 1;
     }
-    if (current == JW_CMD_TATEGU && id == 1146) {
+    if (TG_IS(current) && id == 1146) {
         tg_page2 = !tg_page2;
         return 1;
     }
@@ -11899,7 +11912,7 @@ placed:
         corner_step = 0;
         return;
     }
-    if (current == JW_CMD_TATEGU) {
+    if (TG_IS(current)) {
         int i;
         if (!d || tg_cat < 0)
             return;

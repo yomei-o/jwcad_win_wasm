@@ -43,6 +43,7 @@ enum {
     JW_CMD_MENTORI = 0x805b,        /* 面取 -- CZukeiCorner's other half */
     JW_CMD_BUNKATSU = 0x8063,       /* 分割 -- CZukeiBunkatsu */
     JW_CMD_TATEGU = 0x8050,         /* 建具平面 (32848) */
+    JW_CMD_TATEGU_DAN = 0x8062,     /* 建具断面 (32866) */
     JW_CMD_NISEN = 0x807c,          /* ２線 -- the menu resource and the
                                        toolbar cell both say 0x807c; it
                                        was 0x805c here, which is not a

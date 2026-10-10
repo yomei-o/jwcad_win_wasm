@@ -447,9 +447,9 @@ static int tgp_open, tgp_kind, tgp_file, tgp_page;
 
 static void tgp_check(void)
 {
-    if (!tgp_open && jw_cmd_tategu_need_pick() && jw_cmd() == JW_CMD_TATEGU) {
+    if (!tgp_open && jw_cmd_tategu_need_pick() && (jw_cmd() == JW_CMD_TATEGU || jw_cmd() == JW_CMD_TATEGU_DAN)) {
         tgp_open = 1;
-        tgp_kind = 1;
+        tgp_kind = jw_cmd() == JW_CMD_TATEGU_DAN ? 2 : 1;
         tgp_file = 0;
         tgp_page = 0;
     }

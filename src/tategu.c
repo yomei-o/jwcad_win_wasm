@@ -336,7 +336,7 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
 /* --------------------------------------------- 伸ばして並べる ------- */
 
 /* その端がどこへ行くか。`b` はブロック番号（1 から）。 */
-static double map_x(const jw_tg_item *it, int b, double x,
+static double map_x(const jw_tg_item *it, int kind, int b, double x,
                     double wakuhaba, double uchinori)
 {
     int last = it->nblock;
@@ -351,6 +351,10 @@ static double map_x(const jw_tg_item *it, int b, double x,
     org = last > 1 ? uchinori * (double)(b - 1) / (double)(last - 1) : 0.0;
 
     if (it->base_wakuhaba <= 0.0)
+        return org + x;
+    /* 建具断面は下枠（左ブロック）が動かない。説明の 4・5 の 1) と、
+       原典の答え（p190_32866_*、p191_*） */
+    if (kind == 2 && b == 1)
         return org + x;
     k = wakuhaba / it->base_wakuhaba;
     if (it->has_s) {
@@ -432,9 +436,9 @@ int jw_tategu_place_io(const jw_tategu *t, int item, double mikomi,
         jw_tg_out *o = &out[n];
 
         memset(o, 0, sizeof *o);
-        o->x0 = map_x(it, tg_blk(p->b0), p->x0, wakuhaba, uchinori);
+        o->x0 = map_x(it, t->kind, tg_blk(p->b0), p->x0, wakuhaba, uchinori);
         o->y0 = map_y(it, p->y0, mikomi) + tg_dy(it, p->b0, mikomi, uchide, sotode);
-        o->x1 = map_x(it, tg_blk(p->b1), p->x1, wakuhaba, uchinori);
+        o->x1 = map_x(it, t->kind, tg_blk(p->b1), p->x1, wakuhaba, uchinori);
         o->y1 = map_y(it, p->y1, mikomi) + tg_dy(it, p->b1, mikomi, uchide, sotode);
         o->color = p->color;
         o->ltype = p->ltype;
@@ -572,6 +576,7 @@ const jw_tategu *jw_tategu_load(int idx)
         if (jw_tategu_parse(&t, (const char *)tgdat_list[idx].data,
                             tgdat_list[idx].len) <= 0)
             return 0;
+        t.kind = tgdat_list[idx].kind;
         have = idx;
     }
     return &t;
@@ -804,10 +809,9 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
                 e->d[6] = 1.0;
                 e->n = 0;
                 tg_attr(e, o, flags, 1);
-                /* 円弧の旗は線と違う: 原典は レイヤ -11 の円弧に 0x80 を置いた
-                   （建具 [7]・[8]）。建具の旗（0x9000）が付く円弧は未確認 */
-                if (o->plain || o->loose)
-                    e->flags = 0x80;
+                /* 円弧の旗は線と違う: 原典は どの円弧にも 0x80 を置いた
+                   （平面 [7]・[8]、断面 [15]・[16]）。建具の 0x9000 は付かない */
+                e->flags = 0x80;
                 made++;
             }
             if (r > 0.0) {

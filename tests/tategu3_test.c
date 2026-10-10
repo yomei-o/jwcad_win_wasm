@@ -19,6 +19,7 @@
 #include "../src/tategu.h"
 
 static int fails;
+static int cmdid = 32848;
 static int cat = 0, itm = 4;           /* 選ぶ建具（jw_tgdat の番号と中の何番） */
 
 static unsigned char *slurp(const char *path, long *n)
@@ -73,7 +74,7 @@ static void run(const char *name, const int (*wall)[2], const clk *c, int nc)
         jw_cmd_bar((jw_drawing *)app_drawing(), 1333);
     app_press(r.x + wall[0][0], r.y + wall[0][1], 0);
     app_press(r.x + wall[1][0], r.y + wall[1][1], 0);
-    app_command(32848);
+    app_command(cmdid);
     jw_cmd_tategu_choose(cat, itm);
     jw_cmd_box_put(1424, "70");
     jw_cmd_box_put(1425, "35");
@@ -136,6 +137,15 @@ int main(void)
     run("p184_steep", ST, steep, 2);
     run("p184_rr", H, rr, 3);
     /* 平面詳細用（JW_OPT1C）の [3]・[7]: 内出・外出の箱（75）で面が決まる */
+    cat = jw_tgdat_index(1, 2);
+    itm = 2;
+    cmdid = 32866;                      /* 建具断面: 同じ流れ、下枠（左）は動かない */
+    cat = jw_tgdat_index(2, 0);
+    itm = 0;
+    run("p190_32866_A1", H, a, 2);
+    itm = 14;
+    run("p190_32866_A15", H, a, 2);
+    cmdid = 32848;
     cat = jw_tgdat_index(1, 2);
     itm = 2;
     run("p187_C3", H, a, 2);

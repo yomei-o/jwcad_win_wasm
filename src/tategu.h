@@ -70,6 +70,7 @@ typedef struct {
 typedef struct {
     char title[JW_TG_NAME];     /* 一行目の # に続く札 */
     int want;                   /* その次の行の「建具（図形）の数」 */
+    int kind;                   /* 1 平面・2 断面・3 立面・4 線記号（jw_tategu_load が入れる） */
     int nitem;
     jw_tg_item item[JW_TG_ITEMS];
     int npart;
