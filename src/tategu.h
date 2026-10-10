@@ -112,6 +112,45 @@ int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
                     double wakuhaba, double uchinori,
                     jw_tg_out *out, int max);
 
+
+/* ---------------------------------------- 埋め込んだ JW_OPT*.DAT ----- */
+
+typedef struct {
+    int kind;                   /* 1 平面・2 断面・3 立面・4 線記号 */
+    const char *name;           /* 【建具平面A】 (CP932) */
+    const char *title;          /* 一行目の # のあと (CP932) */
+    const unsigned char *data;
+    long len;
+} jw_tgdat;
+
+/* `kind` の種類のファイルが何枚あるか、その k 枚目が全体の何番か */
+int jw_tgdat_count(int kind);
+int jw_tgdat_index(int kind, int k);
+const jw_tgdat *jw_tgdat_get(int idx);
+/* 全体の idx 番目を読んで返す（一枚だけ覚えておく）。読めなければ 0 */
+const jw_tategu *jw_tategu_load(int idx);
+
+/* ----------------------------------------- 図面に置く（平面） -------- */
+
+typedef struct {
+    double mikomi, wakuhaba, uchinori, shinzure;    /* mm（実寸） */
+    int flip_lr, flip_io;       /* 左右反転・内外反転 */
+    double scale;               /* 紙 = 実寸 / scale */
+    double ox, oy;              /* ブロック①の原点（紙 mm） */
+    double ux, uy;              /* 内法の向き（単位ベクトル）。Y はその左 */
+} jw_tg_pose;
+
+/* 建具 `item` を置く。原典に建具平面を [5]・円弧つきの [7]・[13] などで
+ * 置かせた答えに合わせてあります（tests/tategu2_test.c）:
+ * 点は (ox,oy) + (x·u + (y − 見込/2 + 芯ずれ)·v)/scale、
+ * 左右反転は x → 内法 − x、内外反転は y → 見込 − y（円弧の振りは符号が替わる）、
+ * 円弧は 始角 0・傾き＝始点の向きで書き、扇形の指定（一の位 1 始点の線・
+ * 2 終点の線・3 両方・5〜7 線だけ・8 前の二つの円弧の終点を結ぶ線）は
+ * 円弧のあとに線で足す。**文字と寸法 (&m) はまだ**。
+ * 返すのは入れた要素の数。 */
+int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
+                  const jw_tg_pose *p);
+
 #endif
 
 /* 並べたものを図面の要素にする。

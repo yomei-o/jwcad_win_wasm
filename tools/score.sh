@@ -15,7 +15,7 @@ esac
 COMMON="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c
         src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c
         src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c
-        src/houraku.c src/view.c src/draw.c src/text.c src/fontx.c
+        src/houraku.c src/tategu.c src/view.c src/draw.c src/text.c src/fontx.c
         src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
 gcc -O1 -w -std=c99 -Isrc -Itests -o tests/shot.exe tests/shot.c tests/png.c \
     $COMMON -lm || exit 1

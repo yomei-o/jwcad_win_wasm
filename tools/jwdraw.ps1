@@ -756,8 +756,14 @@ try {
                 [void][Jw]::SetForegroundWindow($dlg)
                 Start-Sleep -Milliseconds 300
                 $pt = [Jw]::ScreenOf($dlg, $dx, $dy)
+                [void][Jw]::SetCursorPos($pt.X - 3, $pt.Y - 2)
+                Start-Sleep -Milliseconds 200
+                # the window tracks which cell is under the pointer from the
+                # moves it sees, so walk onto the cell before pressing
                 [void][Jw]::SetCursorPos($pt.X, $pt.Y)
-                Start-Sleep -Milliseconds 250
+                [Jw]::mouse_event(0x0001, 1, 0, 0, [UIntPtr]::Zero)
+                [Jw]::mouse_event(0x0001, -1, 0, 0, [UIntPtr]::Zero)
+                Start-Sleep -Milliseconds 400
                 $n = if ($dbl) { 2 } else { 1 }
                 for ($q = 0; $q -lt $n; $q++) {
                     [Jw]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)

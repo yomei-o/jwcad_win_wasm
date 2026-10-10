@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "cmd.h"
+#include "tategu.h"
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
@@ -350,6 +351,65 @@ static int ses_mode = 1689;     /* the bar button: 1689..1692 */
  * ください。」になり、以後は何も引かなくなりました。二つの結果が
  * 食い違っているので、**決めつけずに手を付けていません**。
  */
+
+/* 建具平面 (32848).  選ぶ（ファイル選択の窓）→ 基準線 → 位置、を繰り返す。
+ * 原典に置かせた答え（tools/probe179〜186.sh、tests/tategu2_test.c）:
+ *  ・基準線は壁の線（L）か、二点を読む（R、「２点間の始点指示」）。向きは
+ *    **線の向きではなく、右へ（垂直なら上へ）に直したもの**
+ *  ・位置は壁へおろした足がブロック①の原点。内法は壁の向きにのびる
+ *  ・置いたあとは基準線の問いに戻る */
+static int tg_cat = -1, tg_item = -1;   /* 選んだ建具（jw_tgdat の番号と中の何番） */
+static int tg_need_pick;
+static int tg_step;                     /* 0 基準線 1 位置、R の二点の途中は 2 */
+static double tg_ax, tg_ay, tg_ux, tg_uy;
+static int tg_page2;                    /* ＞ で替わる二枚目のバー */
+
+int jw_cmd_tategu_need_pick(void)
+{
+    int r = tg_need_pick;
+
+    tg_need_pick = 0;
+    return r;
+}
+
+void jw_cmd_tategu_choose(int catalog, int item)
+{
+    tg_cat = catalog;
+    tg_item = item;
+    tg_step = 0;
+}
+
+int jw_cmd_tategu_catalog(void)
+{
+    return tg_cat;
+}
+
+int jw_cmd_tategu_item(void)
+{
+    return tg_item;
+}
+
+/* 壁の向きを、右へ（垂直なら上へ）の単位ベクトルに */
+static int tg_wall(double x0, double y0, double x1, double y1)
+{
+    double dx = x1 - x0, dy = y1 - y0, l = sqrt(dx * dx + dy * dy);
+
+    if (l <= 1e-9)
+        return 0;
+    dx /= l;
+    dy /= l;
+    if (dx < -1e-9 || (fabs(dx) <= 1e-9 && dy < 0.0)) {
+        dx = -dx;
+        dy = -dy;
+    }
+    tg_ax = x0;
+    tg_ay = y0;
+    tg_ux = dx;
+    tg_uy = dy;
+    return 1;
+}
+
+
 static int tk_mode = 1690;
 static int mt_mode = 1689;      /* 面取のラジオ 1689〜1693 */
 static int bk_mode = 1689;      /* 分割のラジオ: 1689 等距離・1690 等角度 */
@@ -503,6 +563,10 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
     { JW_CMD_KUKEI, 1413, "" },         /* 矩形の寸法 "横,縦" */
     { JW_CMD_TAKAKU, 1411, "1000" },    /* 寸法      */
+    { JW_CMD_TATEGU, 1424, "70" },      /* 建具の 見込 */
+    { JW_CMD_TATEGU, 1425, "35" },      /*        枠幅 */
+    { JW_CMD_TATEGU, 1426, "1700" },    /*        内法 */
+    { JW_CMD_TATEGU, 1427, "0" },       /*        芯ずれ */
     { JW_CMD_TAKAKU, 1412, "1000 , 1000" },     /* ２辺の「横 , 縦」 */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
@@ -2198,6 +2262,11 @@ void jw_cmd_set(int id)
         nisen_step = 0;
         nisen_obj = -1;
     }
+    if (id == JW_CMD_TATEGU) {
+        tg_step = 0;
+        tg_page2 = 0;
+        tg_need_pick = 1;       /* 入るとすぐ ファイル選択 が出る */
+    }
     if (id == JW_CMD_ENKO) {
         /* CZukeiEnko slot 10 (FUN_00648830) は命令の始まりで FUN_004aafb0(0) を
          * 呼び、半円 (+0xaf0) と 3点指示 (+0xaf4) を 0 に戻します。
@@ -3142,6 +3211,16 @@ const char *jw_cmd_prompt(void)
         if (sel_step == 2)
             return JW_STR_5314;
         return JW_STR_5383;
+    case JW_CMD_TATEGU:
+        /* 選ぶまでは「建具を選択してください。」、選んだら基準線、壁を
+           指したら位置。(R) で二点を読むあいだは 線の「終点」の問い */
+        if (tg_cat < 0)
+            return JW_STR_5347;
+        if (tg_step == 1)
+            return JW_STR_5346;
+        if (tg_step == 2)
+            return JW_STR_5321;
+        return JW_STR_5478;
     case JW_CMD_TAKAKU: {
         /* CZukeiTakakukei slot 6 (FUN_00646... のプロンプト): 段 (+0xa8) と
          * ラジオの並び (+0xb4: 0 が２辺)・寸法の箱が埋まっているか (+0xac)・
@@ -8288,6 +8367,8 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (id == 1146 && current == JW_CMD_TATEGU)
+        return tg_page2;            /* ＞ で替わる二枚目 */
     if (id == 1070 && current == JW_CMD_TAKAKU)
         return tk_any;
     if (id == 1692 && current == JW_CMD_MENTORI)
@@ -8471,6 +8552,14 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_TAKAKU && id >= 1689 && id <= 1692) {
         tk_mode = id;
+        return 1;
+    }
+    if (current == JW_CMD_TATEGU && id == 1064) {
+        tg_need_pick = 1;
+        return 1;
+    }
+    if (current == JW_CMD_TATEGU && id == 1146) {
+        tg_page2 = !tg_page2;
         return 1;
     }
     if (current == JW_CMD_MENTORI && id >= 1689 && id <= 1693) {
@@ -9053,6 +9142,32 @@ int jw_cmd_box_key(int ch)
  * are therefore at -90 - 180/n + 底辺角度 and every 360/n after that, going
  * round the way the original's lines do.  A pentagon of 3000 at 30 degrees
  * and an octagon of 3000 at 30 both came out exactly there. */
+static void tg_place(jw_drawing *d, double x, double y)
+{
+    const jw_tategu *t;
+    jw_tg_pose p;
+    double along = (x - tg_ax) * tg_ux + (y - tg_ay) * tg_uy;
+    int made;
+
+    if (tg_cat < 0 || !d || !(t = jw_tategu_load(tg_cat)))
+        return;
+    memset(&p, 0, sizeof p);
+    p.mikomi = box_num(jw_cmd_box(1424), 70.0);
+    p.wakuhaba = box_num(jw_cmd_box(1425), 35.0);
+    p.uchinori = box_num(jw_cmd_box(1426), 1700.0);
+    p.shinzure = box_num(jw_cmd_box(1427), 0.0);
+    p.flip_lr = jw_cmd_bar_check(1325) > 0;
+    p.flip_io = jw_cmd_bar_check(1324) > 0;
+    p.scale = write_scale(d);
+    p.ox = tg_ax + along * tg_ux;
+    p.oy = tg_ay + along * tg_uy;
+    p.ux = tg_ux;
+    p.uy = tg_uy;
+    made = jw_tategu_put(d, t, tg_item, &p);
+    if (made > 0)
+        op_push(made);
+}
+
 /* 多角形の n 本を、頂点 v0 から反時計回りに */
 static void takaku_put(jw_drawing *d, double cx, double cy, double r,
                        double a0, int n)
@@ -11754,6 +11869,36 @@ placed:
                 bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
         }
         corner_step = 0;
+        return;
+    }
+    if (current == JW_CMD_TATEGU) {
+        int i;
+        if (!d || tg_cat < 0)
+            return;
+        if (tg_step == 0 && button == 0) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            if (tg_wall(d->obj[i].d[0], d->obj[i].d[1], d->obj[i].d[2],
+                        d->obj[i].d[3]))
+                tg_step = 1;
+            return;
+        }
+        if (tg_step == 0) {             /* (R): 二点間の始点 */
+            tg_ax = x;
+            tg_ay = y;
+            tg_step = 2;
+            return;
+        }
+        if (tg_step == 2) {             /* 二点目 */
+            if (tg_wall(tg_ax, tg_ay, x, y))
+                tg_step = 1;
+            else
+                tg_step = 0;
+            return;
+        }
+        tg_place(d, x, y);              /* 位置 */
+        tg_step = 0;
         return;
     }
     if (current == JW_CMD_MENTORI) {

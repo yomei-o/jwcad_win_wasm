@@ -42,6 +42,7 @@ enum {
     JW_CMD_TAKAKU = 0x807e,         /* 多角形 -- CZukeiTakakukei */
     JW_CMD_MENTORI = 0x805b,        /* 面取 -- CZukeiCorner's other half */
     JW_CMD_BUNKATSU = 0x8063,       /* 分割 -- CZukeiBunkatsu */
+    JW_CMD_TATEGU = 0x8050,         /* 建具平面 (32848) */
     JW_CMD_NISEN = 0x807c,          /* ２線 -- the menu resource and the
                                        toolbar cell both say 0x807c; it
                                        was 0x805c here, which is not a
@@ -79,7 +80,13 @@ int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
 int  jw_cmd_bar_radio(int id);      /* ラジオの点き具合: 1・0・-1（持っていない） */
 int  jw_cmd_takaku_pos(void);       /* 多角形 の 中央 (1068): 0 中央・1 頂点・2 辺 */
-void jw_cmd_flush(jw_drawing *d);   /* 連続線 の手前の線を図面へ */
+void jw_cmd_flush(jw_drawing *d);
+/* 建具平面: 建具選択の窓を出してほしいときは 1（読むと戻る）。選んだら
+   jw_cmd_tategu_choose。catalog は src/tategu.h の jw_tgdat の番号 */
+int  jw_cmd_tategu_need_pick(void);
+void jw_cmd_tategu_choose(int catalog, int item);
+int  jw_cmd_tategu_catalog(void);       /* いま選んでいるもの。無ければ -1 */
+int  jw_cmd_tategu_item(void);   /* 連続線 の手前の線を図面へ */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */
 
 /* The 文字 command's line, as CP932 bytes.  Jw_cad wants the text typed

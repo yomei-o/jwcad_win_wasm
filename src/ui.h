@@ -332,4 +332,17 @@ void ui_textbox(fb_t *fb, const char *line, const char *composing);
 void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
               int undoable);
 
+
+/* 建具のファイル選択（src/ui.c の ui_tgp） */
+typedef struct {
+    int x, y, w, h;             /* 窓 */
+    int lx, ly, lw;             /* 左の一覧 */
+    int gx, gy, cols, rows, cellw, cellh;       /* 右のます */
+} jw_tgp_layout;
+void ui_tgp_layout(int cw, int ch, jw_tgp_layout *L);
+void ui_tgp(fb_t *fb, int kind, int file, int page, int hover);
+int  ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
+                int *val);
+int  ui_tgp_per_page(int cw, int ch);
+
 #endif

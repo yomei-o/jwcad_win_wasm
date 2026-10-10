@@ -49,6 +49,7 @@ python tools/mkmenu.py
 python tools/mkdlgtpl.py                     # every popup dialog, laid out from its template
 python tools/mkaccel.py                      # the frame's keyboard shortcuts
 python tools/mkstr.py >/dev/null             # the prompts in the status line
+python tools/mktgdat.py
 python tools/mkpen.py                        # the pens a new drawing starts with
 python tools/mksunpo.py                      # the dimension settings
 

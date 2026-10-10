@@ -1,4 +1,6 @@
 #include <stddef.h>
+#include <math.h>
+#include <stdio.h>
 
 #include "ui.h"
 #include "app.h"
@@ -4851,4 +4853,225 @@ int ui_tdlg_drop_hit(int cw, int ch, int t, int i, int n, int x, int y)
         return -1;
     row = (y - r.y - 1) / jw_text_height();
     return row >= 0 && row < n && row < TDROP_ROWS ? row : -1;
+}
+
+/* ---- 建具のファイル選択 ----------------------------------------------
+ *
+ * 原典の「ファイル選択」窓（1110x640。左に木、右に 2 列の建具の絵が並ぶ。
+ * 絵は窓が自分で描いていて、投げたクリックは効かない）の移植。左の木は
+ * 埋め込んだ JW_OPT*.DAT の名前（【建具平面A】…）の一覧で、右のますは
+ * [n] の札と、初期値（見込 70・枠幅 35・内法 1700）で伸ばした絵。
+ * 押した（原典は二度押し）ますの建具が選ばれる。 */
+
+#include "tategu.h"
+
+#define TGP_ROW_H   20
+#define TGP_CELL_H  68
+#define TGP_LIST_W  250
+#define TGP_TITLE_H 24
+#define TGP_FOOT_H  26
+
+void ui_tgp_layout(int cw, int ch, jw_tgp_layout *L)
+{
+    L->w = cw - 40 < 1000 ? cw - 40 : 1000;
+    L->h = ch - 40 < 560 ? ch - 40 : 560;
+    if (L->w < 400)
+        L->w = 400;
+    if (L->h < 200)
+        L->h = 200;
+    L->x = (cw - L->w) / 2;
+    L->y = (ch - L->h) / 2;
+    L->lx = L->x + 4;
+    L->ly = L->y + TGP_TITLE_H + 4;
+    L->lw = TGP_LIST_W;
+    L->gx = L->lx + L->lw + 6;
+    L->gy = L->ly;
+    L->cols = 2;
+    L->cellw = (L->x + L->w - 4 - L->gx) / L->cols;
+    L->cellh = TGP_CELL_H;
+    L->rows = (L->y + L->h - TGP_FOOT_H - L->gy) / L->cellh;
+    if (L->rows < 1)
+        L->rows = 1;
+}
+
+/* 一本の線（Bresenham）。窓の外へは出ない */
+static void tgp_line(fb_t *fb, int x0, int y0, int x1, int y1,
+                     int cx, int cy, int cw, int chh, unsigned int c)
+{
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1, sx = x0 < x1 ? 1 : -1;
+    int dy = y1 > y0 ? y0 - y1 : y1 - y0, sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy, n = 0;
+
+    for (;;) {
+        if (x0 >= cx && x0 < cx + cw && y0 >= cy && y0 < cy + chh)
+            fb_fill(fb, x0, y0, 1, 1, c);
+        if ((x0 == x1 && y0 == y1) || ++n > 4000)
+            break;
+        {
+            int e2 = 2 * err;
+
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
+    }
+}
+
+/* 一つのますの絵: 初期値で伸ばして、ますに収まる大きさで */
+static void tgp_thumb(fb_t *fb, const jw_tategu *t, int item,
+                      int x, int y, int w, int h)
+{
+    static jw_tg_out o[JW_TG_PARTS];
+    int n = jw_tategu_place(t, item, 70.0, 35.0, 1700.0, o, JW_TG_PARTS), i;
+    double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, sc;
+
+    for (i = 0; i < n; i++) {
+        if (o[i].cls != JW_TG_LINE && o[i].cls != JW_TG_ARC)
+            continue;
+        if (o[i].x0 < x0) x0 = o[i].x0;
+        if (o[i].x1 < x0) x0 = o[i].x1;
+        if (o[i].x0 > x1) x1 = o[i].x0;
+        if (o[i].x1 > x1) x1 = o[i].x1;
+        if (o[i].y0 < y0) y0 = o[i].y0;
+        if (o[i].y1 < y0) y0 = o[i].y1;
+        if (o[i].y0 > y1) y1 = o[i].y0;
+        if (o[i].y1 > y1) y1 = o[i].y1;
+    }
+    if (x1 <= x0 || y1 < y0)
+        return;
+    sc = (double)(w - 40) / (x1 - x0);
+    if (y1 > y0 && (double)(h - 12) / (y1 - y0) < sc)
+        sc = (double)(h - 12) / (y1 - y0);
+    for (i = 0; i < n; i++) {
+        double ax = o[i].x0, ay = o[i].y0, bx = o[i].x1, by = o[i].y1;
+        int ox = x + 20 + (int)((ax - x0) * sc);
+        int oy = y + h - 6 - (int)((ay - y0) * sc);
+        unsigned int c = o[i].color == 1 ? 0x00a0c0u : 0x000000u;
+
+        if (o[i].cls == JW_TG_LINE) {
+            tgp_line(fb, ox, oy, x + 20 + (int)((bx - x0) * sc),
+                     y + h - 6 - (int)((by - y0) * sc), x, y, w, h, c);
+        } else if (o[i].cls == JW_TG_ARC && o[i].sector % 10 < 4) {
+            double r = sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+            double a = atan2(by - ay, bx - ax), sw = o[i].sweep * 3.14159265358979 / 180.0;
+            int k, px = 0, py = 0;
+
+            for (k = 0; k <= 16; k++) {
+                double t2 = a + sw * k / 16.0;
+                int qx = x + 20 + (int)((ax + r * cos(t2) - x0) * sc);
+                int qy = y + h - 6 - (int)((ay + r * sin(t2) - y0) * sc);
+
+                if (k)
+                    tgp_line(fb, px, py, qx, qy, x, y, w, h, c);
+                px = qx;
+                py = qy;
+            }
+        }
+    }
+}
+
+void ui_tgp(fb_t *fb, int kind, int file, int page, int hover)
+{
+    jw_tgp_layout L;
+    int nf = jw_tgdat_count(kind), i, th = jw_text_height();
+    const jw_tategu *t;
+    char lab[16];
+
+    ui_tgp_layout(fb->w, fb->h, &L);
+    fb_fill(fb, L.x, L.y, L.w, L.h, C_BTNFACE);
+    fb_edge(fb, L.x, L.y, L.w, L.h, C_BTNSHADOW, C_3DDKSHADOW);
+    fb_fill(fb, L.x + 1, L.y + 1, L.w - 2, TGP_TITLE_H - 1, C_WINDOW);
+    jw_text_px(fb, L.x + 28, L.y + (TGP_TITLE_H - th) / 2,
+               "\x83" "\x74" "\x83" "\x40" "\x83" "\x43" "\x83" "\x8b" "\x91" "\x49" "\x91" "\xf0",
+               C_BTNTEXT);
+    jw_text_px(fb, L.x + L.w - 18, L.y + (TGP_TITLE_H - th) / 2, "x", C_BTNTEXT);
+    /* 左: ファイルの名前 */
+    fb_fill(fb, L.lx, L.ly, L.lw, L.y + L.h - TGP_FOOT_H - L.ly, C_WINDOW);
+    for (i = 0; i < nf; i++) {
+        const jw_tgdat *g = jw_tgdat_get(jw_tgdat_index(kind, i));
+        int ry = L.ly + i * TGP_ROW_H;
+        char s[96];
+
+        if (!g || ry + TGP_ROW_H > L.y + L.h - TGP_FOOT_H)
+            break;
+        if (i == file)
+            fb_fill(fb, L.lx, ry, L.lw, TGP_ROW_H, 0xc8d8f0u);
+        snprintf(s, sizeof s, "%s%s", g->name, g->title);
+        jw_text_px(fb, L.lx + 4, ry + (TGP_ROW_H - th) / 2, s, C_BTNTEXT);
+    }
+    /* 右: ます */
+    t = jw_tategu_load(jw_tgdat_index(kind, file));
+    if (t) {
+        int per = L.cols * L.rows;
+
+        for (i = 0; i < per; i++) {
+            int item = page * per + i;
+            int cx = L.gx + (i % L.cols) * L.cellw;
+            int cy = L.gy + (i / L.cols) * L.cellh;
+
+            if (item >= t->nitem)
+                break;
+            fb_fill(fb, cx, cy, L.cellw - 2, L.cellh - 2, C_WINDOW);
+            fb_edge(fb, cx, cy, L.cellw - 2, L.cellh - 2, C_BTNSHADOW, C_BTNSHADOW);
+            if (item == hover)
+                fb_fill(fb, cx + 1, cy + 1, 3 * 6 + 12, th + 2, 0x404040u);
+            snprintf(lab, sizeof lab, "[%d]", item + 1);
+            jw_text_px(fb, cx + 4, cy + 2, lab, item == hover ? C_WINDOW : C_BTNTEXT);
+            tgp_thumb(fb, t, item, cx, cy, L.cellw - 2, L.cellh - 2);
+        }
+    }
+    /* 下: 前・次のページ */
+    jw_text_px(fb, L.gx, L.y + L.h - TGP_FOOT_H + 5, "<", C_BTNTEXT);
+    jw_text_px(fb, L.gx + 30, L.y + L.h - TGP_FOOT_H + 5, ">", C_BTNTEXT);
+}
+
+/* 押した所: 1 閉じる ・ 2 ファイル（*val） ・ 3 建具（*val は 0 から） ・
+ * 4 前のページ ・ 5 次のページ ・ 0 窓の中の何もない所 ・ -1 窓の外 */
+int ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
+               int *val)
+{
+    jw_tgp_layout L;
+    const jw_tategu *t;
+    int nf = jw_tgdat_count(kind);
+
+    ui_tgp_layout(cw, ch, &L);
+    if (x < L.x || x >= L.x + L.w || y < L.y || y >= L.y + L.h)
+        return -1;
+    if (y < L.y + TGP_TITLE_H)
+        return x >= L.x + L.w - 24 ? 1 : 0;
+    if (x >= L.lx && x < L.lx + L.lw && y >= L.ly) {
+        int i = (y - L.ly) / TGP_ROW_H;
+
+        if (i < nf) {
+            *val = i;
+            return 2;
+        }
+        return 0;
+    }
+    if (y >= L.y + L.h - TGP_FOOT_H) {
+        if (x >= L.gx && x < L.gx + 24)
+            return 4;
+        if (x >= L.gx + 24 && x < L.gx + 60)
+            return 5;
+        return 0;
+    }
+    if (x >= L.gx && y >= L.gy) {
+        int c = (x - L.gx) / L.cellw, r = (y - L.gy) / L.cellh;
+
+        if (c < L.cols && r < L.rows) {
+            t = jw_tategu_load(jw_tgdat_index(kind, file));
+            if (t && page * L.cols * L.rows + r * L.cols + c < t->nitem) {
+                *val = page * L.cols * L.rows + r * L.cols + c;
+                return 3;
+            }
+        }
+    }
+    return 0;
+}
+
+int ui_tgp_per_page(int cw, int ch)
+{
+    jw_tgp_layout L;
+
+    ui_tgp_layout(cw, ch, &L);
+    return L.cols * L.rows;
 }

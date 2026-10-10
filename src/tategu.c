@@ -15,6 +15,7 @@
 #include <math.h>
 
 #include "tategu.h"
+#include "gen/tgdat.inc"
 
 /* 一行ぶんの数。何個取れたかを返します。 */
 static int scan_nums(const char *s, double *d, int max)
@@ -492,6 +493,207 @@ int jw_tategu_objs(jw_drawing *d, const jw_tg_out *o, int n,
         if (p->layer >= 0)
             e->layer = (unsigned char)p->layer;
         made++;
+    }
+    return made;
+}
+
+/* ---------------------------------------- 埋め込んだ JW_OPT*.DAT ----- */
+
+int jw_tgdat_count(int kind)
+{
+    int i, n = 0;
+
+    for (i = 0; i < tgdat_n; i++)
+        if (tgdat_list[i].kind == kind)
+            n++;
+    return n;
+}
+
+int jw_tgdat_index(int kind, int k)
+{
+    int i;
+
+    for (i = 0; i < tgdat_n; i++)
+        if (tgdat_list[i].kind == kind && k-- == 0)
+            return i;
+    return -1;
+}
+
+const jw_tgdat *jw_tgdat_get(int idx)
+{
+    return idx >= 0 && idx < tgdat_n ? &tgdat_list[idx] : 0;
+}
+
+const jw_tategu *jw_tategu_load(int idx)
+{
+    static jw_tategu t;
+    static int have = -1;
+
+    if (idx < 0 || idx >= tgdat_n)
+        return 0;
+    if (have != idx) {
+        memset(&t, 0, sizeof t);
+        have = -1;
+        if (jw_tategu_parse(&t, (const char *)tgdat_list[idx].data,
+                            tgdat_list[idx].len) <= 0)
+            return 0;
+        have = idx;
+    }
+    return &t;
+}
+
+/* ----------------------------------------- 図面に置く（平面） -------- */
+
+#define TG_PI 3.14159265358979323846
+
+/* 部材の属性を要素に写す */
+static void tg_attr(jw_obj *e, const jw_tg_out *o, unsigned short flags,
+                    int width_too)
+{
+    e->flags = flags;
+    if (o->color > 0)
+        e->color = (unsigned short)o->color;
+    if (o->ltype > 0)
+        e->ltype = (unsigned char)o->ltype;
+    if (width_too && o->width > 0)
+        e->width = (unsigned short)o->width;
+    if (o->layer >= 0)
+        e->layer = (unsigned short)o->layer;
+}
+
+int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
+                  const jw_tg_pose *p)
+{
+    static jw_tg_out out[JW_TG_PARTS];
+    int n, i, made = 0;
+    double mik = p->mikomi, vx = -p->uy, vy = p->ux;
+    int mirror = (p->flip_lr != 0) != (p->flip_io != 0);
+    double ex[2] = { 0.0, 0.0 }, ey[2] = { 0.0, 0.0 };     /* 前の円弧の終点 */
+    const jw_tg_item *it;
+
+    if (!d || !t || item < 0 || item >= t->nitem || p->scale <= 0.0)
+        return 0;
+    it = &t->item[item];
+    if (it->fix_mikomi > 0.0)
+        mik = it->fix_mikomi;
+    n = jw_tategu_place(t, item, p->mikomi, p->wakuhaba, p->uchinori,
+                        out, JW_TG_PARTS);
+    for (i = 0; i < n; i++) {
+        const jw_tg_out *o = &out[i];
+        double x[2] = { o->x0, o->x1 }, y[2] = { o->y0, o->y1 };
+        double wx[2], wy[2];
+        int k;
+        unsigned short flags = 0x9000;
+
+        if (o->plain)
+            flags = 0x1000;
+        if (o->loose)
+            flags = 0;
+        for (k = 0; k < 2; k++) {
+            double lx = x[k], ly = y[k];
+
+            if (p->flip_lr)
+                lx = p->uchinori - lx;
+            if (p->flip_io)
+                ly = mik - ly;
+            ly += p->shinzure - mik / 2.0;
+            wx[k] = p->ox + (lx * p->ux + ly * vx) / p->scale;
+            wy[k] = p->oy + (lx * p->uy + ly * vy) / p->scale;
+        }
+        if (o->cls == JW_TG_LINE) {
+            jw_obj *e = jw_add(d, JW_SEN);
+
+            if (!e)
+                return made;
+            e->d[0] = wx[0];
+            e->d[1] = wy[0];
+            e->d[2] = wx[1];
+            e->d[3] = wy[1];
+            tg_attr(e, o, flags, 1);
+            made++;
+        } else if (o->cls == JW_TG_POINT) {
+            jw_obj *e = jw_add(d, JW_TEN);
+
+            if (!e)
+                return made;
+            e->d[0] = wx[0];
+            e->d[1] = wy[0];
+            e->n = o->kind;
+            tg_attr(e, o, flags, 0);
+            made++;
+        } else if (o->cls == JW_TG_ARC) {
+            int code = o->sector % 10;
+            double sw = o->sweep * TG_PI / 180.0 * (mirror ? -1.0 : 1.0);
+            double sx = wx[1] - wx[0], sy = wy[1] - wy[0];
+            double r = sqrt(sx * sx + sy * sy), a = atan2(sy, sx);
+            double endx = wx[0] + r * cos(a + sw);
+            double endy = wy[0] + r * sin(a + sw);
+            jw_obj *e;
+
+            if (code == 8) {
+                /* 前の二つの円弧の終点どうしを結ぶ。x0,y0 が二つ前の終点から、
+                   x1,y1 が一つ前の終点からのずれ（向きだけ置き換える） */
+                const jw_tg_part *q = &t->part[it->first + i];
+                double ax0 = q->x0, ay0 = q->y0, ax1 = q->x1, ay1 = q->y1;
+
+                if (p->flip_lr) { ax0 = -ax0; ax1 = -ax1; }
+                if (p->flip_io) { ay0 = -ay0; ay1 = -ay1; }
+                e = jw_add(d, JW_SEN);
+                if (!e)
+                    return made;
+                e->d[0] = ex[0] + (ax0 * p->ux + ay0 * vx) / p->scale;
+                e->d[1] = ey[0] + (ax0 * p->uy + ay0 * vy) / p->scale;
+                e->d[2] = ex[1] + (ax1 * p->ux + ay1 * vx) / p->scale;
+                e->d[3] = ey[1] + (ax1 * p->uy + ay1 * vy) / p->scale;
+                tg_attr(e, o, flags, 1);
+                made++;
+                continue;
+            }
+            if (r > 0.0 && code < 4) {
+                e = jw_add(d, JW_ENKO);
+                if (!e)
+                    return made;
+                e->d[0] = wx[0];
+                e->d[1] = wy[0];
+                e->d[2] = r;
+                e->d[3] = 0.0;
+                e->d[4] = sw;
+                e->d[5] = a;
+                e->d[6] = 1.0;
+                e->n = 0;
+                tg_attr(e, o, flags, 1);
+                /* 円弧の旗は線と違う: 原典は レイヤ -11 の円弧に 0x80 を置いた
+                   （建具 [7]・[8]）。建具の旗（0x9000）が付く円弧は未確認 */
+                if (o->plain || o->loose)
+                    e->flags = 0x80;
+                made++;
+            }
+            if (r > 0.0) {
+                for (k = 0; k < 2; k++) {
+                    int want = k == 0
+                        ? (code == 1 || code == 3 || code == 5 || code == 7)
+                        : (code == 2 || code == 3 || code == 6 || code == 7);
+
+                    if (!want)
+                        continue;
+                    e = jw_add(d, JW_SEN);
+                    if (!e)
+                        return made;
+                    e->d[0] = wx[0];
+                    e->d[1] = wy[0];
+                    e->d[2] = k == 0 ? wx[1] : endx;
+                    e->d[3] = k == 0 ? wy[1] : endy;
+                    tg_attr(e, o, flags, 1);
+                    made++;
+                }
+            }
+            ex[0] = ex[1];
+            ey[0] = ey[1];
+            ex[1] = endx;
+            ey[1] = endy;
+        }
+        /* 文字は、文字種類の桁で基点・縦書き・フォントが変わるので、
+           原典に引かせるまで置きません */
     }
     return made;
 }

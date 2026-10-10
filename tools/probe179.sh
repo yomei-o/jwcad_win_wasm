@@ -9,7 +9,7 @@ PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
 idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; }
 cell() {   # cell number 1..16 -> client coordinates of its middle
     n=$1; r=$(( (n - 1) / 2 )); c=$(( (n - 1) % 2 ))
-    echo "$(( 490 + c * 398 )),$(( 92 + r * 72 ))"
+    echo "$(( 480 + c * 398 )),$(( 60 + r * 72 ))"
 }
 run() {   # name, cell, script
     idle; sh tools/refenv.sh >/dev/null

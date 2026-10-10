@@ -9,6 +9,7 @@
 #include "draw.h"
 #include "view.h"
 #include "cmd.h"
+#include "tategu.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
 #include "gen/newjww.h"
@@ -439,6 +440,47 @@ static int jk_key(int c)
  * applies what the two boxes hold, to that group or to every editable one
  * if 全レイヤグループの縮尺変更 is ticked. */
 static int sk_open, sk_group, sk_caret;
+
+/* 建具のファイル選択（src/ui.c の ui_tgp）。建具平面に入ると（そして
+   建具選択を押すと）出る。原典は窓が自分で絵を描くので、ここも同じ作り */
+static int tgp_open, tgp_kind, tgp_file, tgp_page;
+
+static void tgp_check(void)
+{
+    if (!tgp_open && jw_cmd_tategu_need_pick() && jw_cmd() == JW_CMD_TATEGU) {
+        tgp_open = 1;
+        tgp_kind = 1;
+        tgp_file = 0;
+        tgp_page = 0;
+    }
+}
+
+static int press_tgp(int x, int y)
+{
+    int val = 0;
+    int r = ui_tgp_hit(fb.w, fb.h, tgp_kind, tgp_file, tgp_page, x, y, &val);
+
+    if (r == 1) {
+        tgp_open = 0;
+    } else if (r == 2) {
+        tgp_file = val;
+        tgp_page = 0;
+    } else if (r == 3) {
+        jw_cmd_tategu_choose(jw_tgdat_index(tgp_kind, tgp_file), val);
+        tgp_open = 0;
+    } else if (r == 4) {
+        if (tgp_page > 0)
+            tgp_page--;
+    } else if (r == 5) {
+        const jw_tategu *t = jw_tategu_load(jw_tgdat_index(tgp_kind, tgp_file));
+        int per = ui_tgp_per_page(fb.w, fb.h);
+
+        if (t && (tgp_page + 1) * per < t->nitem)
+            tgp_page++;
+    }
+    return 1;                           /* modal: nothing behind hears it */
+}
+
 
 int app_shakudo_open(void)
 {
@@ -2440,6 +2482,8 @@ int app_press(int x, int y, int button)
 
     /* a dialog from a template may sit on top of one of the others
        (ブロック名を指定して選択 over 属性選択), so it hears first */
+    if (tgp_open)
+        return press_tgp(x, y);
     if (td_open)
         return td_tpl == 314 ? press_kp(x, y, button) : press_tdlg(x, y);
     if (zoku_open)
@@ -2646,7 +2690,7 @@ static int dialog_open(void)
 {
     return zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
-           || sk_open || ld_open || td_open;
+           || sk_open || ld_open || td_open || tgp_open;
 }
 
 /* whether any of them is up, for whoever is outside */
@@ -2660,12 +2704,19 @@ static void dialog_close(void)
     zoku_open = moji_open = zsel_open = jk_open = 0;
     sd_open = br_open = kh_open = zhen_open = sk_open = ld_open = 0;
     td_open = 0;
+    tgp_open = 0;
     sd_caret = 0;
     sd_edit[0] = 0;
 }
 
 int app_key(int c)
 {
+    if (tgp_open) {
+        if (c == 27)
+            tgp_open = 0;
+        app_paint();
+        return 1;
+    }
     if (td_open && td_key(c)) {         /* the one on top hears first */
         app_paint();
         return 1;
@@ -3168,6 +3219,8 @@ void app_paint(void)
 {
     int i, n;
 
+    tgp_check();
+
     if (!fb.px)
         return;
     /* The status line's readout -- the angle and length of the line being
@@ -3283,6 +3336,8 @@ void app_paint(void)
     }
     if (ld_open)
         ui_layerdlg(&fb, have_drawing ? &drawing : 0, ld_on);
+    if (tgp_open)
+        ui_tgp(&fb, tgp_kind, tgp_file, tgp_page, -1);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {
