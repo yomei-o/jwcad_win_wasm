@@ -77,6 +77,8 @@ enum {
 
 int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
+int  jw_cmd_bar_radio(int id);      /* ラジオの点き具合: 1・0・-1（持っていない） */
+int  jw_cmd_takaku_pos(void);       /* 多角形 の 中央 (1068): 0 中央・1 頂点・2 辺 */
 void jw_cmd_flush(jw_drawing *d);   /* 連続線 の手前の線を図面へ */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */
 

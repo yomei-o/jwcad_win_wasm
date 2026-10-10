@@ -20,6 +20,8 @@ WANT = [
     (5623, 'the first line or circle to cross'),
     (5624, 'the second one'),
     (5309, 'the centre of a circle'),
+    (5364, 'a position pointed with the mouse (polygon, base point not the centre)'),
+    (5310, 'which side to draw the triangle on (polygon, two sides)'),
     (5301, 'a point the circle passes through'),
     (10111, 'what the two buttons do when erasing'),
     (10112, 'the first end of the piece to take out of a line'),

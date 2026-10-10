@@ -4281,6 +4281,19 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                        c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
             break;
         case JW_CTL_BUTTON:
+            if (c[i].align == 9) {
+                /* BS_AUTORADIOBUTTON: 円と字。bar の窓の地色に直に描く */
+                int sel = jw_cmd_bar_radio(c[i].id);
+
+                if (sel < 0)
+                    sel = c[i].checked;
+                mj_radio(fb, c[i].x, c[i].y + (c[i].h - JW_MJ_RADIO_H) / 2,
+                         sel);
+                jw_text_px(fb, c[i].x + JW_MJ_RADIO_W + 2,
+                           c[i].y + (c[i].h - th) / 2, c[i].text,
+                           en ? C_BTNTEXT : C_GRAYTEXT);
+                break;
+            }
             paint_barbutton(fb, c[i].x, c[i].y, c[i].w, c[i].h);
             if (c[i].id == 2552) {
                 /* 矩形 の 任意□: the original owner-draws this one
@@ -4331,6 +4344,16 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                                           : "mm / \x81y\x82\x8d\x81z";
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
+            } else if (c[i].id == 1068 && jw_cmd() == 0x807e) {
+                /* 多角形 の 中央: 押すと 頂点・辺 と字が変わる（文字列
+                   5469〜5471。押して回る方は src/cmd.c の tk_pos） */
+                static const char *const L[3] = {
+                    "\x92\x86\x89\x9b", "\x92\xb8\x93\x5f", "\x95\xd3"
+                };
+                int k = jw_cmd_takaku_pos();
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           L[k >= 0 && k < 3 ? k : 0],
+                           en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1062 && jw_cmd() == 0x804f) {
                 /* 寸法 の 端部: the label says which it is, and the
                    original writes the arrow as the two characters ->

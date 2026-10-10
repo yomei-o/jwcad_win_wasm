@@ -18,6 +18,9 @@ enum {
     JW_SOLID,       /* filled shape  */
     JW_BLOCK,       /* a figure standing for one of the definitions */
     JW_LIST,        /* one of those definitions: elements of its own       */
+    JW_SUNPOU,      /* CDataSunpou -- only ever a class tag in the file: the
+                       reader lays its members out as plain elements marked
+                       with jw_obj.sub, and the writer puts them back */
     JW_NCLASS
 };
 
@@ -55,6 +58,17 @@ typedef struct {
     int mark;
     double turn, size;
     int text, face;             /* byte offsets into the string pool, -1  */
+    /* 寸法図形 (CDataSunpou).  The file keeps a dimension figure as one
+       object that holds its parts (CDataSunpou::Serialize, 0x0042f110):
+       the dimension line, the value, and with a version past 419 two more
+       lines and four points.  The reader lays the parts out as ordinary
+       elements, straight after each other, so they draw and pick like
+       anything else; `sub` is 1..8 for which part it is (0 for an element
+       that is not one), and the first part carries the figure's own CData
+       fields and the ushort at +0x1c0 in list[] and mark -- see
+       src/jww.c's read_sunpou.  The writer puts a complete run back as one
+       CDataSunpou and writes any other run as plain elements. */
+    unsigned char sub;
 } jw_obj;
 
 typedef struct {

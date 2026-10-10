@@ -110,7 +110,9 @@ def read():
         if k is None:
             continue
         cur[3].append((k, int(x), int(y), int(w), int(h),
-                       (int(style, 16) & 0x0f) if cls == 'Static' else 0,
+                       (int(style, 16) & 0x0f) if cls == 'Static'
+                       else 9 if (cls == 'Button'
+                                  and (int(style, 16) & 0x0f) == 9) else 0,
                        int(chk), int(en), int(cid), text))
     return bars
 

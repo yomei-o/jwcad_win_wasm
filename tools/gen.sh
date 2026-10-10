@@ -122,7 +122,7 @@ fi
 # 任意色・the colour button.  Without these the port draws the bar it was
 # captured in and the rest of the command cannot be reached.
 refenv >/dev/null
-ps -ExecutionPolicy Bypass -File tools/bars3.ps1     -Pairs '32772:1334' -Out decomp/res/bars3.txt >/dev/null
+ps -ExecutionPolicy Bypass -File tools/bars3.ps1     -Pairs '32772:1334,32894:1689' -Out decomp/res/bars3.txt >/dev/null
 python tools/mkbars.py
 
 say '線属性 dialog, likewise'

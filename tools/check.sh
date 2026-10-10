@@ -368,6 +368,9 @@ echo "=== 中心線 —— 原典が引いた中心線との突き合わせ"
 echo
 echo "=== 連続線の 丸面辺寸法・実寸 —— 原典に引かせた直角・鋭角・短い辺・一直線・五点"
 ./tests/renzoku_test.exe | sed 's/^/    /'
+echo
+echo "=== 多角形の三つの指定と 中央 —— 原典に引かせた答え"
+./tests/takaku_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 属性変更 —— 原典が変えた要素との突き合わせ"

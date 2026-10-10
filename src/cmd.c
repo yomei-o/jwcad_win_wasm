@@ -351,6 +351,11 @@ static int ses_mode = 1689;     /* the bar button: 1689..1692 */
  * 食い違っているので、**決めつけずに手を付けていません**。
  */
 static int tk_mode = 1690;
+static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
+static int tk2_n;               /* ２辺: 取った点の数 */
+static double tk2_x[3], tk2_y[3];
+static int tk_step;             /* 寸法が空のとき、一点目を取ったか */
+static double tk_ax, tk_ay;
 /* 接円: the two elements picked, then a click that says which of the four
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
@@ -491,6 +496,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
     { JW_CMD_KUKEI, 1413, "" },         /* 矩形の寸法 "横,縦" */
     { JW_CMD_TAKAKU, 1411, "1000" },    /* 寸法      */
+    { JW_CMD_TAKAKU, 1412, "1000 , 1000" },     /* ２辺の「横 , 縦」 */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
     { JW_CMD_MENTORI, 1411, "" },       /* 面取の寸法 -- empty to start with,
@@ -598,6 +604,25 @@ void jw_cmd_sunpo_box_set(int id, const char *t)
 static int sun_decimals(void)
 {
     return sun_keta < 0 ? JW_SUN_DECIMALS : sun_keta;
+}
+
+/* バーのラジオ（BS_AUTORADIOBUTTON）の点き具合。選ばれていれば 1、
+ * 選ばれていなければ 0、移植がまだ持っていない命令は -1（取り込んだ
+ * 初期値のまま）。 */
+int jw_cmd_bar_radio(int id)
+{
+    switch (current) {
+    case JW_CMD_TAKAKU:   return id == tk_mode;
+    case JW_CMD_KYOKUSEN: return id == cv_mode;
+    case JW_CMD_SESSEN:   return id == ses_mode;
+    case JW_CMD_HATCH:    return id == ht_mode;
+    default:              return -1;
+    }
+}
+
+int jw_cmd_takaku_pos(void)
+{
+    return tk_pos;
 }
 
 int jw_cmd_sunpo_decimals(void)
@@ -2135,6 +2160,7 @@ void jw_cmd_set(int id)
     ren_step = 0;               /* 文字の 連 is not carried out of the command */
     ra_step = ra_have = 0;      /* and neither is a 連続弧 part way through */
     ra_have_pend = 0;
+    tk_step = 0;
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
@@ -2219,6 +2245,8 @@ void jw_cmd_escape(void)
 {
     step = 0;
     en_step = 0;
+    tk_step = 0;
+    tk2_n = 0;
     hou_step = 0;
     cut_step = 0;
     corner_step = 0;
@@ -3103,9 +3131,26 @@ const char *jw_cmd_prompt(void)
         if (sel_step == 2)
             return JW_STR_5314;
         return JW_STR_5383;
-    case JW_CMD_TAKAKU:
-        /* 「中心点を指示してください (L)free (R)Read」 */
-        return JW_STR_5309;
+    case JW_CMD_TAKAKU: {
+        /* CZukeiTakakukei slot 6 (FUN_00646... のプロンプト): 段 (+0xa8) と
+         * ラジオの並び (+0xb4: 0 が２辺)・寸法の箱が埋まっているか (+0xac)・
+         * 基点 (+0xf8) で選びます。
+         *   ２辺               始点 → 終点 → 作図する方向
+         *   箱あり             中心点（基点が中央でなければ「位置をマウスで」）
+         *   箱なし 1690・1691  中心点 → 位置をマウスで
+         *   箱なし 辺寸法      始点 → 位置をマウスで */
+        const char *bx = tk_mode == 1689 ? 0 : jw_cmd_box(1411);
+        int filled = bx && box_num(bx, 0.0) > 0.0;
+
+        if (tk_mode == 1689)
+            return tk2_n == 0 ? JW_STR_5320 : tk2_n == 1 ? JW_STR_5321
+                                                         : JW_STR_5310;
+        if (filled)
+            return tk_pos == 0 ? JW_STR_5309 : JW_STR_5364;
+        if (tk_step == 0)
+            return tk_mode == 1692 ? JW_STR_5320 : JW_STR_5309;
+        return JW_STR_5364;
+    }
     case JW_CMD_SUNPO: {
         /* 円周 and 角度 hang their own name off the end of the prompt from
            the point where the two measured points are asked for, with
@@ -8049,6 +8094,8 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (id >= 1689 && id <= 1693 && jw_cmd_bar_radio(id) >= 0)
+        return jw_cmd_bar_radio(id);   /* 選ばれているラジオ */
     if (current == JW_CMD_SEN || current == JW_CMD_KUKEI
         || current == JW_CMD_RENZOKU) {
         if (id == 1332)
@@ -8648,6 +8695,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
             mark_side[k] = (unsigned char)((mark_side[k] + 1) % 3);
         return 1;
     }
+    if (id == 1068 && current == JW_CMD_TAKAKU) {
+        tk_pos = (tk_pos + 1) % 3;
+        return 1;
+    }
     if (id == 1064 && current == JW_CMD_ENKO) {
         /* 基点: FUN_004ac2c0(1).  半径の箱が空なら 0→2→0 、あれば 1〜8 を回す */
         if (box_mm(d, 1411) <= 1e-7) {
@@ -8769,26 +8820,12 @@ int jw_cmd_box_key(int ch)
  * are therefore at -90 - 180/n + 底辺角度 and every 360/n after that, going
  * round the way the original's lines do.  A pentagon of 3000 at 30 degrees
  * and an octagon of 3000 at 30 both came out exactly there. */
-static void takaku(jw_drawing *d, double cx, double cy)
+/* 多角形の n 本を、頂点 v0 から反時計回りに */
+static void takaku_put(jw_drawing *d, double cx, double cy, double r,
+                       double a0, int n)
 {
-    const char *sz = jw_cmd_box(1411), *ns = jw_cmd_box(1413);
-    const char *ang = jw_cmd_box(1414);
-    double r = box_num(sz, 0.0), a0 = box_num(ang, 0.0);
-    int n = ns ? atoi(ns) : 0, i, wg = 0, made = 0;
+    int i, made = 0;
 
-    if (n < 3 || n > 1000 || r <= 0.0)
-        return;
-    for (i = 0; i < 16; i++)
-        if (d->group[i].state == 3)
-            wg = i;
-    if (d->group[wg].scale > 0.0)
-        r /= d->group[wg].scale;
-    /* 箱の数が何を指すかは左の四択しだい（上の tk_mode の注） */
-    if (tk_mode == 1691)
-        r /= cos(PI / n);               /* 内接半径 → 外接半径 */
-    else if (tk_mode == 1692)
-        r /= 2.0 * sin(PI / n);         /* 辺の長さ → 外接半径 */
-    a0 = (a0 - 90.0 - 180.0 / n) * PI / 180.0;
     for (i = 0; i < n; i++) {
         double t0 = a0 + 2.0 * PI * i / n, t1 = a0 + 2.0 * PI * (i + 1) / n;
         jw_obj *o = jw_add(d, JW_SEN);
@@ -8801,6 +8838,156 @@ static void takaku(jw_drawing *d, double cx, double cy)
         made++;
     }
     op_push(made);
+}
+
+/* ２辺 (1689): 二点が底辺で、箱の「横 , 縦」がその両端から頂点までの
+ * 長さ。頂点は三点目のある側に立ちます。`tools/probe167.sh`・
+ * `probe168.sh` と CZukeiTakakukei slot 9 の FUN_007287b0 から:
+ * 長さのどちらかが 0 以下（空も）なら、長さは三点目から両端までの
+ * 距離を取り、頂点は三点目そのものになります。引くのは **底辺ではなく**
+ * 両端から頂点への 二本 だけで、解けなければ（|a²-t²| が 1e-6 未満・
+ * 底辺が 0）何も引かずに最初の点へ戻ります。 */
+static void takaku2(jw_drawing *d, double x, double y)
+{
+    double ax, ay, bx, by, a, b, dx, dy, dl, t, h2, px, py;
+    const char *t1 = jw_cmd_box(1412);
+    const char *p;
+    jw_obj *o;
+    int made = 0;
+
+    tk2_x[tk2_n] = x;
+    tk2_y[tk2_n] = y;
+    tk2_n++;
+    if (tk2_n < 3)
+        return;
+    tk2_n = 0;
+    ax = tk2_x[0];
+    ay = tk2_y[0];
+    bx = tk2_x[1];
+    by = tk2_y[1];
+    dx = bx - ax;
+    dy = by - ay;
+    dl = sqrt(dx * dx + dy * dy);
+    if (dl <= 1e-7)
+        return;
+    a = box_mm(d, 1412);
+    p = t1 ? strchr(t1, ',') : 0;
+    b = p && p[1] ? box_mm2(d, 1412) : a;
+    if (a <= 1e-7 || b <= 1e-7) {
+        a = sqrt((x - ax) * (x - ax) + (y - ay) * (y - ay));
+        b = sqrt((x - bx) * (x - bx) + (y - by) * (y - by));
+    }
+    t = (a * a + dl * dl - b * b) / (2.0 * dl);
+    h2 = a * a - t * t;
+    if (h2 < 1e-6)
+        return;
+    {
+        double h = sqrt(h2);
+        double ux = dx / dl, uy = dy / dl;
+        double side = ux * (y - ay) - uy * (x - ax);    /* 三点目はどちら側か */
+
+        if (side < 0.0)
+            h = -h;
+        px = ax + ux * t - uy * h;
+        py = ay + uy * t + ux * h;
+    }
+    o = jw_add(d, JW_SEN);
+    if (o) {
+        o->d[0] = ax;
+        o->d[1] = ay;
+        o->d[2] = px;
+        o->d[3] = py;
+        made++;
+    }
+    o = jw_add(d, JW_SEN);
+    if (o) {
+        o->d[0] = bx;
+        o->d[1] = by;
+        o->d[2] = px;
+        o->d[3] = py;
+        made++;
+    }
+    if (made)
+        op_push(made);
+}
+
+static void takaku(jw_drawing *d, double cx, double cy)
+{
+    const char *sz = jw_cmd_box(1411), *ns = jw_cmd_box(1413);
+    const char *ang = jw_cmd_box(1414);
+    double r = box_num(sz, 0.0), a0 = box_num(ang, 0.0);
+    int n = ns ? atoi(ns) : 0, i, wg = 0;
+
+    if (tk_mode == 1689) {
+        takaku2(d, cx, cy);
+        return;
+    }
+    if (n < 3 || n > 1000)
+        return;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    if (r <= 0.0) {
+        /* 寸法が空: 二点で決めます（`tools/probe165.sh`）。一点目を取り、
+         * 二点目で一つ作って一点目に戻ります。三点目は要りません。
+         *  1690  一点目が中心、二点目が頂点（そこから反時計回り）
+         *  1691  一点目が中心、二点目が辺の真ん中（頂点はその両側 ±180/n）
+         *  1692  一点目→二点目が一辺で、多角形はその左側
+         * 底辺角度・中央 (1068) はここでは効きません。 */
+        if (tk_step == 0) {
+            tk_ax = cx;
+            tk_ay = cy;
+            tk_step = 1;
+            return;
+        }
+        {
+            double dx = cx - tk_ax, dy = cy - tk_ay;
+            double len = sqrt(dx * dx + dy * dy), th = atan2(dy, dx);
+
+            tk_step = 0;
+            if (len <= 0.0)
+                return;
+            if (tk_mode == 1691) {
+                takaku_put(d, tk_ax, tk_ay, len / cos(PI / n),
+                           th - PI / n, n);
+            } else if (tk_mode == 1692) {
+                double ap = len / (2.0 * tan(PI / n));
+                double mx = tk_ax + dx / 2.0 - dy / len * ap;
+                double my = tk_ay + dy / 2.0 + dx / len * ap;
+
+                takaku_put(d, mx, my, len / (2.0 * sin(PI / n)),
+                           atan2(tk_ay - my, tk_ax - mx), n);
+            } else {
+                takaku_put(d, tk_ax, tk_ay, len, th, n);
+            }
+        }
+        return;
+    }
+    if (d->group[wg].scale > 0.0)
+        r /= d->group[wg].scale;
+    /* 箱の数が何を指すかは左の四択しだい（上の tk_mode の注） */
+    if (tk_mode == 1691)
+        r /= cos(PI / n);               /* 内接半径 → 外接半径 */
+    else if (tk_mode == 1692)
+        r /= 2.0 * sin(PI / n);         /* 辺の長さ → 外接半径 */
+    a0 = (a0 - 90.0 - 180.0 / n) * PI / 180.0;
+    /* 中央 (1068) は押すたびに 中央 → 頂点 → 辺 と回り（ボタンの字は
+     * 文字列 5469・5470・5471）、クリックが多角形の どこ にあたるかを
+     * 変えます。頂点 は最初の頂点（底辺はそこから右へ）、辺 は底辺の
+     * 真ん中。原典の答えは `decomp/res/p165_*_c.jww`・`p166_k*.jww`
+     * （`tools/probe165.sh`・`probe166.sh`）。寸法が空の二点指定には
+     * 効きません。 */
+    if (tk_pos == 1) {
+        cx -= r * cos(a0);
+        cy -= r * sin(a0);
+    } else if (tk_pos == 2) {
+        /* 辺: クリックが底辺（v0→v1）の真ん中 */
+        double am = a0 + PI / n, ap = r * cos(PI / n);
+
+        cx -= ap * cos(am);
+        cy -= ap * sin(am);
+    }
+    takaku_put(d, cx, cy, r, a0, n);
 }
 
 /* The number a dimension is written with.

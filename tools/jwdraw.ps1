@@ -176,6 +176,8 @@ public static class Jw {
     [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, uint d, UIntPtr e);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int c, uint f);
@@ -735,6 +737,44 @@ try {
                 if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
                 [void][Jw]::SendMessageStr((EditOf $h), $WM_SETTEXT, [IntPtr]::Zero, $Matches[2])
                 Start-Sleep -Milliseconds $StepMs; break
+            }
+
+            '^drag:(.+)$' {
+                # A real drag with the real mouse (SetCursorPos and
+                # mouse_event, which reach GetKeyState and the tree view as
+                # well as the message queue): drag:x0,y0/x1,y1/... in view
+                # coordinates.  The button goes down at the first point,
+                # follows the rest in turn, and comes up at the last.
+                $pts = @($Matches[1] -split '/')
+                $first = $true
+                [void][Jw]::SetForegroundWindow($frame)
+                Start-Sleep -Milliseconds 300
+                foreach ($q in $pts) {
+                    $xy = $q -split ','
+                    $dx = [int]$xy[0]
+                    $dy = [int]$xy[1]
+                    $pt = [Jw]::ScreenOf($view, $dx, $dy)
+                    [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                    Start-Sleep -Milliseconds 120
+                    if ($env:JW_DBG) {
+                        $cur = New-Object Jw+POINT
+                        [void][Jw]::GetCursorPos([ref]$cur)
+                        $under = [Jw]::WindowFromPoint($cur)
+                        Write-Host ('   drag at {0},{1} under {2} (view {3})' -f $cur.X, $cur.Y, $under, $view)
+                    }
+                    [Jw]::mouse_event(0x0001, 1, 0, 0, [UIntPtr]::Zero)
+                    [Jw]::mouse_event(0x0001, -1, 0, 0, [UIntPtr]::Zero)
+                    Start-Sleep -Milliseconds 120
+                    if ($first) {
+                        [Jw]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+                        Start-Sleep -Milliseconds 150
+                        $first = $false
+                    }
+                }
+                Start-Sleep -Milliseconds 150
+                [Jw]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
             }
 
             '^m(-?\d+),(-?\d+)$' {

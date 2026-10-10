@@ -360,6 +360,7 @@ static const struct {
     { "CDataSolid", JW_SOLID },
     { "CDataBlock",  JW_BLOCK },
     { "CDataList",   JW_LIST  },
+    { "CDataSunpou", JW_SUNPOU },
 };
 #define NCLASSES ((int)(sizeof CLASSES / sizeof CLASSES[0]))
 
@@ -417,6 +418,69 @@ static int lctx_room(lctx *L)
 }
 
 static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n);
+static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L);
+
+/* CDataSunpou::Serialize (0x0042f110): the figure's own CData fields, then
+   its parts' Serialize one after another with no class tags between them --
+   CDataSen (the dimension line, +0x68), CDataMoji (the value, +0xd0) and,
+   past version 419, a ushort and CDataSen, CDataSen, CDataTen x4.  The
+   second group is not in the order of their addresses (0x230 and 0x318 are
+   last), which is what the decompilation says and what the sample the
+   original wrote (decomp/res/p169_dimfig.jww) bears out to the byte.
+
+   What they are is read off the sizes (0x68 is a CDataSen, 0xd0 a CDataMoji,
+   0x80 a CDataTen) and off that sample, where the four last come out as
+   four 35-byte points and the next object's class tag is where it ends. */
+static const unsigned char SUN_CLS[8] = {
+    JW_SEN, JW_MOJI, JW_SEN, JW_SEN, JW_TEN, JW_TEN, JW_TEN, JW_TEN
+};
+
+static void read_sunpou(ar_t *a, jw_drawing *d, lctx *L)
+{
+    jw_obj head;
+    int v = d->version, nm = v > 0x1a3 ? 8 : 2, k, first = d->nobj;
+    unsigned short us = 0;
+
+    memset(&head, 0, sizeof head);
+    head.text = head.face = -1;
+    read_base(a, v, &head);
+    for (k = 0; k < nm && !a->bad; k++) {
+        jw_obj *o;
+
+        if (k == 2)
+            us = (unsigned short)ar_w(a);
+        o = obj_new(d);
+        if (!o) {
+            a->bad = 1;
+            break;
+        }
+        o->cls = SUN_CLS[k];
+        read_base(a, v, o);
+        read_body(a, d, v, o, L);
+        o->sub = (unsigned char)(k + 1);
+        {
+            int q;
+            for (q = 0; q < 8; q++)
+                if (!(o->d[q] > -1e12 && o->d[q] < 1e12)) {
+                    d->error = "a coordinate that cannot be";
+                    a->bad = 1;
+                    break;
+                }
+        }
+        if (k == 0) {
+            /* the figure's own CData fields ride on the first part */
+            o->list[0] = us;
+            o->list[1] = head.id;
+            o->list[2] = (int)((unsigned)head.flags
+                               | ((unsigned)head.layer << 16));
+            o->mark = (int)((unsigned)head.ltype | ((unsigned)head.color << 8)
+                            | ((unsigned)(head.lgroup & 0xff) << 24));
+            o->turn = head.width;
+        }
+    }
+    if (nm > 2 && d->nobj > first)
+        d->obj[first].list[0] = us;   /* the ushort is read after part two */
+}
 
 static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
 {
@@ -617,6 +681,10 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
             break;
         }
         L->load[L->n++] = -1;
+        if (cls == JW_SUNPOU) {
+            read_sunpou(a, d, L);
+            continue;
+        }
         o = obj_new(d);
         if (!o) {
             a->bad = 1;

@@ -136,7 +136,7 @@ static void w_str(wbuf *w, const char *s, int wide)
 
 static const char *CLASS_NAME[JW_NCLASS] = {
     "CDataSen", "CDataEnko", "CDataTen", "CDataMoji", "CDataSolid",
-    "CDataBlock", "CDataList"
+    "CDataBlock", "CDataList", "CDataSunpou"
 };
 
 /* CData::Serialize, the store side of FUN_0042e690 */
@@ -214,12 +214,31 @@ static void w_body(wbuf *w, const jw_drawing *d, int v, const jw_obj *o)
     }
 }
 
+/* Is there a whole 寸法図形 starting here: part 1, 2, ... in a row, as many
+   as this version has (two, or eight past 419)?  A run with a part taken out
+   is just elements. */
+static int sun_run(const jw_drawing *d, int i, int to)
+{
+    int nm = d->version > 0x1a3 ? 8 : 2, k;
+
+    if (i + nm > to)
+        return 0;
+    for (k = 0; k < nm; k++)
+        if (d->obj[i + k].sub != (unsigned char)(k + 1)
+            || d->obj[i + k].cls != (k == 1 ? JW_MOJI
+                                     : k >= 4 ? JW_TEN : JW_SEN))
+            return 0;
+    return 1;
+}
+
 /* How many elements this one takes with it: a definition carries its own,
    straight after it in the array. */
 static int w_span(const jw_drawing *d, int i)
 {
     int n = 1, k;
 
+    if (d->obj[i].sub == 1 && sun_run(d, i, d->nobj))
+        return d->version > 0x1a3 ? 8 : 2;      /* one 寸法図形 */
     if (d->obj[i].cls == JW_LIST)
         for (k = 0; k < d->obj[i].n; k++)
             n += w_span(d, i + n);
@@ -241,6 +260,43 @@ static void w_objs(wbuf *w, const jw_drawing *d, int from, int to,
         if (c < 0 || c >= JW_NCLASS) {
             w->bad = 1;
             return;
+        }
+        if (o->sub == 1 && sun_run(d, i, to)) {
+            /* 寸法図形: one CDataSunpou holding the run of parts that follow */
+            int nm = d->version > 0x1a3 ? 8 : 2, k;
+            jw_obj head = *o;
+
+            head.cls = JW_SUNPOU;
+            head.ltype = (unsigned char)((unsigned)o->mark & 0xff);
+            head.color = (unsigned short)(((unsigned)o->mark >> 8) & 0xffff);
+            head.lgroup = (unsigned short)(((unsigned)o->mark >> 24) & 0xff);
+            head.width = (unsigned short)o->turn;
+            head.id = o->list[1];
+            head.flags = (unsigned short)((unsigned)o->list[2] & 0xffff);
+            head.layer = (unsigned short)(((unsigned)o->list[2] >> 16) & 0xffff);
+            c = JW_SUNPOU;
+            if (!seen[c]) {
+                w_w(w, 0xffff);
+                w_w(w, d->schema[c] ? d->schema[c] : 700);
+                w_w(w, (unsigned)strlen(CLASS_NAME[c]));
+                w_raw(w, CLASS_NAME[c], (long)strlen(CLASS_NAME[c]));
+                seen[c] = (*nload)++;
+            } else if (seen[c] > 0x3ffe) {
+                w_w(w, 0x7fff);
+                w_l(w, (long)((unsigned long)seen[c] | 0x80000000UL));
+            } else {
+                w_w(w, 0x8000u | (unsigned)seen[c]);
+            }
+            (*nload)++;
+            w_base(w, d->version, &head);
+            for (k = 0; k < nm; k++) {
+                if (k == 2)
+                    w_w(w, (unsigned)o->list[0] & 0xffff);
+                w_base(w, d->version, &d->obj[i + k]);
+                w_body(w, d, d->version, &d->obj[i + k]);
+            }
+            i += nm;
+            continue;
         }
         if (!seen[c]) {
             w_w(w, 0xffff);
