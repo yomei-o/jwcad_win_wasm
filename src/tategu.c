@@ -15,6 +15,8 @@
 #include <math.h>
 
 #include "tategu.h"
+#include "cmd.h"
+#include "text.h"
 #include "gen/tgdat.inc"
 
 /* 一行ぶんの数。何個取れたかを返します。 */
@@ -321,6 +323,8 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
                 }
             }
             scan_arc(s, p);
+            if (p->color != JW_TG_MOJI && strstr(s, "&m"))
+                p->dim = 1;
             if (p->color == JW_TG_MOJI)
                 scan_text(s, p);
             it->n = t->npart - it->first;
@@ -438,6 +442,7 @@ int jw_tategu_place_io(const jw_tategu *t, int item, double mikomi,
         o->layer = p->layer;
         o->plain = p->plain;
         o->loose = p->loose;
+        o->dim = p->dim;
         o->kind = p->kind;
         o->text = p->text[0] ? p->text : 0;
         o->font = p->font[0] ? p->font : 0;
@@ -591,6 +596,98 @@ static void tg_attr(jw_obj *e, const jw_tg_out *o, unsigned short flags,
         e->layer = (unsigned short)o->layer;
 }
 
+/* 寸法図形（行の最後の &m）。原典が JW_OPT1.DAT の [1] で作ったもの
+   （p185_i1）: 線（太さと色はデータの、旗は建具の 0x9000 に寸法の 0x2000）・
+   寸法値（「線の寸法値」と同じ。cmd.c）・空の線二本・空の点四つ。
+   頭の線種・線色は書込みの 1・2（mark = 513）、頭の旗は 0x3000 */
+static int tg_dimension(jw_drawing *d, const jw_tg_out *o, unsigned short flags,
+                        const double *wx, const double *wy)
+{
+    int k, first;
+
+    if (!jw_add(d, JW_SEN))
+        return -1;
+    first = d->ndrawn - 1;
+    for (k = 2; k <= 8; k++)
+        if (!jw_add(d, k == 2 ? JW_MOJI : k <= 4 ? JW_SEN : JW_TEN))
+            return k - 2 + 1 > 0 ? 1 : -1;
+    {
+        jw_obj *e = &d->obj[first];
+
+        e->d[0] = wx[0];
+        e->d[1] = wy[0];
+        e->d[2] = wx[1];
+        e->d[3] = wy[1];
+        tg_attr(e, o, (unsigned short)(flags | 0x2000u), 1);
+        e->mark = 513;
+        e->list[2] = 0x3000;
+        jw_cmd_dim_value(d, e, &d->obj[first + 1]);
+    }
+    for (k = 1; k <= 8; k++)
+        d->obj[first + k - 1].sub = (unsigned char)k;
+    return 8;
+}
+
+/* 文字。始点座標が置く位置（文字種類の百の位 1..8 が、その位置が文字の
+   どこに当たるか: 1 中下 2 右下 3 左中 4 中中 5 右中 6 左上 7 中上 8 右上、
+   0 は左下）で、始点から終点への向きが文字の角度。千の位 1 は縦書き。
+   [1] の「引き違い」（p185_i1）は 701: 中上。大きさと色は 文字種 1 番の
+   もの、種類・n は原典の答えのまま。 */
+static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
+                   const double *wy)
+{
+    double dx = wx[1] - wx[0], dy = wy[1] - wy[0], l = sqrt(dx * dx + dy * dy);
+    double ux = 1.0, uy = 0.0, vx, vy, cw, ch, sp, w = 0.0, ax, ay;
+    int h = (o->kind / 100) % 10, tate = (o->kind / 1000) % 10, nch = 0;
+    const char *q;
+    jw_obj *e;
+    char face[JW_TG_FONT + 8];
+
+    if (!o->text || !o->text[0] || d->style[0].w <= 0.0 || d->style[0].h <= 0.0)
+        return 0;
+    if (l > 1e-9) {
+        ux = dx / l;
+        uy = dy / l;
+    }
+    vx = -uy;
+    vy = ux;
+    cw = d->style[0].w;
+    ch = d->style[0].h;
+    sp = d->style[0].sp;
+    for (q = o->text; *q; ) {
+        int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+        if (nch)
+            w += wide ? sp : sp / 2;
+        w += wide ? cw : cw / 2;
+        q += wide ? 2 : 1;
+        nch++;
+    }
+    ax = h == 0 ? 0.0 : (h == 1 || h == 4 || h == 7) ? w / 2.0
+       : (h == 2 || h == 5 || h == 8) ? w : 0.0;
+    ay = h == 0 || h == 1 || h == 2 ? 0.0
+       : (h == 3 || h == 4 || h == 5) ? ch / 2.0 : ch;
+    e = jw_add(d, JW_MOJI);
+    if (!e)
+        return 0;
+    e->color = (unsigned short)d->style[0].color;
+    e->ltype = 8;
+    e->n = 30001;
+    e->flags = (unsigned short)(o->italic ? 0x2000 : 0) | (tate ? 0x20 : 0);
+    e->d[0] = wx[0] - ax * ux - ay * vx;
+    e->d[1] = wy[0] - ax * uy - ay * vy;
+    e->d[2] = e->d[0] + w * ux;
+    e->d[3] = e->d[1] + w * uy;
+    e->d[4] = cw;
+    e->d[5] = ch;
+    e->d[6] = sp;
+    e->d[7] = 0.0;
+    e->text = jw_add_str(d, o->text);
+    snprintf(face, sizeof face, "%s", o->font && o->font[0] ? o->font : "\x82l\x82r \x83S\x83V\x83" "b\x83N");
+    e->face = jw_add_str(d, face);
+    return 1;
+}
+
 int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
                   const jw_tg_pose *p)
 {
@@ -636,7 +733,13 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
             wx[k] = p->ox + (lx * p->ux + ly * vx) / p->scale;
             wy[k] = p->oy + (lx * p->uy + ly * vy) / p->scale;
         }
-        if (o->cls == JW_TG_LINE) {
+        if (o->cls == JW_TG_LINE && o->dim) {
+            int k2 = tg_dimension(d, o, flags, wx, wy);
+
+            if (k2 < 0)
+                return made;
+            made += k2;
+        } else if (o->cls == JW_TG_LINE) {
             jw_obj *e = jw_add(d, JW_SEN);
 
             if (!e)
@@ -647,6 +750,9 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
             e->d[3] = wy[1];
             tg_attr(e, o, flags, 1);
             made++;
+        } else if (o->cls == JW_TG_TEXT_O) {
+            if (tg_text(d, o, wx, wy))
+                made++;
         } else if (o->cls == JW_TG_POINT) {
             jw_obj *e = jw_add(d, JW_TEN);
 
@@ -728,8 +834,6 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
             ex[1] = endx;
             ey[1] = endy;
         }
-        /* 文字は、文字種類の桁で基点・縦書き・フォントが変わるので、
-           原典に引かせるまで置きません */
     }
     return made;
 }

@@ -122,6 +122,70 @@ static void run(const char *name, int dat, int item, jw_tg_pose p)
         fails++;
 }
 
+/* 文字と寸法図形（&m）も含めて、すべて突き合わせる。[1] 用 */
+static void run_full(const char *name, int dat, int item, jw_tg_pose p)
+{
+    char path[96];
+    long n;
+    unsigned char *b;
+    jw_drawing ref, mine;
+    const jw_tategu *t = jw_tategu_load(dat);
+    int i, k, ok = 1, bad = 0, first;
+
+    snprintf(path, sizeof path, "decomp/res/%s.jww", name);
+    memset(&ref, 0, sizeof ref);
+    b = slurp(path, &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  %s が読めません\n", path);
+        fails++;
+        return;
+    }
+    free(b);
+    b = slurp("decomp/res/new.jww", &n);
+    memset(&mine, 0, sizeof mine);
+    jw_parse(&mine, b, n);
+    free(b);
+    first = mine.ndrawn;
+    jw_tategu_put(&mine, t, item, &p);
+    /* 原典の答えの終わりには、建具とは関係のない文字（Printer_…）が並ぶ */
+    for (i = 0; i < mine.ndrawn - first; i++) {
+        const jw_obj *r = &ref.obj[i + 1], *m = &mine.obj[first + i];
+        int cnt = r->cls == JW_SEN ? 4 : r->cls == JW_MOJI ? 6 : 2;
+
+#define NEQ(what, a, c) do { if ((a) != (c)) { ok = 0; if (bad++ < 6) \
+    printf("     %d: %s 原典 %d・移植 %d\n", i, what, (int)(a), (int)(c)); } } while (0)
+        NEQ("cls", r->cls, m->cls);
+        NEQ("sub", r->sub, m->sub);
+        NEQ("ltype", r->ltype, m->ltype);
+        NEQ("color", r->color, m->color);
+        NEQ("width", r->width, m->width);
+        NEQ("flags", r->flags, m->flags);
+        NEQ("n", r->n, m->n);
+        NEQ("mark", r->mark, m->mark);
+        NEQ("list2", r->list[2], m->list[2]);
+        for (k = 0; k < cnt; k++)
+            if (!near(r->d[k], m->d[k])) {
+                ok = 0;
+                if (bad++ < 6)
+                    printf("     %d.d[%d] 原典 %.4f・移植 %.4f\n", i, k,
+                           r->d[k], m->d[k]);
+            }
+        if (r->cls == JW_MOJI) {
+            if (strcmp(jw_str(&ref, r->text), jw_str(&mine, m->text))) {
+                ok = 0;
+                printf("     %d: 文字が違います\n", i);
+            }
+            if (strcmp(jw_str(&ref, r->face), jw_str(&mine, m->face))) {
+                ok = 0;
+                printf("     %d: 書体が違います\n", i);
+            }
+        }
+    }
+    printf("%-4s %s\n", ok ? "ok" : "BAD", name);
+    if (!ok)
+        fails++;
+}
+
 static jw_tg_pose base(void)
 {
     jw_tg_pose p;
@@ -144,6 +208,7 @@ int main(void)
     int i;
     jw_tg_pose p;
 
+    run_full("p185_i1", 0, 0, base());
     for (i = 2; i <= 16; i++) {
         snprintf(nm, sizeof nm, "p185_i%d", i);
         run(nm, 0, i - 1, base());

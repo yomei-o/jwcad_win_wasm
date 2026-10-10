@@ -39,6 +39,7 @@ typedef struct {
     int plain;                  /* 包絡で建具として扱わない（レイヤ 2 桁以上） */
     int loose;                  /* 建具属性も外す（レイヤ 3 桁） */
     int arc;                    /* 'E' があれば 1 */
+    int dim;                    /* 行の最後が &m（長さを寸法図形にする） */
     double sweep;               /* 円弧の角度（度、左回りが +） */
     int sector;                 /* 扇形の指定。一の位 0..3、十の位 1 でシザリング */
     int kind;                   /* 点なら実点種類、文字なら文字種類（原文のまま） */
@@ -90,6 +91,7 @@ typedef struct {
     int sector;
     int color, ltype, width, layer;
     int plain, loose;
+    int dim;
     int kind;                   /* 実点種類・文字種類（原文のまま） */
     const char *text, *font;
     int italic;

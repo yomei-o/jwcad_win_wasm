@@ -1440,7 +1440,7 @@ static double hou_x, hou_y;
 /* The font name Jw_cad writes with a new text.  It is whatever its font box
    has, and every text in the drawings to hand has this one; the port draws
    with a bitmap font of its own and has no font list to choose from. */
-#define JW_MOJI_FACE "lr SVbN" 
+#define JW_MOJI_FACE "\x82l\x82r \x83S\x83V\x83" "b\x83N"
 
 int jw_cmd(void)
 {
@@ -3393,21 +3393,34 @@ static void sunpo_text(char *out, int n, double mm, double scale);
  * out as 38,723.74.
  *
  * Answers 1 when there is nothing to add, 2 when the text went with it. */
+static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t);
+
 static int sen_value(const jw_drawing *d, jw_obj *o, int max)
+{
+    if (jw_cmd_bar_check(1350) <= 0 || !d || max < 2)
+        return 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+    return sen_text(d, o, &o[1]) ? 2 : 1;
+}
+
+/* 建具平面の寸法図形（&m）が使う: 線 `o` の長さの値を、`t` に */
+int jw_cmd_dim_value(const jw_drawing *d, const jw_obj *o, jw_obj *t)
+{
+    return sen_text(d, o, t);
+}
+
+static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t)
 {
     double dx, dy, len, ux, uy, vx, vy, cw, ch, sp, tw = 0.0;
     char txt[64];
     const char *p;
     int i, wg = 0, nch = 0;
 
-    if (jw_cmd_bar_check(1350) <= 0 || !d || max < 2)
-        return 1;
     dx = o->d[2] - o->d[0];
     dy = o->d[3] - o->d[1];
     len = sqrt(dx * dx + dy * dy);
     if (len <= 0.0)
-        return 1;
-    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+        return 0;
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
@@ -3427,33 +3440,33 @@ static int sen_value(const jw_drawing *d, jw_obj *o, int max)
         nch++;
     }
     if (cw <= 0.0 || ch <= 0.0 || !nch)
-        return 1;
+        return 0;
     ux = dx / len;
     uy = dy / len;
     vx = -uy;
     vy = ux;
-    blank(&o[1]);
-    o[1].cls = JW_MOJI;
-    o[1].color = (unsigned short)d->style[i].color;
-    o[1].ltype = 2;
-    o[1].width = 0;
-    o[1].flags = (unsigned short)(o[1].flags | JW_SUN_TEXT_FLAGS);
+    blank(t);
+    t->cls = JW_MOJI;
+    t->color = (unsigned short)d->style[i].color;
+    t->ltype = 2;
+    t->width = 0;
+    t->flags = (unsigned short)(t->flags | JW_SUN_TEXT_FLAGS);
     {
         double mx = (o->d[0] + o->d[2]) / 2.0 + sun_hanare * vx;
         double my = (o->d[1] + o->d[3]) / 2.0 + sun_hanare * vy;
-        o[1].d[0] = mx - tw / 2.0 * ux;
-        o[1].d[1] = my - tw / 2.0 * uy;
-        o[1].d[2] = mx + tw / 2.0 * ux;
-        o[1].d[3] = my + tw / 2.0 * uy;
+        t->d[0] = mx - tw / 2.0 * ux;
+        t->d[1] = my - tw / 2.0 * uy;
+        t->d[2] = mx + tw / 2.0 * ux;
+        t->d[3] = my + tw / 2.0 * uy;
     }
-    o[1].d[4] = cw;
-    o[1].d[5] = ch;
-    o[1].d[6] = sp;
-    o[1].d[7] = 0.0;
-    o[1].n = sun_mojino;
-    o[1].text = jw_add_str((jw_drawing *)d, txt);
-    o[1].face = jw_add_str((jw_drawing *)d, JW_MOJI_FACE);
-    return 2;
+    t->d[4] = cw;
+    t->d[5] = ch;
+    t->d[6] = sp;
+    t->d[7] = 0.0;
+    t->n = sun_mojino;
+    t->text = jw_add_str((jw_drawing *)d, txt);
+    t->face = jw_add_str((jw_drawing *)d, JW_MOJI_FACE);
+    return 1;
 }
 
 /* 線の ●─── (1348) と ＜─── (1349): a mark on the end of the line.
