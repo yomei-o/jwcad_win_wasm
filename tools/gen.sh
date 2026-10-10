@@ -244,9 +244,7 @@ j = src.index('=== DIALOG CHOOSECOLORFLIPPED')
 old = io.open('decomp/res/comdlg32.txt', encoding='utf-8').read()
 head = old[:old.index('=== DIALOG CHOOSECOLOR (')]
 io.open('decomp/res/comdlg32.txt', 'w', encoding='utf-8',
-        newline='
-').write(head + src[i:j].rstrip() + '
-')
+        newline='\r\n').write(head + src[i:j].rstrip() + '\r\n')
 EOF
 fi
 python tools/mkcolordlg.py

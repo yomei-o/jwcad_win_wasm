@@ -435,6 +435,41 @@ static double chu_x, chu_y;
 
 /* ２線: the line the pair runs along, and the first of the two points */
 static double nisen_a, nisen_b;
+static int en_kihon;            /* 円・円弧の 基点 (1064): CZukeiEnko の +0x3b */
+
+/* 円・円弧の 基点.  CZukeiEnko slot 8 (FUN_00649520) の終わりの
+ * `(0 < +0x3b) && 副モード == 0` の枝をそのまま移したものです。
+ * 半径の箱が空なら +0x3b は 2 になり、中心は始点と今の点の中点、半径は
+ * 距離の半分。半径があれば、基点の向き 1〜8 で中心を（半径, 半径×扁平率）
+ * だけ傾き回しにずらします。角度（始角・掃き）は触りません。 */
+static void en_kihon_shift(double *cx, double *cy, double *rad,
+                           double dx, double dy, double u, double v,
+                           double boxr, double ratio, double tilt)
+{
+    double c = cos(tilt), sn = sin(tilt), along, perp;
+    int k = en_kihon;
+
+    if (k <= 0)
+        return;
+    if (boxr <= 1e-7) {
+        *rad = sqrt(u * u + v * v) / 2.0;
+        *cx += dx / 2.0;
+        *cy += dy / 2.0;
+        return;
+    }
+    along = *rad;
+    perp = boxr * ratio;
+    if (k == 4 || k == 8)
+        along = 0.0;
+    if (k == 5 || k == 6 || k == 7)
+        along = -along;
+    if (k == 1 || k == 7 || k == 8)
+        perp = -perp;
+    if (k == 2 || k == 6)
+        perp = 0.0;
+    *cx = (c * along + *cx) - sn * perp;
+    *cy = c * perp + *cy + sn * along;
+}
 static int nisen_flip;          /* 間隔反転 (1064) */
 static int nisen_obj = -1, nisen_step;
 static double nisen_x, nisen_y;
@@ -2001,6 +2036,17 @@ void jw_cmd_set(int id)
         nisen_step = 0;
         nisen_obj = -1;
     }
+    if (id == JW_CMD_ENKO) {
+        /* CZukeiEnko slot 10 (FUN_00648830) は命令の始まりで FUN_004aafb0(0) を
+         * 呼び、半円 (+0xaf0) と 3点指示 (+0xaf4) を 0 に戻します。
+         * 円弧・基点は戻りません */
+        unsigned char *o = chk_slot((unsigned)JW_CMD_ENKO, 1320),
+                      *t = chk_slot((unsigned)JW_CMD_ENKO, 1321);
+        if (o)
+            *o = 0;
+        if (t)
+            *t = 0;
+    }
     if (id == JW_CMD_SESSEN) {
         ses_step = 0;
         ses_a = -1;
@@ -3495,6 +3541,11 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
         o->n = 1;
         if (o->d[2] <= 0.0)
             return 0;
+        if (en_kihon > 0) {
+            double ct = cos(tilt), st = sin(tilt), rt = ratio > 0.0 ? ratio : 1.0;
+            double u = dx * ct + dy * st, v = (-dx * st + dy * ct) / rt;
+            en_kihon_shift(&o->d[0], &o->d[1], &o->d[2], dx, dy, u, v, r, rt, tilt);
+        }
         {   /* 多重円: rings inside the one that was drawn, at k/n of its
              * radius.  The original, given 3 and a circle of 86.588921,
              * added 57.725948 and 28.862974 -- two thirds and one third,
@@ -8201,7 +8252,12 @@ static void bar_exclude(int id)
         { JW_CMD_SEN, 1348, { 1349, 1351, 0 } },
         { JW_CMD_SEN, 1349, { 1348, 1351, 0 } },
         { JW_CMD_SEN, 1350, { 1351, 0, 0 } },
-        { JW_CMD_SEN, 1351, { 1348, 1349, 1350 } }
+        { JW_CMD_SEN, 1351, { 1348, 1349, 1350 } },
+        /* 円: 半円 (1320) の受け手 FUN_004abfc0 は 3点指示 (+0xaf4) を、
+         * 3点指示 (1321) の受け手 FUN_004ac010 は 半円 (+0xaf0) を 0 に
+         * します（`decomp/byclass/_unassigned.c`） */
+        { JW_CMD_ENKO, 1320, { 1321, 0, 0 } },
+        { JW_CMD_ENKO, 1321, { 1320, 0, 0 } }
     };
     int i, k;
 
@@ -8442,6 +8498,19 @@ int jw_cmd_bar(jw_drawing *d, int id)
         int k = id == 1836 ? 0 : 1;
         if (jw_cmd_bar_check(id == 1836 ? 1348 : 1349) > 0)
             mark_side[k] = (unsigned char)((mark_side[k] + 1) % 3);
+        return 1;
+    }
+    if (id == 1064 && current == JW_CMD_ENKO) {
+        /* 基点: FUN_004ac2c0(1).  半径の箱が空なら 0→2→0 、あれば 1〜8 を回す */
+        if (box_mm(d, 1411) <= 1e-7) {
+            en_kihon += 2;
+            if (en_kihon > 2)
+                en_kihon = 0;
+        } else {
+            en_kihon += 1;
+            if (en_kihon > 8)
+                en_kihon = 0;
+        }
         return 1;
     }
     on = chk_slot(bar_cmd(), id);
@@ -10316,7 +10385,10 @@ placed:
         if (sun_chi) {
             /* 寸法値: two points, and the value alone goes between them.
                (L) is free, (R) reads, the same as everywhere else. */
-            if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+            /* CZukeiSunpo slot 9 (FUN_0077fda0): 寸法値 (+0x1c4 == 0x19) の
+               一点目・二点目は、(R) で読んだ点でなければ **左でも**
+               FUN_00451eb0（点に吸着できたか）が 0 を返して捨てられます */
+            if (!jw_read(d, v, x, y, &x, &y))
                 return;
             if (sun_step != 6) {
                 sun_sx = x;
@@ -11275,7 +11347,8 @@ placed:
         ty = y;
         return;
     }
-    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1320) > 0) {
+    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1320) > 0
+        && jw_cmd_bar_check(1321) <= 0) {  /* CZukeiEnko slot 8: 3点指示 (+0xaf4) が半円 (+0xaf0) に勝つ */
         /* 半円: two clicks give the ends of the diameter and the third says
          * which side it bulges.  The original wrote the centre at their
          * middle, the radius at half their distance, the start at 0, the
@@ -11456,6 +11529,8 @@ placed:
                 o->d[5] = tilt;
                 o->d[6] = ratio > 0.0 ? ratio : 1.0;
                 o->n = 0;
+                en_kihon_shift(&o->d[0], &o->d[1], &o->d[2], dx, dy, u, v,
+                               box_mm(d, 1411), ratio > 0.0 ? ratio : 1.0, tilt);
                 op_push(1);
             }
         }
