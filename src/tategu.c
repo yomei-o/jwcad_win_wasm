@@ -185,6 +185,7 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
                 /* 三つ目は芯ずれの自動計算と反転の指定。原典の読み手は
                    1.5 より大きいかどうかで見ています */
                 it->s_flip = k > 2 && d[2] > 1.5;
+                it->s_third = k > 2 && d[2] > 0.5;
             }
             continue;
         }
@@ -360,10 +361,10 @@ static double map_x(const jw_tg_item *it, int b, double x,
             if (b == 1 || b == last)
                 x *= k;
         } else if (b == 1) {
-            if (x <= -20.0)
+            if (x < -20.0)
                 x *= k;
         } else if (b == last) {
-            if (x >= 20.0)
+            if (x > 20.0)
                 x *= k;
         }
     }
@@ -377,9 +378,38 @@ static double map_y(const jw_tg_item *it, double y, double mikomi)
     return y * mikomi / it->base_mikomi;
 }
 
+/* ブロック番号 10001〜（内出）・20001〜（外出）は、ふつうのブロック
+   （下三桁）の x に、壁の厚みの外へ出す y のずれを足したもの。11001 のように
+   上の桁が 1 のものも内出。原典に訊いた答え（p187_C*・p188_*）:
+   内出の面は芯から 内出 だけ内、外出の面は芯から 外出 だけ外で、データの
+   y = -70（内）・95（外）がそのときの面の位置 */
+static int tg_blk(int b)
+{
+    return b >= 10000 ? b % 1000 : b;
+}
+
+static double tg_dy(const jw_tg_item *it, int b, double mikomi,
+                    double uchide, double sotode)
+{
+    if (b >= 20000)             /* データの 見込の基準＋枠幅の基準 が外の面 */
+        return mikomi / 2.0 + sotode - (it->base_mikomi + it->base_wakuhaba);
+    if (b >= 10000)             /* データの -見込の基準 が内の面 */
+        return mikomi / 2.0 - uchide + it->base_mikomi;
+    return 0.0;
+}
+
 int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
                     double wakuhaba, double uchinori,
                     jw_tg_out *out, int max)
+{
+    return jw_tategu_place_io(t, item, mikomi, wakuhaba, uchinori,
+                              TG_IO_DEFAULT, TG_IO_DEFAULT, out, max);
+}
+
+int jw_tategu_place_io(const jw_tategu *t, int item, double mikomi,
+                       double wakuhaba, double uchinori,
+                       double uchide, double sotode,
+                       jw_tg_out *out, int max)
 {
     const jw_tg_item *it;
     int i, n = 0;
@@ -398,10 +428,10 @@ int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
         jw_tg_out *o = &out[n];
 
         memset(o, 0, sizeof *o);
-        o->x0 = map_x(it, p->b0, p->x0, wakuhaba, uchinori);
-        o->y0 = map_y(it, p->y0, mikomi);
-        o->x1 = map_x(it, p->b1, p->x1, wakuhaba, uchinori);
-        o->y1 = map_y(it, p->y1, mikomi);
+        o->x0 = map_x(it, tg_blk(p->b0), p->x0, wakuhaba, uchinori);
+        o->y0 = map_y(it, p->y0, mikomi) + tg_dy(it, p->b0, mikomi, uchide, sotode);
+        o->x1 = map_x(it, tg_blk(p->b1), p->x1, wakuhaba, uchinori);
+        o->y1 = map_y(it, p->y1, mikomi) + tg_dy(it, p->b1, mikomi, uchide, sotode);
         o->color = p->color;
         o->ltype = p->ltype;
         o->width = p->width;
@@ -568,6 +598,7 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
     int n, i, made = 0;
     double mik = p->mikomi, vx = -p->uy, vy = p->ux;
     int mirror = (p->flip_lr != 0) != (p->flip_io != 0);
+    double shin = p->shinzure;
     double ex[2] = { 0.0, 0.0 }, ey[2] = { 0.0, 0.0 };     /* 前の円弧の終点 */
     const jw_tg_item *it;
 
@@ -576,8 +607,13 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
     it = &t->item[item];
     if (it->fix_mikomi > 0.0)
         mik = it->fix_mikomi;
-    n = jw_tategu_place(t, item, p->mikomi, p->wakuhaba, p->uchinori,
-                        out, JW_TG_PARTS);
+    if (it->s_flip)             /* 芯ずれ＝（内出−外出）／２ */
+        shin = ((p->have_io ? p->uchide : TG_IO_DEFAULT) -
+                (p->have_io ? p->sotode : TG_IO_DEFAULT)) / 2.0;
+    n = jw_tategu_place_io(t, item, p->mikomi, p->wakuhaba, p->uchinori,
+                           p->have_io ? p->uchide : TG_IO_DEFAULT,
+                           p->have_io ? p->sotode : TG_IO_DEFAULT,
+                           out, JW_TG_PARTS);
     for (i = 0; i < n; i++) {
         const jw_tg_out *o = &out[i];
         double x[2] = { o->x0, o->x1 }, y[2] = { o->y0, o->y1 };
@@ -596,7 +632,7 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
                 lx = p->uchinori - lx;
             if (p->flip_io)
                 ly = mik - ly;
-            ly += p->shinzure - mik / 2.0;
+            ly += shin - mik / 2.0;
             wx[k] = p->ox + (lx * p->ux + ly * vx) / p->scale;
             wy[k] = p->oy + (lx * p->uy + ly * vy) / p->scale;
         }

@@ -19,6 +19,7 @@
 #include "../src/tategu.h"
 
 static int fails;
+static int cat = 0, itm = 4;           /* 選ぶ建具（jw_tgdat の番号と中の何番） */
 
 static unsigned char *slurp(const char *path, long *n)
 {
@@ -73,7 +74,7 @@ static void run(const char *name, const int (*wall)[2], const clk *c, int nc)
     app_press(r.x + wall[0][0], r.y + wall[0][1], 0);
     app_press(r.x + wall[1][0], r.y + wall[1][1], 0);
     app_command(32848);
-    jw_cmd_tategu_choose(0, 4);                 /* 建具 [5] */
+    jw_cmd_tategu_choose(cat, itm);
     jw_cmd_box_put(1424, "70");
     jw_cmd_box_put(1425, "35");
     jw_cmd_box_put(1426, "1700");
@@ -134,6 +135,14 @@ int main(void)
     run("p184_diag2", D2, dr, 2);
     run("p184_steep", ST, steep, 2);
     run("p184_rr", H, rr, 3);
+    /* 平面詳細用（JW_OPT1C）の [3]・[7]: 内出・外出の箱（75）で面が決まる */
+    cat = jw_tgdat_index(1, 2);
+    itm = 2;
+    run("p187_C3", H, a, 2);
+    itm = 6;
+    run("p187_C7", H, a, 2);
+    itm = 8;
+    run("p187_C9", H, a, 2);
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }

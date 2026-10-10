@@ -148,6 +148,18 @@ int main(void)
         snprintf(nm, sizeof nm, "p185_i%d", i);
         run(nm, 0, i - 1, base());
     }
+    for (i = 1; i <= 11; i++) {
+        snprintf(nm, sizeof nm, "p187_C%d", i);
+        run(nm, jw_tgdat_index(1, 2), i - 1, base());
+    }
+    for (i = 1; i <= 11; i++) {
+        snprintf(nm, sizeof nm, "p187_B%d", i);
+        run(nm, jw_tgdat_index(1, 1), i - 1, base());
+        if (i > 6)
+            continue;                   /* 【建具平面D】は六つ */
+        snprintf(nm, sizeof nm, "p187_D%d", i);
+        run(nm, jw_tgdat_index(1, 3), i - 1, base());
+    }
     p = base();
     p.flip_lr = 1;
     run("p182_s4", 0, 3, p);

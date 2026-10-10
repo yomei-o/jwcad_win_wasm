@@ -57,6 +57,7 @@ typedef struct {
     /* S 行の三つ目。1.5 より大きいと「芯ずれ＝（内出−外出）／２」の
        自動計算と、建具反転と同時の左右反転（JW_OPT1C.DAT の注）。 */
     int s_flip;
+    int s_third;                /* S 行の三つ目が 0 でない（基準厚の (A)） */
     int has_w;
     double uchinori;            /* W 行の内法の初期値 */
     double show;                /* 区切りの 990..999 → 0.1..1.0 */
@@ -101,7 +102,7 @@ typedef struct {
  *
  *   Y    見込の基準（S 行が無ければ 70mm）を基準に平均に伸縮
  *   X    S 行があれば枠幅の基準で平均に伸縮。無ければ 25mm を基準に、
- *        左ブロックでは x ≤ -20、右ブロックでは x ≥ 20 の端だけ。
+ *        左ブロックでは x < -20、右ブロックでは x > 20 の端だけ（-20・20 ちょうどは動かない）。
  *        ただし枠幅が 20 以下なら全部が伸縮
  *        中間ブロックは動きません
  *   位置 ブロック① が 0、ブロック⑬（最後）が 内法、中間はその等分
@@ -111,6 +112,12 @@ typedef struct {
 int jw_tategu_place(const jw_tategu *t, int item, double mikomi,
                     double wakuhaba, double uchinori,
                     jw_tg_out *out, int max);
+/* 内出・外出（壁の外へ出す額縁・水切の寸法）つき */
+#define TG_IO_DEFAULT 75.0
+int jw_tategu_place_io(const jw_tategu *t, int item, double mikomi,
+                       double wakuhaba, double uchinori,
+                       double uchide, double sotode,
+                       jw_tg_out *out, int max);
 
 
 /* ---------------------------------------- 埋め込んだ JW_OPT*.DAT ----- */
@@ -134,6 +141,8 @@ const jw_tategu *jw_tategu_load(int idx);
 
 typedef struct {
     double mikomi, wakuhaba, uchinori, shinzure;    /* mm（実寸） */
+    double uchide, sotode;      /* 内出・外出。have_io が 0 なら 75 */
+    int have_io;
     int flip_lr, flip_io;       /* 左右反転・内外反転 */
     double scale;               /* 紙 = 実寸 / scale */
     double ox, oy;              /* ブロック①の原点（紙 mm） */

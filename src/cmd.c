@@ -567,6 +567,8 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TATEGU, 1425, "35" },      /*        枠幅 */
     { JW_CMD_TATEGU, 1426, "1700" },    /*        内法 */
     { JW_CMD_TATEGU, 1427, "0" },       /*        芯ずれ */
+    { JW_CMD_TATEGU, 1428, "75" },      /*        内出（S の建具だけ） */
+    { JW_CMD_TATEGU, 1429, "75" },      /*        外出 */
     { JW_CMD_TAKAKU, 1412, "1000 , 1000" },     /* ２辺の「横 , 縦」 */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
@@ -8369,6 +8371,16 @@ int jw_cmd_bar_check(int id)
 {
     if (id == 1146 && current == JW_CMD_TATEGU)
         return tg_page2;            /* ＞ で替わる二枚目 */
+    if ((id == 1428 || id == 2448) && current == JW_CMD_TATEGU) {
+        /* S の行のある建具には 内出・外出 の箱と 基準厚 が出る。
+           S の三つ目があると基準厚に (A) が付く */
+        const jw_tategu *t = tg_cat >= 0 ? jw_tategu_load(tg_cat) : 0;
+
+        if (!t || tg_item < 0 || tg_item >= t->nitem || tg_page2 ||
+            !t->item[tg_item].has_s)
+            return 0;
+        return id == 1428 ? 1 : t->item[tg_item].s_third;
+    }
     if (id == 1070 && current == JW_CMD_TAKAKU)
         return tk_any;
     if (id == 1692 && current == JW_CMD_MENTORI)
@@ -9156,6 +9168,9 @@ static void tg_place(jw_drawing *d, double x, double y)
     p.wakuhaba = box_num(jw_cmd_box(1425), 35.0);
     p.uchinori = box_num(jw_cmd_box(1426), 1700.0);
     p.shinzure = box_num(jw_cmd_box(1427), 0.0);
+    p.uchide = box_num(jw_cmd_box(1428), 75.0);
+    p.sotode = box_num(jw_cmd_box(1429), 75.0);
+    p.have_io = 1;
     p.flip_lr = jw_cmd_bar_check(1325) > 0;
     p.flip_io = jw_cmd_bar_check(1324) > 0;
     p.scale = write_scale(d);
