@@ -371,6 +371,9 @@ echo "=== 連続線の 丸面辺寸法・実寸 —— 原典に引かせた直�
 echo
 echo "=== 多角形の三つの指定と 中央 —— 原典に引かせた答え"
 ./tests/takaku_test.exe | sed 's/^/    /'
+echo
+echo "=== 面取の五つの指定 —— 原典に引かせた答え"
+./tests/mentori2_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 属性変更 —— 原典が変えた要素との突き合わせ"

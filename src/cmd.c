@@ -351,6 +351,8 @@ static int ses_mode = 1689;     /* the bar button: 1689..1692 */
  * 食い違っているので、**決めつけずに手を付けていません**。
  */
 static int tk_mode = 1690;
+static int mt_mode = 1689;      /* 面取のラジオ 1689〜1693 */
+static int bk_mode = 1689;      /* 分割のラジオ: 1689 等距離・1690 等角度 */
 static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
 static int tk2_n;               /* ２辺: 取った点の数 */
 static int tk_any;              /* 任意 (1070) のバーに入っている */
@@ -621,6 +623,8 @@ int jw_cmd_bar_radio(int id)
     case JW_CMD_KYOKUSEN: return id == cv_mode;
     case JW_CMD_SESSEN:   return id == ses_mode;
     case JW_CMD_HATCH:    return id == ht_mode;
+    case JW_CMD_MENTORI:  return id == mt_mode;
+    case JW_CMD_BUNKATSU: return id == bk_mode;
     default:              return -1;
     }
 }
@@ -4375,15 +4379,16 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     jw_obj *p = &d->obj[a], *q = &d->obj[b];
     double pdx, pdy, qdx, qdy, den, tp, tq, ix, iy, cp, cq;
     double plen, qlen, dist, pux, puy, qux, quy, px, py, qx, qy;
+    double psi, sinpsi, t, ex[2], ey[2];
     const char *sz = jw_cmd_box(1411);
-    int wg = 0, i;
+    int wg = 0, i, extra = 0;
     op_t *rec;
     jw_obj *n;
 
     if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
         return;
     dist = box_num(sz, 0.0);
-    if (dist <= 0.0)
+    if (mt_mode != 1692 && dist <= 0.0)
         return;                 /* no size typed in: nothing to cut */
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
@@ -4412,10 +4417,43 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     puy = (cp < tp ? -pdy : pdy) / plen;
     qux = (cq < tq ? -qdx : qdx) / qlen;
     quy = (cq < tq ? -qdy : qdy) / qlen;
-    px = ix + pux * dist;
-    py = iy + puy * dist;
-    qx = ix + qux * dist;
-    qy = iy + quy * dist;
+    /* 保つ側の二本のあいだの角 ψ。**原典に五つの指定を二本の交わり（鋭角・
+     * 鈍角・非対称）で引かせた答え**（tools/probe173〜176.sh、
+     * decomp/res/p173〜p176_*.jww）から:
+     *   角面（辺寸法） 両方を交点から 寸法 だけ削る
+     *   角面（面寸法） 削る長さ t は、面（新しい線）の長さが 寸法 になる
+     *                  t = 寸法 / (2 sin(ψ/2))
+     *   丸面          寸法 が半径、t = 半径 / tan(ψ/2)。弧は両方に接する
+     *   Ｌ面          t は 0.1 mm（箱は効かない）。削った二つの端から平行四辺形の
+     *                  残り二辺で「Ｌ」を引く
+     *   楕円面        寸法 が長半径 a。交点から二本に沿う t を共役半径とする
+     *                  楕円の四分の一。a = t(√(1+s)+√(1-s))/√2、s = sin ψ */
+    sinpsi = fabs(pux * quy - puy * qux);
+    psi = acos(pux * qux + puy * quy);
+    if (sinpsi < 1e-9)
+        return;                 /* 一直線（同じ向き・逆向き）は何もしない */
+    switch (mt_mode) {
+    case 1690:
+        t = dist / (2.0 * sin(psi / 2.0));
+        break;
+    case 1691:
+        t = dist / tan(psi / 2.0);
+        break;
+    case 1692:
+        t = 0.1;
+        break;
+    case 1693:
+        t = dist * sqrt(2.0)
+            / (sqrt(1.0 + sinpsi) + sqrt(1.0 - sinpsi));
+        break;
+    default:
+        t = dist;
+    }
+    px = ix + pux * t;
+    py = iy + puy * t;
+    qx = ix + qux * t;
+    qy = iy + quy * t;
+    (void)ex; (void)ey;
 
     rec = op_new();
     op_keep(rec, d, a, 0);
@@ -4428,16 +4466,93 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
         p->d[0] = px; p->d[1] = py; p->d[2] = kpx; p->d[3] = kpy;
         q->d[0] = qx; q->d[1] = qy; q->d[2] = kqx; q->d[3] = kqy;
     }
+    if (mt_mode == 1691 || mt_mode == 1693) {
+        double cx, cy, a0, sw;
+
+        n = jw_add(d, JW_ENKO);
+        if (n) {
+            double ux = pux + qux, uy = puy + quy;
+            double ul = sqrt(ux * ux + uy * uy);
+
+            n->n = 0;
+            n->d[6] = 1.0;
+            if (mt_mode == 1691) {
+                double r = dist;
+                double ang;
+
+                cx = ix + ux / ul * (t * t + r * r > 0.0
+                                      ? sqrt(t * t + r * r) : 0.0);
+                cy = iy + uy / ul * sqrt(t * t + r * r);
+                /* 弧は第二の線の接点から反時計回りに第一の線の接点まで
+                   （振りは π - ψ。向きが逆なら始まりと終わりを入れ替える） */
+                sw = PI - psi;
+                a0 = atan2(qy - cy, qx - cx);
+                ang = atan2(py - cy, px - cx) - a0;
+                while (ang < -PI) ang += 2.0 * PI;
+                while (ang > PI) ang -= 2.0 * PI;
+                if (fabs(ang - sw) > 1e-6)
+                    a0 = atan2(py - cy, px - cx);
+                n->d[0] = cx;
+                n->d[1] = cy;
+                n->d[2] = r;
+                n->d[3] = a0;
+                n->d[4] = sw;
+                n->d[5] = 0.0;
+            } else {
+                double aa = dist, bb, tilt;
+
+                cx = ix + t * ux;
+                cy = iy + t * uy;
+                bb = aa * (sqrt(1.0 + sinpsi) - sqrt(1.0 - sinpsi))
+                     / (sqrt(1.0 + sinpsi) + sqrt(1.0 - sinpsi));
+                tilt = atan2(uy, ux);
+                if (psi <= PI / 2.0) {
+                    a0 = 3.0 * PI / 4.0;        /* 交点の側は 180 度 */
+                } else {
+                    tilt += PI / 2.0;           /* 長軸は二等分線に直角 */
+                    a0 = PI / 4.0;              /* 交点の側は 90 度 */
+                }
+                while (tilt > PI) tilt -= 2.0 * PI;
+                while (tilt <= -PI) tilt += 2.0 * PI;
+                n->d[0] = cx;
+                n->d[1] = cy;
+                n->d[2] = aa;
+                n->d[3] = a0;
+                n->d[4] = PI / 2.0;
+                n->d[5] = tilt;
+                n->d[6] = bb / aa;
+            }
+            if (rec)
+                rec->n = 1;
+        }
+        return;
+    }
     n = jw_add(d, JW_SEN);
     if (n) {
         n->d[0] = px;
         n->d[1] = py;
         n->d[2] = qx;
         n->d[3] = qy;
+        if (mt_mode == 1692) {
+            /* Ｌ: 二つの端から、もう一方の線の向きへ 0.1 だけ進んだ角で折る */
+            double cx = px + qx - ix, cy = py + qy - iy;
+            n->d[0] = px;
+            n->d[1] = py;
+            n->d[2] = cx;
+            n->d[3] = cy;
+            n = jw_add(d, JW_SEN);
+            if (n) {
+                n->d[0] = qx;
+                n->d[1] = qy;
+                n->d[2] = cx;
+                n->d[3] = cy;
+                extra = 1;
+            }
+        }
         /* the new line belongs to the same step as the two that were cut,
            so one press of 元に戻る takes the whole chamfer back */
         if (rec)
-            rec->n = 1;
+            rec->n = 1 + extra;
     }
 }
 
@@ -4470,7 +4585,8 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
  * (This used to take the box through atoi and refuse anything outside
  * 2..1000, so 2.5 drew one line at the half and 5000 drew nothing.)
  */
-static void bunkatsu(jw_drawing *d, int a, int b)
+static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
+                     double bx, double by)
 {
     const jw_obj *p = &d->obj[a], *q = &d->obj[b];
     const char *ns = jw_cmd_box(1411);
@@ -4496,6 +4612,50 @@ static void bunkatsu(jw_drawing *d, int a, int b)
     count = (int)n - 1;
     if (n - (int)n > 1e-07)
         count++;
+    if (bk_mode == 1690) {
+        /* 等角度分割 (1690): 二本が交わっていれば、交点から保つ側の二本の
+         * あいだの角を n 等分する線を引く。長さは k 本目を
+         * （P の保つ長さ）から（Q の保つ長さ）へ k/n だけ進めたもの
+         * （tools/probe178.sh の答えで 4 分割・3 分割とも合う）。
+         * 平行なら等距離分割と同じ */
+        double pdx = p->d[2] - p->d[0], pdy = p->d[3] - p->d[1];
+        double qdx = q->d[2] - q->d[0], qdy = q->d[3] - q->d[1];
+        double den = pdx * qdy - pdy * qdx;
+
+        if (den != 0.0) {
+            double tp = ((q->d[0] - p->d[0]) * qdy - (q->d[1] - p->d[1]) * qdx) / den;
+            double tq = ((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / den;
+            double ix = p->d[0] + tp * pdx, iy = p->d[1] + tp * pdy;
+            double cp = ((ax - p->d[0]) * pdx + (ay - p->d[1]) * pdy)
+                        / (pdx * pdx + pdy * pdy);
+            double cq = ((bx - q->d[0]) * qdx + (by - q->d[1]) * qdy)
+                        / (qdx * qdx + qdy * qdy);
+            /* 保つ側の端 */
+            double kpx = cp < tp ? p->d[0] : p->d[2], kpy = cp < tp ? p->d[1] : p->d[3];
+            double kqx = cq < tq ? q->d[0] : q->d[2], kqy = cq < tq ? q->d[1] : q->d[3];
+            double lp = sqrt((kpx - ix) * (kpx - ix) + (kpy - iy) * (kpy - iy));
+            double lq = sqrt((kqx - ix) * (kqx - ix) + (kqy - iy) * (kqy - iy));
+            double a0 = atan2(kpy - iy, kpx - ix), a1 = atan2(kqy - iy, kqx - ix);
+            double da = a1 - a0;
+
+            while (da > PI) da -= 2.0 * PI;
+            while (da <= -PI) da += 2.0 * PI;
+            for (k = 1; k <= count; k++) {
+                double t = (double)k / n, ang = a0 + da * t, len = lp + (lq - lp) * t;
+                jw_obj *o = jw_add(d, JW_SEN);
+
+                if (!o)
+                    break;
+                o->d[0] = ix;
+                o->d[1] = iy;
+                o->d[2] = ix + len * cos(ang);
+                o->d[3] = iy + len * sin(ang);
+                made++;
+            }
+            op_push(made);
+            return;
+        }
+    }
     ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
     bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
     for (k = 1; k <= count; k++) {
@@ -8130,6 +8290,8 @@ int jw_cmd_bar_check(int id)
 {
     if (id == 1070 && current == JW_CMD_TAKAKU)
         return tk_any;
+    if (id == 1692 && current == JW_CMD_MENTORI)
+        return mt_mode == 1692;     /* Ｌ面 のバー（寸法の箱が消える） */
     if (id == 1689 && current == JW_CMD_TAKAKU && tk_any)
         return 0;               /* 任意のバーのほうが先 */
     if (id >= 1689 && id <= 1693 && jw_cmd_bar_radio(id) >= 0)
@@ -8309,6 +8471,14 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_TAKAKU && id >= 1689 && id <= 1692) {
         tk_mode = id;
+        return 1;
+    }
+    if (current == JW_CMD_MENTORI && id >= 1689 && id <= 1693) {
+        mt_mode = id;
+        return 1;
+    }
+    if (current == JW_CMD_BUNKATSU && (id == 1689 || id == 1690)) {
+        bk_mode = id;
         return 1;
     }
     if (current == JW_CMD_SESSEN) {
@@ -11571,6 +11741,8 @@ placed:
             if (i < 0 || d->obj[i].cls != JW_SEN)
                 return;
             corner_obj = i;
+            corner_x = x;
+            corner_y = y;
             corner_step = 2;
             return;
         }
@@ -11579,7 +11751,7 @@ placed:
             if (jw_cmd_bar_check(1324) > 0)     /* 割付 */
                 waritsuke(d, corner_obj, i);
             else
-                bunkatsu(d, corner_obj, i);
+                bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
         }
         corner_step = 0;
         return;
