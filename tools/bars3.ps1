@@ -24,7 +24,7 @@ foreach ($p in ($Pairs -split ',')) {
     $cmd = $Matches[1]
     $id  = $Matches[2]
     # enter the command, tick the box, read the bar, untick it again
-    $steps += ('cmd:{0};btn:{1};bar:2{0}_{1};btn:{1}' -f $cmd, $id)
+    $steps += ('cmd:{0};pb:{1};dlgoff;bar:2{0}_{1};pb:{1};dlgoff' -f $cmd, $id)
 }
 if ($steps.Count -eq 0) { throw 'nothing to do: give -Pairs cmd:id,cmd:id' }
 & $jw -Exe $Exe -Open '' -NoSave -Clicks ($steps -join ';') -Out $Out

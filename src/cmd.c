@@ -353,6 +353,11 @@ static int ses_mode = 1689;     /* the bar button: 1689..1692 */
 static int tk_mode = 1690;
 static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
 static int tk2_n;               /* ２辺: 取った点の数 */
+static int tk_any;              /* 任意 (1070) のバーに入っている */
+static void takaku_any(jw_drawing *d);
+#define TK_ANY_MAX 1000
+static int tk_an;               /* 任意: 積んだ頂点の数 */
+static double tk_ax2[TK_ANY_MAX + 1], tk_ay2[TK_ANY_MAX + 1];
 static double tk2_x[3], tk2_y[3];
 static int tk_step;             /* 寸法が空のとき、一点目を取ったか */
 static double tk_ax, tk_ay;
@@ -2247,6 +2252,8 @@ void jw_cmd_escape(void)
     en_step = 0;
     tk_step = 0;
     tk2_n = 0;
+    tk_any = 0;
+    tk_an = 0;
     hou_step = 0;
     cut_step = 0;
     corner_step = 0;
@@ -3142,6 +3149,8 @@ const char *jw_cmd_prompt(void)
         const char *bx = tk_mode == 1689 ? 0 : jw_cmd_box(1411);
         int filled = bx && box_num(bx, 0.0) > 0.0;
 
+        if (tk_any)
+            return tk_an == 0 ? JW_STR_5320 : JW_STR_5321;
         if (tk_mode == 1689)
             return tk2_n == 0 ? JW_STR_5320 : tk2_n == 1 ? JW_STR_5321
                                                          : JW_STR_5310;
@@ -3814,6 +3823,31 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
 int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 {
     int n;
+
+    /* 多角形の 任意: 積んだ頂点を線で結び、最後からカーソルまで。
+       原典のスクリーンショット（tmp/s6.png）の赤い仮の線にならった形 */
+    if (current == JW_CMD_TAKAKU && tk_any && tk_an > 0) {
+        int i, m = 0;
+
+        for (i = 0; i + 1 < tk_an && m < max; i++, m++) {
+            blank(&o[m]);
+            o[m].cls = JW_SEN;
+            o[m].d[0] = tk_ax2[i];
+            o[m].d[1] = tk_ay2[i];
+            o[m].d[2] = tk_ax2[i + 1];
+            o[m].d[3] = tk_ay2[i + 1];
+        }
+        if (tracking && m < max) {
+            blank(&o[m]);
+            o[m].cls = JW_SEN;
+            o[m].d[0] = tk_ax2[tk_an - 1];
+            o[m].d[1] = tk_ay2[tk_an - 1];
+            o[m].d[2] = tx;
+            o[m].d[3] = ty;
+            m++;
+        }
+        return m;
+    }
 
     /* 測定 shows what it has measured, in 仮表示色 like anything else
      * part way through.  The original's own window bears it out
@@ -8094,6 +8128,10 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (id == 1070 && current == JW_CMD_TAKAKU)
+        return tk_any;
+    if (id == 1689 && current == JW_CMD_TAKAKU && tk_any)
+        return 0;               /* 任意のバーのほうが先 */
     if (id >= 1689 && id <= 1693 && jw_cmd_bar_radio(id) >= 0)
         return jw_cmd_bar_radio(id);   /* 選ばれているラジオ */
     if (current == JW_CMD_SEN || current == JW_CMD_KUKEI
@@ -8131,6 +8169,14 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
        (tools/probe130.sh). */
     if (current == JW_CMD_SOKUTEI)
         return id == 1068 ? sok_mode != SOK_ANG : 1;
+    if (current == JW_CMD_TAKAKU && tk_any) {
+        /* 任意のバー: 作図 は三点から、任意色と色設定 はソリッド図形を点けて
+           から（原典のバーを読んだとおり） */
+        if (id == 1069)
+            return tk_an >= 3;
+        if (id == 1324 || id == 2552)
+            return jw_cmd_bar_check(1323) > 0;
+    }
     switch (id) {
     case 1120:
         /* 寸法 has 実行 here, and it is alive at exactly one
@@ -8695,6 +8741,23 @@ int jw_cmd_bar(jw_drawing *d, int id)
             mark_side[k] = (unsigned char)((mark_side[k] + 1) % 3);
         return 1;
     }
+    if (current == JW_CMD_TAKAKU && id == 1070 && !tk_any) {
+        /* 任意: バーが別物になり、クリックは頂点を積む。`<<` (1071) で戻る */
+        tk_any = 1;
+        tk_an = 0;
+        return 1;
+    }
+    if (current == JW_CMD_TAKAKU && tk_any && id == 1071) {
+        tk_any = 0;
+        tk_an = 0;
+        return 1;
+    }
+    if (current == JW_CMD_TAKAKU && tk_any && id == 1069) {
+        if (tk_an < 3 || !d)
+            return 0;
+        takaku_any(d);
+        return 1;
+    }
     if (id == 1068 && current == JW_CMD_TAKAKU) {
         tk_pos = (tk_pos + 1) % 3;
         return 1;
@@ -8840,6 +8903,142 @@ static void takaku_put(jw_drawing *d, double cx, double cy, double r,
     op_push(made);
 }
 
+/* 任意 (1070) の 作図 (1069)。`tools/probe170.sh`〜`probe172.sh`:
+ * ・線（ソリッド図形が切）: 頂点を順に結び、最後は最初へ戻る
+ * ・ソリッド図形: 三点は [A B C A]、四点は [A B C D] の一枚。五点以上は
+ *   凸なら **枠 (P1 P2 P(n-1) Pn) の四角を出し、内側 (P2..P(n-1)) へ同じことを
+ *   繰り返す**（五点: 四角 (P1 P2 P4 P5) と 三角 (P2 P3 P4 P4)、六点: 四角二枚）。
+ *   凹んでいるときは原典がもっと細かいことをしていて（FUN_007264a0、
+ *   八千バイト）、移植は **最も左の頂点からの扇形で、どの三角も反時計回りに
+ *   直す**ところまで（試した二つの例とは合うが、出す順は未確認）。 */
+static void tk_solid(jw_drawing *d, const double *x, const double *y, int n)
+{
+    jw_obj *o = jw_add(d, JW_SOLID);
+    int i;
+
+    if (!o)
+        return;
+    for (i = 0; i < 4; i++) {
+        int k = i < n ? i : n - 1;
+
+        o->d[i * 2] = x[k];
+        o->d[i * 2 + 1] = y[k];
+    }
+    if (jw_cmd_bar_check(2553) > 0 || jw_cmd_bar_check(1324) > 0) {
+        o->color = 10;
+        o->n = (int)solid_any;
+    }
+}
+
+static int tk_convex(const double *x, const double *y, int n)
+{
+    int i, pos = 0, neg = 0;
+
+    for (i = 0; i < n; i++) {
+        int j = (i + 1) % n, k = (i + 2) % n;
+        double c = (x[j] - x[i]) * (y[k] - y[j]) - (y[j] - y[i]) * (x[k] - x[j]);
+
+        if (c > 1e-7)
+            pos++;
+        else if (c < -1e-7)
+            neg++;
+    }
+    return pos == 0 || neg == 0;
+}
+
+static int tk_solids(jw_drawing *d, const double *x, const double *y, int n)
+{
+    int made = 0;
+
+    if (n == 3) {
+        double px[4], py[4];
+        int i;
+        for (i = 0; i < 3; i++) { px[i] = x[i]; py[i] = y[i]; }
+        px[3] = x[0];
+        py[3] = y[0];
+        tk_solid(d, px, py, 4);
+        return 1;
+    }
+    if (n == 4) {
+        tk_solid(d, x, y, 4);
+        return 1;
+    }
+    if (tk_convex(x, y, n)) {
+        double px[4], py[4];
+
+        px[0] = x[0]; py[0] = y[0];
+        px[1] = x[1]; py[1] = y[1];
+        px[2] = x[n - 2]; py[2] = y[n - 2];
+        px[3] = x[n - 1]; py[3] = y[n - 1];
+        tk_solid(d, px, py, 4);
+        made = 1;
+        if (n - 2 == 3) {
+            double qx[3], qy[3];
+            int i;
+            for (i = 0; i < 3; i++) { qx[i] = x[1 + i]; qy[i] = y[1 + i]; }
+            tk_solid(d, qx, qy, 3);     /* 四点目は三点目の繰り返し */
+            return made + 1;
+        }
+        return made + tk_solids(d, x + 1, y + 1, n - 2);
+    }
+    {
+        int i, m = 0;
+        double area = 0.0;
+
+        for (i = 1; i < n; i++)
+            if (x[i] < x[m])
+                m = i;
+        for (i = 0; i < n; i++) {
+            int j = (i + 1) % n;
+            area += x[i] * y[j] - x[j] * y[i];
+        }
+        for (i = 1; i + 1 < n; i++) {
+            int a = (m + i) % n, b = (m + i + 1) % n;
+            double c = (x[a] - x[m]) * (y[b] - y[m]) - (y[a] - y[m]) * (x[b] - x[m]);
+            double tx[3], ty[3];
+
+            if (fabs(c) < 1e-7)
+                continue;               /* つぶれた三角は出ない */
+            tx[0] = x[m]; ty[0] = y[m];
+            tx[1] = x[a]; ty[1] = y[a];
+            tx[2] = x[b]; ty[2] = y[b];
+            if (c < 0.0) {              /* 反時計回りに直す */
+                tx[1] = x[b]; ty[1] = y[b];
+                tx[2] = x[a]; ty[2] = y[a];
+            }
+            tk_solid(d, tx, ty, 3);
+            made++;
+        }
+        (void)area;
+    }
+    return made;
+}
+
+static void takaku_any(jw_drawing *d)
+{
+    int i, made = 0;
+
+    if (jw_cmd_bar_check(1323) > 0) {
+        made = tk_solids(d, tk_ax2, tk_ay2, tk_an);
+    } else {
+        for (i = 0; i < tk_an; i++) {
+            int j = (i + 1) % tk_an;
+            jw_obj *o = jw_add(d, JW_SEN);
+
+            if (!o)
+                break;
+            o->d[0] = tk_ax2[i];
+            o->d[1] = tk_ay2[i];
+            o->d[2] = tk_ax2[j];
+            o->d[3] = tk_ay2[j];
+            made++;
+        }
+    }
+    if (made)
+        op_push(made);
+    tk_an = 0;
+}
+
 /* ２辺 (1689): 二点が底辺で、箱の「横 , 縦」がその両端から頂点までの
  * 長さ。頂点は三点目のある側に立ちます。`tools/probe167.sh`・
  * `probe168.sh` と CZukeiTakakukei slot 9 の FUN_007287b0 から:
@@ -8918,6 +9117,21 @@ static void takaku(jw_drawing *d, double cx, double cy)
     double r = box_num(sz, 0.0), a0 = box_num(ang, 0.0);
     int n = ns ? atoi(ns) : 0, i, wg = 0;
 
+    if (tk_any) {
+        /* 同じ点をもう一度は受けない（FUN_00498960 の比べ） */
+        for (i = 0; i < tk_an; i++)
+            if (tk_ax2[i] == cx && tk_ay2[i] == cy)
+                return;
+        tx = cx;
+        ty = cy;
+        tracking = 1;
+        if (tk_an < TK_ANY_MAX) {
+            tk_ax2[tk_an] = cx;
+            tk_ay2[tk_an] = cy;
+            tk_an++;
+        }
+        return;
+    }
     if (tk_mode == 1689) {
         takaku2(d, cx, cy);
         return;
