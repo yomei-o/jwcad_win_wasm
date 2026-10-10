@@ -739,6 +739,58 @@ try {
                 Start-Sleep -Milliseconds $StepMs; break
             }
 
+            '^rcd:(-?\d+),(-?\d+)(,d)?$' {
+                # A real click (a double click with ,d) inside the dialog
+                # that is up, in its client coordinates.  The 建具・ハッチの
+                # ファイル選択 window draws its cells itself, so nothing
+                # posted reaches them -- only the real mouse does.
+                $dx = [int]$Matches[1]
+                $dy = [int]$Matches[2]
+                $dbl = [bool]$Matches[3]
+                $dlg = [IntPtr]::Zero
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if ($t -eq $frame) { continue }
+                    if ([Jw]::Cls($t) -eq '#32770' -and [Jw]::IsWindowVisible($t)) { $dlg = $t }
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no dialog is up' }
+                [void][Jw]::SetForegroundWindow($dlg)
+                Start-Sleep -Milliseconds 300
+                $pt = [Jw]::ScreenOf($dlg, $dx, $dy)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                Start-Sleep -Milliseconds 250
+                $n = if ($dbl) { 2 } else { 1 }
+                for ($q = 0; $q -lt $n; $q++) {
+                    [Jw]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+                    Start-Sleep -Milliseconds 60
+                    [Jw]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+                    Start-Sleep -Milliseconds 80
+                }
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^rc:(-?\d+),(-?\d+)$' {
+                # One real left click with the real mouse, in view
+                # coordinates (SetCursorPos + mouse_event).
+                $dx = [int]$Matches[1]
+                $dy = [int]$Matches[2]
+                [void][Jw]::SetForegroundWindow($frame)
+                Start-Sleep -Milliseconds 300
+                $pt = [Jw]::ScreenOf($view, $dx, $dy)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                Start-Sleep -Milliseconds 200
+                if ($env:JW_DBG) {
+                    $cur = New-Object Jw+POINT
+                    [void][Jw]::GetCursorPos([ref]$cur)
+                    Write-Host ('   rc at {0},{1} (wanted {2},{3}) under {4} view {5}' -f $cur.X, $cur.Y, $pt.X, $pt.Y, [Jw]::WindowFromPoint($cur), $view)
+                }
+                [Jw]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+                Start-Sleep -Milliseconds 120
+                [Jw]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
             '^drag:(.+)$' {
                 # A real drag with the real mouse (SetCursorPos and
                 # mouse_event, which reach GetKeyState and the tree view as
@@ -934,7 +986,8 @@ try {
                 } else {
                     [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]$id, [IntPtr]::Zero)
                 }
-                NewDialog $before
+                # 建具選択 reads the JW_OPT*.DAT files first and takes some seconds
+                NewDialog $before 20000
                 $dlg = $script:dlg
                 if ($dlg -eq [IntPtr]::Zero) { Tops2; throw "no dialog came up for $id" }
                 Start-Sleep -Milliseconds 700
@@ -1427,6 +1480,33 @@ try {
                     Emit ('=== the pointer pressed it; the dialog is {0}' -f `
                         $(if ([Jw]::IsWindow($dlg) -and [Jw]::IsWindowVisible($dlg)) { 'still up' } else { 'gone' }))
                 }
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^dlgsee:(.+)$' {
+                # Paint and list the dialog that is already up -- 建具 puts
+                # ファイル選択 up the moment the command is entered -- and
+                # leave it open for the next step.
+                $png = $Matches[1]
+                $dlg = [IntPtr]::Zero
+                for ($try = 0; $try -lt 40 -and $dlg -eq [IntPtr]::Zero; $try++) {
+                    foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                        if ($t -eq $frame) { continue }
+                        if ([Jw]::Cls($t) -eq '#32770' -and [Jw]::IsWindowVisible($t)) {
+                            $dlg = $t
+                        }
+                    }
+                    if ($dlg -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 500 }
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no dialog is up' }
+                Start-Sleep -Milliseconds 700
+                $b = [Jw]::Paint($dlg)
+                $b.Save((Join-Path (Get-Location) $png),
+                        [System.Drawing.Imaging.ImageFormat]::Png)
+                $b.Dispose()
+                Emit ('=== dialog "{0}"' -f [Jw]::Txt($dlg))
+                Dump $dlg
                 Start-Sleep -Milliseconds $StepMs
                 break
             }
