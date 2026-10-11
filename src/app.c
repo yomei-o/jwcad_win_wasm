@@ -10,6 +10,7 @@
 #include "view.h"
 #include "cmd.h"
 #include "tategu.h"
+#include "senkigou.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
 #include "gen/newjww.h"
@@ -456,6 +457,12 @@ static void tgp_check(void)
         tgp_file = 0;
         tgp_page = 0;
     }
+    if (!tgp_open && jw_cmd() == JW_CMD_KIGOU && jw_cmd_kigou_need_pick()) {
+        tgp_open = 1;
+        tgp_kind = 4;
+        tgp_file = 0;
+        tgp_page = 0;
+    }
     if (!kj_open && !tgp_open && jw_cmd_tategu_need_ref()) {
         kj_open = 1;
         kj_sel = jw_cmd_tategu_ref();
@@ -485,16 +492,23 @@ static int press_tgp(int x, int y)
         tgp_file = val;
         tgp_page = 0;
     } else if (r == 3) {
-        jw_cmd_tategu_choose(jw_tgdat_index(tgp_kind, tgp_file), val);
+        if (tgp_kind == 4)
+            jw_cmd_kigou_choose(jw_tgdat_index(tgp_kind, tgp_file), val);
+        else
+            jw_cmd_tategu_choose(jw_tgdat_index(tgp_kind, tgp_file), val);
         tgp_open = 0;
     } else if (r == 4) {
         if (tgp_page > 0)
             tgp_page--;
     } else if (r == 5) {
-        const jw_tategu *t = jw_tategu_load(jw_tgdat_index(tgp_kind, tgp_file));
+        int idx = jw_tgdat_index(tgp_kind, tgp_file);
+        const jw_tategu *t = tgp_kind == 4 ? 0 : jw_tategu_load(idx);
+        const jw_senkigou *sg = tgp_kind == 4 ? jw_sk_load(idx) : 0;
         int per = ui_tgp_per_page(fb.w, fb.h, tgp_kind);
 
         if (t && (tgp_page + 1) * per < t->nitem)
+            tgp_page++;
+        else if (sg && (tgp_page + 1) * per < sg->nitem)
             tgp_page++;
     }
     return 1;                           /* modal: nothing behind hears it */

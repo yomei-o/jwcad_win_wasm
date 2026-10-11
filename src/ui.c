@@ -4866,6 +4866,7 @@ int ui_tdlg_drop_hit(int cw, int ch, int t, int i, int n, int x, int y)
  * 押した（原典は二度押し）ますの建具が選ばれる。 */
 
 #include "tategu.h"
+#include "senkigou.h"
 
 #define TGP_ROW_H   20
 #define TGP_CELL_H  68
@@ -4888,9 +4889,9 @@ void ui_tgp_layout(int cw, int ch, int kind, jw_tgp_layout *L)
     L->lw = TGP_LIST_W;
     L->gx = L->lx + L->lw + 6;
     L->gy = L->ly;
-    L->cols = kind == 3 ? 4 : 2;        /* 立面は 4×4 の大きな絵 */
+    L->cols = kind >= 3 ? 4 : 2;        /* 立面は 4×4 の大きな絵 */
     L->cellw = (L->x + L->w - 4 - L->gx) / L->cols;
-    L->cellh = kind == 3 ? (L->y + L->h - TGP_FOOT_H - L->gy) / 4 : TGP_CELL_H;
+    L->cellh = kind >= 3 ? (L->y + L->h - TGP_FOOT_H - L->gy) / 4 : TGP_CELL_H;
     L->rows = (L->y + L->h - TGP_FOOT_H - L->gy) / L->cellh;
     if (L->rows < 1)
         L->rows = 1;
@@ -4972,6 +4973,85 @@ static void tgp_thumb(fb_t *fb, const jw_tategu *t, int item,
     }
 }
 
+
+/* 線記号変形の絵: 記号のデータをそのまま（線・円・文字）、ますに収まる大きさで。
+   表のみの行（制御コード 08・09）は赤、その文字は水色 */
+static void tgp_thumb4(fb_t *fb, const jw_senkigou *sg, int item, int x, int y,
+                       int w, int h)
+{
+    const jw_sk_item *it = &sg->item[item];
+    double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, sc, fac = it->show;
+    int k, bw = w - 12, bh = h - 24;
+
+    for (k = 0; k < it->n; k++) {
+        const jw_sk_row *r = &sg->row[it->first + k];
+        double a[4] = { 0, 0, 0, 0 };
+        int i;
+
+        if (r->cls == JW_SK_LINE || r->cls == JW_SK_TEXTROW) {
+            a[0] = r->x0 * r->fac; a[1] = r->y0 * r->fac;
+            a[2] = r->x1 * r->fac; a[3] = r->y1 * r->fac;
+        } else if (r->cls == JW_SK_ARC) {
+            double rr = fabs(r->r) * r->fac;
+            a[0] = r->x0 * r->fac - rr; a[1] = r->y0 * r->fac - rr;
+            a[2] = r->x0 * r->fac + rr; a[3] = r->y0 * r->fac + rr;
+        } else
+            continue;
+        for (i = 0; i < 4; i += 2) {
+            if (a[i] < x0) x0 = a[i];
+            if (a[i] > x1) x1 = a[i];
+            if (a[i + 1] < y0) y0 = a[i + 1];
+            if (a[i + 1] > y1) y1 = a[i + 1];
+        }
+    }
+    (void)fac;
+    if (x1 <= x0 && y1 <= y0)
+        return;
+    sc = x1 > x0 ? (double)bw / (x1 - x0) : 1e9;
+    if (y1 > y0 && (double)bh / (y1 - y0) < sc)
+        sc = (double)bh / (y1 - y0);
+    if (sc > 6.0)
+        sc = 6.0;
+    {
+        double cx = (x0 + x1) / 2.0, cy = (y0 + y1) / 2.0;
+        int mx = x + w / 2, my = y + 18 + bh / 2;
+
+        for (k = 0; k < it->n; k++) {
+            const jw_sk_row *r = &sg->row[it->first + k];
+            int hid = r->c1 % 100 == 8 || r->c1 % 100 == 9 || r->c2 % 100 == 8;
+            unsigned int c = hid ? 0x0000c0u : 0x000000u;
+
+            if (r->cls == JW_SK_LINE) {
+                tgp_line(fb, mx + (int)((r->x0 * r->fac - cx) * sc),
+                         my - (int)((r->y0 * r->fac - cy) * sc),
+                         mx + (int)((r->x1 * r->fac - cx) * sc),
+                         my - (int)((r->y1 * r->fac - cy) * sc), x, y, w, h, c);
+            } else if (r->cls == JW_SK_ARC) {
+                double rr = fabs(r->r) * r->fac, t0 = r->x1 * 3.14159265358979 / 180.0;
+                double sw = (r->y1 - r->x1) * 3.14159265358979 / 180.0;
+                int i, px = 0, py = 0;
+
+                if (sw <= 0.0)
+                    sw += 2.0 * 3.14159265358979;
+                for (i = 0; i <= 24; i++) {
+                    double t2 = t0 + sw * i / 24.0;
+                    int qx = mx + (int)((r->x0 * r->fac + rr * cos(t2) - cx) * sc);
+                    int qy = my - (int)((r->y0 * r->fac + rr * sin(t2) - cy) * sc);
+
+                    if (i)
+                        tgp_line(fb, px, py, qx, qy, x, y, w, h, c);
+                    px = qx;
+                    py = qy;
+                }
+            } else if (r->cls == JW_SK_TEXTROW) {
+                jw_text_px(fb, mx + (int)((r->x0 * r->fac - cx) * sc),
+                           my - (int)((r->y0 * r->fac - cy) * sc) - 6, r->text,
+                           hid ? 0xc0a000u : 0x000000u);
+            }
+        }
+    }
+}
+
 void ui_tgp(fb_t *fb, int kind, int file, int page, int hover)
 {
     jw_tgp_layout L;
@@ -5002,7 +5082,24 @@ void ui_tgp(fb_t *fb, int kind, int file, int page, int hover)
         jw_text_px(fb, L.lx + 4, ry + (TGP_ROW_H - th) / 2, s, C_BTNTEXT);
     }
     /* 右: ます */
-    t = jw_tategu_load(jw_tgdat_index(kind, file));
+    if (kind == 4) {
+        const jw_senkigou *sg = jw_sk_load(jw_tgdat_index(kind, file));
+        int per = L.cols * L.rows;
+
+        for (i = 0; sg && i < per; i++) {
+            int item = page * per + i;
+            int cx = L.gx + (i % L.cols) * L.cellw;
+            int cy = L.gy + (i / L.cols) * L.cellh;
+
+            if (item >= sg->nitem)
+                break;
+            fb_fill(fb, cx, cy, L.cellw - 2, L.cellh - 2, C_WINDOW);
+            fb_edge(fb, cx, cy, L.cellw - 2, L.cellh - 2, C_BTNSHADOW, C_BTNSHADOW);
+            jw_text_px(fb, cx + 4, cy + 2, sg->item[item].name, C_BTNTEXT);
+            tgp_thumb4(fb, sg, item, cx, cy, L.cellw - 2, L.cellh - 2);
+        }
+    }
+    t = kind == 4 ? 0 : jw_tategu_load(jw_tgdat_index(kind, file));
     if (t) {
         int per = L.cols * L.rows;
 
@@ -5064,6 +5161,15 @@ int ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
         int c = (x - L.gx) / L.cellw, r = (y - L.gy) / L.cellh;
 
         if (c < L.cols && r < L.rows) {
+            if (kind == 4) {
+                const jw_senkigou *sg = jw_sk_load(jw_tgdat_index(kind, file));
+
+                if (sg && page * L.cols * L.rows + r * L.cols + c < sg->nitem) {
+                    *val = page * L.cols * L.rows + r * L.cols + c;
+                    return 3;
+                }
+                return 0;
+            }
             t = jw_tategu_load(jw_tgdat_index(kind, file));
             if (t && page * L.cols * L.rows + r * L.cols + c < t->nitem) {
                 *val = page * L.cols * L.rows + r * L.cols + c;

@@ -49,6 +49,7 @@ enum {
     JW_CMD_TATEGU = 0x8050,         /* 建具平面 (32848) */
     JW_CMD_TATEGU_DAN = 0x8062,     /* 建具断面 (32866) */
     JW_CMD_TATEGU_RITSU = 0x8061,   /* 建具立面 (32865) */
+    JW_CMD_KIGOU = 0x8065,          /* 線記号変形 (32869) */
     JW_CMD_NISEN = 0x807c,          /* ２線 -- the menu resource and the
                                        toolbar cell both say 0x807c; it
                                        was 0x805c here, which is not a
@@ -97,6 +98,10 @@ int  jw_cmd_tategu_need_ref(void);     /* 基準点選択の窓を出してほ�
 int  jw_cmd_tategu_ref(void);          /* 選ばれている ○（0〜14、1689 からの順） */
 void jw_cmd_tategu_set_ref(int idx);
 const char *jw_cmd_bar_label(int id);   /* 釦の字が動くもの。無ければ 0 */
+int  jw_cmd_kigou_need_pick(void);   /* 線記号変形: 記号の選択窓を出してほしいとき 1（読むと戻る） */
+void jw_cmd_kigou_choose(int catalog, int item);
+int  jw_cmd_kigou_catalog(void);
+int  jw_cmd_kigou_item(void);
 int  jw_cmd_tategu_catalog(void);       /* いま選んでいるもの。無ければ -1 */
 int  jw_cmd_tategu_item(void);   /* 連続線 の手前の線を図面へ */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */

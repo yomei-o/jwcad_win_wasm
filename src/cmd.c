@@ -6,6 +6,7 @@
 
 #include "cmd.h"
 #include "tategu.h"
+#include "senkigou.h"
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
@@ -412,6 +413,40 @@ int jw_cmd_tategu_catalog(void)
     return tg_cat;
 }
 
+/* 線記号変形 (32869).  選ぶ（ファイル選択の窓）→ 線・位置を押す、を繰り返す。
+ * 置き方は src/senkigou.c と decomp/res/sk_*.jww（tools/skprobe.sh） */
+static int sk_cat = -1, sk_item = -1;   /* 選んだ記号（jw_tgdat の番号と中の何番） */
+static int sk_need_pick;
+static int sk_step;                     /* 0 最初 1 線２ 2 位置 3 倍率位置 */
+static int sk_o1 = -1, sk_o2 = -1;
+static double sk_c1x, sk_c1y, sk_c2x, sk_c2y, sk_px, sk_py;
+static jw_drawing *sk_dst;              /* 仮表示のときの置き先（なければ図面） */
+
+int jw_cmd_kigou_need_pick(void)
+{
+    int r = sk_need_pick;
+
+    sk_need_pick = 0;
+    return r;
+}
+
+void jw_cmd_kigou_choose(int catalog, int item)
+{
+    sk_cat = catalog;
+    sk_item = item;
+    sk_step = 0;
+}
+
+int jw_cmd_kigou_catalog(void)
+{
+    return sk_cat;
+}
+
+int jw_cmd_kigou_item(void)
+{
+    return sk_item;
+}
+
 int jw_cmd_tategu_item(void)
 {
     return tg_item;
@@ -605,6 +640,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TATEGU_DAN, 1428, "75" },      /*        内出（S の建具だけ） */
     { JW_CMD_TATEGU_DAN, 1429, "75" },      /*        外出 */
     { JW_CMD_TATEGU_RITSU, 1426, "1700 , 1700" }, /* 立面の 内法（幅 , 高さ） */
+    { JW_CMD_KIGOU, 1431, "1 , 1" },        /* 線記号変形の 倍率（横 , 縦） */
     { JW_CMD_TATEGU_RITSU, 1430, "" },      /*        角度 */
     { JW_CMD_TAKAKU, 1412, "1000 , 1000" },     /* ２辺の「横 , 縦」 */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
@@ -2302,6 +2338,12 @@ void jw_cmd_set(int id)
         nisen_obj = -1;
     }
     auto_back = 0;
+    if (id == JW_CMD_KIGOU) {
+        sk_cat = -1;                /* 入るたびに選び直す */
+        sk_step = 0;
+        sk_o1 = sk_o2 = -1;
+        sk_need_pick = 1;
+    }
     if (TG_IS3(id)) {
         if (tg_last != id)
             tg_cat = -1;
@@ -3270,6 +3312,19 @@ const char *jw_cmd_prompt(void)
         if (sel_step == 2)
             return JW_STR_5314;
         return JW_STR_5383;
+    case JW_CMD_KIGOU: {
+        const jw_senkigou *sg = sk_cat >= 0 ? jw_sk_load(sk_cat) : 0;
+        const jw_sk_item *it = sg && sk_item >= 0 && sk_item < sg->nitem
+                               ? &sg->item[sk_item] : 0;
+
+        if (!it)
+            return JW_STR_5490;
+        if (sk_step == 3)
+            return JW_STR_5364;
+        if (sk_step == 2 || !it->need_l1)
+            return JW_STR_5364;
+        return sk_step == 1 ? JW_STR_5363 : JW_STR_5362;
+    }
     case JW_CMD_TATEGU:
     case JW_CMD_TATEGU_DAN:
     case JW_CMD_TATEGU_RITSU:
@@ -8649,6 +8704,10 @@ static int bar_press(jw_drawing *d, int id)
         tk_mode = id;
         return 1;
     }
+    if (current == JW_CMD_KIGOU && id == 1064) {
+        sk_need_pick = 1;
+        return 1;
+    }
     if (TG_IS3(current) && id == 1064) {
         tg_need_pick = 1;
         return 1;
@@ -9343,6 +9402,189 @@ static void tg_place3(jw_drawing *d, double x, double y)
     made = jw_tategu_put(tg_dst ? tg_dst : d, t, tg_item, &p);
     if (made > 0 && !tg_dst)
         op_push(made);
+}
+
+
+/* ---- 線記号変形 (32869) の置きかた ------------------------------------ */
+
+static void sk_scales(double *sx, double *sy)
+{
+    const char *s = jw_cmd_box(1431);
+    char *e;
+
+    *sx = *sy = 1.0;
+    if (s && *s) {
+        double v = strtod(s, &e);
+
+        if (e != s) {
+            *sx = *sy = v;
+            while (*e == ' ' || *e == ',' || *e == '\t')
+                e++;
+            if (*e)
+                *sy = strtod(e, 0);
+        }
+    }
+}
+
+/* 押した線の両端と向き */
+static int sk_seg(const jw_drawing *d, int o, double *p0, double *p1,
+                  double *dir)
+{
+    double l;
+
+    if (o < 0 || o >= d->nobj || d->obj[o].cls != JW_SEN)
+        return 0;
+    p0[0] = d->obj[o].d[0];
+    p0[1] = d->obj[o].d[1];
+    p1[0] = d->obj[o].d[2];
+    p1[1] = d->obj[o].d[3];
+    dir[0] = p1[0] - p0[0];
+    dir[1] = p1[1] - p0[1];
+    l = sqrt(dir[0] * dir[0] + dir[1] * dir[1]);
+    if (l < 1e-9)
+        return 0;
+    dir[0] /= l;
+    dir[1] /= l;
+    return 1;
+}
+
+/* 向き (ux,uy) に沿って小さいほうを始点、大きいほうを終点に */
+static void sk_order(const double *p0, const double *p1, double ux, double uy,
+                     double *sx, double *sy, double *ex, double *ey)
+{
+    if (p0[0] * ux + p0[1] * uy <= p1[0] * ux + p1[1] * uy) {
+        *sx = p0[0]; *sy = p0[1]; *ex = p1[0]; *ey = p1[1];
+    } else {
+        *sx = p1[0]; *sy = p1[1]; *ex = p0[0]; *ey = p0[1];
+    }
+}
+
+/* 押したものから 記号の置き方を決めて置く。置いたら 1 */
+static int sk_place(jw_drawing *d)
+{
+    const jw_senkigou *sg;
+    const jw_sk_item *it;
+    jw_sk_pose p;
+    double a0[2], a1[2], ad[2], b0[2], b1[2], bd[2];
+    op_t *o;
+    int made, e1 = -1, e2 = -1;
+
+    if (sk_cat < 0 || !d || !(sg = jw_sk_load(sk_cat)) || sk_item < 0 ||
+        sk_item >= sg->nitem)
+        return 0;
+    it = &sg->item[sk_item];
+    memset(&p, 0, sizeof p);
+    sk_scales(&p.sx, &p.sy);
+    p.gscale = write_scale(d);
+    p.axis = 0.0;
+    if (it->need_l1) {
+        double ux, uy;
+
+        if (!sk_seg(d, sk_o1, a0, a1, ad))
+            return 0;
+        p.have1 = 1;
+        p.obj1 = sk_o1;
+        p.attr1 = d->obj[sk_o1];
+        if (it->need_l2) {
+            double det, t, ox, oy;
+
+            if (!sk_seg(d, sk_o2, b0, b1, bd))
+                return 0;
+            det = ad[0] * bd[1] - ad[1] * bd[0];
+            if (fabs(det) < 1e-9)
+                return 0;
+            t = ((b0[0] - a0[0]) * bd[1] - (b0[1] - a0[1]) * bd[0]) / det;
+            ox = a0[0] + ad[0] * t;
+            oy = a0[1] + ad[1] * t;
+            p.ox = ox;
+            p.oy = oy;
+            ux = ad[0];
+            uy = ad[1];
+            if ((ox - sk_c1x) * ux + (oy - sk_c1y) * uy < 0.0) {
+                ux = -ux;
+                uy = -uy;
+            }
+            p.u1x = ux;
+            p.u1y = uy;
+            sk_order(a0, a1, ux, uy, &p.s1x, &p.s1y, &p.e1x, &p.e1y);
+            ux = bd[0];
+            uy = bd[1];
+            if ((sk_c2x - ox) * ux + (sk_c2y - oy) * uy < 0.0) {
+                ux = -ux;
+                uy = -uy;
+            }
+            p.u2x = ux;
+            p.u2y = uy;
+            sk_order(b0, b1, ux, uy, &p.s2x, &p.s2y, &p.e2x, &p.e2y);
+            p.have2 = 1;
+            p.obj2 = sk_o2;
+            p.attr2 = d->obj[sk_o2];
+        } else if (it->pointers == 0) {
+            /* 線だけ押す: 押したところに近い端が原点、向きは遠い端から近い端へ */
+            double d0 = (a0[0] - sk_c1x) * (a0[0] - sk_c1x) + (a0[1] - sk_c1y) * (a0[1] - sk_c1y);
+            double d1 = (a1[0] - sk_c1x) * (a1[0] - sk_c1x) + (a1[1] - sk_c1y) * (a1[1] - sk_c1y);
+            const double *nr = d0 <= d1 ? a0 : a1, *fr = d0 <= d1 ? a1 : a0;
+            double l = sqrt((nr[0] - fr[0]) * (nr[0] - fr[0]) + (nr[1] - fr[1]) * (nr[1] - fr[1]));
+
+            p.ox = nr[0];
+            p.oy = nr[1];
+            p.u1x = (nr[0] - fr[0]) / l;
+            p.u1y = (nr[1] - fr[1]) / l;
+            p.s1x = fr[0];
+            p.s1y = fr[1];
+            p.e1x = nr[0];
+            p.e1y = nr[1];
+        } else {
+            /* 線を押してから位置: 位置の足が原点、押した点から足への向き */
+            double t = (sk_px - a0[0]) * ad[0] + (sk_py - a0[1]) * ad[1];
+
+            p.ox = a0[0] + ad[0] * t;
+            p.oy = a0[1] + ad[1] * t;
+            ux = ad[0];
+            uy = ad[1];
+            if ((sk_px - sk_c1x) * ux + (sk_py - sk_c1y) * uy < 0.0) {
+                ux = -ux;
+                uy = -uy;
+            }
+            p.u1x = ux;
+            p.u1y = uy;
+            sk_order(a0, a1, ux, uy, &p.s1x, &p.s1y, &p.e1x, &p.e1y);
+        }
+        e1 = sk_o1;
+        e2 = it->need_l2 ? sk_o2 : -1;
+    } else {
+        p.ox = sk_px;
+        p.oy = sk_py;
+        p.u1x = 1.0;
+        p.u1y = 0.0;
+        if (it->mouse) {
+            p.have_m = 1;
+            p.mx = sk_c1x;
+            p.my = sk_c1y;
+        }
+    }
+    if (sk_dst) {
+        made = jw_sk_put(sk_dst, sg, sk_item, &p);
+        return made > 0;
+    }
+    o = op_new();
+    if (o) {
+        /* 消す線は、あとの番号から（前の番号がずれないように） */
+        if (e1 >= 0 && e2 >= 0 && e2 > e1) {
+            int t = e1;
+
+            e1 = e2;
+            e2 = t;
+        }
+        if (e1 >= 0)
+            erase(d, e1, o);
+        if (e2 >= 0)
+            erase(d, e2, o);
+    }
+    made = jw_sk_put(d, sg, sk_item, &p);
+    if (o)
+        o->n = made;
+    return made > 0 || e1 >= 0;
 }
 
 /* 建具が 位置を決めるまでカーソルにぶら下がる（仮表示）。置く手前の
@@ -12214,6 +12456,71 @@ placed:
                 bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
         }
         corner_step = 0;
+        return;
+    }
+    if (current == JW_CMD_KIGOU) {
+        const jw_senkigou *sg = sk_cat >= 0 ? jw_sk_load(sk_cat) : 0;
+        const jw_sk_item *it;
+        int i;
+
+        if (!d || !sg || sk_item < 0 || sk_item >= sg->nitem || button > 1)
+            return;
+        it = &sg->item[sk_item];
+        if (sk_step == 0 && it->need_l1) {
+            if (button != 0)
+                return;
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return;
+            sk_o1 = i;
+            sk_c1x = x;
+            sk_c1y = y;
+            if (it->need_l2)
+                sk_step = 1;
+            else if (it->pointers >= 1)
+                sk_step = 2;
+            else {
+                sk_place(d);
+                sk_step = 0;
+            }
+            return;
+        }
+        if (sk_step == 1) {
+            if (button != 0)
+                return;
+            i = jw_pick_tie(d, v, x, y, 3, 1);
+            if (i < 0 || i == sk_o1 || d->obj[i].cls != JW_SEN)
+                return;
+            sk_o2 = i;
+            sk_c2x = x;
+            sk_c2y = y;
+            sk_place(d);
+            sk_step = 0;
+            return;
+        }
+        if (button == 1) {      /* (R)Read: 読める点に吸わせる */
+            double sxr, syr;
+
+            if (!jw_read(d, v, x, y, &sxr, &syr))
+                return;
+            x = sxr;
+            y = syr;
+        }
+        if (sk_step == 3) {
+            sk_c1x = x;
+            sk_c1y = y;
+            sk_place(d);
+            sk_step = 0;
+            return;
+        }
+        sk_px = x;
+        sk_py = y;
+        if (it->mouse && !it->need_l1) {
+            sk_step = 3;
+            return;
+        }
+        sk_place(d);
+        sk_step = 0;
         return;
     }
     if (TG_IS3(current)) {
