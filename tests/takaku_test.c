@@ -106,6 +106,85 @@ static void run(const char *name, int mode, const char *box, int pos,
 
 
 /* 任意 (1070): 頂点を積んで 作図 (1069)。線かソリッドか */
+/* 円・連続線指示 (1083): 下絵（円か連続線）を描き、多角形の任意で 指す。
+   probe173.sh・probe174.sh の答え p173_c*.jww・p174_*.jww */
+static void run_pick(const char *name, int circle, int opt, int btn, int px, int py)
+{
+    char path[96];
+    jw_drawing ref;
+    unsigned char *b;
+    long n;
+    const jw_drawing *d;
+    rect_t r;
+    int i, j, ok = 1, rn = 0, mn = 0;
+    static const int POL[3][2] = { {300, 300}, {400, 250}, {500, 300} };
+
+    b = slurp("decomp/res/new.jww", &n);
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    free(b);
+    snprintf(path, sizeof path, "decomp/res/%s.jww", name);
+    memset(&ref, 0, sizeof ref);
+    b = slurp(path, &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  %s が読めません\n", path);
+        fails++;
+        return;
+    }
+    free(b);
+    ui_view_rect(app_fb()->w, app_fb()->h, &r);
+    if (circle) {
+        app_command(32773);
+        app_press(r.x + 600, r.y + 400, 0);
+        app_press(r.x + 800, r.y + 400, 0);
+    } else {
+        app_command(32883);
+        for (i = 0; i < 3; i++)
+            app_press(r.x + POL[i][0], r.y + POL[i][1], 0);
+    }
+    app_command(32894);
+    jw_cmd_bar((jw_drawing *)app_drawing(), 1070);
+    jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
+    if ((jw_cmd_bar_check(1326) > 0) != (opt == 1326))
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1326);
+    jw_cmd_bar((jw_drawing *)app_drawing(), 1083);
+    app_press(r.x + px, r.y + py, btn);
+    d = app_drawing();
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls != JW_MOJI)
+            rn++;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls != JW_MOJI)
+            mn++;
+    if (getenv("TKDUMP"))
+        for (i = 0; i < d->ndrawn; i++)
+            printf("  m%d cls%d lt%d %.3f %.3f %.3f %.3f %.3f %.3f %.3f %.3f\n", i, d->obj[i].cls, d->obj[i].ltype, d->obj[i].d[0], d->obj[i].d[1], d->obj[i].d[2], d->obj[i].d[3], d->obj[i].d[4], d->obj[i].d[5], d->obj[i].d[6], d->obj[i].d[7]);
+    if (rn != mn) {
+        printf("BAD  %s: 要素 原典 %d・移植 %d\n", name, rn, mn);
+        fails++;
+        return;
+    }
+    for (i = 0, j = 0; i < ref.ndrawn && ok; i++) {
+        const jw_obj *a = &ref.obj[i], *m;
+        int k;
+
+        if (a->cls == JW_MOJI)
+            continue;
+        while (j < d->ndrawn && d->obj[j].cls == JW_MOJI)
+            j++;
+        m = &d->obj[j++];
+        if (m->cls != a->cls || m->ltype != a->ltype)
+            ok = 0;
+        for (k = 0; k < 8 && ok; k++)
+            if (fabs(m->d[k] - a->d[k]) > 2e-3)
+                ok = 0;
+    }
+    printf("%-4s %s\n", ok ? "ok" : "BAD", name);
+    if (!ok)
+        fails++;
+}
+
 static void run_any(const char *name, int solid, const int (*pt)[2], int npt,
                     int press, int rlast, int anyorder)
 {
@@ -255,6 +334,12 @@ int main(void)
         static const int C5W[5][2] = { {600,200}, {790,338}, {718,562}, {482,562}, {410,338} };
         static const int C6[6][2] = { {600,200}, {427,300}, {427,500}, {600,600}, {773,500}, {773,300} };
 
+        run_pick("p173_c1", 1, 0, 0, 800, 400);
+        run_pick("p173_c5", 1, 1326, 0, 800, 400);
+        run_pick("p174_k5", 1, 0, 1, 800, 400);
+        run_pick("p174_p1", 0, 0, 0, 450, 275);
+        run_pick("p174_p3", 0, 1326, 0, 450, 275);
+        run_pick("p174_p6", 0, 0, 1, 450, 275);
         run_any("p170_p3", 0, T3, 3, 1, 0, 0);
         run_any("p170_p4", 0, T4, 4, 1, 0, 0);
         run_any("p170_p3solid", 1, T3, 3, 1, 0, 0);

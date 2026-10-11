@@ -2501,7 +2501,7 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
        each one lands on the screen */
     if (getenv("JW_NO_SOLID"))
         return;
-    if (o->ltype == 101) {      /* a round one, not four corners */
+    if ((o->ltype == 101 || o->ltype == 111)) {      /* a round one, not four corners */
         round_solid(fb, v, d, o);
         return;
     }

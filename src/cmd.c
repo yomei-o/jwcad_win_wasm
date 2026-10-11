@@ -509,6 +509,7 @@ static int mt_mode = 1689;      /* 面取のラジオ 1689〜1693 */
 static int bk_mode = 1689;      /* 分割のラジオ: 1689 等距離・1690 等角度 */
 static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
 static int tk2_n;               /* ２辺: 取った点の数 */
+static int tk_pickmode;          /* 任意: 円・連続線指示 (1083) の間 */
 static int tk_any;              /* 任意 (1070) のバーに入っている */
 static void takaku_any(jw_drawing *d);
 #define TK_ANY_MAX 1000
@@ -2464,6 +2465,7 @@ void jw_cmd_escape(void)
     tk_step = 0;
     tk2_n = 0;
     tk_any = 0;
+    tk_pickmode = 0;
     tk_an = 0;
     hou_step = 0;
     cut_step = 0;
@@ -3431,6 +3433,8 @@ const char *jw_cmd_prompt(void)
         const char *bx = tk_mode == 1689 ? 0 : jw_cmd_box(1411);
         int filled = bx && box_num(bx, 0.0) > 0.0;
 
+        if (tk_any && tk_pickmode)
+            return JW_STR_5650;
         if (tk_any)
             return tk_an == 0 ? JW_STR_5320 : JW_STR_5321;
         if (tk_mode == 1689)
@@ -8658,6 +8662,12 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
            から（原典のバーを読んだとおり） */
         if (id == 1069)
             return tk_an >= 3;
+        if (id == 1083)
+            return jw_cmd_bar_check(1323) > 0 && tk_an == 0;
+        if (id == 1325 || id == 1326)
+            return jw_cmd_bar_check(1323) > 0;
+        if (id == 1327 || id == 1328)
+            return jw_cmd_bar_check(1323) > 0 && tk_pickmode;
         if (id == 1324 || id == 2552)
             return jw_cmd_bar_check(1323) > 0;
     }
@@ -9320,7 +9330,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
         tk_an = 0;
         return 1;
     }
+    if (current == JW_CMD_TAKAKU && tk_any && id == 1083) {
+        tk_pickmode = 1;
+        return 1;
+    }
     if (current == JW_CMD_TAKAKU && tk_any && id == 1071) {
+        tk_pickmode = 0;
         tk_any = 0;
         tk_an = 0;
         return 1;
@@ -9928,6 +9943,134 @@ static int tk_solids(jw_drawing *d, const double *x, const double *y, int n)
         tk_solid(d, px, py, 4);
     }
     return nout;
+}
+
+/* 任意の 円・連続線指示 (1083)。原典の答え decomp/res/p173_*.jww・p174_*.jww:
+   円は ソリッド（線種 101、線形・円周 を入れると 111）に、連続線は つながっている線の頂点
+   を ソリッドに。(L) は元図形を残し (R) は消す */
+static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, int button)
+{
+    int i = jw_pick(d, v, x, y, 3), n, k, made = 0, ring = jw_cmd_bar_check(1326) > 0;
+    op_t *rec;
+    static double vx[TK_ANY_MAX + 1], vy[TK_ANY_MAX + 1];
+    static int chain[TK_ANY_MAX + 1];
+
+    if (i < 0)
+        return;
+    rec = op_new();
+    if (d->obj[i].cls == JW_ENKO) {
+        const jw_obj *e = &d->obj[i];
+        jw_obj *o = jw_add(d, JW_SOLID);
+
+        if (!o)
+            return;
+        o->ltype = ring ? 111 : 101;
+        o->d[0] = e->d[0];
+        o->d[1] = e->d[1];
+        o->d[2] = e->d[2];
+        o->d[3] = e->d[6] > 0.0 ? e->d[6] : 1.0;
+        o->d[4] = e->d[5];
+        o->d[5] = e->d[3];
+        o->d[6] = e->d[4];
+        o->d[7] = 100.0;
+        made = 1;
+        if (button == 1)
+            erase(d, i, rec), made++;
+    } else if (d->obj[i].cls == JW_SEN) {
+        int used = 0, a, again = 1;
+        double ex, ey, sx, sy;
+
+        /* つながっている線を 両端へ たどる（端点が同じ線） */
+        n = 0;
+        chain[n++] = i;
+        sx = d->obj[i].d[0]; sy = d->obj[i].d[1];
+        ex = d->obj[i].d[2]; ey = d->obj[i].d[3];
+        (void)used;
+        while (again) {
+            again = 0;
+            for (a = 0; a < d->ndrawn && n < TK_ANY_MAX; a++) {
+                const jw_obj *l = &d->obj[a];
+                int in = 0;
+
+                if (l->cls != JW_SEN)
+                    continue;
+                for (k = 0; k < n; k++)
+                    if (chain[k] == a)
+                        in = 1;
+                if (in)
+                    continue;
+                if (fabs(l->d[0] - ex) < 1e-6 && fabs(l->d[1] - ey) < 1e-6) {
+                    chain[n++] = a; ex = l->d[2]; ey = l->d[3]; again = 1;
+                } else if (fabs(l->d[2] - ex) < 1e-6 && fabs(l->d[3] - ey) < 1e-6) {
+                    chain[n++] = a; ex = l->d[0]; ey = l->d[1]; again = 1;
+                } else if (fabs(l->d[2] - sx) < 1e-6 && fabs(l->d[3] - sy) < 1e-6) {
+                    memmove(chain + 1, chain, (size_t)n * sizeof chain[0]);
+                    chain[0] = a; n++; sx = l->d[0]; sy = l->d[1]; again = 1;
+                } else if (fabs(l->d[0] - sx) < 1e-6 && fabs(l->d[1] - sy) < 1e-6) {
+                    memmove(chain + 1, chain, (size_t)n * sizeof chain[0]);
+                    chain[0] = a; n++; sx = l->d[2]; sy = l->d[3]; again = 1;
+                }
+            }
+        }
+        /* 頂点: 始点から 順に */
+        {
+            int m = 0;
+            double cx = sx, cy = sy;
+
+            vx[m] = cx; vy[m] = cy; m++;
+            for (k = 0; k < n; k++) {
+                const jw_obj *l = &d->obj[chain[k]];
+
+                if (fabs(l->d[0] - cx) < 1e-6 && fabs(l->d[1] - cy) < 1e-6) {
+                    cx = l->d[2]; cy = l->d[3];
+                } else {
+                    cx = l->d[0]; cy = l->d[1];
+                }
+                vx[m] = cx; vy[m] = cy; m++;
+            }
+            if (m > 2 && fabs(vx[m - 1] - vx[0]) < 1e-6 && fabs(vy[m - 1] - vy[0]) < 1e-6)
+                m--;                /* 閉じていれば 最後は 始点 */
+            if (ring) {
+                for (k = 0; k + 1 < m + (m > 2 && n == m ? 1 : 0); k++) {
+                    double px[2], py[2];
+                    jw_obj *o = jw_add(d, JW_SOLID);
+
+                    px[0] = vx[k]; py[0] = vy[k];
+                    px[1] = vx[(k + 1) % m]; py[1] = vy[(k + 1) % m];
+                    if (!o)
+                        break;
+                    o->d[0] = px[0]; o->d[1] = py[0];
+                    o->d[2] = px[1]; o->d[3] = py[1];
+                    o->d[4] = o->d[6] = px[1];
+                    o->d[5] = o->d[7] = py[1];
+                    made++;
+                }
+            } else {
+                if (m <= 4) {       /* 三角・四角は そのまま（原典 p174_p1）。五つ以上は 未確認 */
+                    tk_solid(d, vx, vy, m);
+                    made = 1;
+                } else
+                    made = tk_solids(d, vx, vy, m);
+            }
+        }
+        if (button == 1) {
+            /* 大きい番号から 消す */
+            for (a = 0; a < n; a++) {
+                int hi = a;
+
+                for (k = a + 1; k < n; k++)
+                    if (chain[k] > chain[hi])
+                        hi = k;
+                k = chain[a]; chain[a] = chain[hi]; chain[hi] = k;
+            }
+            for (a = 0; a < n; a++)
+                erase(d, chain[a], rec), made++;
+        }
+    }
+    if (rec)
+        rec->n = made;
+    if (made)
+        op_push(made);
 }
 
 static void takaku_any(jw_drawing *d)
@@ -13269,6 +13412,10 @@ placed:
         /* (L) welds what the box holds, (R) rubs it out */
         houraku(d, x, y, button != 0);
         hou_step = 0;
+        return;
+    }
+    if (current == JW_CMD_TAKAKU && tk_any && tk_pickmode && d && button <= 1) {
+        tk_pick_solid(d, v, x, y, button);
         return;
     }
     if (current == JW_CMD_TAKAKU) {

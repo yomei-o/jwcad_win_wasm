@@ -1,21 +1,33 @@
 #!/bin/sh
-# 面取 (32859): 交わり方が左右対称でない二本で五つの指定。
-#   sh tools/probe174.sh
+# 多角形 任意 の 円・連続線指示 (1083): 円弧・連続線・各つまみ。 decomp/res/p174_<名前>.jww
 cd "$(dirname "$0")/.."
 set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
 idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; }
-run() {   # name, script
+CIR='cmd:32773;600,400;800,400;wait:600;'
+ARC='cmd:32773;pb:1321;wait:300;600,400;800,400;650,200;550,200;wait:800;'
+POL='cmd:32883;300,300;400,250;500,300;500,300;wait:600;'
+run() {
+    [ -n "$ONLY" ] && ! echo " $ONLY " | grep -q " $1 " && return
     idle; sh tools/refenv.sh >/dev/null; cp decomp/res/new.jww tmp/rect.jww
     echo "=== $1"
-    $PS -Open tmp/rect.jww -NoSave -Clicks "off:1333;300,300;700,500;350,600;600,300;cmd:32859;$2400,350;400,540;saveas:p174_$1;" 2>&1 | grep -E "throw|no |saved" | sed 's/^/    /'
+    $PS -Open tmp/rect.jww -NoSave -Clicks "$3cmd:32894;pb:1070;dlgoff;pb:1323;dlgoff;$2saveas:p174_$1;" 2>&1 | grep -E "throw|no |saved" | sed 's/^/    /'
+    mv -f tmp/p174_$1.jww decomp/res/ 2>/dev/null
 }
-run a1689 'pb:1689;dlgoff;ch:1411,1000;'
-run a1690 'pb:1690;dlgoff;ch:1411,1000;'
-run a1691 'pb:1691;dlgoff;ch:1411,1000;'
-run a1692 'pb:1692;dlgoff;'
-run a1693 'pb:1693;dlgoff;ch:1411,1000;'
-run l5    'pb:1692;dlgoff;ch:1413,5;'
-run r50   'pb:1691;dlgoff;ch:1411,5000;'
-run e1413 'pb:1693;dlgoff;ch:1411,1000;ch:1413,5;'
+ONLY="$*"
+S='pb:1083;'
+run a1   "${S}800,400;pb:1069;" "$ARC"
+run a2   "pb:1327;dlgoff;${S}800,400;pb:1069;" "$ARC"
+run a3   "pb:1328;dlgoff;${S}800,400;pb:1069;" "$ARC"
+run a4   "pb:1326;dlgoff;${S}800,400;pb:1069;" "$ARC"
+run a5   "${S}r800,400;pb:1069;" "$ARC"
+run p1   "${S}450,275;pb:1069;" "$POL"
+run p2   "pb:1325;dlgoff;${S}450,275;pb:1069;" "$POL"
+run p3   "pb:1326;dlgoff;${S}450,275;pb:1069;" "$POL"
+run p4   "pb:1327;dlgoff;${S}450,275;pb:1069;" "$POL"
+run p5   "pb:1328;dlgoff;${S}450,275;pb:1069;" "$POL"
+run p6   "${S}r450,275;pb:1069;" "$POL"
+run k2   "pb:1327;dlgoff;${S}800,400;pb:1069;" "$CIR"
+run k3   "pb:1328;dlgoff;${S}800,400;pb:1069;" "$CIR"
+run k5   "${S}r800,400;pb:1069;" "$CIR"
 idle

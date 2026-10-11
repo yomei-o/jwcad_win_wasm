@@ -321,7 +321,7 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
         double x[4], y[4];
         int k, m;
 
-        if (o->cls != JW_SOLID || o->ltype == 101)
+        if (o->cls != JW_SOLID || (o->ltype == 101 || o->ltype == 111))
             continue;
         m = corners(o, x, y);
         for (k = 0; k < m; k++) {
