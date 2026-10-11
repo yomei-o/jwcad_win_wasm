@@ -76,6 +76,7 @@ WANT = [
     (5358, 'the second one, once the first is a line'),
     (5359, 'the second one, once the first is a circle'),
     (5434, 'AUTO mode, nothing in hand'),
+    (5519, 'set the height and depth of a line end (2.5D)'),
     (5368, 'the second circle a tangent takes'),
     (5372, 'the first line or circle a tangent circle takes'),
     (5373, 'the second one'),

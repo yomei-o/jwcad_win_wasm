@@ -42,6 +42,7 @@ enum {
     JW_CMD_TAKAKU = 0x807e,         /* 多角形 -- CZukeiTakakukei */
     JW_CMD_MENTORI = 0x805b,        /* 面取 -- CZukeiCorner's other half */
     JW_CMD_BUNKATSU = 0x8063,       /* 分割 -- CZukeiBunkatsu */
+    JW_CMD_25D = 0x80a9,            /* ２．５D (32937) */
     JW_CMD_AUTO = 0x8093,           /* AUTOモード (32915) */
     JW_CMD_TATEGU = 0x8050,         /* 建具平面 (32848) */
     JW_CMD_TATEGU_DAN = 0x8062,     /* 建具断面 (32866) */

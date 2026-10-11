@@ -586,6 +586,7 @@ static double nisen_x, nisen_y;
 /* The ids are not unique: 1411 is the first combo of nearly every bar, so
    a box belongs to a command as well as to an id. */
 static struct { unsigned short cmd, id; char t[16]; } box[] = {
+    { JW_CMD_25D, 1491, "10 , 0" },     /* 高さ , 奥行 */
     { JW_CMD_SEN, 1411, "" },           /* 線の傾き */
     { JW_CMD_SEN, 1412, "" },           /* 線の寸法（長さ） */
     { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
@@ -3071,6 +3072,8 @@ const char *jw_cmd_prompt(void)
         return sok_n ? JW_STR_5323 : JW_STR_5320;
     case JW_CMD_KYORITEN:
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
+    case JW_CMD_25D:
+        return JW_STR_5519;
     case JW_CMD_AUTO:
         /* 何も持っていなければ AUTO の案内、線を引き始めたら 線の問い */
         return step == 0 ? JW_STR_5434 : JW_STR_5321;
@@ -11071,6 +11074,77 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
+    if (current == JW_CMD_25D && button == 0 && d) {
+        /* ２．５D の (L) 設定・変更: 線の端に「高さ , 奥行」の文字（色 5・旗 0x8000）を
+           置く。原典の答え p197_h1。同じ端をもう一度押すと文字を置き換える */
+        int i = -1, k, near = -1;
+        double ex, ey, dx0, dy0, best = 1e99, tol = jw_pick_tol(v);
+        const char *val = jw_cmd_box(1491);     /* 箱が無ければ 原典の初めの値 */
+
+        /* いちばん近い線（線分までの距離が 許容の内）を自分で探す */
+        for (k = 0; k < d->ndrawn; k++) {
+            const jw_obj *o = &d->obj[k];
+            double ax = o->d[0], ay = o->d[1], bx = o->d[2] - ax, by = o->d[3] - ay;
+            double l2 = bx * bx + by * by, t, px, py, e;
+
+            if (o->cls != JW_SEN)
+                continue;
+            t = l2 > 0.0 ? ((x - ax) * bx + (y - ay) * by) / l2 : 0.0;
+            t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
+            px = ax + t * bx - x;
+            py = ay + t * by - y;
+            e = sqrt(px * px + py * py);
+            if (e <= tol && e < best) {
+                best = e;
+                i = k;
+            }
+        }
+        if (!val || !*val)
+            val = "10 , 0";
+        if (i < 0 || d->obj[i].cls != JW_SEN)
+            return;
+        dx0 = x - d->obj[i].d[0];
+        dy0 = y - d->obj[i].d[1];
+        if (dx0 * dx0 + dy0 * dy0 <=
+            (x - d->obj[i].d[2]) * (x - d->obj[i].d[2]) +
+            (y - d->obj[i].d[3]) * (y - d->obj[i].d[3])) {
+            ex = d->obj[i].d[0];
+            ey = d->obj[i].d[1];
+        } else {
+            ex = d->obj[i].d[2];
+            ey = d->obj[i].d[3];
+        }
+        for (k = 0; k < d->ndrawn; k++)
+            if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x8000) &&
+                fabs(d->obj[k].d[0] - ex) < 1e-6 && fabs(d->obj[k].d[1] - ey) < 1e-6)
+                near = k;
+        if (near < 0) {
+            jw_obj *o = jw_add(d, JW_MOJI);
+
+            if (!o)
+                return;
+            o->color = 5;
+            o->ltype = 1;
+            o->flags = 0x8000;
+            o->d[0] = ex;
+            o->d[1] = ey;
+            o->d[3] = ey;
+            o->d[4] = o->d[5] = 2.5;
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            near = d->ndrawn - 1;
+            op_push(1);
+        }
+        {
+            double w = 0.0;
+            const char *q;
+
+            d->obj[near].text = jw_add_str(d, val);
+            for (q = val; *q; q++)
+                w += 1.25;              /* 半角は 文字幅の半分 */
+            d->obj[near].d[2] = ex + w;
+        }
+        return;
+    }
     if (current == JW_CMD_AUTO) {
         /* AUTOモード: 何もないところは 線（始点→終点）。原典の言うとおり
            「(L)free：＋／○ ， 線：線編集  (R)Read：＋／○ ， 線：複線 ， 無：□」
