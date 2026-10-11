@@ -9,6 +9,7 @@
 #include "senkigou.h"
 #include "takaku.h"
 #include "hikage.h"
+#include "tenku.h"
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
@@ -373,6 +374,8 @@ static void au_reset(void);
 static int hk_north;
 static int hk_sub;
 static int hk_tbl_pending;
+static int tn_mode, tn_equi, tn_count;
+static double tn_px, tn_py;
 static int hk_pts;
 static int hkp_n;
 static int hk_calc_step;
@@ -2369,6 +2372,8 @@ void jw_cmd_set(int id)
     auto_back = 0;
     au_reset();
     hk_north = 0;
+    tn_mode = 0;
+    tn_count = 0;
     hk_sub = 0;
     hk_tbl_pending = 0;
     hk_pts = 0;
@@ -3166,6 +3171,8 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5519;
     case JW_CMD_HIKAGE:
     case JW_CMD_TENKU:
+        if (current == JW_CMD_TENKU && tn_mode)
+            return tn_mode == 1 ? JW_STR_5712 : JW_STR_5713;
         if (hk_pts && hk_calc_step)
             return JW_STR_5560;
         if (hk_pts) {
@@ -8818,7 +8825,16 @@ static int bar_press(jw_drawing *d, int id)
         hk_outlines(d, id == 1066);
         return 1;
     }
-    if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && id == 1068) {
+    if (current == JW_CMD_TENKU && (id == 1064 || id == 1065)) {
+        tn_mode = 1;                /* 測定点を指示 */
+        tn_equi = id == 1065;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && id == 1068) {
+        hk_north = 1;               /* 真北を設定する線端部を指示 */
+        return 1;
+    }
+    if (current == JW_CMD_TENKU && id == 1068) {
         hk_north = 1;               /* 真北を設定する線端部を指示 */
         return 1;
     }
@@ -12674,6 +12690,49 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             hk_table23(d, x, y, 2);
         else if (hk_tbl_pending == 1071)
             hk_table23(d, x, y, 3);
+        return;
+    }
+    if (current == JW_CMD_TENKU && tn_mode && !hk_north && d && button <= 1) {
+        double px = x, py = y;
+
+        if (button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr)) {
+                px = sxr;
+                py = syr;
+            }
+        }
+        if (tn_mode == 1) {
+            tn_px = px;
+            tn_py = py;
+            tn_mode = 2;
+        } else {
+            hk_tenku_opts o;
+            int n0 = d->ndrawn, r;
+            const char *bs;
+            op_t *rec = op_new();
+
+            hk_tenku_opts_default(&o);
+            bs = jw_cmd_box(1492);
+            if (bs && *bs)
+                o.plane_m = atof(bs);
+            bs = jw_cmd_box(1493);
+            if (bs && *bs && atof(bs) > 0.0)
+                o.R = atof(bs) / 2.0;
+            o.equidist = tn_equi;
+            o.mirror = jw_cmd_bar_check(1326) > 0;
+            o.calc = jw_cmd_bar_check(1323) > 0;
+            o.precise = jw_cmd_bar_check(1327) > 0;
+            o.number = tn_count + 1;
+            r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
+            if (r >= 0) {
+                tn_count++;
+                if (rec)
+                    rec->n = d->ndrawn - n0;
+            }
+            tn_mode = 1;
+        }
         return;
     }
     if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && hk_north && d && button <= 1) {

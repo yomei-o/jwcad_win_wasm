@@ -334,6 +334,8 @@ for t in tategu2 tategu3 tategu4 auto auto2 hk d25 jww3d senkigou; do
     ./tests/${t}_test.exe | tail -1
     ./tests/${t}_test.exe | grep '^BAD' | sed 's/^/        /' || true
 done
+printf '    %-10s ' tenku
+sh tools/tenktest.sh | tail -1
 
 echo
 echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"

@@ -28,7 +28,7 @@ CC=${CC:-gcc}
 for dd in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
     [ -x "$dd/gcc.exe" ] && { CCPATH="$dd"; break; }
 done
-SRC="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c src/houraku.c src/tategu.c src/senkigou.c src/takaku.c src/hikage.c src/view.c src/draw.c src/text.c src/fontx.c src/plot.c src/png.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
+SRC="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c src/houraku.c src/tategu.c src/senkigou.c src/takaku.c src/hikage.c src/tenku.c src/view.c src/draw.c src/text.c src/fontx.c src/plot.c src/png.c src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
 (PATH="$CCPATH:$PATH"; $CC -O2 -Isrc -DJW_IKKATSU_BAND -o tmp/mkikkatsu3.exe tools/mkikkatsu.c $SRC -lm) || exit 1
 ./tmp/mkikkatsu3.exe || exit 1
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"

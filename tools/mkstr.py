@@ -23,6 +23,8 @@ WANT = [
     (5347, 'choose a fitting (tategu plan)'),
     (5478, 'the reference line, or two points (tategu plan)'),
     (5541, 'set a measuring point (shadow diagram)'),
+    (5712, 'set a measuring point (sky diagram)'),
+    (5713, 'position of the sky diagram circle centre'),
     (5560, 'where to write the result (shadow diagram tables)'),
     (5403, 'choose an item (shadow diagram sub-bar)'),
     (5525, 'set the true north (shadow diagram)'),
