@@ -42,6 +42,57 @@ int main(void)
                before, d->ndrawn);
         fails++;
     }
+
+    {   /* R で線を押すと 複線。方向を押すと AUTO に戻る（p196_a3） */
+        jw_drawing ref;
+        unsigned char *rb;
+        long rn, k;
+        int ri = 0, mi = 0, j;
+        FILE *rf = fopen("decomp/res/p196_a3.jww", "rb");
+        const jw_obj *ra[64], *ma[64];
+
+        fseek(rf, 0, SEEK_END);
+        rn = ftell(rf);
+        fseek(rf, 0, SEEK_SET);
+        rb = (unsigned char *)malloc((size_t)rn);
+        if (fread(rb, 1, (size_t)rn, rf) != (size_t)rn)
+            return 1;
+        fclose(rf);
+        memset(&ref, 0, sizeof ref);
+        jw_parse(&ref, rb, rn);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        d = app_drawing();
+        app_command(32771);
+        app_press(r.x + 300, r.y + 400, 0);
+        app_press(r.x + 800, r.y + 400, 0);
+        app_command(32915);
+        app_press(r.x + 550, r.y + 400, 1);
+        if (jw_cmd() != JW_CMD_FUKUSEN) {
+            printf("BAD  R で線を押しても 複線にならない\n");
+            fails++;
+        }
+        app_press(r.x + 650, r.y + 300, 0);       /* 原典はここで「作図する方向」を問う */
+        for (k = 0; k < ref.ndrawn && ri < 64; k++)
+            if (ref.obj[k].cls == JW_SEN)
+                ra[ri++] = &ref.obj[k];
+        for (k = 0; k < d->ndrawn && mi < 64; k++)
+            if (d->obj[k].cls == JW_SEN)
+                ma[mi++] = &d->obj[k];
+        if (ri != mi) {
+            printf("BAD  線 原典 %d・移植 %d\n", ri, mi);
+            fails++;
+        } else {
+            for (k = 0; k < ri; k++)
+                for (j = 0; j < 4; j++)
+                    if (fabs(ra[k]->d[j] - ma[k]->d[j]) > 2e-3) {
+                        printf("BAD  %ld.d[%d] 原典 %.4f・移植 %.4f\n", k, j,
+                               ra[k]->d[j], ma[k]->d[j]);
+                        fails++;
+                    }
+        }
+    }
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }

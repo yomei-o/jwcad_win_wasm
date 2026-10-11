@@ -365,6 +365,7 @@ static int tg_cat = -1, tg_item = -1;   /* 選んだ建具（jw_tgdat の番号�
 static int tg_need_pick;
 static int tg_step;                     /* 0 基準線 1 位置、R の二点の途中は 2 */
 static double tg_ax, tg_ay, tg_ux, tg_uy;
+static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
 static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
 static int tg_rh, tg_rv;                /* 立面の基準点: 左・中・右 / 下・中・上 */
@@ -2299,6 +2300,7 @@ void jw_cmd_set(int id)
         nisen_step = 0;
         nisen_obj = -1;
     }
+    auto_back = 0;
     if (TG_IS3(id)) {
         if (tg_last != id)
             tg_cat = -1;
@@ -11051,17 +11053,52 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
     jw_cmd_point(d, v, x, y, 0);
 }
 
+static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
+                          double x, double y, int button);
+
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    jw_cmd_point_(d, v, x, y, button);
+    if (auto_back && ((current == JW_CMD_FUKUSEN && para_step == 0) ||
+                      (current == JW_CMD_KUKEI && step == 0))) {
+        current = JW_CMD_AUTO;
+        auto_back = 0;
+    }
+}
+
+static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
+                          double x, double y, int button)
+{
     if (current == JW_CMD_AUTO) {
-        /* AUTOモード: 何もないところは 線（線のあいだ、始点→終点）。
-           原典に空の図面で二点を押させると 線が一本できて 始点の問いに戻る
-           （tools/probe196）。図形を押したときの 線編集・複線・移動などは未実装 */
-        if (step == 0 && d && jw_pick(d, v, x, y, 3) >= 0)
-            return;
+        /* AUTOモード: 何もないところは 線（始点→終点）。原典の言うとおり
+           「(L)free：＋／○ ， 線：線編集  (R)Read：＋／○ ， 線：複線 ， 無：□」
+           R で線を押すと 複線、R で何も読めなければ 矩形、になり、それが終わると AUTO に
+           戻る（tools/probe196）。L で線を押したときの 線編集（部分消し・コーナー・
+           線伸縮）は未実装 */
+        if (step == 0 && d) {
+            int i = jw_pick(d, v, x, y, 3);
+            double sxr, syr;
+
+            if (i >= 0 && d->obj[i].cls == JW_SEN && button == 1) {
+                current = JW_CMD_FUKUSEN;
+                para_step = 0;
+                auto_back = 1;
+                jw_cmd_point(d, v, x, y, 0);
+                return;
+            }
+            if (i >= 0 && d->obj[i].cls == JW_SEN)
+                return;
+            if (button == 1 && !jw_read(d, v, x, y, &sxr, &syr)) {
+                current = JW_CMD_KUKEI;
+                step = 0;
+                auto_back = 1;
+                jw_cmd_point(d, v, x, y, 0);
+                return;
+            }
+        }
         current = JW_CMD_SEN;
-        jw_cmd_point(d, v, x, y, button);
+        jw_cmd_point_(d, v, x, y, button);
         current = JW_CMD_AUTO;
         return;
     }
