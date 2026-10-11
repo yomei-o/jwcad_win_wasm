@@ -25,6 +25,7 @@ WANT = [
     (5541, 'set a measuring point (shadow diagram)'),
     (5712, 'set a measuring point (sky diagram)'),
     (5713, 'position of the sky diagram circle centre'),
+    (5582, 'where to write the measuring conditions (shadow diagram)'),
     (5560, 'where to write the result (shadow diagram tables)'),
     (5403, 'choose an item (shadow diagram sub-bar)'),
     (5525, 'set the true north (shadow diagram)'),

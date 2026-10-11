@@ -382,6 +382,7 @@ static int hk_calc_step;
 static int hk_first_no = 1;
 static int hk_outlines(jw_drawing *d, int half);
 static double hk_one_hour;
+static int hk_write_cond;
 static int hk_ask_time;
 static void hk_height_text(char *out, size_t cap, const char *box, int d25);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
@@ -2373,6 +2374,7 @@ void jw_cmd_set(int id)
     }
     auto_back = 0;
     au_reset();
+    hk_write_cond = 0;
     hk_north = 0;
     tn_mode = 0;
     tn_count = 0;
@@ -3175,6 +3177,8 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_TENKU:
         if (current == JW_CMD_TENKU && tn_mode)
             return tn_mode == 1 ? JW_STR_5712 : JW_STR_5713;
+        if (hk_write_cond)
+            return JW_STR_5582;
         if (hk_pts && hk_calc_step)
             return JW_STR_5560;
         if (hk_pts) {
@@ -8823,6 +8827,10 @@ static int bar_press(jw_drawing *d, int id)
         hk_tbl_pending = id;        /* 表を書く位置を指示 */
         return 1;
     }
+    if (current == JW_CMD_HIKAGE && id == 1085 && !hk_sub && !hk_pts) {
+        hk_write_cond = 1;          /* 測定条件を書込む位置を指示 */
+        return 1;
+    }
     if (current == JW_CMD_HIKAGE && hk_sub && id == 1067) {
         hk_ask_time = 1;            /* 作図時間を入力してください（8 - 16） */
         return 1;
@@ -12693,6 +12701,57 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         }
         if (bi >= 0)
             jw_cmd_box_put(1491, jw_str(d, d->obj[bi].text));
+        return;
+    }
+    if (current == JW_CMD_HIKAGE && hk_write_cond && d && button <= 1) {
+        char buf[160], hs[32];
+        double px = x, py = y, w = 0.0, wx[2], wy[2], plane = 4.0, lat = 36.0;
+        const char *bs, *q;
+        jw_tg_out to;
+        op_t *rec;
+
+        if (button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr)) {
+                px = sxr;
+                py = syr;
+            }
+        }
+        bs = jw_cmd_box(1492);
+        if (bs && *bs)
+            plane = atof(bs);
+        bs = jw_cmd_box(1493);
+        if (bs && *bs)
+            lat = atof(bs);
+        snprintf(hs, sizeof hs, "%g", plane);
+        snprintf(buf, sizeof buf,
+                 "\x91\xaa\x92\xe8\x96\xca\x82\xcc\x8d\x82\x82\xb3 = %s(m)  \x88\xdc\x93" "x = %g\x81\x8b  "
+                 "[ \x93\x7e\x8e\x8a ]  \x91\xaa\x92\xe8\x8e\x9e\x8a\xd4:%s",
+                 hs, lat,
+                 jw_cmd_bar_check(1323) > 0
+                     ? "\x82\x58\x8e\x9e\x81\x60\x82\x50\x82\x54\x8e\x9e"
+                     : "\x82\x57\x8e\x9e\x81\x60\x82\x50\x82\x55\x8e\x9e");
+        for (q = buf; *q; ) {
+            int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+            w += wide ? 2.5 : 1.25;
+            q += wide ? 2 : 1;
+        }
+        wx[0] = px; wx[1] = px + w;
+        wy[0] = wy[1] = py;
+        memset(&to, 0, sizeof to);
+        to.cls = JW_TG_TEXT_O;
+        to.kind = 2;
+        to.text = buf;
+        rec = op_new();
+        if (jw_tg_text(d, &to, wx, wy, 0) > 0) {
+            d->obj[d->ndrawn - 1].n = 2;
+            d->obj[d->ndrawn - 1].color = 1;
+            if (rec)
+                rec->n = 1;
+        }
+        hk_write_cond = 0;
         return;
     }
     if (current == JW_CMD_HIKAGE && hk_pts && d && button <= 1) {
