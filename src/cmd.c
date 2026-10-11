@@ -381,6 +381,8 @@ static int hkp_n;
 static int hk_calc_step;
 static int hk_first_no = 1;
 static int hk_outlines(jw_drawing *d, int half);
+static double hk_one_hour;
+static int hk_ask_time;
 static void hk_height_text(char *out, size_t cap, const char *box, int d25);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
@@ -8821,6 +8823,10 @@ static int bar_press(jw_drawing *d, int id)
         hk_tbl_pending = id;        /* 表を書く位置を指示 */
         return 1;
     }
+    if (current == JW_CMD_HIKAGE && hk_sub && id == 1067) {
+        hk_ask_time = 1;            /* 作図時間を入力してください（8 - 16） */
+        return 1;
+    }
     if (current == JW_CMD_HIKAGE && hk_sub && (id == 1065 || id == 1066)) {
         hk_outlines(d, id == 1066);
         return 1;
@@ -11976,7 +11982,8 @@ static int hk_outlines(jw_drawing *d, int half)
         return 0;
     hk_sun_init(&sun, lat, -23.45);
     o = op_new();
-    for (hour = 8.0; hour <= 16.0 + 1e-9; hour += half ? 0.5 : 1.0) {
+    for (hour = half == 2 ? hk_one_hour : 8.0; hour <= (half == 2 ? hk_one_hour : 16.0) + 1e-9;
+         hour += half == 1 ? 0.5 : 1.0) {
         double x, y, sx, sy;
         int ts = (int)floor((hour - 12.0) * 3600.0 + 0.5), n, j, start = 0, chain_n = 0;
 
@@ -12058,6 +12065,29 @@ static int hk_outlines(jw_drawing *d, int half)
     if (o)
         o->n = made;
     return made;
+}
+
+/* 時間指定: 作図時間を入力する窓（テンプレート 348）の答え。範囲は 8 - 16（9-15時 なら 9 - 15） */
+int jw_cmd_hikage_ask(void)
+{
+    int r = hk_ask_time;
+
+    hk_ask_time = 0;
+    return r && current == JW_CMD_HIKAGE;
+}
+
+int jw_cmd_hikage_time(jw_drawing *d, const char *txt)
+{
+    double h;
+    char *end;
+
+    if (current != JW_CMD_HIKAGE || !d || !txt)
+        return 0;
+    h = strtod(txt, &end);
+    if (end == txt || h < 8.0 - 1e-9 || h > 16.0 + 1e-9)
+        return 0;                   /* 0x1599: 範囲外 */
+    hk_one_hour = 8.0 + floor((h - 8.0) * 3600.0 + 0.5) / 3600.0;
+    return hk_outlines(d, 2) > 0;
 }
 
 /* 日影図の 表（影倍率表。decomp/res/hk_t1.jww）。置く位置 (cx,cy) の下に、八時から十六時まで三十分毎。

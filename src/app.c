@@ -447,8 +447,14 @@ static int sk_open, sk_group, sk_caret;
 static int tgp_open, tgp_kind, tgp_file, tgp_page;
 static int kj_open, kj_sel;             /* 基準点選択（建具の 基準点変更） */
 
+static int td_open;
+static int td_start(int tpl);
+static int td_caret_set(int id);
+
 static void tgp_check(void)
 {
+    if (!td_open && have_drawing && jw_cmd() == JW_CMD_HIKAGE && jw_cmd_hikage_ask() && td_start(348))
+        td_caret_set(1411);
     if (!tgp_open && jw_cmd_tategu_need_pick() && (jw_cmd() == JW_CMD_TATEGU || jw_cmd() == JW_CMD_TATEGU_DAN ||
          jw_cmd() == JW_CMD_TATEGU_RITSU)) {
         tgp_open = 1;
@@ -1526,6 +1532,22 @@ static int td_start(int tpl)
     return 1;
 }
 
+static int td_caret_set(int id)
+{
+    td_caret = id;
+    return 1;
+}
+
+/* 作図時間の窓 (348) を閉じる。OK なら 入れた時間で影を描く */
+static void hk_time_close(int ok)
+{
+    int i = ui_tdlg_index(td_t, 1411);
+
+    td_open = 0;
+    if (ok && i >= 0 && i < TD_MAX)
+        jw_cmd_hikage_time(&drawing, td_txt[i]);
+}
+
 static int td_item_cmp(const void *a, const void *b)
 {
     return strcmp(*(const char *const *)a, *(const char *const *)b);
@@ -1674,6 +1696,10 @@ static int press_tdlg(int x, int y)
         return 1;
     if (td_tpl == 340 && (id == 1 || id == 2)) {
         bn_close(id == 1);
+        return 1;
+    }
+    if (td_tpl == 348 && (id == 1 || id == 2)) {
+        hk_time_close(id == 1);
         return 1;
     }
     if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
@@ -1923,6 +1949,10 @@ static int td_key(int c)
         za_save();
     if ((c == 13 || c == 27) && td_tpl == 340) {
         bn_close(c == 13);
+        return 1;
+    }
+    if ((c == 13 || c == 27) && td_tpl == 348) {
+        hk_time_close(c == 13);
         return 1;
     }
     if (c == 13 && td_tpl == 314) {     /* 数値入力's OK writes back */
