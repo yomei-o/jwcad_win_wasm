@@ -9,6 +9,7 @@
 
 #include "senkigou.h"
 #include "tategu.h"
+#include "cmd.h"
 
 #define SK_PI 3.14159265358979323846
 
@@ -205,6 +206,8 @@ static int parse_row(const char *line, jw_sk_row *r, double *fac, int *turn,
                 r->rgb = (unsigned int)lnums[4];
         }
     }
+    if (r->c1 >= 14000 && r->c1 < 15000)
+        cls = JW_SK_DIMROW;
     r->cls = cls;
     return cls;
 }
@@ -263,7 +266,7 @@ int jw_sk_parse(jw_senkigou *s, const char *b, long n)
         if (!in_item) {
             const char *a;
 
-            if (s->want > 0 && s->nitem >= s->want)
+            if (*p == '=')                  /* 「データの説明」から先は説明文 */
                 break;
             if (s->nitem >= JW_SK_ITEMS)
                 break;
@@ -339,7 +342,8 @@ int jw_sk_parse(jw_senkigou *s, const char *b, long n)
             case JW_SK_TEXTROW:
             case JW_SK_POINT:
             case JW_SK_SOLID: {
-                int a = r->c1 % 100, b2 = r->c2 % 100;
+                int a = r->c1 >= 300 && r->c1 < 400 ? -1 : r->c1 % 100;
+                int b2 = r->c2 >= 300 && r->c2 < 400 ? -1 : r->c2 % 100;
 
                 /* 線のときだけ制御コード 10・20 が線を指示する意味 */
                 if (r->cls == JW_SK_LINE || r->cls == JW_SK_TEXTROW ||
@@ -389,6 +393,8 @@ typedef struct {
     double rho;                 /* 弧の傾き: 線１があれば線１、なければ線２、なければ軸角 */
     int mirror;                 /* 線１と線２で作る座標が左手系 */
     double msx, msy;            /* 倍率位置から決まる倍率 */
+    jw_sk_txt *lt;              /* 前に置いた文字（呼び手の持ち物） */
+    int *cmd;                   /* ほかのコマンドの行に来たらその番号を入れる */
 } sk_ctx;
 
 static double norm_pi(double a)
@@ -406,6 +412,8 @@ static int sk_code(int c)
 {
     int k = c % 100;
 
+    if (c >= 300 && c < 400)            /* 前の文字の基準点（300 台） */
+        return c;
     return k == 11 ? 1 : k;
 }
 
@@ -418,22 +426,50 @@ static void sk_map(const sk_ctx *c, const jw_sk_item *it, int code, int is_end,
     const jw_sk_pose *p = c->p;
     double ca, sa, x = rx * kx * sg, y = ry * ky * sg;
 
+    if (code >= 300 && code < 400) {
+        /* 前に置いた文字の枠のその基準点（一の位 0 左下 1 中下 2 右下 3 左中 4 中中
+           5 右中 6 左上 7 中上 8 右上）が 座標の原点。十の位 1 は X だけ、2 は Y だけ
+           文字の基準点を使い、あとは記号の原点 */
+        const jw_sk_txt *t = c->lt;
+        int ones = code % 10, tens = code / 10 % 10;
+        double fx = (ones % 3) * 0.5, fy = (ones / 3) * 0.5;
+        double ux = 1.0, uy = 0.0, rpx = p->ox, rpy = p->oy, ex, ey;
+
+        if (t && t->valid) {
+            ux = t->ux;
+            uy = t->uy;
+            rpx = t->sx + ux * fx * t->w - uy * fy * t->h;
+            rpy = t->sy + uy * fx * t->w + ux * fy * t->h;
+        }
+        ex = rpx - p->ox;
+        ey = rpy - p->oy;
+        if (tens == 1) {                /* X だけ */
+            double along = ex * ux + ey * uy;
+
+            *wx = p->ox + ux * (along + x) - uy * y;
+            *wy = p->oy + uy * (along + x) + ux * y;
+        } else if (tens == 2) {         /* Y だけ */
+            double across = -ex * uy + ey * ux;
+
+            *wx = p->ox + ux * x - uy * (across + y);
+            *wy = p->oy + uy * x + ux * (across + y);
+        } else {
+            *wx = rpx + ux * x - uy * y;
+            *wy = rpy + uy * x + ux * y;
+        }
+        return;
+    }
     switch (code % 100) {
     case 5:
         /* 倍率位置: 指示点からの差が倍率をかけたもの */
         x = rx * c->msx * sg;
         y = ry * c->msy * sg;
         break;
-    case 6: {
-        /* 指定座標と基準点の差を、倍率位置からの差にする */
-        double ma = cos(p->axis), mb = sin(p->axis);
-        double dx = p->mx - p->ox, dy = p->my - p->oy;
-        double mxs = dx * ma + dy * mb, mys = -dx * mb + dy * ma;
-
-        x = (rx - it->mx) * kx * sg + mxs;
-        y = (ry - it->my) * ky * sg + mys;
+    case 6:
+        /* 指定座標と基準点の差を、倍率位置（基準点に倍率をかけたところ）からの差にする */
+        x = (rx - it->mx) * kx * sg + it->mx * c->msx;
+        y = (ry - it->my) * ky * sg + it->my * c->msy;
         break;
-    }
     case 1:
         *wx = p->ox + x * p->u1x - y * p->u1y;
         *wy = p->oy + x * p->u1y + y * p->u1x;
@@ -520,6 +556,8 @@ static int sk_line(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
         return 0;
     sk_map(c, it, k1, 0, r->x0, r->y0, kx, ky, sg, &ax[0], &ay[0]);
     sk_map(c, it, k2, 1, r->x1, r->y1, kx, ky, sg, &ax[1], &ay[1]);
+    if (fabs(ax[0] - ax[1]) < 1e-9 && fabs(ay[0] - ay[1]) < 1e-9)
+        return 0;                       /* 長さのない線は置かない */
     e = jw_add(d, JW_SEN);
     if (!e)
         return 0;
@@ -815,11 +853,69 @@ static int sk_solid(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
     return 1;
 }
 
+/* 寸法値記入コード: 二点の間の長さを、寸法の値の書き方で（14010 は線１の両端など） */
+static int sk_dimrow(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
+                     const jw_sk_row *r)
+{
+    const jw_sk_pose *p = c->p;
+    double kx = r->fac * p->sx * (r->real ? 1.0 / p->gscale : 1.0);
+    double ky = r->fac * p->sy * (r->real ? 1.0 / p->gscale : 1.0);
+    double sg = r->turn180 ? -1.0 : 1.0, ax[2], ay[2];
+    int n;
+
+    sk_map(c, it, sk_code(r->c1), 0, r->x0, r->y0, kx, ky, sg, &ax[0], &ay[0]);
+    sk_map(c, it, sk_code(r->c2), 1, r->x1, r->y1, kx, ky, sg, &ax[1], &ay[1]);
+    n = jw_cmd_dim_text(d, ax[0], ay[0], ax[1], ay[1]);
+    if (n > 0 && d->ndrawn > 0)
+        d->obj[d->ndrawn - 1].layer = 15;
+    return n;
+}
+
+/* 実点・点マーカー。種類は行の値だが 原典が n に何を入れるかは答えを見て決める */
+static int sk_point(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
+                    const jw_sk_row *r)
+{
+    const jw_sk_pose *p = c->p;
+    double kx = r->fac * p->sx * (r->real ? 1.0 / p->gscale : 1.0);
+    double ky = r->fac * p->sy * (r->real ? 1.0 / p->gscale : 1.0);
+    double sg = r->turn180 ? -1.0 : 1.0, wx, wy;
+    int k1 = sk_code(r->c1);
+    jw_obj *e;
+
+    if (k1 == 8 || k1 == 9)
+        return 0;
+    sk_map(c, it, k1, 0, r->x0, r->y0, kx, ky, sg, &wx, &wy);
+    e = jw_add(d, JW_TEN);
+    if (!e)
+        return 0;
+    e->d[0] = wx;
+    e->d[1] = wy;
+    /* 行の「線種」の欄は 点の色、レイヤはレイヤ（B16 の 5・2 が 色 5・レイヤ 2 になった） */
+    if (r->kind >= 1 && r->kind <= 9)
+        e->color = (unsigned short)r->kind;
+    if (r->have_layer && r->layer >= 0 && r->layer <= 15)
+        e->layer = (unsigned short)r->layer;
+    if (r->marker) {
+        e->ltype = 100;
+        e->mark = r->marker_c;
+        e->size = r->x1;
+        e->turn = r->y1 * SK_PI / 180.0;
+    }
+    return 1;
+}
+
 /* 文字入力の行か（20000・21000・25000・26000 台）。22000 台は入力をスキップした
    ときの文字で、それ自体は置かない */
 static int is_input_row(const jw_sk_row *r)
 {
-    return r->cls == JW_SK_TEXTROW && r->c1 >= 20000 && r->c1 < 22000;
+    return r->cls == JW_SK_TEXTROW &&
+           ((r->c1 >= 20000 && r->c1 < 22000) || (r->c1 >= 25000 && r->c1 < 27000));
+}
+
+/* 25000・26000 台は 打たない（NULL）と そこで以降の行を置くのをやめる */
+static int is_loop_row(const jw_sk_row *r)
+{
+    return r->c1 >= 25000 && r->c1 < 27000;
 }
 
 static int is_skip_row(const jw_sk_row *r)
@@ -827,10 +923,13 @@ static int is_skip_row(const jw_sk_row *r)
     return r->cls == JW_SK_TEXTROW && r->c1 >= 22000 && r->c1 < 23000;
 }
 
-static void sk_context(sk_ctx *c, const jw_sk_item *it, const jw_sk_pose *p)
+static void sk_context(sk_ctx *c, const jw_sk_item *it, const jw_sk_pose *p,
+                       jw_sk_txt *lt, int *cmd)
 {
     memset(c, 0, sizeof *c);
     c->p = p;
+    c->lt = lt;
+    c->cmd = cmd;
     c->rho1 = atan2(p->u1y, p->u1x);
     c->rho2 = atan2(p->u2y, p->u2x) - SK_PI / 2.0;
     c->mirror = p->have1 && p->have2 &&
@@ -863,7 +962,24 @@ static int sk_text(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
     o.text = text;
     o.font = r->font[0] ? r->font : 0;
     o.italic = r->slant;
-    return jw_tg_text(d, &o, wx, wy, 0);
+    {
+        int n = jw_tg_text(d, &o, wx, wy, 0);
+
+        if (n > 0 && c->lt && d->ndrawn > 0) {
+            const jw_obj *e = &d->obj[d->ndrawn - 1];
+            double ux = e->d[2] - e->d[0], uy = e->d[3] - e->d[1];
+            double l = sqrt(ux * ux + uy * uy);
+
+            c->lt->valid = 1;
+            c->lt->sx = e->d[0];
+            c->lt->sy = e->d[1];
+            c->lt->w = l;
+            c->lt->h = e->d[5];
+            c->lt->ux = l > 1e-9 ? ux / l : 1.0;
+            c->lt->uy = l > 1e-9 ? uy / l : 0.0;
+        }
+        return n;
+    }
 }
 
 /* 行 from から、文字入力の行か終わりまで置く。止まった行の番号（なければ n）を返す */
@@ -887,6 +1003,16 @@ static int sk_rows(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
         case JW_SK_SOLID:
             *made += sk_solid(d, c, it, r);
             break;
+        case JW_SK_POINT:
+            *made += sk_point(d, c, it, r);
+            break;
+        case JW_SK_DIMROW:
+            *made += sk_dimrow(d, c, it, r);
+            break;
+        case JW_SK_CMD:                 /* ほかのコマンドへ。残りの行はそのあと（ここでは置かない） */
+            if (c->cmd)
+                *c->cmd = r->c1;
+            return it->n;
         case JW_SK_TEXTROW:
             if (!is_skip_row(r))
                 *made += sk_text(d, c, it, r, r->text);
@@ -912,7 +1038,7 @@ int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
     r->pose = *p;
     r->item = item;
     r->hist = hist;
-    sk_context(&c, it, &r->pose);
+    sk_context(&c, it, &r->pose, &r->lt, &r->cmd);
     r->next = sk_rows(d, &c, it, s, 0, &made);
     r->active = r->next < it->n;
     return made;
@@ -977,12 +1103,17 @@ int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
     if (!r->active)
         return 0;
     row = &s->row[it->first + r->next];
-    sk_context(&c, it, &r->pose);
+    sk_context(&c, it, &r->pose, &r->lt, &r->cmd);
+    if ((!typed || !typed[0]) && is_loop_row(row)) {
+        r->active = 0;                  /* NULL: 以降の処理終了 */
+        r->next = it->n;
+        return 0;
+    }
     if (!typed || !typed[0]) {          /* 入力をスキップ: スキップの行の文字を、この行の位置に */
         char dbuf[JW_SK_TEXT];
 
         text = "";
-        if (row->c1 >= 21000) {         /* 文字変更: 変更しなければ行の文字（増分つきなら前の文字に増分） */
+        if (row->c1 >= 21000 && row->c1 < 22000) {  /* 文字変更: 変更しなければ行の文字（増分つきなら前の文字に増分） */
             snprintf(r->tmp, sizeof r->tmp, "%s",
                      sk_default(s, r, row, r->next, dbuf, sizeof dbuf));
             text = r->tmp;

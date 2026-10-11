@@ -149,7 +149,7 @@ if [ -z "$only" ] || echo " $only " | grep -q " B "; then
   [ -f decomp/res/sk_B18.jww ] || $S B18 B 18 '' 'wait:900;500,450;wait:700;700,300;wait:700;'
 fi
 if [ -z "$only" ] || echo " $only " | grep -q " B "; then
-  [ -f decomp/res/sk_B19.jww ] || $S B19 B 19 '' 'wait:900;450,400;wait:700;700,300;wait:700;'
+  [ -f decomp/res/sk_B19.jww ] || $S B19 B 19 '' 'wait:900;500,450;wait:700;700,300;wait:700;'
 fi
 if [ -z "$only" ] || echo " $only " | grep -q " B "; then
   [ -f decomp/res/sk_B20.jww ] || $S B20 B 20 '' 'wait:900;500,450;wait:700;700,300;wait:700;'

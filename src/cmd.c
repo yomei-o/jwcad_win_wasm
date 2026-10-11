@@ -9480,6 +9480,18 @@ static void sk_order(const double *p0, const double *p1, double ux, double uy,
     }
 }
 
+/* 11400（寸法）・12930（建具立面）の行まで来たら、そのコマンドに移る */
+static void sk_goto_cmd(void)
+{
+    int c = sk_run.cmd;
+
+    sk_run.cmd = 0;
+    if (c == 11400)
+        jw_cmd_set(JW_CMD_SUNPO);
+    else if (c == 12930)
+        jw_cmd_set(JW_CMD_TATEGU_RITSU);
+}
+
 /* 一つ置き終えたあと: 10000 の行があればその記号に移る（10000 なら選び直し）。
    移った先に次の指定が無ければ、最初に選んだ記号に戻る */
 static void sk_chain(const jw_senkigou *sg)
@@ -9574,6 +9586,7 @@ static int sk_place(jw_drawing *d)
         } else {
             /* 線を押してから位置: 位置の足が原点、押した点から足への向き */
             double t = (sk_px - a0[0]) * ad[0] + (sk_py - a0[1]) * ad[1];
+            double side = ad[0] * (sk_py - a0[1]) - ad[1] * (sk_px - a0[0]);
 
             p.ox = a0[0] + ad[0] * t;
             p.oy = a0[1] + ad[1] * t;
@@ -9582,6 +9595,18 @@ static int sk_place(jw_drawing *d)
             if ((sk_px - sk_c1x) * ux + (sk_py - sk_c1y) * uy < 0.0) {
                 ux = -ux;
                 uy = -uy;
+            }
+            if (it->dir75) {
+                /* 750・751: 線から位置までの距離が倍率。751 は 位置のほうへ +y が向く */
+                p.sx *= fabs(side);
+                p.sy *= fabs(side);
+                if (it->dir75 == 751) {
+                    double nx = side >= 0.0 ? -ad[1] : ad[1];
+                    double ny = side >= 0.0 ? ad[0] : -ad[0];
+
+                    ux = ny;
+                    uy = -nx;
+                }
             }
             p.u1x = ux;
             p.u1y = uy;
@@ -9629,6 +9654,7 @@ static int sk_place(jw_drawing *d)
         line_gen++;
     } else if (made > 0 || e1 >= 0)
         sk_chain(sg);
+    sk_goto_cmd();
     return made > 0 || e1 >= 0;
 }
 
@@ -10154,8 +10180,24 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
 }
 
 /* 寸法値 (1069): the value on its own, between the two points given. */
+static int sunpo_value_obj(jw_drawing *d, double x0, double y0,
+                           double x1, double y1);
+
 static void sunpo_value(jw_drawing *d, double x0, double y0,
                         double x1, double y1)
+{
+    if (sunpo_value_obj(d, x0, y0, x1, y1))
+        op_push(1);
+}
+
+/* 線記号変形の 寸法値記入コード (14***) が使う: 二点の間の寸法値を置く */
+int jw_cmd_dim_text(jw_drawing *d, double x0, double y0, double x1, double y1)
+{
+    return sunpo_value_obj(d, x0, y0, x1, y1);
+}
+
+static int sunpo_value_obj(jw_drawing *d, double x0, double y0,
+                           double x1, double y1)
 {
     double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy);
     double ux, uy, vx, vy, cw, ch, sp, tw = 0.0, mx, my;
@@ -10165,7 +10207,7 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
     jw_obj *o;
 
     if (len <= 0.0)
-        return;
+        return 0;
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
@@ -10185,7 +10227,7 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
         nch++;
     }
     if (cw <= 0.0 || ch <= 0.0 || !nch)
-        return;
+        return 0;
     ux = dx / len;
     uy = dy / len;
     vx = -uy;
@@ -10194,7 +10236,7 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
     my = (y0 + y1) / 2.0 + sun_hanare * vy;
     o = jw_add(d, JW_MOJI);
     if (!o)
-        return;
+        return 0;
     o->color = (unsigned short)d->style[i].color;
     o->ltype = 2;
     o->width = (unsigned short)((sun_decimals() << 12)
@@ -10211,7 +10253,7 @@ static void sunpo_value(jw_drawing *d, double x0, double y0,
     o->n = sun_mojino;
     o->text = jw_add_str(d, txt);
     o->face = jw_add_str(d, JW_MOJI_FACE);
-    op_push(1);
+    return 1;
 }
 
 /* 角度 (1068): the angle between two directions about an origin.
@@ -12530,6 +12572,7 @@ placed:
                 sk_step = 0;
                 sk_chain(sg);
             }
+            sk_goto_cmd();
             return;
         }
         if (sk_step == 0 && it->need_l1) {

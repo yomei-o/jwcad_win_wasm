@@ -26,6 +26,7 @@ enum {
     JW_SK_TEXTROW,              /* 文字 */
     JW_SK_POINT,                /* 実点・点マーカー */
     JW_SK_SOLID,                /* ソリッド（a1〜a7） */
+    JW_SK_DIMROW,               /* 14*** 寸法値記入コード */
     JW_SK_ORIGIN500,            /* 500 座標原点（一覧の絵のずらし） */
     JW_SK_DIR75,                /* 750・751 指示線と指示点の間隔が倍率 */
     JW_SK_MOUSE,                /* 760〜768 倍率位置を指示する */
@@ -110,6 +111,14 @@ int jw_sk_put(jw_drawing *d, const jw_senkigou *s, int item, const jw_sk_pose *p
    jw_sk_prompt が その行の文字（水色の「INPUT」など）を返し、
    jw_sk_input に打った文字（空なら 入力をスキップ）を渡すと その行を置いて
    次の入力の行の手前まで進む。返すのはどれも置いた要素の数 */
+/* 前に置いた文字の枠（制御コード 300 台の「文字の基準点」の元） */
+typedef struct {
+    int valid;
+    double sx, sy;              /* 文字の始点（左下） */
+    double ux, uy;              /* 文字の向き */
+    double w, h;                /* 長さと高さ */
+} jw_sk_txt;
+
 #define JW_SK_HIST 96
 typedef char jw_sk_hist[JW_SK_HIST][JW_SK_TEXT];   /* "数字"+増分 の行の、前に置いた文字 */
 
@@ -117,6 +126,8 @@ typedef struct {
     jw_sk_pose pose;
     int item, next, active;
     jw_sk_hist *hist;           /* 呼び手が持つ（なくてもよい） */
+    jw_sk_txt lt;               /* 前に置いた文字 */
+    int cmd;                    /* 11400・12930 の行で止まった（ほかのコマンドへ移る） */
     char tmp[JW_SK_TEXT];
 } jw_sk_run;
 

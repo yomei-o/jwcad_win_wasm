@@ -51,9 +51,11 @@ def feats(rows):
         if 20000 <= c1 < 22000 or 25000 <= c1 < 27000:
             nin += 1
         if not isarc and not issol:
-            if c1 % 100 == 10 or c2 == 10:
+            lo1 = -1 if 300 <= c1 < 400 else c1 % 100
+            lo2 = -1 if 300 <= c2 < 400 else c2
+            if lo1 == 10 or lo2 == 10:
                 need1 = 1
-            if c1 % 100 == 20 or c2 == 20:
+            if lo1 == 20 or lo2 == 20:
                 need2 = 1
     return need1, need2, mouse, nin
 

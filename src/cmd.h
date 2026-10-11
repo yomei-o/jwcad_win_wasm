@@ -101,7 +101,8 @@ const char *jw_cmd_bar_label(int id);   /* 釦の字が動くもの。無けれ�
 int  jw_cmd_kigou_need_pick(void);   /* 線記号変形: 記号の選択窓を出してほしいとき 1（読むと戻る） */
 void jw_cmd_kigou_choose(int catalog, int item);
 int  jw_cmd_kigou_catalog(void);
-int  jw_cmd_text_mode(void);          /* 文字を打つ箱が出ているとき 1 */
+int  jw_cmd_text_mode(void);
+int  jw_cmd_dim_text(jw_drawing *d, double x0, double y0, double x1, double y1);   /* 二点の間の寸法値 */          /* 文字を打つ箱が出ているとき 1 */
 int  jw_cmd_kigou_item(void);
 int  jw_cmd_tategu_catalog(void);       /* いま選んでいるもの。無ければ -1 */
 int  jw_cmd_tategu_item(void);   /* 連続線 の手前の線を図面へ */

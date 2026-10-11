@@ -5022,7 +5022,7 @@ static void tgp_thumb4(fb_t *fb, const jw_senkigou *sg, int item, int x, int y,
         for (k = 0; k < it->n; k++) {
             const jw_sk_row *r = &sg->row[it->first + k];
             int hid = r->c1 % 100 == 8 || r->c1 % 100 == 9 || r->c2 % 100 == 8;
-            unsigned int c = hid ? 0x0000c0u : 0x000000u;
+            unsigned int c = hid ? 0xc00000u : 0x000000u;
 
             if (r->cls == JW_SK_LINE) {
                 tgp_line(fb, mx + (int)((r->x0 * r->fac - cx) * sc),
@@ -5049,7 +5049,7 @@ static void tgp_thumb4(fb_t *fb, const jw_senkigou *sg, int item, int x, int y,
             } else if (r->cls == JW_SK_TEXTROW) {
                 jw_text_px(fb, mx + (int)((r->x0 * r->fac - cx) * sc),
                            my - (int)((r->y0 * r->fac - cy) * sc) - 6, r->text,
-                           hid ? 0xc0a000u : 0x000000u);
+                           hid ? 0x00a0c0u : 0x000000u);
             }
         }
     }
