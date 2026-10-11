@@ -50,7 +50,18 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        /* 文読 (1069) on the 文字 bar: the original puts up an
           ordinary 「開く」 and the port has none, so the front end
           reads the text file and hands it to app_text. */
-       JW_ACT_OPEN_TEXT };
+       JW_ACT_OPEN_TEXT,
+       /* 新規 on a drawing that has been changed since it was opened or
+          saved: nothing has been thrown away yet.  The front end asks
+          whether to, and calls app_new if the answer is yes. */
+       JW_ACT_NEW_ASK };
+
+/* Whether a 新規 or a 開く would lose something: the drawing is not as it
+   was when it was opened or last written by app_save. */
+int  app_modified(void);
+/* how many times a new, empty drawing has been started -- the front end
+   notices a 新規 it was not told about by this changing */
+int  app_new_count(void);
 
 /* The mouse.  Coordinates are client pixels; `button` is 0 for the left and
    1 for the right.  app_press returns 1 when something changed and the

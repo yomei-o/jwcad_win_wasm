@@ -480,6 +480,13 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         last = !farend && wide >= 2 && mj > 0 ? mj - 1 : mj;
         if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
             return;
+        /* A pen of two or more goes through the width table: the outermost
+         * row of a level line starts a pixel late (d01's 2 pixel pen at
+         * y=308), which the middle-shape stamp below cannot say. */
+        if (wide >= 2 && farend && !phase) {
+            stroke(fb, c, x0, y0, x1, y1, col, wide, 1);
+            return;
+        }
         for (k = 0; k <= last; k++) {
             if (bits_set(ltype, step, ppb))
                 wide_dot(fb, c, x0, y0, col, wide, xmaj);
@@ -594,7 +601,7 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
             if (m1 > m0 ? bm >= m1 : bm <= m1) {
                 bm = m1;
                 bn = n1;
-                open = phase != 0;
+                open = phase != 0 || wide >= 2;
             }
             if (xmaj)
                 stroke(fb, c, am, an, bm, bn, col, wide, open);
@@ -610,7 +617,7 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
          * bit in four) leaves the last pixel out three times in four.
          * d07's dotted rectangle was missing exactly those pixels. */
         if (!phase)
-            wide_dot(fb, c, x1, y1, col, wide, xmaj);
+            stroke(fb, c, x1, y1, x1 + 1, y1, col, wide, 1);
     }
 }
 
@@ -2742,7 +2749,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 { -2, 1 }, { 2, 1 },
                 { -1, 2 }, { 0, 2 }, { 1, 2 },
             };
-            if (o->n == 1 || !(o->flags & 0x800) || (o->flags & 0x400))
+            if (o->n != 1 && (!(o->flags & 0x800) || (o->flags & 0x400)))
                 put(fb, &v->clip, x, y, col);
             if (o->n == 1) {
                 for (k = 0; k < 11; k++)

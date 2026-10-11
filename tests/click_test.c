@@ -675,7 +675,14 @@ int main(int argc, char **argv)
     k = find_btn(57600);
     ck(k >= 0 && !jw_btn_mode[k], "新規 is an action");
     btn_mid(k, &x, &y);
-    ck(app_press(x, y, 0) == 1, "pressing it is taken");
+    /* the drawing has been changed, so the front end is asked first */
+    ck(app_modified(), "a drawing that has been drawn on is modified");
+    app_press(x, y, 0);
+    ck(app_take_action() == JW_ACT_NEW_ASK, "pressing it asks before throwing it away");
+    ck(app_drawing()->ndrawn > 0, "and nothing is thrown away yet");
+    ck(app_press(x, y, 0) == 0 && app_take_action() == JW_ACT_NEW_ASK, "still asking");
+    app_new();                                  /* the answer was yes */
+    ck(!app_modified(), "a new drawing is not modified");
     d = app_drawing();
     ck(d && d->ndrawn == 0, "and the drawing is empty again");
     ck(d && d->paper_size == 2, "an A-2 one, as the reference screen shows");

@@ -13,7 +13,7 @@
   header { padding: 6px 10px; background: #2b2b2b; border-bottom: 1px solid #000; }
   header a { color: #8cf; }
   #wrap { flex: 1; overflow: auto; }
-  canvas { display: block; image-rendering: pixelated; }
+  canvas { display: block; image-rendering: pixelated; touch-action: none; }
   #note { padding: 4px 10px; color: #999; }
 </style>
 </head>
@@ -31,9 +31,9 @@
   <button id="pdf" type="button">PDF で印刷</button>
   <button id="png" type="button">PNG で印刷</button>
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
-  <span style="color:#777">ホイールで拡大縮小、ドラッグで移動、Home で全体。</span>
+  <span style="color:#777">ホイールで拡大縮小、右ドラッグで移動、Home で全体、Ctrl+Z 戻る・Ctrl+Y 進む・Ctrl+S 保存。タッチは 指一本で位置、二本で移動・拡大縮小（二本でちょんと触れると右ボタン）。</span>
 </div>
-<script src="jwcad.js?v=12"></script>
+<script src="jwcad.js?v=13"></script>
 <script>
 (async function () {
   const canvas = document.getElementById('screen');
@@ -67,9 +67,43 @@
     present();
   }
 
-  const zoom  = mod.cwrap('jw_zoom',  null, ['number', 'number', 'number']);
-  const pan   = mod.cwrap('jw_pan',   null, ['number', 'number']);
-  const fitv  = mod.cwrap('jw_fit',   null, []);
+  const zoomNow = mod.cwrap('jw_zoom',  null, ['number', 'number', 'number']);
+  const panNow  = mod.cwrap('jw_pan',   null, ['number', 'number']);
+  // Every pan or zoom repaints the whole drawing, and on a big one that takes
+  // longer than the mouse takes to send the next event, so the picture would
+  // trail behind the hand for seconds.  Gather what arrives and do it once a
+  // frame instead: pans add up, zooms about the same point multiply.
+  let queue = [], framed = false;
+  const flush = () => {
+    framed = false;
+    const q = queue;
+    queue = [];
+    for (const o of q) {
+      if (o.pan) panNow(o.dx, o.dy);
+      else zoomNow(o.f, o.x, o.y);
+    }
+    if (q.length) present();
+  };
+  // anything that looks at the view has to see the pans and zooms before it
+  const sync = () => { if (queue.length) flush(); };
+  const press = (x, y, b) => { sync(); return pressNow(x, y, b); };
+  const move = (x, y) => { sync(); return moveNow(x, y); };
+  const command = id => { sync(); return commandNow(id); };
+  const fitv = () => { sync(); fitvNow(); };
+  const later = () => { if (!framed) { framed = true; requestAnimationFrame(flush); } };
+  const pan = (dx, dy) => {
+    const t = queue[queue.length - 1];
+    if (t && t.pan) { t.dx += dx; t.dy += dy; }
+    else queue.push({ pan: true, dx, dy });
+    later();
+  };
+  const zoom = (f, x, y) => {
+    const t = queue[queue.length - 1];
+    if (t && !t.pan && t.x === x && t.y === y) t.f *= f;
+    else queue.push({ f, x, y });
+    later();
+  };
+  const fitvNow = mod.cwrap('jw_fit',   null, []);
   const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
   const openDxf = mod.cwrap('jw_open_dxf', 'number', ['number', 'number']);
   const openSfc = mod.cwrap('jw_open_sfc', 'number', ['number', 'number']);
@@ -81,7 +115,11 @@
   const coord = mod.cwrap('jw_coord', 'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
   const error = mod.cwrap('jw_error', 'string', []);
-  const press = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
+  const pressNow = mod.cwrap('jw_press', 'number', ['number', 'number', 'number']);
+  const commandNow = mod.cwrap('jw_command', 'number', ['number']);
+  const modified = mod.cwrap('jw_modified', 'number', []);
+  const newDrawing = mod.cwrap('jw_new', null, []);
+  const newCount = mod.cwrap('jw_new_count', 'number', []);
   const key = mod.cwrap('jw_key', 'number', ['number']);
   const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
   const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
@@ -228,6 +266,29 @@
     if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Process' || e.key === 'Unidentified') return;
     if (composing) return;
+    /* The original's own keyboard shortcuts (its ACCELERATOR table, which the
+       native build gets from Windows): Ctrl+Z 戻る, Ctrl+Y 進む, Ctrl+S 保存,
+       Ctrl+O 開く, Ctrl+P 印刷, Ctrl+C/X/V, Del 消去.  Ctrl+N is the
+       browser's own and cannot be taken.  Copy, cut and paste are left to
+       the text box while one has the caret. */
+    {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      const typing = cmdid() === 0x8026 || boxfocus();
+      let id = 0;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        if (k === 'z') id = e.shiftKey ? 57644 : 57643;
+        else if (k === 'y') id = 57644;
+        else if (k === 's') id = 57603;
+        else if (k === 'o') id = 57601;
+        else if (k === 'p') id = 57607;
+        else if (!typing && k === 'c') id = 57634;
+        else if (!typing && k === 'x') id = 57635;
+        else if (!typing && k === 'v') id = 57637;
+      } else if (e.altKey && !e.ctrlKey && e.key === 'Backspace') id = 57643;
+      else if (!e.ctrlKey && !e.altKey && !e.metaKey && !typing && k === 'Delete')
+        id = e.shiftKey ? 57635 : 32794;
+      if (id) { react(command(id)); e.preventDefault(); return; }
+    }
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     /* Esc and Space belong to the command whatever is in force -- Esc lets
        go of the points taken so far and Space turns 水平・垂直 over, which
@@ -246,6 +307,13 @@
        otherwise it is looked up in that table.  Before this, everything but
        Esc and Space was dropped here unless one of those two was true, so
        the letters never arrived. */
+    /* Enter and Tab are what a dialog's OK and its next box answer to (and
+       Enter leaves a number box on the command bar).  The port takes them
+       whatever is up and ignores them when there is nothing to take them. */
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      if (key(e.key === 'Enter' ? 13 : 9)) { present(); e.preventDefault(); }
+      return;
+    }
     if (cmdid() !== 0x8026 && !boxfocus()) {
       if (e.key.length === 1 && e.key.charCodeAt(0) >= 0x20
           && e.key.charCodeAt(0) < 0x80) {
@@ -271,7 +339,7 @@
   ime.addEventListener('blur', () => {
     if (cmdid() === 0x8026) setTimeout(aim, 0);
   });
-  const move  = mod.cwrap('jw_move',  'number', ['number', 'number']);
+  const moveNow = mod.cwrap('jw_move',  'number', ['number', 'number']);
   const save      = mod.cwrap('jw_save', 'number', []);
   const saveDxf   = mod.cwrap('jw_save_dxf', 'number', []);
   const saveSfc   = mod.cwrap('jw_save_sfc', 'number', ['string']);
@@ -283,6 +351,13 @@
   // 上書 and 名前を付けて保存 both come out here: a browser cannot write
   // back to the file it was given, so it offers the result as a download.
   let openedName = 'drawing.jww';
+  let seenNew = newCount();
+  // 新規 starts a drawing with no name; the downloads should not go on
+  // carrying the name of the one that was open before it.
+  function curName() {
+    if (newCount() !== seenNew) { seenNew = newCount(); openedName = 'drawing.jww'; }
+    return openedName;
+  }
   function offer(p, name) {
     if (!p) return;
     const bytes = mod.HEAPU8.slice(p, p + savedLen());
@@ -291,11 +366,14 @@
     a.href = URL.createObjectURL(new Blob([bytes],
       { type: 'application/octet-stream' }));
     a.download = name;
+    document.body.appendChild(a);     /* some browsers ignore a link that is not in the page */
     a.click();
-    URL.revokeObjectURL(a.href);
+    // Let go of it later: taking the URL back at once can cancel the download
+    // before the browser has started reading it.
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 30000);
   }
 
-  function download() { offer(save(), openedName); }
+  function download() { offer(save(), curName()); }
 
   // 図形登録: the press that gave the 基準点 hands back 4, and the figure
   // is written out as a .jws for the browser to put somewhere.
@@ -306,25 +384,25 @@
 
   // 座標ファイル: what is picked, as the original's own text file.
   function downloadCoord() {
-    offer(saveCoord(), openedName.replace(/\.[^.]*$/, '') + '.txt');
+    offer(saveCoord(), curName().replace(/\.[^.]*$/, '') + '.txt');
   }
 
   // DXF形式で保存: the same drawing written the way the original's DXF
   // export writes it (src/dxf.c).
   function downloadDxf() {
-    offer(saveDxf(), openedName.replace(/\.[^.]*$/, '') + '.dxf');
+    offer(saveDxf(), curName().replace(/\.[^.]*$/, '') + '.dxf');
   }
 
   // SFC形式で保存 (src/sfcwrite.c).  The name it is saved under is written
   // into the file's header, so it is settled here rather than afterwards.
   function downloadSfc() {
-    const name = openedName.replace(/\.[^.]*$/, '') + '.sfc';
+    const name = curName().replace(/\.[^.]*$/, '') + '.sfc';
     offer(saveSfc(name), name);
   }
 
   // JWC形式で保存 (src/jwcwrite.c)
   function downloadJwc() {
-    offer(saveJwc(), openedName.replace(/\.[^.]*$/, '') + '.jwc');
+    offer(saveJwc(), curName().replace(/\.[^.]*$/, '') + '.jwc');
   }
 
   // 印刷: the original prints the sheet one to one, in black unless
@@ -335,13 +413,40 @@
   // src/plot.h for what the original was asked.
   function downloadPlot(asPng) {
     const ext = asPng ? '.png' : '.pdf';
-    offer(plot(asPng ? 1 : 0, 0), openedName.replace(/\.[^.]*$/, '') + ext);
+    offer(plot(asPng ? 1 : 0, 0), curName().replace(/\.[^.]*$/, '') + ext);
   }
 
   // 文読 (1069) asks for a text file; the next one picked goes to jw_text
   let askedText = false;
 
+  // What a press or a command came back asking for (see finish() in
+  // src/main_wasm.c): a file to open or write, or just a repaint.
+  function react(r) {
+    if (r === 2) document.getElementById('pick').click();
+    else if (r === 3) download();
+    else if (r === 4) downloadFig();
+    else if (r === 5) downloadCoord();
+    else if (r === 6) {
+      askedText = true;
+      document.getElementById('pick').click();
+    }
+    else if (r === 7) {
+      if (confirm('変更を保存していません。破棄して新規作成しますか？')) {
+        newDrawing();
+        curName();
+        setName('');
+        present();
+      }
+    }
+    else if (r) present();
+  }
+
   async function load(file) {
+    // a .jww replaces the drawing that is open; the other formats go into it
+    // (or hang on the cursor), which is no reason to ask
+    if (!askedText && /\.jww$/i.test(file.name) && modified()
+        && !confirm('変更を保存していません。破棄して「' + file.name + '」を開きますか？'))
+      return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     const p = mod._malloc(bytes.length);
     mod.HEAPU8.set(bytes, p);
@@ -381,7 +486,11 @@
   document.getElementById('png').addEventListener('click', () => downloadPlot(true));
 
   document.getElementById('pick').addEventListener('change', e => {
-    if (e.target.files[0]) load(e.target.files[0]);
+    const f = e.target.files[0];
+    // Without this, choosing the same file again (to go back to what was
+    // saved, say) raises no change event and nothing happens.
+    e.target.value = '';
+    if (f) load(f);
   });
   document.addEventListener('dragover', e => e.preventDefault());
   document.addEventListener('drop', e => {
@@ -395,9 +504,15 @@
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     const r = canvas.getBoundingClientRect();
-    zoom(e.deltaY < 0 ? 1.25 : 1 / 1.25,
+    // A wheel click is a step of 100 (or 3 lines); a trackpad sends dozens of
+    // small ones, a pinch sends them with ctrlKey.  Scale by how far it
+    // moved so a trackpad does not go 1.25x for every little event.
+    let dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+    if (e.ctrlKey) dy *= 4;
+    dy = Math.max(-300, Math.min(300, dy));
+    if (!dy) return;
+    zoom(Math.pow(1.25, -dy / 100),
          Math.round(e.clientX - r.left), Math.round(e.clientY - r.top));
-    present();
   }, { passive: false });
 
   // The left button belongs to the command in force -- a toolbar button
@@ -409,25 +524,45 @@
     return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
   };
   let drag = null;
-  canvas.addEventListener('pointerdown', e => {
-    const [x, y] = at(e);
-    // keep the hidden input focused so typing goes to the 文字 command, and
-    // put it where the mouse is so the IME's candidates come up there
+  // A left click: keep the hidden input focused so typing goes to the 文字
+  // command, and put it where the pointer is so the IME's candidates come up
+  // there.
+  const leftClick = (e, x, y) => {
     ime.style.left = e.clientX + 'px';
     ime.style.top = e.clientY + 'px';
     ime.focus({ preventScroll: true });
-    if (e.button === 0) {
-      const r = press(x, y, 0);
-      if (r === 2) document.getElementById('pick').click();
-      else if (r === 3) download();
-      else if (r === 4) downloadFig();
-      else if (r === 5) downloadCoord();
-      else if (r === 6) {
-        askedText = true;
-        document.getElementById('pick').click();
+    react(press(x, y, 0));
+    setTimeout(aim, 0);       /* after the browser has moved the focus */
+  };
+  // Fingers.  A touch screen has no hover and no second button, so one finger
+  // moves the cursor and the click happens where it is lifted -- the
+  // rubber band follows the finger and the point goes where it was aimed,
+  // not where it first landed.  Two fingers move the sheet and pinch zooms;
+  // two fingers tapped together are the right button.
+  const touches = new Map();
+  let gesture = null;
+  const touchPair = () => {
+    const [a, b] = [...touches.values()];
+    return { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2,
+             d: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+  };
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') {
+      const r = canvas.getBoundingClientRect();
+      touches.set(e.pointerId, { x: e.clientX - r.left, y: e.clientY - r.top,
+                                 cx: e.clientX, cy: e.clientY });
+      canvas.setPointerCapture(e.pointerId);
+      if (touches.size === 2) {
+        gesture = Object.assign(touchPair(), { moved: false, t: Date.now() });
+      } else if (touches.size === 1) {
+        const [x, y] = at(e);
+        if (move(x, y)) present();
       }
-      else if (r) present();
-      setTimeout(aim, 0);     /* after the browser has moved the focus */
+      return;
+    }
+    const [x, y] = at(e);
+    if (e.button === 0) {
+      leftClick(e, x, y);
       return;
     }
     drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY,
@@ -435,6 +570,28 @@
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', e => {
+    if (e.pointerType === 'touch') {
+      const t = touches.get(e.pointerId);
+      if (!t) return;
+      const r = canvas.getBoundingClientRect();
+      t.x = e.clientX - r.left; t.y = e.clientY - r.top;
+      t.cx = e.clientX; t.cy = e.clientY;
+      if (gesture && touches.size >= 2) {
+        const g = touchPair();
+        if (Math.abs(g.cx - gesture.cx) > 6 || Math.abs(g.cy - gesture.cy) > 6
+            || Math.abs(g.d - gesture.d) > 10) gesture.moved = true;
+        if (gesture.moved) {
+          pan(Math.round(g.cx - gesture.cx), Math.round(g.cy - gesture.cy));
+          if (Math.abs(g.d / gesture.d - 1) > 0.01)
+            zoom(g.d / gesture.d, Math.round(g.cx), Math.round(g.cy));
+          gesture.cx = g.cx; gesture.cy = g.cy; gesture.d = g.d;
+        }
+      } else if (!gesture) {
+        const [x, y] = at(e);
+        if (move(x, y)) present();
+      }
+      return;
+    }
     if (!drag) {
       const [x, y] = at(e);
       if (move(x, y)) present();
@@ -445,22 +602,56 @@
     pan(e.clientX - drag.x, e.clientY - drag.y);
     drag.x = e.clientX;
     drag.y = e.clientY;
-    present();
   });
   // A right click that did not move is a point for the command in force --
   // the "(R)" the original's status line talks about.  A right drag moves
   // the sheet, as it did before.
   canvas.addEventListener('pointerup', e => {
     setTimeout(aim, 0);
+    if (e.pointerType === 'touch') {
+      const had = touches.size;
+      const t = touches.get(e.pointerId);
+      touches.delete(e.pointerId);
+      if (!t) return;
+      if (gesture) {
+        if (touches.size === 0) {
+          const g = gesture;
+          gesture = null;
+          if (!g.moved && Date.now() - g.t < 500) {
+            const r = canvas.getBoundingClientRect();
+            react(press(Math.round(g.cx), Math.round(g.cy), 1));
+          }
+        }
+        return;
+      }
+      if (had === 1) {
+        const [x, y] = at(e);
+        leftClick(e, x, y);
+      }
+      return;
+    }
     if (drag && drag.right && !drag.moved) {
       const [x, y] = at(e);
-      if (press(x, y, 1)) present();
+      react(press(x, y, 1));
     }
+    drag = null;
+  });
+  canvas.addEventListener('pointercancel', e => {
+    touches.delete(e.pointerId);
+    if (!touches.size) gesture = null;
     drag = null;
   });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('keydown', e => {
     if (e.key === 'Home') { fitv(); present(); }
+  });
+
+  // Closing the tab or reloading throws the drawing away -- nothing is kept
+  // anywhere -- so let the browser ask first when there is something to lose.
+  window.addEventListener('beforeunload', e => {
+    if (!modified()) return;
+    e.preventDefault();
+    e.returnValue = '';
   });
 
   window.addEventListener('resize', fit);

@@ -1000,6 +1000,7 @@ typedef struct {
        is what the original does (see jw_cmd_redo). */
     jw_obj *back;
     int nback;
+    unsigned gen;               /* which step this is, for jw_cmd_edit_stamp */
 } op_t;
 
 /* Remember an element as it is now, so it can be put back. */
@@ -1029,6 +1030,7 @@ static op_t *op;
    are altogether, so op[nop .. ntop) are the ones 進む can step back
    into.  Taking a new step throws those away. */
 static int nop, ntop, cop;
+static unsigned op_serial;
 
 static void op_drop(op_t *o)
 {
@@ -1051,6 +1053,7 @@ static op_t *op_new(void)
         cop = c;
     }
     memset(&op[nop], 0, sizeof op[nop]);
+    op[nop].gen = ++op_serial;
     ntop = nop + 1;
     return &op[nop++];
 }
@@ -2780,6 +2783,16 @@ int jw_cmd_can_redo(void)
 int jw_cmd_undo_depth(void)
 {
     return nop;
+}
+
+/* Which state the drawing is in, as far as 戻る/進む can tell: 0 for the
+   untouched one, otherwise the serial number of the last step still done.
+   Two equal stamps mean the same drawing, so the front end compares it with
+   the one it took when the file was saved to know whether there is anything
+   to lose. */
+unsigned jw_cmd_edit_stamp(void)
+{
+    return nop > 0 ? op[nop - 1].gen : 0;
 }
 
 /* The drawing's elements as they stand, kept so that 進む can put them

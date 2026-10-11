@@ -189,6 +189,7 @@ void jw_cmd_undo(jw_drawing *d);
  * two lines and then three (tools/probe107.sh). */
 int  jw_cmd_can_redo(void);
 int  jw_cmd_undo_depth(void);   /* how many steps 戻る can take back */
+unsigned jw_cmd_edit_stamp(void);   /* 0 untouched; else the last step done */
 int  jw_cmd_midway(void);       /* a point down or an element picked */
 /* 戻る taken by the command itself.  It answers 1 when it took the
    press and 0 when it did not, the way each command's vtable slot 16

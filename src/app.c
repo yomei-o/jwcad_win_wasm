@@ -27,6 +27,8 @@ static int view_ready;
 static jw_drawing drawing;
 static int have_drawing;
 static int have_file;      /* 上書 is grey until there is one */
+static int new_count;          /* how many times app_new has started afresh */
+static unsigned clean_stamp;   /* jw_cmd_edit_stamp() when it was last saved */
 static int action;         /* what the front end has been asked to do */
 static const char *last_error = "";
 static unsigned char *rgba;
@@ -63,7 +65,7 @@ void app_zoom(double factor, int sx, int sy)
     view.mmpp /= factor;
     view.scale = 1.0 / view.mmpp;
     view.ox = wx - (sx - view.bx) / view.scale;
-    view.oy = wy + (view.by - sy) / view.scale;
+    view.oy = wy - (view.by - sy) / view.scale;     /* it is wy that sits at sy */
 }
 
 void app_pan(int dx, int dy)
@@ -2450,6 +2452,10 @@ int app_command(int cmd)
         zoku_open = 1;
         return 1;
     case 57600:                         /* 新規 (ID_FILE_NEW) */
+        if (app_modified()) {           /* the original asks first */
+            action = JW_ACT_NEW_ASK;
+            return 0;
+        }
         app_new();
         return 1;
     case 57601:                         /* 開く (ID_FILE_OPEN) */
@@ -2925,6 +2931,8 @@ int app_key(int c)
     }
     if (!jw_cmd_text_mode())
         return 0;
+    if (c == 9 || c == 13)      /* the box is one line: Tab and Enter are not text */
+        return 0;
     jw_cmd_key(c);
     app_paint();
     return 1;
@@ -2954,7 +2962,17 @@ int app_save(unsigned char **out, long *n)
 {
     if (!have_drawing)
         return 0;
-    return jw_write(&drawing, out, n);
+    if (!jw_write(&drawing, out, n))
+        return 0;
+    clean_stamp = jw_cmd_edit_stamp();
+    return 1;
+}
+
+/* Whether there is anything on screen that a 新規 or a 開く would throw
+   away: the drawing is not as it was when it was opened or last saved. */
+int app_modified(void)
+{
+    return have_drawing && jw_cmd_edit_stamp() != clean_stamp;
 }
 
 /* The same drawing as DXF, which is what 「DXF形式で保存」 writes. */
@@ -3102,7 +3120,15 @@ void app_new(void)
     have_file = 0;
     last_error = "";
     jw_cmd_reset();
+    clean_stamp = 0;
+    new_count++;
+    app_title("");              /* 無題 */
     app_fit();
+}
+
+int app_new_count(void)
+{
+    return new_count;
 }
 
 int app_open(const unsigned char *b, long n)
@@ -3121,6 +3147,7 @@ int app_open(const unsigned char *b, long n)
     have_file = 1;
     last_error = "";
     jw_cmd_reset();
+    clean_stamp = 0;
     app_fit();
     return 1;
 }
@@ -3142,6 +3169,7 @@ int app_open_dxf(const unsigned char *b, long n)
     have_file = 0;              /* the .dxf is not a file 上書 can write */
     last_error = "";
     jw_cmd_reset();
+    clean_stamp = ~0u;          /* read into the drawing: not what any file holds */
     app_fit();
     return 1;
 }
@@ -3161,6 +3189,7 @@ int app_open_sfc(const unsigned char *b, long n)
     have_file = 0;
     last_error = "";
     jw_cmd_reset();
+    clean_stamp = ~0u;          /* read into the drawing: not what any file holds */
     app_fit();
     return 1;
 }
@@ -3179,6 +3208,7 @@ int app_open_jwc(const unsigned char *b, long n)
     have_file = 0;
     last_error = "";
     jw_cmd_reset();
+    clean_stamp = ~0u;          /* read into the drawing: not what any file holds */
     app_fit();
     return 1;
 }

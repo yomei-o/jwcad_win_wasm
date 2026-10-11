@@ -54,7 +54,8 @@ EMSCRIPTEN_KEEPALIVE int jw_nobj(void)
 
 EMSCRIPTEN_KEEPALIVE void jw_zoom(double factor, int sx, int sy)
 {
-    app_zoom(factor, sx, sy);
+    /* the page's coordinates are the canvas's, which has the chrome on top */
+    app_zoom(factor, sx, sy - app_chrome_h());
     app_paint();
 }
 
@@ -159,6 +160,57 @@ EMSCRIPTEN_KEEPALIVE void jw_name(const unsigned short *s, int n)
     app_paint();
 }
 
+/* What a press or a command asked for.  Returns what the page has to do --
+   2 to pick a file to open, 3 to hand one back to be saved, 4 a figure, 5 a
+   coordinate file, 6 a text file to read, 7 to ask whether to throw the
+   drawing away for a 新規 -- or 1 when it only wants repainting. */
+static int finish(int redraw)
+{
+    switch (app_take_action()) {
+    case JW_ACT_OPEN:
+        return 2;
+    case JW_ACT_SAVE:
+    case JW_ACT_SAVE_AS:
+        return 3;
+    case JW_ACT_SAVE_FIG:
+        return 4;               /* 図形登録: the figure wants a name */
+    case JW_ACT_SAVE_COORD:
+        return 5;               /* 座標ファイル: so does that one */
+    case JW_ACT_OPEN_TEXT:
+        return 6;               /* 文読: a text file to read */
+    case JW_ACT_NEW_ASK:
+        return 7;               /* 新規 over changes: ask first */
+    }
+    if (redraw)
+        app_paint();
+    return redraw;
+}
+
+/* A command by id, the way a menu item or one of the original's keyboard
+   shortcuts (src/gen/accel.h) asks for it.  The page maps the keys. */
+EMSCRIPTEN_KEEPALIVE int jw_command(int id)
+{
+    return finish(app_command(id));
+}
+
+/* Whether there are changes since the drawing was opened or last saved. */
+EMSCRIPTEN_KEEPALIVE int jw_modified(void)
+{
+    return app_modified();
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_new_count(void)
+{
+    return app_new_count();
+}
+
+/* 新規 once the page has been told yes. */
+EMSCRIPTEN_KEEPALIVE void jw_new(void)
+{
+    app_new();
+    app_paint();
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
 {
     int redraw;
@@ -172,24 +224,7 @@ EMSCRIPTEN_KEEPALIVE int jw_press(int x, int y, int button)
             app_paint();
         return redraw;
     }
-    redraw = app_press(x, y, button);
-
-    switch (app_take_action()) {
-    case JW_ACT_OPEN:
-        return 2;
-    case JW_ACT_SAVE:
-    case JW_ACT_SAVE_AS:
-        return 3;
-    case JW_ACT_SAVE_FIG:
-        return 4;               /* 図形登録: the figure wants a name */
-    case JW_ACT_SAVE_COORD:
-        return 5;               /* 座標ファイル: so does that one */
-    case JW_ACT_OPEN_TEXT:
-        return 6;               /* 文読: a text file to read */
-    }
-    if (redraw)
-        app_paint();
-    return redraw;
+    return finish(app_press(x, y, button));
 }
 
 /* The drawing as a .jww, for the page to hand to the browser as a download.
