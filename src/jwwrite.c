@@ -315,7 +315,7 @@ static void w_objs(wbuf *w, const jw_drawing *d, int from, int to,
         }
         if (!seen[c]) {
             w_w(w, 0xffff);
-            w_w(w, d->schema[c] ? d->schema[c] : 700);
+            w_w(w, d->schema[c] || c < JW_3DSEN ? d->schema[c] : 700);
             w_w(w, (unsigned)strlen(CLASS_NAME[c]));
             w_raw(w, CLASS_NAME[c], (long)strlen(CLASS_NAME[c]));
             seen[c] = (*nload)++;   /* the class takes a number */
