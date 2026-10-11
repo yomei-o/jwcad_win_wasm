@@ -637,6 +637,8 @@ static double nisen_x, nisen_y;
    a box belongs to a command as well as to an id. */
 static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_25D, 1491, "10 , 0" },     /* 高さ , 奥行 */
+    { JW_CMD_HIKAGE, 1491, "10" },      /* 高さ(m) */
+    { JW_CMD_TENKU, 1491, "10" },
     { JW_CMD_SEN, 1411, "" },           /* 線の傾き */
     { JW_CMD_SEN, 1412, "" },           /* 線の寸法（長さ） */
     { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
@@ -11680,6 +11682,150 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
     }
 }
 
+/* 高さの箱の式（+ - * / と かっこ）。読めなければ 0 */
+static const char *hk_e;
+static double hk_expr(void);
+
+static double hk_atom(void)
+{
+    double v = 0.0;
+
+    while (*hk_e == ' ')
+        hk_e++;
+    if (*hk_e == '-') {
+        hk_e++;
+        return -hk_atom();
+    }
+    if (*hk_e == '+') {
+        hk_e++;
+        return hk_atom();
+    }
+    if (*hk_e == '(') {
+        hk_e++;
+        v = hk_expr();
+        while (*hk_e == ' ')
+            hk_e++;
+        if (*hk_e == ')')
+            hk_e++;
+        return v;
+    }
+    {
+        char *end;
+
+        v = strtod(hk_e, &end);
+        if (end == hk_e)
+            return 0.0;
+        hk_e = end;
+    }
+    return v;
+}
+
+static double hk_term(void)
+{
+    double v = hk_atom();
+
+    for (;;) {
+        while (*hk_e == ' ')
+            hk_e++;
+        if (*hk_e == '*') {
+            hk_e++;
+            v *= hk_atom();
+        } else if (*hk_e == '/') {
+            double r;
+
+            hk_e++;
+            r = hk_atom();
+            v = r != 0.0 ? v / r : 0.0;
+        } else
+            return v;
+    }
+}
+
+static double hk_expr(void)
+{
+    double v = hk_term();
+
+    for (;;) {
+        while (*hk_e == ' ')
+            hk_e++;
+        if (*hk_e == '+') {
+            hk_e++;
+            v += hk_term();
+        } else if (*hk_e == '-') {
+            hk_e++;
+            v -= hk_term();
+        } else
+            return v;
+    }
+}
+
+static double hk_eval(const char *t)
+{
+    hk_e = t;
+    return hk_expr();
+}
+
+/* 高さの箱 → 図面に書く文字。日影は %0.3lf（二つなら " , " でつなぐ）、
+   ２．５D は %lg と 文字（v→V h→H g t T d D）を後ろに（tools/hkprobe.sh、decomp/res/hk_a5*.jww） */
+static void hk_height_text(char *out, size_t cap, const char *box, int d25)
+{
+    char buf[96], *comma;
+    char letter = 0;
+    size_t n = 0, i;
+    double a, b;
+    int two = 0;
+
+    for (i = 0; box && box[i] && n + 2 < sizeof buf; i++) {
+        if (box[i] == '.' && box[i + 1] == '.') {
+            buf[n++] = ' ';
+            buf[n++] = ',';
+            i++;
+        } else
+            buf[n++] = box[i];
+    }
+    buf[n] = 0;
+    if (d25) {
+        char *e = buf + strlen(buf);
+
+        while (e > buf && e[-1] == ' ')
+            *--e = 0;
+        for (i = 0; buf[i] == ' '; i++)
+            ;
+        if (strchr("vVhHgGtTdD", buf[i]) && buf[i]) {
+            letter = buf[i];
+            memmove(buf, buf + i + 1, strlen(buf + i));
+        } else if (e > buf && strchr("vVhHgGtTdD", e[-1])) {
+            letter = e[-1];
+            *--e = 0;
+        }
+        if (letter == 'v')
+            letter = 'V';
+        else if (letter == 'h')
+            letter = 'H';
+        else if (letter == 'G')
+            letter = 'g';
+    }
+    comma = strchr(buf, ',');
+    if (comma) {
+        *comma = 0;
+        two = 1;
+        b = hk_eval(comma + 1);
+    } else
+        b = 0.0;
+    a = hk_eval(buf);
+    if (d25) {
+        if (two)
+            snprintf(out, cap, "%.15g , %.15g%c", a, b, letter);
+        else
+            snprintf(out, cap, "%.15g%c", a, letter);
+        if (!letter && out[strlen(out) - 1] == 0)
+            ;
+    } else if (two)
+        snprintf(out, cap, "%0.3f , %0.3f", a, b);
+    else
+        snprintf(out, cap, "%0.3f", a);
+}
+
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button);
 
@@ -11723,17 +11869,22 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 i = k;
             }
         }
-        if (current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)
-            val = "10.000";             /* 日影図は 高さ(m) だけ。p198_k1 */
-        else if (!val || !*val)
-            val = "10 , 0";
+        {
+            static char ht[96];
+
+            if (current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)
+                hk_height_text(ht, sizeof ht, val && *val ? val : "10", 0);
+            else
+                hk_height_text(ht, sizeof ht, val && *val ? val : "10 , 0", 1);
+            val = ht;
+        }
         if (i < 0 || d->obj[i].cls != JW_SEN)
             return;
         dx0 = x - d->obj[i].d[0];
         dy0 = y - d->obj[i].d[1];
         if (dx0 * dx0 + dy0 * dy0 <=
             (x - d->obj[i].d[2]) * (x - d->obj[i].d[2]) +
-            (y - d->obj[i].d[3]) * (y - d->obj[i].d[3])) {
+            (y - d->obj[i].d[3]) * (y - d->obj[i].d[3]) + 0.02) {
             ex = d->obj[i].d[0];
             ey = d->obj[i].d[1];
         } else {
@@ -11741,9 +11892,17 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             ey = d->obj[i].d[3];
         }
         for (k = 0; k < d->ndrawn; k++)
-            if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x8000) &&
+            if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x8080) &&
                 fabs(d->obj[k].d[0] - ex) < 1e-6 && fabs(d->obj[k].d[1] - ey) < 1e-6)
                 near = k;
+        if (near >= 0) {                /* 同じ端の文字は 消して 新しく（末尾に）置く */
+            op_t *rec = op_new();
+
+            erase(d, near, rec);
+            if (rec)
+                rec->n = 1;
+            near = -1;
+        }
         if (near < 0) {
             jw_obj *o = jw_add(d, JW_MOJI);
 
@@ -11767,7 +11926,28 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             d->obj[near].text = jw_add_str(d, val);
             for (q = val; *q; q++)
                 w += 1.25;              /* 半角は 文字幅の半分 */
-            d->obj[near].d[2] = ex + w;
+            {
+                /* 文字は 押した側の端から もう一方の端のほうへ 線に沿って走る（spec_hikage 1.1） */
+                const jw_obj *ln = &d->obj[i];
+                int at0 = fabs(ln->d[0] - ex) < 1e-9 && fabs(ln->d[1] - ey) < 1e-9;
+                double ox = at0 ? ln->d[2] : ln->d[0], oy = at0 ? ln->d[3] : ln->d[1];
+                double ux = ox - ex, uy = oy - ey, l = sqrt(ux * ux + uy * uy);
+
+                if (l > 1e-9) {
+                    ux /= l;
+                    uy /= l;
+                } else {
+                    ux = 1.0;
+                    uy = 0.0;
+                }
+                d->obj[near].d[2] = ex + w * ux;
+                d->obj[near].d[3] = ey + w * uy;
+                d->obj[near].d[7] = atan2(uy, ux) * 180.0 / PI;
+                if (fabs(d->obj[near].d[7]) < 1e-9)
+                    d->obj[near].d[7] = 0.0;
+                if (uy == 0.0 && ux < 0.0)
+                    d->obj[near].d[7] = -180.0;     /* 原典は -180 と書く */
+            }
         }
         return;
     }
