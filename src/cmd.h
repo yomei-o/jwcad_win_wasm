@@ -293,6 +293,7 @@ int  jw_cmd_figure_ready(void);
  * ready for jw_draw -- it borrows the figure's elements and string pool
  * and must not outlive the next call. */
 int  jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out);
+int  jw_cmd_tategu_preview(const jw_drawing *d, jw_drawing *out);   /* 建具の仮表示 */
 
 /* 座標ファイル (32895) の ファイル読込 -- the same, from the text file. */
 int  jw_cmd_coord_load(jw_drawing *d, const unsigned char *b, long n);

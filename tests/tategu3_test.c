@@ -159,6 +159,15 @@ static void run3(const case3 *k)
         jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
     if ((jw_cmd_bar_check(1324) > 0) != (k->flip_v != 0))
         jw_cmd_bar((jw_drawing *)app_drawing(), 1324);
+    {   /* ぶら下がる仮表示は 置いたものと同じ数の要素になる */
+        jw_drawing pv;
+
+        app_move(r.x + 450, r.y + 400);
+        if (!jw_cmd_tategu_preview(app_drawing(), &pv) || pv.ndrawn <= 0) {
+            printf("BAD  %s: 仮表示が出ません\n", k->name);
+            fails++;
+        }
+    }
     app_press(r.x + 450, r.y + 400, 0);
     d = app_drawing();
     for (i = 0; i < ref.ndrawn && ri < 256; i++)

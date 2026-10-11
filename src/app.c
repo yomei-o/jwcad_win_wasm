@@ -2962,6 +2962,12 @@ int app_move(int x, int y)
         if (jw_cmd_sel_box(&a, &b, &c, &e) || jw_cmd_sel_ghost(&a, &b))
             return 1;
     }
+    if (have_drawing) {             /* ぶら下がる建具も 動くたびに描き直す */
+        jw_drawing one;
+
+        if (jw_cmd_tategu_preview(&drawing, &one))
+            return 1;
+    }
     return jw_cmd_pending(have_drawing ? &drawing : 0, o,
                           JW_CMD_MAXFIG) > 0;
 }
@@ -3310,6 +3316,16 @@ void app_paint(void)
 
         if (view_ready && have_drawing
             && jw_cmd_figure_preview(&drawing, &one)) {
+            ui_view_rect(fb.w, fb.h, &view.clip);
+            jw_draw_kari = 1;
+            jw_draw(&fb, &view, &one);
+            jw_draw_kari = 0;
+        }
+    }
+    {
+        jw_drawing one;
+
+        if (view_ready && have_drawing && jw_cmd_tategu_preview(&drawing, &one)) {
             ui_view_rect(fb.w, fb.h, &view.clip);
             jw_draw_kari = 1;
             jw_draw(&fb, &view, &one);

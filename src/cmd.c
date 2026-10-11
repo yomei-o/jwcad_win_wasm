@@ -370,6 +370,7 @@ static int tg_last;                     /* 平面か断面か立面か（最後�
 static int tg_rh, tg_rv;                /* 立面の基準点: 左・中・右 / 下・中・上 */
 static int tg_ref = 4;                  /* 平面・断面の基準点（基準点選択の ○ の番号 0〜14、初めは 左内の中） */
 static int tg_need_ref;
+static jw_drawing *tg_dst;              /* 仮表示のときの置き先（なければ図面） */
 
 int jw_cmd_tategu_need_ref(void)
 {
@@ -9261,8 +9262,8 @@ static void tg_place(jw_drawing *d, double x, double y)
     p.oy = tg_ay + along * tg_uy;
     p.ux = tg_ux;
     p.uy = tg_uy;
-    made = jw_tategu_put(d, t, tg_item, &p);
-    if (made > 0)
+    made = jw_tategu_put(tg_dst ? tg_dst : d, t, tg_item, &p);
+    if (made > 0 && !tg_dst)
         op_push(made);
 }
 
@@ -9321,9 +9322,51 @@ static void tg_place3(jw_drawing *d, double x, double y)
     p.oy = y;
     p.ux = cos(ang);
     p.uy = sin(ang);
-    made = jw_tategu_put(d, t, tg_item, &p);
-    if (made > 0)
+    made = jw_tategu_put(tg_dst ? tg_dst : d, t, tg_item, &p);
+    if (made > 0 && !tg_dst)
         op_push(made);
+}
+
+/* 建具が 位置を決めるまでカーソルにぶら下がる（仮表示）。置く手前の
+   状態（立面は建具を選んだあと、平面・断面は基準線のあと）で、いまのカーソルの
+   位置に置いたとおりの要素を作って返す。out は次の呼び出しまで */
+int jw_cmd_tategu_preview(const jw_drawing *d, jw_drawing *out)
+{
+    static jw_drawing pv;
+    static int inited;
+
+    if (!d || !out || !tracking || tg_cat < 0)
+        return 0;
+    if (!(TG_IS3(current) || (TG_IS(current) && tg_step == 1)))
+        return 0;
+    if (!inited) {
+        memset(&pv, 0, sizeof pv);
+        inited = 1;
+    }
+    {
+        jw_obj *o = pv.obj;
+        int c = pv.cobj;
+        char *pl = pv.pool;
+        int cp = pv.cpool;
+
+        pv = *d;
+        pv.obj = o;
+        pv.cobj = c;
+        pv.pool = pl;
+        pv.cpool = cp;
+        pv.nobj = pv.ndrawn = 0;
+        pv.npool = 0;
+    }
+    tg_dst = &pv;
+    if (TG_IS3(current))
+        tg_place3((jw_drawing *)d, tx, ty);
+    else
+        tg_place((jw_drawing *)d, tx, ty);
+    tg_dst = 0;
+    if (pv.ndrawn <= 0)
+        return 0;
+    *out = pv;
+    return 1;
 }
 
 /* 多角形の n 本を、頂点 v0 から反時計回りに */
