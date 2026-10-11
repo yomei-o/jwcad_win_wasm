@@ -464,8 +464,19 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         static int farend = -1;
         int last;
 
-        if (farend < 0)
-            farend = getenv("JW_LINE_FAREND") != 0;
+        /* **Measured now, and the other way round from what was read.**
+         * d01's 2 and 3 pixel pens (the long level lines at y=297 and
+         * y=308) run one pixel further in the original, to the far end
+         * itself, than a walk that leaves it out for a thick pen does:
+         * 10 of d01's 11 stray pixels, and nothing else in the sixteen
+         * drawings moves.  So the far end is always in; the test in the
+         * original (`local_b0 < 2`) is evidently not about the pen's width
+         * as the port counts it.  JW_LINE_FAREND=0 puts the old reading
+         * back. */
+        if (farend < 0) {
+            const char *t = getenv("JW_LINE_FAREND");
+            farend = !(t && *t == '0');
+        }
         last = !farend && wide >= 2 && mj > 0 ? mj - 1 : mj;
         if ((outcode(c, x0, y0) & outcode(c, x1, y1)) != 0)
             return;
@@ -591,6 +602,15 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
                 stroke(fb, c, an, am, bn, bm, col, wide, open);
             i = b + 1;
         }
+        /* **The far end is always drawn.**  FUN_004bbef0 finishes a line
+         * (its flag, param_5, is 0 -- a chord of an arc gets a 1) with
+         * MoveTo(end), LineTo(end.x + 1, end.y): one pixel, whatever the
+         * pattern says there.  The walk above only reaches it when a run
+         * of set bits happens to end flush with the line; a 補助線 (one
+         * bit in four) leaves the last pixel out three times in four.
+         * d07's dotted rectangle was missing exactly those pixels. */
+        if (!phase)
+            wide_dot(fb, c, x1, y1, col, wide, xmaj);
     }
 }
 
@@ -1934,6 +1954,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     double phase = 0.0, ppb = pix_per_bit(v);
     int idx;
     double px = 0, py = 0;
+    int chord_only = 0;
 
     if (flat <= 0.0)
         flat = 1.0;
@@ -2157,8 +2178,10 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                      * which is why a short arc does not sit on the ring at
                      * all. */
                     if (!(rp > 1 && ((!same && asw > 0.1)
-                                     || (same && asw > PI))))
+                                     || (same && asw > PI)))) {
+                        chord_only = 1;
                         goto polyline;
+                    }
                     /* GDI's Arc always runs counter-clockwise, so the
                      * original hands it the two ends the other way round
                      * when the sweep is negative (FUN_00421490's
@@ -2325,6 +2348,19 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
                                   : 0.001;
         double acc, span = sweep < 0 ? -sweep : sweep;
 
+        /* **A part of a solid circle that does not go to GDI is one
+         * straight chord, not this polyline.**  The tail of FUN_00421490
+         * (after the Arc attempt) works out the two ends -- centre plus
+         * radius times (cos, sin) of the start and of the start plus the
+         * sweep -- and calls FUN_00436a20 once.  The polyline
+         * (FUN_0042e140) is only for a dashed type, a squashed ellipse or
+         * a clipped one.  It only shows for a radius of one pixel or a
+         * sweep of a half turn and the like -- sweeps of 0.2 radian or less
+         * are one chord either way -- and d09's drain symbols are exactly
+         * that: half circles and quarter fillets of radius 1.04..1.15 px
+         * that the original draws as a flat run of pixels. */
+        if (chord_only)
+            da = 4 * PI;
         if (sweep < 0)
             da = -da;
         ct = cos(tilt);
@@ -2706,7 +2742,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 { -2, 1 }, { 2, 1 },
                 { -1, 2 }, { 0, 2 }, { 1, 2 },
             };
-            put(fb, &v->clip, x, y, col);
+            if (o->n == 1 || !(o->flags & 0x800) || (o->flags & 0x400))
+                put(fb, &v->clip, x, y, col);
             if (o->n == 1) {
                 for (k = 0; k < 11; k++)
                     put(fb, &v->clip, x + RING[k][0], y + RING[k][1], col);
@@ -2718,12 +2755,14 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 put(fb, &v->clip, x, y + 1, col);
             } else if (o->flags & 0x800) {
                 /* A fourth shape, seen only in d07 (flags 0x3b00, no 0x400
-                 * bit): an L of three pixels, the one itself with the two
-                 * to its upper left.  All fourteen of that drawing's
-                 * points come out so in the original (465,211) (465,212)
-                 * (466,212) round a point at (466,212), and none of the
-                 * other fifteen sample drawings has a point with 0x800.
-                 * Keyed on that bit, which is a rule read off the sample. */
+                 * bit): two pixels one above the other, one column to the
+                 * left of the point -- (x-1,y-1) and (x-1,y), and not the
+                 * point itself (where a black line crosses one, the
+                 * original keeps the line's black).  All fourteen of that
+                 * drawing's points come out so in the original, and none
+                 * of the other fifteen sample drawings has a point with
+                 * 0x800.  Keyed on that bit, which is a rule read off the
+                 * sample. */
                 put(fb, &v->clip, x - 1, y - 1, col);
                 put(fb, &v->clip, x - 1, y, col);
             } else if ((o->flags & ~0x40u) == 0) {
