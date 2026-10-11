@@ -22,6 +22,7 @@ WANT = [
     (5309, 'the centre of a circle'),
     (5347, 'choose a fitting (tategu plan)'),
     (5478, 'the reference line, or two points (tategu plan)'),
+    (5403, 'choose an item (shadow diagram sub-bar)'),
     (5525, 'set the true north (shadow diagram)'),
     (5435, 'AUTO: a line picked -- partial erase, stretch, corner'),
     (5490, 'choose a symbol (line symbol change)'),

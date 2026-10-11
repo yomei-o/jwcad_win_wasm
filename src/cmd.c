@@ -8,6 +8,7 @@
 #include "tategu.h"
 #include "senkigou.h"
 #include "takaku.h"
+#include "hikage.h"
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
@@ -370,6 +371,8 @@ static double tg_ax, tg_ay, tg_ux, tg_uy;
 static int au_st;                       /* AUTO の線編集: 0 なし 1 線を押した 2 二点目まで */
 static void au_reset(void);
 static int hk_north;
+static int hk_sub;
+static int hk_outlines(jw_drawing *d, int half);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
 static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
@@ -639,6 +642,8 @@ static double nisen_x, nisen_y;
 static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_25D, 1491, "10 , 0" },     /* 高さ , 奥行 */
     { JW_CMD_HIKAGE, 1491, "10" },      /* 高さ(m) */
+    { JW_CMD_HIKAGE, 1492, "4" },       /* 測定高 */
+    { JW_CMD_HIKAGE, 1493, "36" },      /* 緯度 */
     { JW_CMD_TENKU, 1491, "10" },
     { JW_CMD_SEN, 1411, "" },           /* 線の傾き */
     { JW_CMD_SEN, 1412, "" },           /* 線の寸法（長さ） */
@@ -2358,6 +2363,7 @@ void jw_cmd_set(int id)
     auto_back = 0;
     au_reset();
     hk_north = 0;
+    hk_sub = 0;
     if (id == JW_CMD_KIGOU) {
         sk_cat = -1;                /* 入るたびに選び直す */
         sk_step = 0;
@@ -3150,7 +3156,7 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5519;
     case JW_CMD_HIKAGE:
     case JW_CMD_TENKU:
-        return hk_north ? JW_STR_5525 : JW_STR_5524;
+        return hk_sub ? JW_STR_5403 : hk_north ? JW_STR_5525 : JW_STR_5524;
     case JW_CMD_AUTO:
         /* 何も持っていなければ AUTO の案内、線を押したら 線編集の案内、線を引き始めたら 線の問い */
         if (au_st == 1)
@@ -8545,6 +8551,8 @@ int jw_cmd_bar_check(int id)
 {
     if (id == 1064 && TG_IS3(current))
         return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
+    if (id == 9002 && current == JW_CMD_HIKAGE)
+        return hk_sub;
     if (id == 9001 && current == JW_CMD_KIGOU)
         return sk_step == 4;        /* 文字入力のあいだの バー */
     if (id == 1146 && TG_IS(current))
@@ -8746,6 +8754,18 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_KIGOU && id == 1064) {
         sk_need_pick = 1;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && id == 1064) {
+        hk_sub = 1;                 /* 日影図: 時間の選択へ */
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_sub && id == 1121) {
+        hk_sub = 0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_sub && (id == 1065 || id == 1066)) {
+        hk_outlines(d, id == 1066);
         return 1;
     }
     if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && id == 1068) {
@@ -11740,7 +11760,15 @@ static void hk_north_set(jw_drawing *d, const jw_view *v, double x, double y,
         return;
     ux /= l;
     uy /= l;
-    ang = atan2(uy, ux) * 180.0 / PI;
+    {
+        const jw_obj *ln = &d->obj[i];
+        double a0 = atan2(ln->d[3] - ln->d[1], ln->d[2] - ln->d[0]) * 180.0 / PI;
+        int at0 = fabs(ln->d[0] - ex) < 1e-9 && fabs(ln->d[1] - ey) < 1e-9;
+
+        if (!at0)
+            a0 = a0 >= 0.0 ? a0 - 180.0 : a0 + 180.0;
+        ang = a0;
+    }
     north = ang + 90.0;
     while (north > 180.0)
         north -= 360.0;
@@ -11802,6 +11830,166 @@ static void hk_north_set(jw_drawing *d, const jw_view *v, double x, double y,
         if (rec)
             rec->n = added;
     }
+}
+
+/* 日影図の 日影の線（decomp/res/hk_b*.jww、tools/hkprobe.sh、tmp/spec_hikage の核）。
+   高さの文字（旗 0x80）が両端にある線が 建物の辺。時刻ごとに 外形の線を書く。 */
+
+static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
+                    double scale)
+{
+    int n = 0, i, k;
+
+    for (i = 0; i < d->ndrawn && n < max; i++) {
+        const jw_obj *l = &d->obj[i];
+        double h[2];
+        int found[2] = { 0, 0 };
+
+        if (l->cls != JW_SEN || l->color == 9 || l->ltype == 9)
+            continue;
+        for (k = 0; k < d->ndrawn; k++) {
+            const jw_obj *t = &d->obj[k];
+            double h1, h2;
+            int e2;
+
+            if (t->cls != JW_MOJI || !(t->flags & 0x80) || t->text < 0 ||
+                t->layer != l->layer || t->lgroup != l->lgroup)
+                continue;
+            for (e2 = 0; e2 < 2; e2++)
+                if (!found[e2] && fabs(t->d[0] - l->d[e2 * 2]) < 0.01 &&
+                    fabs(t->d[1] - l->d[e2 * 2 + 1]) < 0.01 &&
+                    hk_parse_height_text(jw_str(d, t->text), &h1, &h2) > 0) {
+                    h[e2] = h1;
+                    found[e2] = 1;
+                }
+        }
+        if (!found[0] || !found[1])
+            continue;
+        e[n].a.x = l->d[0];
+        e[n].a.y = l->d[1];
+        e[n].b.x = l->d[2];
+        e[n].b.y = l->d[3];
+        e[n].za_mm = hk_vertex_z_mm(h[0], 0.0, plane_m, scale);
+        e[n].zb_mm = hk_vertex_z_mm(h[1], 0.0, plane_m, scale);
+        n++;
+    }
+    return n;
+}
+
+/* 時間ごと（half: 30 分毎）の日影の線。作った数を返す */
+static int hk_outlines(jw_drawing *d, int half)
+{
+    static hk_edge ed[1000];
+    static hk_seg seg[400];
+    static int cs[400];
+    const char *bs;
+    double plane = 4.0, lat = 36.0, north = 0.0, hour;
+    int ne, made = 0, k, gid = 0;
+    hk_sun sun;
+    op_t *o;
+
+    bs = jw_cmd_box(1492);
+    if (bs && *bs)
+        plane = atof(bs);
+    bs = jw_cmd_box(1493);
+    if (bs && *bs)
+        lat = atof(bs);
+    for (k = 0; k < d->ndrawn; k++) {
+        if (d->obj[k].id > gid)
+            gid = d->obj[k].id;
+        if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+            d->obj[k].color == 5 && (d->obj[k].text >= 0)) {
+            const char *t = jw_str(d, d->obj[k].text);
+
+            if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
+                north = atof(t);
+        }
+    }
+    ne = hk_edges(d, ed, 1000, plane, write_scale(d));
+    if (ne < 2)
+        return 0;
+    hk_sun_init(&sun, lat, -23.45);
+    o = op_new();
+    for (hour = 8.0; hour <= 16.0 + 1e-9; hour += half ? 0.5 : 1.0) {
+        double x, y, sx, sy;
+        int ts = (int)floor((hour - 12.0) * 3600.0 + 0.5), n, j, start = 0, chain_n = 0;
+
+        hk_sun_shadow(&sun, ts, &x, &y);
+        hk_rot(x, y, north, &sx, &sy);
+        n = hk_outline(ed, ne, sx, sy, seg, cs, 400);
+        {
+            /* 建物の平面の内側にある線は 影ではない（屋根は影に含まれる）。
+               辺の集まりを 偶奇で見た「中」にある線は 外す */
+            int w2 = 0;
+
+            for (j = 0; j < n; j++) {
+                double mx = (seg[j].a.x + seg[j].b.x) / 2.0, my = (seg[j].a.y + seg[j].b.y) / 2.0;
+                int in = 0, q;
+
+                for (q = 0; q < ne; q++) {
+                    double ax = ed[q].a.x, ay = ed[q].a.y, bx = ed[q].b.x, by = ed[q].b.y;
+
+                    if ((ay > my) != (by > my) &&
+                        mx < ax + (my - ay) * (bx - ax) / (by - ay))
+                        in = !in;
+                }
+                if (!in) {
+                    if (cs[j] || (w2 > 0 && 0))
+                        ;
+                    seg[w2] = seg[j];
+                    cs[w2] = cs[j];
+                    w2++;
+                } else if (cs[j] && j + 1 < n && !cs[j + 1])
+                    cs[j + 1] = 1;      /* 鎖の頭を外したら 次が頭 */
+            }
+            n = w2;
+        }
+        gid++;
+        for (j = 0; j < n; j++) {
+            jw_obj *l = jw_add(d, JW_SEN);
+
+            if (!l)
+                break;
+            l->d[0] = seg[j].a.x;
+            l->d[1] = seg[j].a.y;
+            l->d[2] = seg[j].b.x;
+            l->d[3] = seg[j].b.y;
+            l->id = gid;
+            made++;
+            if (cs[j]) {
+                start = j;
+                chain_n = 1;
+            } else
+                chain_n++;
+            /* 一つ目の線から数えて 午前は 2 本目、午後は 3 本目に 時刻の文字 */
+            if (chain_n == hk_label_segment_index(hour)) {
+                char lab[24];
+                jw_tg_out to;
+                double wx[2], wy[2], w;
+                hk_pt a, b;
+                int nn;
+
+                hk_fmt_hour_label(lab, sizeof lab, hour);
+                w = (double)strlen(lab) * 1.0;
+                hk_label_place(seg[start + chain_n - 1].a, seg[start + chain_n - 1].b, w, &a, &b, &w);
+                wx[0] = a.x; wy[0] = a.y; wx[1] = b.x; wy[1] = b.y;
+                memset(&to, 0, sizeof to);
+                to.cls = JW_TG_TEXT_O;
+                to.kind = 1;
+                to.text = lab;
+                nn = jw_tg_text(d, &to, wx, wy, 0);
+                if (nn > 0) {
+                    d->obj[d->ndrawn - 1].id = gid;
+                    d->obj[d->ndrawn - 1].n = 0;                 /* 原典は 任意サイズ・書く色 */
+                    d->obj[d->ndrawn - 1].color = l->color;
+                }
+                made += nn;
+            }
+        }
+    }
+    if (o)
+        o->n = made;
+    return made;
 }
 
 /* 高さの箱の式（+ - * / と かっこ）。読めなければ 0 */
@@ -12090,11 +12278,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 }
                 d->obj[near].d[2] = ex + w * ux;
                 d->obj[near].d[3] = ey + w * uy;
-                d->obj[near].d[7] = atan2(uy, ux) * 180.0 / PI;
-                if (fabs(d->obj[near].d[7]) < 1e-9)
-                    d->obj[near].d[7] = 0.0;
-                if (uy == 0.0 && ux < 0.0)
-                    d->obj[near].d[7] = -180.0;     /* 原典は -180 と書く */
+                {
+                    /* 原典の角度: 線の向き p0→p1 の角度。押した端が p1 なら 180° 戻す（0 以上は −180） */
+                    double a0 = atan2(ln->d[3] - ln->d[1], ln->d[2] - ln->d[0]) * 180.0 / PI;
+
+                    if (!at0)
+                        a0 = a0 >= 0.0 ? a0 - 180.0 : a0 + 180.0;
+                    d->obj[near].d[7] = fabs(a0) < 1e-9 ? 0.0 : a0;
+                }
             }
         }
         return;
