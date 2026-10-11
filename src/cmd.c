@@ -11061,7 +11061,8 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 {
     jw_cmd_point_(d, v, x, y, button);
     if (auto_back && ((current == JW_CMD_FUKUSEN && para_step == 0) ||
-                      (current == JW_CMD_KUKEI && step == 0))) {
+                      (current == JW_CMD_KUKEI && step == 0) ||
+                      (current == JW_CMD_SHOUKYO && cut_step == 0))) {
         current = JW_CMD_AUTO;
         auto_back = 0;
     }
@@ -11087,8 +11088,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 jw_cmd_point(d, v, x, y, 0);
                 return;
             }
-            if (i >= 0 && d->obj[i].cls == JW_SEN)
+            if (i >= 0 && d->obj[i].cls == JW_SEN) {
+                /* L で線 = 線編集。いまは 部分消し（消去の左と同じ三回の押し）だけ */
+                current = JW_CMD_SHOUKYO;
+                cut_step = 0;
+                auto_back = 1;
+                jw_cmd_point(d, v, x, y, button);
                 return;
+            }
             if (button == 1 && !jw_read(d, v, x, y, &sxr, &syr)) {
                 current = JW_CMD_KUKEI;
                 step = 0;
