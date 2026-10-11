@@ -2488,7 +2488,7 @@ int jw_cmd_midway(void)
     case JW_CMD_SEKIEN:    return sek_step != 0;
     case JW_CMD_CHUSHIN:   return chu_step != 0;
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
-    case JW_CMD_KIGOU:     return sk_step >= 1 && sk_step <= 3;
+    case JW_CMD_KIGOU:     return sk_step >= 1 && sk_step <= 4;
     /* ハッチ: a circle right-clicked leaves no corners and no chain --
        only a region -- and the original takes 戻る for that too
        (CZukeiHachi slot 16 tests +0x224 and +0x228, which is the
@@ -2534,6 +2534,13 @@ int jw_cmd_midway(void)
  * have). */
 int jw_cmd_back(jw_drawing *d)
 {
+    if (current == JW_CMD_KIGOU && sk_step == 4) {
+        sk_step = 0;            /* 文字入力をやめる（置いたぶんはそのまま） */
+        sk_run.active = 0;
+        line_n = 0;
+        line_gen++;
+        return 1;
+    }
     if (current == JW_CMD_MOJI && ren_step >= 2) {
         ren_step = 1;           /* let go of the text; 連 stays on */
         tracking = 0;
