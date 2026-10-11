@@ -307,6 +307,82 @@ int main(int argc, char **argv)
                 printf("ok   %s\n", tab[k].name);
         }
     }
+    /* 読み取り: 十枚の記号の数（DAT のおわりの説明文の例を数に入れない） */
+    if (argc <= 1) {
+        static const int want[10] = { 30, 20, 16, 16, 17, 14, 13, 8, 15, 8 };
+        int f, bad = 0;
+
+        for (f = 0; f < 10; f++) {
+            const jw_senkigou *sg = jw_sk_load(jw_tgdat_index(4, f));
+
+            if (!sg || sg->nitem != want[f]) {
+                printf("BAD  JW_OPT4%c.DAT の記号 %d 件 (本当は %d)\n", 'A' + f,
+                       sg ? sg->nitem : -1, want[f]);
+                bad++;
+            }
+        }
+        if (bad)
+            fails++;
+        else
+            printf("ok   記号の数 157\n");
+    }
+    /* 選択の窓: 入るとすぐ出て、ますを押すとその記号が選ばれる */
+    if (argc <= 1) {
+        jw_tgp_layout L;
+        unsigned char *b;
+        long n;
+        rect_t r;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32869);
+        app_paint();                    /* 窓が出る */
+        ui_tgp_layout(app_fb()->w, app_fb()->h, 4, &L);
+        app_press(L.gx + L.cellw * 2 + 10, L.gy + L.cellh * 1 + 10, 0);  /* 三列目・二行目 = 7 番 */
+        if (jw_cmd_kigou_item() != 6 || jw_cmd_kigou_catalog() != jw_tgdat_index(4, 0)) {
+            printf("BAD  選択の窓: 記号 %d・ファイル %d\n", jw_cmd_kigou_item(),
+                   jw_cmd_kigou_catalog());
+            fails++;
+        } else
+            printf("ok   選択の窓\n");
+    }
+    /* ぶら下がる仮表示: 位置を決めるまで、カーソルの所に置いたとおりの要素が出る */
+    if (argc <= 1) {
+        unsigned char *b;
+        long n;
+        rect_t r;
+        static jw_drawing pv;
+        int ok1, ok2;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        clicks(&r, "300,400;800,400;");
+        app_command(32869);
+        jw_cmd_box_put(1431, "1 , 1");
+        jw_cmd_kigou_choose(jw_tgdat_index(4, 0), 9);           /* A10 高さ記号 */
+        app_move(r.x + 500, r.y + 450);
+        ok1 = jw_cmd_tategu_preview(app_drawing(), &pv) && pv.ndrawn == 3;
+        jw_cmd_kigou_choose(jw_tgdat_index(4, 0), 1);           /* A2 方位(30φ円): 線を押してから位置 */
+        app_move(r.x + 500, r.y + 470);
+        ok2 = !jw_cmd_tategu_preview(app_drawing(), &pv);       /* 線を押すまでは出ない */
+        app_press(r.x + 450, r.y + 400, 0);
+        app_move(r.x + 500, r.y + 470);
+        ok2 = ok2 && jw_cmd_tategu_preview(app_drawing(), &pv) && pv.ndrawn > 3;
+        if (!ok1 || !ok2) {
+            printf("BAD  仮表示 %d %d\n", ok1, ok2);
+            fails++;
+        } else
+            printf("ok   仮表示\n");
+    }
     if (skipped)
         printf("(答えがまだ無い %d 件)\n", skipped);
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);

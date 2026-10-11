@@ -2453,6 +2453,8 @@ void jw_cmd_escape(void)
     ten_cross = 0;
     ten_a = -1;
     sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
+    if (current == JW_CMD_KIGOU && sk_step != 4)
+        sk_step = 0;               /* 線・位置のとちゅうは捨てる（文字入力は別） */
 }
 
 /* Whether the command in force is part way through -- a point down, an
@@ -2485,6 +2487,7 @@ int jw_cmd_midway(void)
     case JW_CMD_SEKIEN:    return sek_step != 0;
     case JW_CMD_CHUSHIN:   return chu_step != 0;
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
+    case JW_CMD_KIGOU:     return sk_step >= 1 && sk_step <= 3;
     /* ハッチ: a circle right-clicked leaves no corners and no chain --
        only a region -- and the original takes 戻る for that too
        (CZukeiHachi slot 16 tests +0x224 and +0x228, which is the
@@ -9625,8 +9628,10 @@ static int sk_place(jw_drawing *d)
             p.my = sk_c1y;
         }
     }
-    if (sk_dst) {
-        made = jw_sk_put(sk_dst, sg, sk_item, &p);
+    if (sk_dst) {                       /* 仮表示: 入力の行の手前まで */
+        jw_sk_run tmp;
+
+        made = jw_sk_start(sk_dst, sg, sk_item, &p, &tmp, 0);
         return made > 0;
     }
     o = op_new();
@@ -9666,9 +9671,11 @@ int jw_cmd_tategu_preview(const jw_drawing *d, jw_drawing *out)
     static jw_drawing pv;
     static int inited;
 
-    if (!d || !out || !tracking || tg_cat < 0)
+    int kigou = current == JW_CMD_KIGOU && sk_cat >= 0;
+
+    if (!d || !out || !tracking || (tg_cat < 0 && !kigou))
         return 0;
-    if (!(TG_IS3(current) || (TG_IS(current) && tg_step == 1)))
+    if (!kigou && !(TG_IS3(current) || (TG_IS(current) && tg_step == 1)))
         return 0;
     if (!inited) {
         memset(&pv, 0, sizeof pv);
@@ -9688,12 +9695,44 @@ int jw_cmd_tategu_preview(const jw_drawing *d, jw_drawing *out)
         pv.nobj = pv.ndrawn = 0;
         pv.npool = 0;
     }
-    tg_dst = &pv;
-    if (TG_IS3(current))
-        tg_place3((jw_drawing *)d, tx, ty);
-    else
-        tg_place((jw_drawing *)d, tx, ty);
-    tg_dst = 0;
+    if (kigou) {
+        /* 線記号変形: 位置（か 倍率位置）がカーソルにあるとして、置いたとおりに */
+        const jw_senkigou *sg = jw_sk_load(sk_cat);
+        const jw_sk_item *it = sg && sk_item >= 0 && sk_item < sg->nitem
+                               ? &sg->item[sk_item] : 0;
+        double spx = sk_px, spy = sk_py, sc1x = sk_c1x, sc1y = sk_c1y;
+        int ok = 1;
+
+        if (!it)
+            return 0;
+        if (sk_step == 0 && !it->need_l1 && !it->mouse) {
+            sk_px = tx;
+            sk_py = ty;
+        } else if (sk_step == 2) {
+            sk_px = tx;
+            sk_py = ty;
+        } else if (sk_step == 3) {
+            sk_c1x = tx;
+            sk_c1y = ty;
+        } else
+            ok = 0;
+        if (ok) {
+            sk_dst = &pv;
+            sk_place((jw_drawing *)d);
+            sk_dst = 0;
+        }
+        sk_px = spx;
+        sk_py = spy;
+        sk_c1x = sc1x;
+        sk_c1y = sc1y;
+    } else {
+        tg_dst = &pv;
+        if (TG_IS3(current))
+            tg_place3((jw_drawing *)d, tx, ty);
+        else
+            tg_place((jw_drawing *)d, tx, ty);
+        tg_dst = 0;
+    }
     if (pv.ndrawn <= 0)
         return 0;
     *out = pv;

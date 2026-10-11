@@ -328,6 +328,14 @@ echo "=== 用紙サイズ —— 原典が変えた用紙との突き合わせ"
 ./tests/paper_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 建具・AUTO・２．５D・線記号変形 —— 原典に置かせた答えとの突き合わせ"
+for t in tategu2 tategu3 tategu4 auto d25 jww3d senkigou; do
+    printf '    %-10s ' $t
+    ./tests/${t}_test.exe | tail -1
+    ./tests/${t}_test.exe | grep '^BAD' | sed 's/^/        /' || true
+done
+
+echo
 echo "=== データ整理 —— 原典の重複整理・連結整理との突き合わせ"
 ./tests/seiri_test.exe | sed 's/^/    /'
 

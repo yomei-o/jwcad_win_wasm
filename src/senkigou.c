@@ -59,13 +59,22 @@ static int parse_row(const char *line, jw_sk_row *r, double *fac, int *turn,
     memset(r, 0, sizeof *r);
     r->flat = 1.0;
     while ((s = next_tok(s, tk, sizeof tk)) != 0) {
-        if (is_num_tok(tk)) {
-            if (letter[0]) {
-                if (ln < 8)
-                    lnums[ln++] = strtod(tk, 0);
-            } else if (nn < 24)
-                nums[nn++] = strtod(tk, 0);
-            continue;
+        {
+            char *ne;
+            double v = strtod(tk, &ne);
+            int glued = ne != tk && *ne && (unsigned char)*ne >= 0x80;
+
+            /* 「0　　線端を…」のように 数に 全角の説明が くっついていても 数は数 */
+            if (is_num_tok(tk) || glued) {
+                if (letter[0]) {
+                    if (ln < 8)
+                        lnums[ln++] = v;
+                } else if (nn < 24)
+                    nums[nn++] = v;
+                if (glued)
+                    break;
+                continue;
+            }
         }
         if (!letter[0] && nn >= 3 && !after_letter &&
             (((tk[0] == 'e' || tk[0] == 'E' || tk[0] == 'c' || tk[0] == 'f') && !tk[1]) ||
@@ -514,23 +523,17 @@ static void sk_map(const sk_ctx *c, const jw_sk_item *it, int code, int is_end,
 static void sk_attr(jw_obj *e, const jw_sk_row *r, const jw_sk_pose *p)
 {
     int h = r->c1 / 100 % 10;
+    const jw_obj *base = r->c1 < 10000 && h == 1 ? &p->attr1
+                       : r->c1 < 10000 && h == 2 ? &p->attr2 : 0;
 
-    if (r->c1 < 10000 && h == 1) {
-        e->color = p->attr1.color;
-        e->ltype = p->attr1.ltype;
-        e->width = p->attr1.width;
-        e->layer = p->attr1.layer;
-        e->lgroup = p->attr1.lgroup;
-        return;
+    if (base) {
+        e->color = base->color;
+        e->ltype = base->ltype;
+        e->width = base->width;
+        e->layer = base->layer;
+        e->lgroup = base->lgroup;
     }
-    if (r->c1 < 10000 && h == 2) {
-        e->color = p->attr2.color;
-        e->ltype = p->attr2.ltype;
-        e->width = p->attr2.width;
-        e->layer = p->attr2.layer;
-        e->lgroup = p->attr2.lgroup;
-        return;
-    }
+    /* 行に線色・線種があれば、それが勝つ（H04: 110 の行の「4 1」が色 4 になった） */
     if (r->have_color) {
         if (r->color > 0 && r->color <= 9)
             e->color = (unsigned short)r->color;
@@ -939,7 +942,8 @@ static void sk_context(sk_ctx *c, const jw_sk_item *it, const jw_sk_pose *p,
 
         for (k = 0; k < it->n && !(f1 && f2); k++) {
             const jw_sk_row *r = &s_rows[k];
-            double dx = r->x1 - r->x0, dy = r->y1 - r->y0;
+            double sg0 = r->turn180 ? -1.0 : 1.0;
+            double dx = (r->x1 - r->x0) * sg0, dy = (r->y1 - r->y0) * sg0;
 
             if (r->cls != JW_SK_LINE || (fabs(dx) < 1e-9 && fabs(dy) < 1e-9))
                 continue;
