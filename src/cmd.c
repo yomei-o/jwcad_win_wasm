@@ -369,6 +369,7 @@ static int tg_step;                     /* 0 基準線 1 位置、R の二点の
 static double tg_ax, tg_ay, tg_ux, tg_uy;
 static int au_st;                       /* AUTO の線編集: 0 なし 1 線を押した 2 二点目まで */
 static void au_reset(void);
+static int hk_north;
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
 static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
@@ -2356,6 +2357,7 @@ void jw_cmd_set(int id)
     }
     auto_back = 0;
     au_reset();
+    hk_north = 0;
     if (id == JW_CMD_KIGOU) {
         sk_cat = -1;                /* 入るたびに選び直す */
         sk_step = 0;
@@ -3148,7 +3150,7 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5519;
     case JW_CMD_HIKAGE:
     case JW_CMD_TENKU:
-        return JW_STR_5524;
+        return hk_north ? JW_STR_5525 : JW_STR_5524;
     case JW_CMD_AUTO:
         /* 何も持っていなければ AUTO の案内、線を押したら 線編集の案内、線を引き始めたら 線の問い */
         if (au_st == 1)
@@ -8746,6 +8748,10 @@ static int bar_press(jw_drawing *d, int id)
         sk_need_pick = 1;
         return 1;
     }
+    if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && id == 1068) {
+        hk_north = 1;               /* 真北を設定する線端部を指示 */
+        return 1;
+    }
     if (TG_IS3(current) && id == 1064) {
         tg_need_pick = 1;
         return 1;
@@ -11682,6 +11688,122 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
     }
 }
 
+/* 日影図・天空図の 真北（decomp/res/hk_a6*.jww、tools/hkprobe.sh）。線の端（矢の先）を押すと
+   その端から 線に沿って 北の角度の文字（色 5・旗 0x40）と「真北」の文字を置く。
+   北の角度 = 端から もう一方の端への向き + 90°（-180..180）。(L) は 度、(R) は 度分秒 */
+
+static void hk_north_set(jw_drawing *d, const jw_view *v, double x, double y,
+                         int button)
+{
+    int i = -1, k;
+    double best = 1e99, tol = jw_pick_tol(v), ex, ey, ox, oy, ux, uy, l, ang, north;
+    char txt[48];
+    static const char tn[] = "\x90\x5e\x96\x6b";     /* 真北 */
+    jw_obj *o;
+    op_t *rec;
+
+    for (k = 0; k < d->ndrawn; k++) {
+        const jw_obj *q = &d->obj[k];
+        double ax = q->d[0], ay = q->d[1], bx = q->d[2] - ax, by = q->d[3] - ay;
+        double l2 = bx * bx + by * by, t, px, py, e;
+
+        if (q->cls != JW_SEN)
+            continue;
+        t = l2 > 0.0 ? ((x - ax) * bx + (y - ay) * by) / l2 : 0.0;
+        t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
+        px = ax + t * bx - x;
+        py = ay + t * by - y;
+        e = sqrt(px * px + py * py);
+        if (e <= tol && e < best) {
+            best = e;
+            i = k;
+        }
+    }
+    if (i < 0)
+        return;
+    {
+        double d0 = (x - d->obj[i].d[0]) * (x - d->obj[i].d[0]) + (y - d->obj[i].d[1]) * (y - d->obj[i].d[1]);
+        double d1 = (x - d->obj[i].d[2]) * (x - d->obj[i].d[2]) + (y - d->obj[i].d[3]) * (y - d->obj[i].d[3]);
+
+        if (d0 <= d1 + 0.02) {
+            ex = d->obj[i].d[0]; ey = d->obj[i].d[1];
+            ox = d->obj[i].d[2]; oy = d->obj[i].d[3];
+        } else {
+            ex = d->obj[i].d[2]; ey = d->obj[i].d[3];
+            ox = d->obj[i].d[0]; oy = d->obj[i].d[1];
+        }
+    }
+    ux = ox - ex;
+    uy = oy - ey;
+    l = sqrt(ux * ux + uy * uy);
+    if (l < 1e-9)
+        return;
+    ux /= l;
+    uy /= l;
+    ang = atan2(uy, ux) * 180.0 / PI;
+    north = ang + 90.0;
+    while (north > 180.0)
+        north -= 360.0;
+    while (north <= -180.0)
+        north += 360.0;
+    if (button == 0) {
+        snprintf(txt, sizeof txt, "%.6f", north);
+    } else {
+        double a = fabs(floor(north * 1e6 + 0.5) / 1e6);     /* 原典は 小数 6 位に丸めた値から */
+        int deg = (int)a, mn = (int)((a - deg) * 60.0);
+        double sec = ((a - deg) * 60.0 - mn) * 60.0;
+
+        snprintf(txt, sizeof txt, "%s%d\xdf%02d'%05.2f\"", north < 0.0 ? "-" : "", deg, mn, sec);
+    }
+    rec = op_new();
+    for (k = d->ndrawn - 1; k >= 0; k--)       /* 前の真北（旗 0x40）は消す */
+        if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40))
+            erase(d, k, rec);
+    {
+        double w = 0.0, a2, c2, s2, w2 = 5.0;
+        const char *q;
+        int added = 0;
+
+        for (q = txt; *q; q++)
+            w += 1.25;
+        o = jw_add(d, JW_MOJI);
+        if (!o)
+            return;
+        o->color = 5;
+        o->ltype = 1;
+        o->flags = 0x40;
+        o->d[0] = ex;
+        o->d[1] = ey;
+        o->d[2] = ex + w * ux;
+        o->d[3] = ey + w * uy;
+        o->d[4] = o->d[5] = 2.5;
+        o->d[7] = ang;
+        o->text = jw_add_str(d, txt);
+        o->face = jw_add_str(d, JW_MOJI_FACE);
+        added++;
+        a2 = (ang + 90.0) * PI / 180.0;
+        c2 = cos(a2);
+        s2 = sin(a2);
+        o = jw_add(d, JW_MOJI);
+        if (o) {
+            o->color = 5;
+            o->ltype = 1;
+            o->flags = 0x40;
+            o->d[0] = ex - w2 / 2.0 * c2 - s2 * 1.0;
+            o->d[1] = ey - w2 / 2.0 * s2 + c2 * 1.0;
+            o->d[2] = o->d[0] + w2 * c2;
+            o->d[3] = o->d[1] + w2 * s2;
+            o->d[4] = o->d[5] = 2.5;
+            o->d[7] = ang + 90.0;
+            o->text = jw_add_str(d, tn);
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            added++;
+        }
+        if (rec)
+            rec->n = added;
+    }
+}
+
 /* 高さの箱の式（+ - * / と かっこ）。読めなければ 0 */
 static const char *hk_e;
 static double hk_expr(void);
@@ -11844,6 +11966,32 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
+    if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)
+        && !hk_north && button == 1 && d) {
+        /* (R) 高さ取得: 押した線端の文字を 高さの箱へ写す（なければ何も起きない） */
+        int k, bi = -1;
+        double best = 1e99, tol = jw_pick_tol(v);
+
+        for (k = 0; k < d->ndrawn; k++) {
+            const jw_obj *q = &d->obj[k];
+            double e;
+
+            if (q->cls != JW_MOJI || !(q->flags & 0x8080) || q->text < 0)
+                continue;
+            e = sqrt((q->d[0] - x) * (q->d[0] - x) + (q->d[1] - y) * (q->d[1] - y));
+            if (e <= tol && e < best) {
+                best = e;
+                bi = k;
+            }
+        }
+        if (bi >= 0)
+            jw_cmd_box_put(1491, jw_str(d, d->obj[bi].text));
+        return;
+    }
+    if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && hk_north && d && button <= 1) {
+        hk_north_set(d, v, x, y, button);
+        return;
+    }
     if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && button == 0 && d) {
         /* ２．５D の (L) 設定・変更: 線の端に「高さ , 奥行」の文字（色 5・旗 0x8000）を
            置く。原典の答え p197_h1。同じ端をもう一度押すと文字を置き換える */
