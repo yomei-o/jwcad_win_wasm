@@ -9972,7 +9972,7 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
         o->d[4] = e->d[5];
         o->d[5] = e->d[3];
         o->d[6] = e->d[4];
-        o->d[7] = 100.0;
+        o->d[7] = e->d[4] >= 6.283 ? 100.0 : 0.0;
         made = 1;
         if (button == 1)
             erase(d, i, rec), made++;
@@ -10012,6 +10012,24 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
                 }
             }
         }
+        /* 押した点から遠い方の端から 順にたどる（原典 p174_q1・p1）。線の向きもそれに揃える */
+        {
+            double da = hypot(sx - x, sy - y), db = hypot(ex - x, ey - y);
+
+            if (db > da) {
+                double tx = sx, ty = sy;
+                int lo, hi;
+
+                sx = ex; sy = ey;
+                ex = tx; ey = ty;
+                for (lo = 0, hi = n - 1; lo < hi; lo++, hi--) {
+                    int tc = chain[lo];
+
+                    chain[lo] = chain[hi];
+                    chain[hi] = tc;
+                }
+            }
+        }
         /* 頂点: 始点から 順に */
         {
             int m = 0;
@@ -10019,24 +10037,26 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
 
             vx[m] = cx; vy[m] = cy; m++;
             for (k = 0; k < n; k++) {
-                const jw_obj *l = &d->obj[chain[k]];
+                jw_obj *l = &d->obj[chain[k]];
 
                 if (fabs(l->d[0] - cx) < 1e-6 && fabs(l->d[1] - cy) < 1e-6) {
                     cx = l->d[2]; cy = l->d[3];
                 } else {
+                    double t0 = l->d[0], t1 = l->d[1];
+
                     cx = l->d[0]; cy = l->d[1];
+                    l->d[0] = l->d[2]; l->d[1] = l->d[3];     /* 向きを揃える */
+                    l->d[2] = t0; l->d[3] = t1;
                 }
                 vx[m] = cx; vy[m] = cy; m++;
             }
-            if (m > 2 && fabs(vx[m - 1] - vx[0]) < 1e-6 && fabs(vy[m - 1] - vy[0]) < 1e-6)
-                m--;                /* 閉じていれば 最後は 始点 */
             if (ring) {
-                for (k = 0; k + 1 < m + (m > 2 && n == m ? 1 : 0); k++) {
+                for (k = 0; k + 1 < m; k++) {
                     double px[2], py[2];
                     jw_obj *o = jw_add(d, JW_SOLID);
 
                     px[0] = vx[k]; py[0] = vy[k];
-                    px[1] = vx[(k + 1) % m]; py[1] = vy[(k + 1) % m];
+                    px[1] = vx[k + 1]; py[1] = vy[k + 1];
                     if (!o)
                         break;
                     o->d[0] = px[0]; o->d[1] = py[0];

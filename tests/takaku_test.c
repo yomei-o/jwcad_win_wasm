@@ -108,7 +108,7 @@ static void run(const char *name, int mode, const char *box, int pos,
 /* 任意 (1070): 頂点を積んで 作図 (1069)。線かソリッドか */
 /* 円・連続線指示 (1083): 下絵（円か連続線）を描き、多角形の任意で 指す。
    probe173.sh・probe174.sh の答え p173_c*.jww・p174_*.jww */
-static void run_pick(const char *name, int circle, int opt, int btn, int px, int py)
+static void run_pick(const char *name, int kind, int opt, int btn, int px, int py)
 {
     char path[96];
     jw_drawing ref;
@@ -134,10 +134,27 @@ static void run_pick(const char *name, int circle, int opt, int btn, int px, int
     }
     free(b);
     ui_view_rect(app_fb()->w, app_fb()->h, &r);
-    if (circle) {
+    if (kind == 0 || kind == 2) {
         app_command(32773);
+        if ((jw_cmd_bar_check(1318) > 0) != (kind == 2))
+            jw_cmd_bar((jw_drawing *)app_drawing(), 1318);
         app_press(r.x + 600, r.y + 400, 0);
         app_press(r.x + 800, r.y + 400, 0);
+        if (kind == 2)
+            app_press(r.x + 600, r.y + 200, 0);
+    } else if (kind == 4) {
+        static const int PC[6][2] = { {300, 300}, {500, 300}, {500, 450}, {400, 350}, {300, 450}, {300, 300} };
+
+        app_command(32883);
+        for (i = 0; i < 6; i++)
+            app_press(r.x + PC[i][0], r.y + PC[i][1], 0);
+    } else if (kind == 3) {
+        static const int P5[5][2] = { {300, 300}, {400, 250}, {500, 300}, {550, 400}, {450, 450} };
+
+        app_command(32883);
+        for (i = 0; i < 5; i++)
+            app_press(r.x + P5[i][0], r.y + P5[i][1], 0);
+        app_press(r.x + P5[4][0], r.y + P5[4][1], 1);
     } else {
         app_command(32883);
         for (i = 0; i < 3; i++)
@@ -334,12 +351,18 @@ int main(void)
         static const int C5W[5][2] = { {600,200}, {790,338}, {718,562}, {482,562}, {410,338} };
         static const int C6[6][2] = { {600,200}, {427,300}, {427,500}, {600,600}, {773,500}, {773,300} };
 
-        run_pick("p173_c1", 1, 0, 0, 800, 400);
-        run_pick("p173_c5", 1, 1326, 0, 800, 400);
-        run_pick("p174_k5", 1, 0, 1, 800, 400);
-        run_pick("p174_p1", 0, 0, 0, 450, 275);
-        run_pick("p174_p3", 0, 1326, 0, 450, 275);
-        run_pick("p174_p6", 0, 0, 1, 450, 275);
+        run_pick("p173_c1", 0, 0, 0, 800, 400);
+        run_pick("p173_c5", 0, 1326, 0, 800, 400);
+        run_pick("p174_k5", 0, 0, 1, 800, 400);
+        run_pick("p174_p1", 1, 0, 0, 450, 275);
+        run_pick("p174_p3", 1, 1326, 0, 450, 275);
+        run_pick("p174_p6", 1, 0, 1, 450, 275);
+        run_pick("p174_a1", 2, 0, 0, 800, 400);
+        run_pick("p174_a4", 2, 1326, 0, 800, 400);
+        run_pick("p174_a5", 2, 0, 1, 800, 400);
+        run_pick("p174_q1", 3, 0, 0, 450, 275);
+        run_pick("p174_q3", 3, 1326, 0, 450, 275);
+        run_pick("p174_q2", 4, 0, 0, 450, 275);
         run_any("p170_p3", 0, T3, 3, 1, 0, 0);
         run_any("p170_p4", 0, T4, 4, 1, 0, 0);
         run_any("p170_p3solid", 1, T3, 3, 1, 0, 0);

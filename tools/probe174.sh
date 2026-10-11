@@ -5,7 +5,9 @@ set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
 idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; }
 CIR='cmd:32773;600,400;800,400;wait:600;'
-ARC='cmd:32773;pb:1321;wait:300;600,400;800,400;650,200;550,200;wait:800;'
+ARC='cmd:32773;pb:1318;wait:300;600,400;800,400;600,200;wait:800;'
+POL5='cmd:32883;300,300;400,250;500,300;550,400;450,450;450,450;wait:600;'
+POLC='cmd:32883;300,300;500,300;500,450;400,350;300,450;300,300;300,300;wait:600;'
 POL='cmd:32883;300,300;400,250;500,300;500,300;wait:600;'
 run() {
     [ -n "$ONLY" ] && ! echo " $ONLY " | grep -q " $1 " && return
@@ -30,4 +32,8 @@ run p6   "${S}r450,275;pb:1069;" "$POL"
 run k2   "pb:1327;dlgoff;${S}800,400;pb:1069;" "$CIR"
 run k3   "pb:1328;dlgoff;${S}800,400;pb:1069;" "$CIR"
 run k5   "${S}r800,400;pb:1069;" "$CIR"
+run q1   "${S}450,275;pb:1069;" "$POL5"
+run q2   "${S}450,275;pb:1069;" "$POLC"
+run q3   "pb:1326;dlgoff;${S}450,275;pb:1069;" "$POL5"
+run q4   "pb:1325;dlgoff;${S}450,275;pb:1069;" "$POL5"
 idle
