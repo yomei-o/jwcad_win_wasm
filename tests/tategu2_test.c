@@ -210,6 +210,10 @@ int main(void)
     jw_tg_pose p;
 
     run_full("p185_i1", 0, 0, base());
+    for (i = 17; i <= 24; i++) {
+        snprintf(nm, sizeof nm, "p193_i%d", i);
+        run(nm, 0, i - 1, base());
+    }
     for (i = 2; i <= 16; i++) {
         snprintf(nm, sizeof nm, "p185_i%d", i);
         run(nm, 0, i - 1, base());
