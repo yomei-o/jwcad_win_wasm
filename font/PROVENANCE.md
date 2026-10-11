@@ -37,3 +37,47 @@ python tools/mkfont.py font src/gen
 ネイティブとブラウザが**同じバイト列**を持つので、両者の画面は一致します。
 姉妹リポジトリ [jwcad_dos_wasm](https://github.com/yomei-o/jwcad_dos_wasm)
 と同じファイルです。
+
+## アウトラインフォント（TrueType）
+
+画面・ブラウザの文字は、フォントが読めれば**アウトライン**で描きます
+（`src/outfont.c`、ラスタライズは `src/stb_truetype.h`）。読めない間・読めない
+ときだけ上の東雲ビットマップが描きます。ファイルは `fonts/` にあり、wasm には
+焼き込まず、ブラウザは使う分だけ `fetch()` します。ネイティブは exe の隣の
+`fonts/`（なければ `font/`、`../fonts/`、環境変数 `JW_FONTS`）から読みます。
+
+| 画面の名前 | ファイル（`fonts/`） | 元 | ライセンス |
+|---|---|---|---|
+| IPAexGothic（IPAexゴシック） | `jwsubgothic.ttf` | IPAex ゴシック Ver.004.01 | IPA Font License v1.0 |
+| IPAexMincho（IPAex明朝） | `jwsubmincho.ttf` | IPAex 明朝 Ver.004.01 | IPA Font License v1.0 |
+| BIZ UDGothic（BIZ UDゴシック） | `bizudgothic-sub.ttf` | BIZ UDGothic Regular 1.051 | SIL OFL 1.1 |
+
+| 取得元 | |
+|---|---|
+| IPAex | https://moji.or.jp/wp-content/ipafont/IPAexfont/IPAexfont00401.zip （`ipaexg.ttf` sha256 `3b9955a5…00dd`、`ipaexm.ttf` `7a306386…71c7`） |
+| BIZ UDGothic | https://github.com/googlefonts/morisawa-biz-ud-gothic （`fonts/ttf/BIZUDGothic-Regular.ttf` sha256 `7d2b48d8…92b0`、`OFL.txt`） |
+| stb_truetype.h | https://github.com/nothings/stb v1.26、**パブリックドメイン**（無改変で `src/` に置いてあります）。範囲検査をしないので、同梱のフォントにしか使いません |
+
+ライセンス本文: `IPA_Font_License_Agreement_v1.0.txt`・`Readme_IPAexfont00401.txt`
+（IPAex）、`OFL-BIZUDGothic.txt`（BIZ UD）。`fonts/` にも同じ本文を置いてあります。
+
+**サブセットです。** 図面の文字が持てるのは CP932 の字だけなので、CP932 の全文字
+（ASCII・半角カナ・JIS X 0208・NEC/IBM 拡張、約 7,500 字）だけを残し、ヒンティングと
+レイアウト表を落としました（`tools/mksubfont.py`、要 `pip install fonttools`）。
+
+```sh
+python tools/mksubfont.py ipaexg.ttf ipaexm.ttf BIZUDGothic-Regular.ttf fonts
+```
+
+IPA Font License 第 3 条 (4) は、派生プログラム（＝サブセット）にもとのフォント名
+を使うことを禁じています。そのため IPAex のサブセットは**ファイル名もフォント名も
+`JwSubGothic` / `JwSubMincho`** にしてあります（図面に書く書体名 `IPAexGothic` は
+ただのラベルです）。第 3 条 (1)(2) の「もとのプログラムに戻す手段」は、上の取得元と
+`tools/mksubfont.py` です。派生物もこの契約（本文を同梱）に従います。BIZ UD は
+予約フォント名がないのでそのままの名前です。
+
+**どの字形で描くか。** `IPAexGothic`・`IPAexMincho`・`BIZ UDGothic` の名前の文字は
+それで、**原典の書体名**は ＭＳ ゴシック・ＭＳ Ｐゴシック・名前に「ゴシック」を含む／
+不明／空 → IPAex ゴシック、「明朝」を含む → IPAex 明朝（`Ｐ` の付く名前は字ごとの
+送り幅＝プロポーショナル）。書体名の文字列は図面のまま保存します。
+

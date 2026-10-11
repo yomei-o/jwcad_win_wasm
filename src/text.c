@@ -3,6 +3,7 @@
 
 #include "text.h"
 #include "fontx.h"
+#include "outfont.h"
 #include "gen/jwfont.h"
 
 static fontx_t ank, kanji;
@@ -197,6 +198,22 @@ int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col)
  * is the box round its two ends widened by a letter's height, which covers
  * the column either way.  So this is read rather than measured, and the two
  * texts it touches are the only ones in the sixteen drawings. */
+void jw_text_run_face(fb_t *fb, const jw_view *v, const char *s,
+                      double x0, double y0, double x1, double y1,
+                      double cw, double ch, unsigned int col, int tate,
+                      const char *face, int style)
+{
+    /* A face of ours is drawn from its outline once that has arrived; the
+       original's own faces, and ours while the file is still on its way,
+       are the bitmap font as they always were. */
+    int prop, of = jw_outfont_resolve(face, &prop);
+
+    if (of >= 0 && jw_outfont_run(fb, v, of, s, x0, y0, x1, y1, cw, ch, col,
+                                  tate, style, prop))
+        return;
+    jw_text_run(fb, v, s, x0, y0, x1, y1, cw, ch, col, tate);
+}
+
 void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
                  double x0, double y0, double x1, double y1,
                  double cw, double ch, unsigned int col, int tate)

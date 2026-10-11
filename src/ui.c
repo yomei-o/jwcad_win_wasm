@@ -1791,6 +1791,9 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
             if (z->id == 2358) {
                 sprintf(t, "%d", app_moji_color());
                 jw_text_px(fb, x + 4, y + (z->h - th) / 2, t, C_BTNTEXT);
+            } else if (z->id == 1423) {
+                jw_text_px(fb, x + 4, y + (z->h - th) / 2,
+                           app_moji_font_item(app_moji_font()), C_BTNTEXT);
             }
             break;
         case JW_MJ_STATIC:
@@ -1819,16 +1822,16 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
 static void moji_drop_rect(int cw, int ch, rect_t *r)
 {
     rect_t d;
-    int i;
+    int i, id = app_moji_drop() == 2 ? 1423 : 2358;
 
     ui_moji_rect(cw, ch, &d);
     r->x = r->y = r->w = r->h = 0;
     for (i = 0; i < JW_NMOJI; i++)
-        if (jw_moji[i].id == 2358) {
+        if (jw_moji[i].id == id) {
             r->x = d.x + JW_MOJI_BORDER + jw_moji[i].x;
             r->y = d.y + JW_MOJI_CAPTION + jw_moji[i].y + jw_moji[i].h;
             r->w = jw_moji[i].w;
-            r->h = 10 * jw_text_height() + 2;
+            r->h = (id == 1423 ? app_moji_font_n() : 10) * jw_text_height() + 2;
             return;
         }
 }
@@ -1836,22 +1839,28 @@ static void moji_drop_rect(int cw, int ch, rect_t *r)
 void ui_moji_drop(fb_t *fb)
 {
     rect_t r;
-    int i, th = jw_text_height();
+    int i, th = jw_text_height(), fonts = app_moji_drop() == 2;
+    int n = fonts ? app_moji_font_n() : 10, cur;
     char t[8];
 
     moji_drop_rect(fb->w, fb->h, &r);
     if (r.w <= 0)
         return;
+    cur = fonts ? app_moji_font() : app_moji_color();
     fb_fill(fb, r.x, r.y, r.w, r.h, C_BTNHILIGHT);
     fb_edge(fb, r.x, r.y, r.w, r.h, C_3DDKSHADOW, C_3DDKSHADOW);
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < n; i++) {
         int yy = r.y + 1 + i * th;
+        const char *label = t;
 
-        if (i == app_moji_color())
+        if (i == cur)
             fb_fill(fb, r.x + 1, yy, r.w - 2, th, C_BTNSHADOW);
-        sprintf(t, "%d", i);
-        jw_text_px(fb, r.x + 4, yy, t,
-                   i == app_moji_color() ? C_BTNHILIGHT : C_BTNTEXT);
+        if (fonts)
+            label = app_moji_font_item(i);
+        else
+            sprintf(t, "%d", i);
+        jw_text_px(fb, r.x + 4, yy, label,
+                   i == cur ? C_BTNHILIGHT : C_BTNTEXT);
     }
 }
 
@@ -1865,7 +1874,8 @@ int ui_moji_drop_hit(int cw, int ch, int x, int y)
         || y >= r.y + r.h - 1)
         return -1;
     row = (y - r.y - 1) / th;
-    return row >= 0 && row < 10 ? row : -1;
+    return row >= 0 && row < (app_moji_drop() == 2 ? app_moji_font_n() : 10)
+           ? row : -1;
 }
 
 int ui_moji_hit(int cw, int ch, int x, int y)

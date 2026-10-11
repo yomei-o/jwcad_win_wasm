@@ -33,7 +33,7 @@
   <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、右ドラッグで移動、Home で全体、Ctrl+Z 戻る・Ctrl+Y 進む・Ctrl+S 保存。タッチは 指一本で位置、二本で移動・拡大縮小（二本でちょんと触れると右ボタン）。</span>
 </div>
-<script src="jwcad.js?v=13"></script>
+<script src="jwcad.js?v=14"></script>
 <script>
 (async function () {
   const canvas = document.getElementById('screen');
@@ -50,6 +50,34 @@
   const height = mod.cwrap('jw_height', 'number', []);
   const rgba   = mod.cwrap('jw_rgba',   'number', []);
 
+  // The outline fonts (IPAexゴシック・IPAex明朝・BIZ UDゴシック) are not in
+  // the wasm.  A text that names one makes the next paint ask for it
+  // (jw_font_pending); it is fetched from fonts/ once, handed over, and the
+  // drawing repainted.  Until it arrives, or if the fetch fails, the bitmap
+  // font draws the text.
+  const FONT_V = 1;
+  const fontPending = mod.cwrap('jw_font_pending', 'number', []);
+  const fontFile = mod.cwrap('jw_font_file', 'string', ['number']);
+  const fontPut = mod.cwrap('jw_font_put', 'number', ['number', 'number', 'number']);
+  const fontFail = mod.cwrap('jw_font_fail', null, ['number']);
+  const repaint = mod.cwrap('jw_repaint', null, []);
+  function pumpFonts() {
+    for (let i = fontPending(); i >= 0; i = fontPending()) {
+      const n = i;
+      fetch('fonts/' + fontFile(n) + '?v=' + FONT_V)
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+        .then(buf => {
+          const bytes = new Uint8Array(buf);
+          const p = mod._malloc(bytes.length);
+          mod.HEAPU8.set(bytes, p);
+          const ok = fontPut(p, bytes.length, n);
+          mod._free(p);
+          if (ok) { repaint(); present(); } else fontFail(n);
+        })
+        .catch(() => fontFail(n));
+    }
+  }
+
   function present() {
     const w = width(), h = height();
     canvas.width = w;
@@ -59,6 +87,7 @@
     // buffer, so it has to be taken again after every call into wasm.
     const bytes = new Uint8ClampedArray(mod.HEAPU8.buffer, p, w * h * 4);
     ctx.putImageData(new ImageData(bytes, w, h), 0, 0);
+    pumpFonts();
   }
 
   function fit() {

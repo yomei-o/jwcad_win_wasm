@@ -83,7 +83,12 @@ const char *app_moji_box(int id);
 int  app_moji_focus(void);
 /* 色No. (ComboBox 2358) and whether its list is down. */
 int  app_moji_color(void);
-int  app_moji_drop(void);
+int  app_moji_drop(void);       /* 0 none, 1 the 色No. list, 2 the フォント one */
+/* フォント (ComboBox 1423): its rows (0 is the original's default face, then
+   the outline fonts of src/outfont.h), their names in CP932, and the one set */
+int  app_moji_font(void);
+int  app_moji_font_n(void);
+const char *app_moji_font_item(int k);
 
 /* 属性選択: whether its dialog is up, and which of its boxes are ticked
    (one byte per control of src/gen/zokusel.h). */

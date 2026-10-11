@@ -2826,9 +2826,11 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 line(fb, v, jw_ux(v, ex), jw_uy(v, ey),
                      jw_ux(v, ax), jw_uy(v, ay), col, wide, 1, ppb, 0);
             } else {
-                jw_text_run(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
-                            o->d[2], o->d[3], o->d[4], o->d[5], col,
-                            (o->flags & 0x20) != 0);
+                jw_text_run_face(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
+                                 o->d[2], o->d[3], o->d[4], o->d[5], col,
+                                 (o->flags & 0x20) != 0,
+                                 o->face >= 0 ? jw_str(d, o->face) : 0,
+                                 (o->n / 10000) & 3);
             }
             break;
         case JW_BLOCK:

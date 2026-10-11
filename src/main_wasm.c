@@ -15,6 +15,7 @@
 #include "cp932.h"
 #include "cmd.h"
 #include "ui.h"
+#include "outfont.h"
 
 /* The page hands over the whole canvas; the client is what is left under
    the caption and the menu bar the port draws for it. */
@@ -27,6 +28,37 @@ EMSCRIPTEN_KEEPALIVE int jw_resize(int w, int h)
         return 0;
     app_paint();
     return 1;
+}
+
+/* The outline fonts (src/outfont.h) are not in the wasm: the page fetches
+ * the file of one the moment a drawing wants it.  After every paint it asks
+ * jw_font_pending, which answers an index once; it fetches
+ * fonts/<jw_font_file(i)>, hands the bytes to jw_font_put (or tells
+ * jw_font_fail), and calls jw_repaint so the text comes out in it.  Until
+ * then, and if the fetch fails, the bitmap font draws the text. */
+EMSCRIPTEN_KEEPALIVE int jw_font_pending(void)
+{
+    return jw_outfont_pending();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *jw_font_file(int i)
+{
+    return jw_outfont_file(i);
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_font_put(const unsigned char *b, int n, int i)
+{
+    return jw_outfont_put(i, b, n);
+}
+
+EMSCRIPTEN_KEEPALIVE void jw_font_fail(int i)
+{
+    jw_outfont_fail(i);
+}
+
+EMSCRIPTEN_KEEPALIVE void jw_repaint(void)
+{
+    app_paint();
 }
 
 EMSCRIPTEN_KEEPALIVE int jw_chrome_h(void)
@@ -413,6 +445,7 @@ int main(void)
 {
     /* the browser has no window of its own, so the port draws one */
     app_chrome(1);
+    jw_outfont_enable(1);       /* IPAex for every face, once fetched */
     app_new();
     jw_resize(1264, 741 + JW_CHROME_H);
     return 0;

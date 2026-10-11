@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "ui.h"
+#include "outfont.h"
 #include "text.h"
 #include "draw.h"
 #include "view.h"
@@ -250,6 +251,52 @@ int app_moji_color(void)
 int app_moji_drop(void)
 {
     return moji_drop;
+}
+
+/* フォント (ComboBox 1423).  The original fills it with the machine's
+ * installed faces, so there is nothing to copy; the port's list is the four
+ * faces of the MS family a drawing usually names -- which the port draws in
+ * IPAex, the gothic or the mincho, see src/outfont.h -- and then the three
+ * outline fonts by their own names.  Row 0 is ＭＳ ゴシック, the default.  OK
+ * writes the face into what new texts carry (jw_cmd_moji_face_set), and
+ * from there into the .jww exactly as spelled here. */
+static const char *const FACES[] = {
+    "\x82l\x82r \x83S\x83V\x83" "b\x83N",                  /* ＭＳ ゴシック  */
+    "\x82l\x82r \x82o\x83S\x83V\x83" "b\x83N",             /* ＭＳ Ｐゴシック */
+    "\x82l\x82r \x96\xbe\x92\xa9",                          /* ＭＳ 明朝      */
+    "\x82l\x82r \x82o\x96\xbe\x92\xa9",                     /* ＭＳ Ｐ明朝    */
+};
+#define NFACES ((int)(sizeof FACES / sizeof FACES[0]))
+
+static int moji_font;
+
+int app_moji_font(void)
+{
+    return moji_font;
+}
+
+int app_moji_font_n(void)
+{
+    return NFACES + jw_outfont_count();
+}
+
+const char *app_moji_font_item(int k)
+{
+    if (k < 0)
+        k = 0;
+    return k < NFACES ? FACES[k] : jw_outfont_name(k - NFACES);
+}
+
+static int moji_font_now(void)
+{
+    const char *f = jw_cmd_moji_face();
+    int k;
+
+    for (k = 0; k < NFACES; k++)
+        if (!strcmp(f, FACES[k]))
+            return k;
+    k = jw_outfont_find(f);
+    return k >= 0 ? NFACES + k : 0;
 }
 
 static void moji_fill(const jw_drawing *d, int style)
@@ -2192,19 +2239,28 @@ static int press_moji(int x, int y)
 {
     int id;
 
-    if (moji_drop) {                    /* the 色No. list is down */
+    if (moji_drop) {                    /* the 色No. or フォント list is down */
         int row = ui_moji_drop_hit(fb.w, fb.h, x, y);
 
-        moji_drop = 0;
-        if (row >= 0)
+        if (row >= 0 && moji_drop == 2) {
+            moji_font = row;
+            {   /* start fetching what it will be drawn with */
+                int pr, of = jw_outfont_resolve(app_moji_font_item(row), &pr);
+
+                if (of >= 0)
+                    jw_outfont_ready(of);
+            }
+        } else if (row >= 0) {
             moji_color = row;
+        }
+        moji_drop = 0;
         return 1;
     }
     id = ui_moji_hit(fb.w, fb.h, x, y);
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
-    if (id == 2358) {
-        moji_drop = 1;
+    if (id == 2358 || id == 1423) {
+        moji_drop = id == 1423 ? 2 : 1;
         return 1;
     }
     if (id == 1884) {
@@ -2237,6 +2293,7 @@ static int press_moji(int x, int y)
                 drawing.cur_style.sp = sp;
             drawing.cur_style.color = moji_color;
         }
+        jw_cmd_moji_face_set(app_moji_font_item(moji_font));
         moji_open = 0;
         moji_focus = 0;
         moji_drop = 0;
@@ -2680,6 +2737,7 @@ int app_press(int x, int y, int button)
             moji_open = 1;
             moji_focus = 0;
             moji_drop = 0;
+            moji_font = moji_font_now();
             if (have_drawing)
                 moji_color = moji_style >= 1 && moji_style <= 10
                              ? drawing.style[moji_style - 1].color
@@ -3292,6 +3350,11 @@ static void draw_drawing(void)
     h = mix(h, &jw_line_open, sizeof jw_line_open);
     h = mix(h, &jw_mm_per_bit, sizeof jw_mm_per_bit);
     h = mix(h, &jw_stretch, sizeof jw_stretch);
+    {   /* an outline font arriving changes how its texts come out */
+        int fg = jw_outfont_gen();
+
+        h = mix(h, &fg, sizeof fg);
+    }
     h = mix(h, &drawing, sizeof drawing);
     if (drawing.obj && drawing.nobj > 0)
         h = mix(h, drawing.obj, (size_t)drawing.nobj * sizeof *drawing.obj);

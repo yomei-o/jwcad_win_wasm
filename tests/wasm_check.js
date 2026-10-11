@@ -164,8 +164,69 @@ function api(mod) {
   return bad;
 }
 
+/* The outline fonts (src/outfont.c): the page fetches fonts/<file> when
+   jw_font_pending names one, and hands the bytes to jw_font_put.  Here the
+   "fetch" is a read of fonts/.  `--font out.png drawing.jww` renders the
+   drawing before and after, and the two must differ when it holds a text in
+   one of ours (tests/font_test.exe writes one: its third argument). */
+function fonts(mod, drawingPath, outPng) {
+  let bad = 0;
+  const say = function (ok, what) {
+    console.log((ok ? 'ok   ' : 'BAD  ') + what);
+    if (!ok) bad++;
+  };
+  const call = (n, t, a, v) => mod.ccall(n, t, a, v);
+  const put = function (i, bytes) {
+    const p = mod._malloc(Math.max(1, bytes.length));
+    mod.HEAPU8.set(bytes, p);
+    const r = call('jw_font_put', 'number', ['number', 'number', 'number'],
+                   [p, bytes.length, i]);
+    mod._free(p);
+    return r;
+  };
+  const w = 1264, h = 741;
+  const ch = call('jw_chrome_h', 'number', [], []);
+  call('jw_resize', 'number', ['number', 'number'], [w, h + ch]);
+  const crc = function () {
+    const p = call('jw_rgba', 'number', [], []);
+    return crc32(mod.HEAPU8.slice(p, p + w * (h + ch) * 4));
+  };
+  const bytes = fs.readFileSync(drawingPath);
+  const b = mod._malloc(bytes.length);
+  mod.HEAPU8.set(bytes, b);
+  say(call('jw_open', 'number', ['number', 'number'], [b, bytes.length]) === 1,
+      'the drawing opens');
+  mod._free(b);
+  const before = crc();
+  /* the paint asked for the fonts its texts name (the page enables outline
+     fonts for every face, so Test5's own ＭＳ ゴシック is IPAexGothic, and
+     the text this test wrote is IPAexMincho), each once */
+  const want = [];
+  for (let i = call('jw_font_pending', 'number', [], []); i >= 0;
+       i = call('jw_font_pending', 'number', [], [])) want.push(i);
+  say(want.length >= 1 && want.indexOf(1) >= 0,
+      'painting asks for the fonts the texts name (' + want + ')');
+  say(call('jw_font_pending', 'number', [], []) < 0, '  and only once');
+  say(put(want[0], new Uint8Array(100)) === 0, 'junk is refused');
+  for (const i of want) {
+    const file = call('jw_font_file', 'string', ['number'], [i]);
+    say(/\.ttf$/.test(file), '  fonts/' + file);
+    const real = fs.readFileSync(path.resolve(__dirname, '..', 'fonts', file));
+    say(put(i, real) === 1, '  the real file is taken');
+  }
+  call('jw_repaint', null, [], []);
+  const after = crc();
+  say(before !== after, 'and the text then comes out differently (outline, not bitmap)');
+  if (outPng) shot(mod, null, outPng, w, h, false);
+  return bad;
+}
+
 (async function () {
   const mod = await createJwcad();
+
+  if (process.argv[2] === '--font') {
+    process.exit(fonts(mod, process.argv[4], process.argv[3]) ? 1 : 0);
+  }
 
   if (process.argv[2] === '--api') {
     process.exit(api(mod) ? 1 : 0);

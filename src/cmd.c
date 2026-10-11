@@ -149,6 +149,29 @@ int jw_cmd_moji_bold(void)
     return moji_bold;
 }
 
+/* The face a new text is written with: what the 書込み文字種変更 dialog's
+   フォント box says, ＭＳ ゴシック until it is changed.  CP932, 47 bytes at
+   most.  Anything may be set -- a face the port has no font for is stored
+   as given and drawn with the bitmap font -- but the dialog's list holds
+   the original's own default and the outline fonts of src/outfont.h. */
+static char moji_face[48] = "\x82l\x82r \x83S\x83V\x83" "b\x83N";
+
+const char *jw_cmd_moji_face(void)
+{
+    return moji_face;
+}
+
+void jw_cmd_moji_face_set(const char *face)
+{
+    size_t n = face ? strlen(face) : 0;
+
+    if (!n || n >= sizeof moji_face) {
+        face = "\x82l\x82r \x83S\x83V\x83" "b\x83N";
+        n = strlen(face);
+    }
+    memcpy(moji_face, face, n + 1);
+}
+
 /* the typed line put in the drawing's pool, so the preview can be drawn
    without putting it there again on every mouse move */
 static int line_off = -1, line_gen, line_shown = -1;
@@ -1554,7 +1577,8 @@ static double hou_x, hou_y;
 /* The font name Jw_cad writes with a new text.  It is whatever its font box
    has, and every text in the drawings to hand has this one; the port draws
    with a bitmap font of its own and has no font list to choose from. */
-#define JW_MOJI_FACE "\x82l\x82r \x83S\x83V\x83" "b\x83N"
+#define JW_MOJI_FACE_DEFAULT "\x82l\x82r \x83S\x83V\x83" "b\x83N"
+#define JW_MOJI_FACE jw_cmd_moji_face()
 
 int jw_cmd(void)
 {

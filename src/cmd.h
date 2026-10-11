@@ -124,6 +124,9 @@ void jw_cmd_key(int c);             /* a character, or 8 for backspace */
 void jw_cmd_moji_style(int italic, int bold);
 int  jw_cmd_moji_italic(void);
 int  jw_cmd_moji_bold(void);
+/* the face a new text is written with (CP932), and setting it */
+const char *jw_cmd_moji_face(void);
+void jw_cmd_moji_face_set(const char *face);
 
 /* What an IME is still converting, shown after the line but not part of it.
    The original's box is a real edit control and shows it as a matter of
