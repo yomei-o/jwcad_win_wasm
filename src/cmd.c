@@ -3074,6 +3074,9 @@ const char *jw_cmd_prompt(void)
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
     case JW_CMD_25D:
         return JW_STR_5519;
+    case JW_CMD_HIKAGE:
+    case JW_CMD_TENKU:
+        return JW_STR_5524;
     case JW_CMD_AUTO:
         /* 何も持っていなければ AUTO の案内、線を引き始めたら 線の問い */
         return step == 0 ? JW_STR_5434 : JW_STR_5321;
@@ -11074,7 +11077,7 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
-    if (current == JW_CMD_25D && button == 0 && d) {
+    if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && button == 0 && d) {
         /* ２．５D の (L) 設定・変更: 線の端に「高さ , 奥行」の文字（色 5・旗 0x8000）を
            置く。原典の答え p197_h1。同じ端をもう一度押すと文字を置き換える */
         int i = -1, k, near = -1;
@@ -11099,7 +11102,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 i = k;
             }
         }
-        if (!val || !*val)
+        if (current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)
+            val = "10.000";             /* 日影図は 高さ(m) だけ。p198_k1 */
+        else if (!val || !*val)
             val = "10 , 0";
         if (i < 0 || d->obj[i].cls != JW_SEN)
             return;
@@ -11123,9 +11128,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
 
             if (!o)
                 return;
-            o->color = 5;
+            o->color = current == JW_CMD_HIKAGE || current == JW_CMD_TENKU ? 4 : 5;
             o->ltype = 1;
-            o->flags = 0x8000;
+            o->flags = current == JW_CMD_HIKAGE || current == JW_CMD_TENKU ? 0x80 : 0x8000;
             o->d[0] = ex;
             o->d[1] = ey;
             o->d[3] = ey;

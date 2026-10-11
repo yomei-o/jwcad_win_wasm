@@ -27,11 +27,11 @@ static unsigned char *slurp(const char *path, long *n)
     return b;
 }
 
-int main(void)
+static int run(int cmd, const char *refpath, const char *name)
 {
     long n, rn;
     unsigned char *b = slurp("decomp/res/new.jww", &n);
-    unsigned char *rb = slurp("decomp/res/p197_h1.jww", &rn);
+    unsigned char *rb = slurp(refpath, &rn);
     jw_drawing ref;
     const jw_drawing *d;
     rect_t r;
@@ -49,7 +49,7 @@ int main(void)
     app_command(32771);
     app_press(r.x + 300, r.y + 400, 0);
     app_press(r.x + 800, r.y + 400, 0);
-    app_command(32937);
+    app_command(cmd);
     app_press(r.x + 300, r.y + 400, 0);
     d = app_drawing();
     if (d->ndrawn < 2 || ref.ndrawn < 2) {
@@ -72,6 +72,16 @@ int main(void)
         printf("BAD  文字\n");
         fails++;
     }
-    printf(fails ? "SOME BAD\n" : "all ok\n");
+    printf("%-4s %s\n", fails ? "BAD" : "ok", name);
     return fails != 0;
+}
+
+int main(void)
+{
+    int bad = run(32937, "decomp/res/p197_h1.jww", "2.5D");
+
+    bad += run(32943, "decomp/res/p198_k1.jww", "hikage");
+    bad += run(32971, "decomp/res/p198_t1.jww", "tenku");
+    printf(bad ? "SOME BAD\n" : "all ok\n");
+    return bad != 0;
 }
