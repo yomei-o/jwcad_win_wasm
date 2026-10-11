@@ -101,6 +101,11 @@ typedef struct {
     int italic, bold;
 } jw_tg_out;
 
+/* 文字を一つ置く。始点・終点 (wx[0],wy[0])・(wx[1],wy[1]) が向きを決める。
+ * flags は要素の旗（建具は 0x2000、線記号は 0）。返すのは入れた数（0 か 1） */
+int jw_tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
+               const double *wy, unsigned short flags);
+
 /* 一件を、指定の 見込・枠幅・内法 で伸ばして並べます。
  *
  * 座標の原点は**ブロック①の原点**（左の枠幅と内法の境目）で、

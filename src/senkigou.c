@@ -639,37 +639,144 @@ static void sk_mouse(const jw_sk_item *it, const jw_sk_pose *p, double *sx,
     *sy = fy;
 }
 
-int jw_sk_put(jw_drawing *d, const jw_senkigou *s, int item, const jw_sk_pose *p)
+/* 文字入力の行か（20000・21000・25000・26000 台）。22000 台は入力をスキップした
+   ときの文字で、それ自体は置かない */
+static int is_input_row(const jw_sk_row *r)
 {
-    const jw_sk_item *it;
-    sk_ctx c;
-    int k, made = 0;
+    return r->cls == JW_SK_TEXTROW && r->c1 >= 20000 && r->c1 < 22000;
+}
 
-    if (!d || !s || item < 0 || item >= s->nitem)
-        return 0;
-    it = &s->item[item];
-    memset(&c, 0, sizeof c);
-    c.p = p;
-    c.rho1 = atan2(p->u1y, p->u1x);
-    c.rho2 = atan2(p->u2y, p->u2x) - SK_PI / 2.0;
-    c.mirror = p->have1 && p->have2 &&
-               p->u1x * p->u2y - p->u1y * p->u2x < 0.0;
-    c.msx = c.msy = 1.0;
+static int is_skip_row(const jw_sk_row *r)
+{
+    return r->cls == JW_SK_TEXTROW && r->c1 >= 22000 && r->c1 < 23000;
+}
+
+static void sk_context(sk_ctx *c, const jw_sk_item *it, const jw_sk_pose *p)
+{
+    memset(c, 0, sizeof *c);
+    c->p = p;
+    c->rho1 = atan2(p->u1y, p->u1x);
+    c->rho2 = atan2(p->u2y, p->u2x) - SK_PI / 2.0;
+    c->mirror = p->have1 && p->have2 &&
+                p->u1x * p->u2y - p->u1y * p->u2x < 0.0;
+    c->msx = c->msy = 1.0;
     if (it->mouse && p->have_m)
-        sk_mouse(it, p, &c.msx, &c.msy);
-    for (k = 0; k < it->n; k++) {
+        sk_mouse(it, p, &c->msx, &c->msy);
+}
+
+/* 文字の行。text は置く文字（行の文字ではなく、打った文字・スキップの文字） */
+static int sk_text(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
+                   const jw_sk_row *r, const char *text)
+{
+    const jw_sk_pose *p = c->p;
+    double kx = r->fac * p->sx * (r->real ? 1.0 / p->gscale : 1.0);
+    double ky = r->fac * p->sy * (r->real ? 1.0 / p->gscale : 1.0);
+    double sg = r->turn180 ? -1.0 : 1.0;
+    int k1 = sk_code(r->c1), k2 = sk_code(r->c2);
+    double wx[2], wy[2];
+    jw_tg_out o;
+
+    if (!text || !text[0] || k1 == 8 || k1 == 9)
+        return 0;
+    sk_map(c, it, k1, 0, r->x0, r->y0, kx, ky, sg, &wx[0], &wy[0]);
+    sk_map(c, it, k2, 1, r->x1, r->y1, kx, ky, sg, &wx[1], &wy[1]);
+    memset(&o, 0, sizeof o);
+    o.cls = JW_TG_TEXT_O;
+    o.kind = r->kind;
+    o.text = text;
+    o.font = r->font[0] ? r->font : 0;
+    o.italic = r->slant;
+    return jw_tg_text(d, &o, wx, wy, 0);
+}
+
+/* 行 from から、文字入力の行か終わりまで置く。止まった行の番号（なければ n）を返す */
+static int sk_rows(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
+                   const jw_senkigou *s, int from, int *made)
+{
+    int k;
+
+    for (k = from; k < it->n; k++) {
         const jw_sk_row *r = &s->row[it->first + k];
 
+        if (is_input_row(r))
+            return k;
         switch (r->cls) {
         case JW_SK_LINE:
-            made += sk_line(d, &c, it, r);
+            *made += sk_line(d, c, it, r);
             break;
         case JW_SK_ARC:
-            made += sk_arc(d, &c, it, r);
+            *made += sk_arc(d, c, it, r);
+            break;
+        case JW_SK_TEXTROW:
+            if (!is_skip_row(r))
+                *made += sk_text(d, c, it, r, r->text);
             break;
         default:
             break;
         }
     }
+    return it->n;
+}
+
+int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
+                const jw_sk_pose *p, jw_sk_run *r)
+{
+    const jw_sk_item *it;
+    sk_ctx c;
+    int made = 0;
+
+    memset(r, 0, sizeof *r);
+    if (!d || !s || item < 0 || item >= s->nitem)
+        return 0;
+    it = &s->item[item];
+    r->pose = *p;
+    r->item = item;
+    sk_context(&c, it, &r->pose);
+    r->next = sk_rows(d, &c, it, s, 0, &made);
+    r->active = r->next < it->n;
+    return made;
+}
+
+const char *jw_sk_prompt(const jw_senkigou *s, const jw_sk_run *r)
+{
+    const jw_sk_item *it = &s->item[r->item];
+
+    return r->active ? s->row[it->first + r->next].text : "";
+}
+
+int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
+                const char *typed)
+{
+    const jw_sk_item *it = &s->item[r->item];
+    const jw_sk_row *row;
+    sk_ctx c;
+    int made = 0, k;
+    const char *text = typed;
+
+    if (!r->active)
+        return 0;
+    row = &s->row[it->first + r->next];
+    sk_context(&c, it, &r->pose);
+    if (!typed || !typed[0]) {          /* 入力をスキップ: スキップの行の文字を、この行の位置に */
+        text = "";
+        for (k = 0; k < it->n; k++)
+            if (is_skip_row(&s->row[it->first + k])) {
+                text = s->row[it->first + k].text;
+                break;
+            }
+    }
+    made += sk_text(d, &c, it, row, text);
+    r->next = sk_rows(d, &c, it, s, r->next + 1, &made);
+    r->active = r->next < it->n;
+    return made;
+}
+
+int jw_sk_put(jw_drawing *d, const jw_senkigou *s, int item, const jw_sk_pose *p)
+{
+    jw_sk_run r;
+    int made = jw_sk_start(d, s, item, p, &r);
+
+    while (r.active)
+        made += jw_sk_input(d, s, &r, "");
     return made;
 }

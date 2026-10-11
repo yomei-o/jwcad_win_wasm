@@ -4401,10 +4401,13 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                            lab ? lab : c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
             }
             break;
-        case JW_CTL_STATIC:
-            jw_text_px(fb, c[i].x, c[i].y + (c[i].h - th) / 2, c[i].text,
-                       en ? C_BTNTEXT : C_GRAYTEXT);
+        case JW_CTL_STATIC: {
+            const char *lab = c[i].id == 2503 ? jw_cmd_bar_label(2503) : 0;
+
+            jw_text_px(fb, c[i].x, c[i].y + (c[i].h - th) / 2,
+                       lab ? lab : c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
             break;
+        }
         case JW_CTL_COMBO: {
             /* the boxes the port keeps a number in are drawn with it, and
                with a caret while they are the one being typed into */

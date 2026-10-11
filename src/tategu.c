@@ -692,8 +692,8 @@ static int tg_dimension(jw_drawing *d, const jw_tg_out *o, unsigned short flags,
      ltype = 百の位 + 1、旗 = 0x2000、
      n = 10000 × （斜体 1 + 太字 2）+ 文字種の番号、
      d[7] = 基線の角度（度）、書体は $<…> か 既定。 */
-static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
-                   const double *wy)
+int jw_tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
+               const double *wy, unsigned short flags)
 {
     double dx = wx[1] - wx[0], dy = wy[1] - wy[0], l = sqrt(dx * dx + dy * dy);
     double ux = 1.0, uy = 0.0, vx, vy, cw, ch, sp, w = 0.0, ax, ay;
@@ -736,7 +736,7 @@ static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
     e->color = (unsigned short)d->style[sn - 1].color;
     e->ltype = (unsigned char)(h + 1);
     e->n = 10000 * ((o->italic ? 1 : 0) + (o->bold ? 2 : 0)) + sn;
-    e->flags = (unsigned short)(0x2000 | (tate ? 0x20 : 0));
+    e->flags = (unsigned short)(flags | (tate ? 0x20 : 0));
     e->d[0] = wx[0] - ax * ux - ay * vx;
     e->d[1] = wy[0] - ax * uy - ay * vy;
     e->d[2] = e->d[0] + w * ux;
@@ -751,6 +751,12 @@ static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
     snprintf(face, sizeof face, "%s", o->font && o->font[0] ? o->font : "\x82l\x82r \x83S\x83V\x83" "b\x83N");
     e->face = jw_add_str(d, face);
     return 1;
+}
+
+static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
+                   const double *wy)
+{
+    return jw_tg_text(d, o, wx, wy, 0x2000);
 }
 
 int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,

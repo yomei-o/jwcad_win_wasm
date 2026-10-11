@@ -2823,7 +2823,7 @@ int app_key(int c)
      * Not while 文字 is in force -- there a letter is what is being
      * written -- and not while a box on the bar has the caret, which the
      * line above has already taken care of. */
-    if (jw_cmd() != JW_CMD_MOJI) {
+    if (!jw_cmd_text_mode()) {
         static const struct { char key; unsigned short cmd; } KEY[18] = {
             { 'a', 0x8026 },        /* 文字     */
             { 'b', 0x8004 },        /* 矩形     */
@@ -2888,12 +2888,12 @@ int app_key(int c)
         app_paint();
         return 1;
     }
-    if (c == 32 && jw_cmd() != JW_CMD_MOJI) {
+    if (c == 32 && !jw_cmd_text_mode()) {
         jw_cmd_space();         /* Space turns 水平・垂直 over */
         app_paint();
         return 1;
     }
-    if (jw_cmd() != JW_CMD_MOJI)
+    if (!jw_cmd_text_mode())
         return 0;
     jw_cmd_key(c);
     app_paint();
@@ -2902,7 +2902,7 @@ int app_key(int c)
 
 int app_compose(int c)
 {
-    if (jw_cmd() != JW_CMD_MOJI)
+    if (!jw_cmd_text_mode())
         return 0;
     if (c < 0)
         jw_cmd_compose_clear();
@@ -3355,7 +3355,7 @@ void app_paint(void)
             jw_draw_sel(&fb, &view, &drawing, a, b);
     }
     /* the 文字 command's box goes over the drawing */
-    if (jw_cmd() == JW_CMD_MOJI)
+    if (jw_cmd_text_mode())
         ui_textbox(&fb, jw_cmd_line(), jw_cmd_compose());
     if (zoku_open)
         ui_zoku(&fb, have_drawing ? &drawing : 0, zoku_color, zoku_ltype);

@@ -17,6 +17,6 @@ PYTHONIOENCODING=utf-8 python tools/skitem.py "$L" "$N" tmp/sk1 >/dev/null
 powershell -Command "Set-ItemProperty -Path 'HKCU:\Software\Jw_cad\jw_win\Folder' -Name SENKIGOU -Value '${W}\tmp\sk1'"
 cp decomp/res/new.jww tmp/rect.jww
 CELL=388,126
-$PS -Open tmp/rect.jww -NoSave -Clicks "off:1333;300,400;800,400;${PRE}cmd:32869;wait:3000;rcd:$CELL;wait:700;rcd:$CELL,d;wait:1500;${POST}saveas:sk_$NAME;" 2>&1 | grep -E "throw|no |saved|read" | sed 's/^/    /'
+$PS -Open tmp/rect.jww -NoSave -Clicks "off:1333;300,400;800,400;${PRE}cmd:32869;wait:3000;rcd:$CELL;wait:700;rcd:$CELL,d;wait:1500;${POST}saveas:sk_$NAME;" 2>&1 | grep -E "${SKGREP:-throw|no |saved|read}" | sed 's/^/    /'
 mv -f tmp/sk_$NAME.jww decomp/res/sk_$NAME.jww 2>/dev/null
 idle

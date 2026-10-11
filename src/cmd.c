@@ -421,6 +421,8 @@ static int sk_step;                     /* 0 最初 1 線２ 2 位置 3 倍率�
 static int sk_o1 = -1, sk_o2 = -1;
 static double sk_c1x, sk_c1y, sk_c2x, sk_c2y, sk_px, sk_py;
 static jw_drawing *sk_dst;              /* 仮表示のときの置き先（なければ図面） */
+static jw_sk_run sk_run;                /* 文字入力で止まっているあいだの置きかけ */
+static int sk_op_at = -1;               /* そのときの 元に戻る の番号 */
 
 int jw_cmd_kigou_need_pick(void)
 {
@@ -432,9 +434,16 @@ int jw_cmd_kigou_need_pick(void)
 
 void jw_cmd_kigou_choose(int catalog, int item)
 {
+    sk_need_pick = 0;
     sk_cat = catalog;
     sk_item = item;
     sk_step = 0;
+}
+
+/* 文字を打つ箱が出ているか（文字・線記号変形の文字入力） */
+int jw_cmd_text_mode(void)
+{
+    return current == JW_CMD_MOJI || (current == JW_CMD_KIGOU && sk_step == 4);
 }
 
 int jw_cmd_kigou_catalog(void)
@@ -3319,6 +3328,8 @@ const char *jw_cmd_prompt(void)
 
         if (!it)
             return JW_STR_5490;
+        if (sk_step == 4)
+            return JW_STR_5365;
         if (sk_step == 3)
             return JW_STR_5364;
         if (sk_step == 2 || !it->need_l1)
@@ -8507,6 +8518,8 @@ int jw_cmd_bar_check(int id)
 {
     if (id == 1064 && TG_IS3(current))
         return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
+    if (id == 9001 && current == JW_CMD_KIGOU)
+        return sk_step == 4;        /* 文字入力のあいだの バー */
     if (id == 1146 && TG_IS(current))
         return tg_page2;            /* ＞ で替わる二枚目 */
     if ((id == 1428 || id == 2448) && TG_IS(current)) {
@@ -9347,6 +9360,11 @@ static void tg_place(jw_drawing *d, double x, double y)
 /* 建具立面の 基準点の釦の字: 押すたびに 左内法→中→右内法、下内法→中→上内法 */
 const char *jw_cmd_bar_label(int id)
 {
+    if (id == 2503 && current == JW_CMD_KIGOU && sk_step == 4) {
+        const jw_senkigou *sg = jw_sk_load(sk_cat);
+
+        return sg ? jw_sk_prompt(sg, &sk_run) : 0;
+    }
     static const char *const h[3] = { "\x8d\xb6\x93\xe0\x96\x40", "\x92\x86", "\x89\x45\x93\xe0\x96\x40" };
     static const char *const v[3] = { "\x89\xba\x93\xe0\x96\x40", "\x92\x86", "\x8f\xe3\x93\xe0\x96\x40" };
 
@@ -9581,9 +9599,16 @@ static int sk_place(jw_drawing *d)
         if (e2 >= 0)
             erase(d, e2, o);
     }
-    made = jw_sk_put(d, sg, sk_item, &p);
-    if (o)
+    made = jw_sk_start(d, sg, sk_item, &p, &sk_run);
+    if (o) {
         o->n = made;
+        sk_op_at = nop - 1;
+    }
+    if (sk_run.active) {
+        sk_step = 4;                    /* 文字を入力してください */
+        line_n = 0;
+        line_gen++;
+    }
     return made > 0 || e1 >= 0;
 }
 
@@ -12466,6 +12491,25 @@ placed:
         if (!d || !sg || sk_item < 0 || sk_item >= sg->nitem || button > 1)
             return;
         it = &sg->item[sk_item];
+        if (sk_step == 4) {
+            /* (L) 確定。打った文字（なければスキップ）で次の文字の行へ。
+               (R) 文字貼付は まだ */
+            char typed[sizeof line_buf + 1];
+            int made;
+
+            if (button != 0)
+                return;
+            memcpy(typed, line_buf, (size_t)line_n);
+            typed[line_n] = 0;
+            made = jw_sk_input(d, sg, &sk_run, typed);
+            if (sk_op_at >= 0 && sk_op_at < nop)
+                op[sk_op_at].n += made;
+            line_n = 0;
+            line_gen++;
+            if (!sk_run.active)
+                sk_step = 0;
+            return;
+        }
         if (sk_step == 0 && it->need_l1) {
             if (button != 0)
                 return;
@@ -12480,8 +12524,8 @@ placed:
             else if (it->pointers >= 1)
                 sk_step = 2;
             else {
-                sk_place(d);
                 sk_step = 0;
+                sk_place(d);
             }
             return;
         }
@@ -12494,8 +12538,8 @@ placed:
             sk_o2 = i;
             sk_c2x = x;
             sk_c2y = y;
-            sk_place(d);
             sk_step = 0;
+            sk_place(d);
             return;
         }
         if (button == 1) {      /* (R)Read: 読める点に吸わせる */
@@ -12509,8 +12553,8 @@ placed:
         if (sk_step == 3) {
             sk_c1x = x;
             sk_c1y = y;
-            sk_place(d);
             sk_step = 0;
+            sk_place(d);
             return;
         }
         sk_px = x;
@@ -12519,8 +12563,8 @@ placed:
             sk_step = 3;
             return;
         }
-        sk_place(d);
         sk_step = 0;
+        sk_place(d);
         return;
     }
     if (TG_IS3(current)) {

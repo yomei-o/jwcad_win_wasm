@@ -98,8 +98,24 @@ typedef struct {
     double dist;                /* 750・751: 指示線と指示点の間隔 */
 } jw_sk_pose;
 
-/* 置く。消す線の番号は d 側で消えるので呼び手が先に処理すること。
-   作った要素の数を返す */
+/* 置く。消す線は呼び手が先に消すこと。作った要素の数を返す。文字入力の行は
+   入力が済んだことにして（入力なし）進める */
 int jw_sk_put(jw_drawing *d, const jw_senkigou *s, int item, const jw_sk_pose *p);
+
+/* 文字入力の行で止まりながら置く。jw_sk_start は、最初の文字入力の行の手前まで
+   置いて止まる（r->active が 1）か、最後まで置く（0）。止まっているあいだ
+   jw_sk_prompt が その行の文字（水色の「INPUT」など）を返し、
+   jw_sk_input に打った文字（空なら 入力をスキップ）を渡すと その行を置いて
+   次の入力の行の手前まで進む。返すのはどれも置いた要素の数 */
+typedef struct {
+    jw_sk_pose pose;
+    int item, next, active;
+} jw_sk_run;
+
+int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
+                const jw_sk_pose *p, jw_sk_run *r);
+const char *jw_sk_prompt(const jw_senkigou *s, const jw_sk_run *r);
+int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
+                const char *typed);
 
 #endif

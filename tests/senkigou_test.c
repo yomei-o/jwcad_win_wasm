@@ -73,6 +73,15 @@ static const sc_t sc[] = {
     { "a12_c", 'A', 12, "800,400;800,200;", "700,400;800,300;" },
     { "a13_c", 'A', 13, "800,400;800,200;", "700,400;800,300;" },
     { "a14_c", 'A', 14, "800,400;800,200;", "700,400;800,300;" },
+    { "a15_bar", 'A', 15, "", "500,450;" },
+    { "a15_tl", 'A', 15, "", "500,450;t:XY;700,300;" },
+    { "a15_def", 'A', 15, "", "500,450;700,300;" },
+    { "a16_def", 'A', 16, "", "500,450;700,300;" },
+    { "a16_ty", 'A', 16, "", "500,450;t:AB;700,300;" },
+    { "a18_e3", 'A', 18, "", "500,450;700,300;700,300;700,300;" },
+    { "a18_abc", 'A', 18, "", "500,450;t:A;700,300;t:B;700,300;t:C;700,300;" },
+    { "a18_aee", 'A', 18, "", "500,450;t:A;700,300;700,300;700,300;" },
+    { "a18_ea", 'A', 18, "", "500,450;700,300;t:B;700,300;" },
     { "e01_f", 'E', 1, "", "450,400;500,470;" },
     { "g07_f", 'G', 7, "", "450,400;500,470;" },
 };
@@ -103,6 +112,19 @@ static void clicks(rect_t *r, const char *s)
     while (*s) {
         int x = 0, y = 0, n = 0;
 
+        if (s[0] == 't' && s[1] == ':') {       /* 文字を打つ（; まで） */
+            s += 2;
+            while (*s && *s != ';') {
+                int rk = app_key((unsigned char)*s);
+
+                if (getenv("SKDUMP"))
+                    printf("  key %c -> %d line [%s] cmd %x\n", *s, rk, jw_cmd_line(), jw_cmd());
+                s++;
+            }
+            while (*s == ';' || *s == ' ')
+                s++;
+            continue;
+        }
         if (sscanf(s, "%d,%d%n", &x, &y, &n) != 2)
             break;
         app_press(r->x + x, r->y + y, 0);
@@ -163,6 +185,13 @@ static int same(const jw_drawing *ref, const jw_drawing *d, const char *name,
                    i, a->color, a->ltype, a->width, a->layer, a->flags, a->n,
                    m->color, m->ltype, m->width, m->layer, m->flags, m->n);
         }
+        if (a->cls == JW_MOJI && a->text >= 0 && m->text >= 0 &&
+            (strcmp(jw_str(ref, a->text), jw_str(d, m->text)) ||
+             strcmp(jw_str(ref, a->face), jw_str(d, m->face)))) {
+            ok = 0;
+            printf("     %d: 文字 原典 [%s]・移植 [%s]\n", i, jw_str(ref, a->text),
+                   jw_str(d, m->text));
+        }
         if (!ok)
             bad = 1;
     }
@@ -217,6 +246,16 @@ int main(int argc, char **argv)
         app_command(32869);
         jw_cmd_kigou_choose(idx, sc[k].item - 1);
         clicks(&r, sc[k].post);
+        if (getenv("SKDUMP")) {
+            const jw_drawing *dd = app_drawing();
+            int q;
+
+            for (q = 0; q < dd->ndrawn; q++)
+                if (!junk(&dd->obj[q]))
+                    printf("  post %d cls%d %.3f %.3f %.3f %.3f\n", q, dd->obj[q].cls,
+                           dd->obj[q].d[0], dd->obj[q].d[1], dd->obj[q].d[2],
+                           dd->obj[q].d[3]);
+        }
         if (same(&ref, app_drawing(), sc[k].name, argc > 1)) {
             fails++;
         } else
