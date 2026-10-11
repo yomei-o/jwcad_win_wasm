@@ -391,6 +391,8 @@ typedef struct {
     const jw_sk_pose *p;
     double rho1, rho2;          /* 線１の角度・線２の向きから 90° 引いた角度 */
     double rho;                 /* 弧の傾き: 線１があれば線１、なければ線２、なければ軸角 */
+    double th1, th2;            /* 記号の中で、線１・線２の向きの角度（10・20 の行の始点→終点） */
+    double oyx, oyy;            /* 斜交座標（04）の +y が世界で向く（長さつき） */
     int mirror;                 /* 線１と線２で作る座標が左手系 */
     double msx, msy;            /* 倍率位置から決まる倍率 */
     jw_sk_txt *lt;              /* 前に置いた文字（呼び手の持ち物） */
@@ -475,31 +477,29 @@ static void sk_map(const sk_ctx *c, const jw_sk_item *it, int code, int is_end,
         *wy = p->oy + x * p->u1y + y * p->u1x;
         return;
     case 2:
-        /* x は 線２に直角（線２の向きから 90° 戻した向き）、y が線２の向き */
-        *wx = p->ox + x * p->u2y + y * p->u2x;
-        *wy = p->oy - x * p->u2x + y * p->u2y;
+        /* 記号の中で線２が th2 の向きに描いてあるので、それを 世界の線２の向きに回す */
+        ca = cos(c->rho2);
+        sa = sin(c->rho2);
+        *wx = p->ox + x * ca - y * sa;
+        *wy = p->oy + x * sa + y * ca;
         return;
     case 4:
-        *wx = p->ox + x * p->u1x + y * p->u2x;
-        *wy = p->oy + x * p->u1y + y * p->u2y;
+        *wx = p->ox + x * p->u1x + y * c->oyx;
+        *wy = p->oy + x * p->u1y + y * c->oyy;
         return;
     case 10:
-        if (is_end) {
-            *wx = p->e1x - y * p->u1y;
-            *wy = p->e1y + y * p->u1x;
-        } else {
-            *wx = p->s1x - y * p->u1y;
-            *wy = p->s1y + y * p->u1x;
-        }
+        if (!p->have1)
+            break;                      /* 線を押さなかった: 位置からの座標 */
+        /* 線の端そのもの（座標は 長さの向きだけで、ずれは付けない。C の「[45°] 排水」で
+           20 の x が ±8 でも 線は ずれなかった） */
+        *wx = is_end ? p->e1x : p->s1x;
+        *wy = is_end ? p->e1y : p->s1y;
         return;
     case 20:
-        if (is_end) {
-            *wx = p->e2x + x * p->u2y;
-            *wy = p->e2y - x * p->u2x;
-        } else {
-            *wx = p->s2x + x * p->u2y;
-            *wy = p->s2y - x * p->u2x;
-        }
+        if (!p->have2)
+            break;
+        *wx = is_end ? p->e2x : p->s2x;
+        *wy = is_end ? p->e2y : p->s2y;
         return;
     default:
         break;
@@ -580,7 +580,7 @@ static int sk_arc(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
     double cx, cy, rr, ws, we, tilt, sa, sw, flat;
     int full;
     jw_obj *e;
-    double base_rho;
+    double base_rho, thb;
     int mir, flipx, flipy;
 
     if (k1 == 8 || k1 == 9)
@@ -601,9 +601,11 @@ static int sk_arc(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
     /* 弧の角度。中心の取り方と同じ座標のまま、c2 の下一桁で線に追従する */
     if (ones == 0) {
         base_rho = p->axis;
+        thb = 0.0;
         mir = 0;
     } else {
         base_rho = c->rho;
+        thb = p->have1 ? c->th1 : p->have2 ? c->th2 : 0.0;
         mir = c->mirror && tens == 1;
     }
     {
@@ -625,13 +627,13 @@ static int sk_arc(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
             ts = te;
             te = t;
         }
-        ws = mir ? base_rho - ts : base_rho + ts;
-        we = mir ? base_rho - te : base_rho + te;
+        ws = mir ? base_rho + 2.0 * thb - ts : base_rho + ts;
+        we = mir ? base_rho + 2.0 * thb - te : base_rho + te;
         if (ones == 2 || ones == 4) {   /* 始点が線２に追従 */
-            ws = mir ? c->rho2 + SK_PI - ts : c->rho2 + ts;
+            ws = mir ? c->rho2 + 2.0 * c->th2 - ts : c->rho2 + ts;
         }
         if (ones == 3 || ones == 4)     /* 終点 */
-            we = mir ? c->rho2 + SK_PI - te : c->rho2 + te;
+            we = mir ? c->rho2 + 2.0 * c->th2 - te : c->rho2 + te;
         if (mir) {                      /* 向きが逆になるので始点と終点が入れ替わる */
             double t = ws;
 
@@ -924,16 +926,46 @@ static int is_skip_row(const jw_sk_row *r)
 }
 
 static void sk_context(sk_ctx *c, const jw_sk_item *it, const jw_sk_pose *p,
-                       jw_sk_txt *lt, int *cmd)
+                       jw_sk_txt *lt, int *cmd, const jw_sk_row *s_rows)
 {
     memset(c, 0, sizeof *c);
     c->p = p;
     c->lt = lt;
     c->cmd = cmd;
-    c->rho1 = atan2(p->u1y, p->u1x);
-    c->rho2 = atan2(p->u2y, p->u2x) - SK_PI / 2.0;
-    c->mirror = p->have1 && p->have2 &&
-                p->u1x * p->u2y - p->u1y * p->u2x < 0.0;
+    c->th1 = 0.0;
+    c->th2 = SK_PI / 2.0;
+    {
+        int k, f1 = 0, f2 = 0;
+
+        for (k = 0; k < it->n && !(f1 && f2); k++) {
+            const jw_sk_row *r = &s_rows[k];
+            double dx = r->x1 - r->x0, dy = r->y1 - r->y0;
+
+            if (r->cls != JW_SK_LINE || (fabs(dx) < 1e-9 && fabs(dy) < 1e-9))
+                continue;
+            if (!f1 && (r->c1 % 100 == 10 || r->c2 == 10)) {
+                c->th1 = atan2(dy, dx);
+                f1 = 1;
+            }
+            if (!f2 && (r->c1 % 100 == 20 || r->c2 == 20)) {
+                c->th2 = atan2(dy, dx);
+                f2 = 1;
+            }
+        }
+    }
+    c->rho1 = atan2(p->u1y, p->u1x) - c->th1;
+    c->rho2 = atan2(p->u2y, p->u2x) - c->th2;
+    {
+        /* 斜交座標: 記号の +x が u1、記号の th2 の向きが u2 になるように */
+        double sn = sin(c->th2), cs = cos(c->th2);
+
+        if (fabs(sn) < 1e-9)
+            sn = 1.0;
+        c->oyx = (p->u2x - cs * p->u1x) / sn;
+        c->oyy = (p->u2y - cs * p->u1y) / sn;
+        c->mirror = p->have1 && p->have2 &&
+                    (p->u1x * p->u2y - p->u1y * p->u2x) * sn < 0.0;
+    }
     c->rho = p->have1 ? c->rho1 : p->have2 ? c->rho2 : p->axis;
     c->msx = c->msy = 1.0;
     if (it->mouse && p->have_m)
@@ -1038,7 +1070,7 @@ int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
     r->pose = *p;
     r->item = item;
     r->hist = hist;
-    sk_context(&c, it, &r->pose, &r->lt, &r->cmd);
+    sk_context(&c, it, &r->pose, &r->lt, &r->cmd, &s->row[it->first]);
     r->next = sk_rows(d, &c, it, s, 0, &made);
     r->active = r->next < it->n;
     return made;
@@ -1103,7 +1135,7 @@ int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
     if (!r->active)
         return 0;
     row = &s->row[it->first + r->next];
-    sk_context(&c, it, &r->pose, &r->lt, &r->cmd);
+    sk_context(&c, it, &r->pose, &r->lt, &r->cmd, &s->row[it->first]);
     if ((!typed || !typed[0]) && is_loop_row(row)) {
         r->active = 0;                  /* NULL: 以降の処理終了 */
         r->next = it->n;
