@@ -49,6 +49,7 @@ typedef struct {
     char text[JW_SK_TEXT];      /* 文字（CP932） */
     char font[48];
     int slant;
+    int have_inc, inc;          /* "数字"+増分 */
     double fac;                 /* この行にかかる倍率（700 800 を畳んだもの） */
     int turn180;                /* 倍率がマイナス: 向きを逆に */
     int real;                   /* 800 で作った行（縮尺で割る） */
@@ -63,6 +64,8 @@ typedef struct {
     int mouse;                  /* 760〜768 があればその番号、なければ 0 */
     double mx, my;
     int dir75;                  /* 750・751 */
+    int next;                   /* 10000 の行: 次の記号の番号（1 から）。10000 なら選び直し */
+    int cmd;                    /* 11400・12930 の行: ほかのコマンド */
 } jw_sk_item;
 
 #define JW_SK_ALLROWS 4096
@@ -107,13 +110,19 @@ int jw_sk_put(jw_drawing *d, const jw_senkigou *s, int item, const jw_sk_pose *p
    jw_sk_prompt が その行の文字（水色の「INPUT」など）を返し、
    jw_sk_input に打った文字（空なら 入力をスキップ）を渡すと その行を置いて
    次の入力の行の手前まで進む。返すのはどれも置いた要素の数 */
+#define JW_SK_HIST 96
+typedef char jw_sk_hist[JW_SK_HIST][JW_SK_TEXT];   /* "数字"+増分 の行の、前に置いた文字 */
+
 typedef struct {
     jw_sk_pose pose;
     int item, next, active;
+    jw_sk_hist *hist;           /* 呼び手が持つ（なくてもよい） */
+    char tmp[JW_SK_TEXT];
 } jw_sk_run;
 
 int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
-                const jw_sk_pose *p, jw_sk_run *r);
+                const jw_sk_pose *p, jw_sk_run *r, jw_sk_hist *hist);
+/* 止まっている行の、打たなければ置かれる文字（増分つきなら 前の文字に増分を足した文字） */
 const char *jw_sk_prompt(const jw_senkigou *s, const jw_sk_run *r);
 int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
                 const char *typed);

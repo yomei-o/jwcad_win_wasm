@@ -14,7 +14,7 @@ OBJ=""
 pids=""
 for f in $SRC; do
     o="tmp/ob/$(basename "$f" .c).o"
-    if [ ! -f "$o" ] || [ "$f" -nt "$o" ]; then
+    if [ ! -f "$o" ] || [ "$f" -nt "$o" ] || [ -n "$(find src tests -name '*.h' -newer "$o" | head -1)" ]; then
         gcc $CFLAGS -c -o "$o" "$f" || exit 1 &
     fi
     OBJ="$OBJ $o"

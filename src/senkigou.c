@@ -145,7 +145,7 @@ static int parse_row(const char *line, jw_sk_row *r, double *fac, int *turn,
 
         cls = JW_SK_TEXTROW;
         q++;
-        f = strstr(q, "\"$<");
+        f = strchr(q, '"');             /* 文字列の終わりの " */
         {
             size_t m = f ? (size_t)(f - q) : strlen(q);
 
@@ -156,7 +156,16 @@ static int parse_row(const char *line, jw_sk_row *r, double *fac, int *turn,
             memcpy(r->text, q, m);
             r->text[m] = 0;
         }
-        if (f) {
+        if (f && f[1] == '+') {         /* "数字"+増分 */
+            const char *g = f + 2;
+
+            r->have_inc = 1;
+            r->inc = 1;
+            if (*g == '(')
+                g++;
+            if (*g == '-' || *g == '+' || isdigit((unsigned char)*g))
+                r->inc = (int)strtol(g, 0, 10);
+        } else if (f && f[1] == '$' && f[2] == '<') {
             const char *g = strchr(f + 3, '>');
             size_t m = g ? (size_t)(g - (f + 3)) : 0;
 
@@ -319,6 +328,12 @@ int jw_sk_parse(jw_senkigou *s, const char *b, long n)
             case JW_SK_DIR75:
                 it->dir75 = r->c1;
                 break;
+            case JW_SK_NEXT:
+                it->next = r->c2;
+                break;
+            case JW_SK_CMD:
+                it->cmd = r->c1;
+                break;
             case JW_SK_LINE:
             case JW_SK_ARC:
             case JW_SK_TEXTROW:
@@ -371,6 +386,7 @@ const jw_senkigou *jw_sk_load(int idx)
 typedef struct {
     const jw_sk_pose *p;
     double rho1, rho2;          /* 線１の角度・線２の向きから 90° 引いた角度 */
+    double rho;                 /* 弧の傾き: 線１があれば線１、なければ線２、なければ軸角 */
     int mirror;                 /* 線１と線２で作る座標が左手系 */
     double msx, msy;            /* 倍率位置から決まる倍率 */
 } sk_ctx;
@@ -523,16 +539,25 @@ static int sk_arc(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
     double ky = r->fac * p->sy * (r->real ? 1.0 / p->gscale : 1.0);
     double sg = r->turn180 ? -1.0 : 1.0;
     int k1 = sk_code(r->c1), ones = r->c2 % 10, tens = r->c2 / 10 % 10;
-    double cx, cy, rr, ws, we, tilt, sa, sw;
+    double cx, cy, rr, ws, we, tilt, sa, sw, flat;
     int full;
     jw_obj *e;
     double base_rho;
-    int mir;
+    int mir, flipx, flipy;
 
     if (k1 == 8 || k1 == 9)
         return 0;
     sk_map(c, it, k1, 0, r->x0, r->y0, kx, ky, sg, &cx, &cy);
-    rr = fabs(r->r) * (kx + ky) / 2.0;
+    {
+        int k2m = sk_code(r->c2);
+        double fx = (k2m == 5 || k2m == 6) ? c->msx : kx;
+        double fy = (k2m == 5 || k2m == 6) ? c->msy : ky;
+
+        rr = fabs(r->r) * fabs(fx);
+        flat = rr > 0.0 ? fabs(r->r) * (r->r < 0.0 ? r->flat : 1.0) * fabs(fy) / rr : 1.0;
+        flipx = fx * sg < 0.0;
+        flipy = fy * sg < 0.0;
+    }
     full = fabs(r->y1 - r->x1 - 360.0) < 1e-9 || (r->x1 == 0 && r->y1 == 360);
 
     /* 弧の角度。中心の取り方と同じ座標のまま、c2 の下一桁で線に追従する */
@@ -540,17 +565,27 @@ static int sk_arc(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
         base_rho = p->axis;
         mir = 0;
     } else {
-        base_rho = c->rho1;
+        base_rho = c->rho;
         mir = c->mirror && tens == 1;
-        if (!p->have1)
-            base_rho = c->rho2;
     }
     {
         double ts = r->x1 * SK_PI / 180.0, te = r->y1 * SK_PI / 180.0;
 
-        if (r->turn180) {
-            ts += SK_PI;
-            te += SK_PI;
+        /* 倍率が マイナス の向きは 鏡（X が − なら 180° から引く、Y が − なら − を付ける）。
+           片方だけなら向きが逆になるので 始点と終点を入れ替える */
+        if (flipx) {
+            ts = SK_PI - ts;
+            te = SK_PI - te;
+        }
+        if (flipy) {
+            ts = -ts;
+            te = -te;
+        }
+        if (flipx != flipy) {
+            double t = ts;
+
+            ts = te;
+            te = t;
         }
         ws = mir ? base_rho - ts : base_rho + ts;
         we = mir ? base_rho - te : base_rho + te;
@@ -587,7 +622,7 @@ static int sk_arc(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
     e->d[3] = sa;
     e->d[4] = sw;
     e->d[5] = norm_pi(tilt);
-    e->d[6] = r->r < 0.0 ? r->flat : 1.0;
+    e->d[6] = flat;
     e->d[7] = 0.0;
     e->n = full ? 1 : 0;
     sk_attr(e, r, p);
@@ -639,6 +674,147 @@ static void sk_mouse(const jw_sk_item *it, const jw_sk_pose *p, double *sx,
     *sy = fy;
 }
 
+/* ソリッド（a1〜a7）。原典に A30 と A19〜A29 を押させた答え（sk_a30_lp など）から:
+ *  a1 四角・三角・線: 四つの角を [A B B' A'] の順に（A'≠0・B'≠0 の四角、
+ *     B'＝0 なら 三角 (A B A' A')、A'＝0 なら (A B B' B')、どちらも 0 なら 線 (A B B B)）。
+ *     A'・B' は 辺 A→B を X 軸にした座標で、A・B から
+ *  a2〜a7 円ソリッド: 線種 a2 a3 a4 → 101、a5 → 105、a6 → 106、a7 → 111。
+ *     d[7] は a2 全周 100・a2 部分 0・a3 5・a4 −1・a5 a6 は内円の半径・a7 100。
+ *     始角は 0〜2π のまま、傾きは枠の向き + 行の傾き */
+static int sk_solid(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
+                    const jw_sk_row *r)
+{
+    const jw_sk_pose *p = c->p;
+    double kx = r->fac * p->sx * (r->real ? 1.0 / p->gscale : 1.0);
+    double ky = r->fac * p->sy * (r->real ? 1.0 / p->gscale : 1.0);
+    double sg = r->turn180 ? -1.0 : 1.0;
+    int k1 = sk_code(r->c1), k2 = sk_code(r->c2);
+    jw_obj *e;
+
+    if (k1 == 8 || k1 == 9)
+        return 0;
+    e = jw_add(d, JW_SOLID);
+    if (!e)
+        return 0;
+    if (r->color == 10) {
+        e->color = 10;
+        e->n = (int)r->rgb;
+    } else if (r->color > 0 && r->color <= 9) {
+        e->color = (unsigned short)r->color;
+    }
+    if (r->solid == 1) {
+        double wx[4], wy[4], ux, uy, l;
+        double fx = (k1 == 5 || k1 == 6 || k2 == 5 || k2 == 6) ? c->msx : kx;
+        double fy = (k1 == 5 || k1 == 6 || k2 == 5 || k2 == 6) ? c->msy : ky;
+        int i;
+
+        sk_map(c, it, k1, 0, r->x0, r->y0, kx, ky, sg, &wx[0], &wy[0]);
+        sk_map(c, it, k2, 1, r->x1, r->y1, kx, ky, sg, &wx[1], &wy[1]);
+        ux = wx[1] - wx[0];
+        uy = wy[1] - wy[0];
+        l = sqrt(ux * ux + uy * uy);
+        if (l > 1e-9) {
+            ux /= l;
+            uy /= l;
+        } else {
+            ux = cos(p->axis);
+            uy = sin(p->axis);
+        }
+        {
+            double ax = r->a[0] * fx * sg, ay = r->a[1] * fy * sg;
+            double bx = r->a[2] * fx * sg, by = r->a[3] * fy * sg;
+            int a0 = r->a[0] != 0.0 || r->a[1] != 0.0;
+            int b0 = r->a[2] != 0.0 || r->a[3] != 0.0;
+            double ap[2], bp[2];
+
+            ap[0] = wx[0] + ax * ux - ay * uy;
+            ap[1] = wy[0] + ax * uy + ay * ux;
+            bp[0] = wx[1] + bx * ux - by * uy;
+            bp[1] = wy[1] + bx * uy + by * ux;
+            if (a0 && b0) {
+                wx[2] = bp[0]; wy[2] = bp[1]; wx[3] = ap[0]; wy[3] = ap[1];
+            } else if (a0) {
+                wx[2] = wx[3] = ap[0]; wy[2] = wy[3] = ap[1];
+            } else if (b0) {
+                wx[2] = wx[3] = bp[0]; wy[2] = wy[3] = bp[1];
+            } else {
+                wx[2] = wx[3] = wx[1]; wy[2] = wy[3] = wy[1];
+            }
+        }
+        e->ltype = 1;
+        for (i = 0; i < 4; i++) {
+            e->d[i * 2] = wx[i];
+            e->d[i * 2 + 1] = wy[i];
+        }
+        return 1;
+    }
+    {
+        double cx, cy, rx, ry, sa, sw, tilt, rho, ws, we;
+        double fx = (k2 == 5 || k2 == 6) ? c->msx : kx;
+        double fy = (k2 == 5 || k2 == 6) ? c->msy : ky;
+        int full = fabs(r->y1 - r->x1 - 360.0) < 1e-9, ones = r->c2 % 10;
+        int mir = c->mirror && r->c2 / 10 % 10 == 1;
+
+        sk_map(c, it, k1, 0, r->x0, r->y0, kx, ky, sg, &cx, &cy);
+        rho = ones == 0 ? p->axis : c->rho;
+        rx = fabs(r->r) * fabs(fx);
+        ry = fabs(r->r) * r->flat * fabs(fy);
+        ws = (mir ? -1.0 : 1.0) * r->x1 * SK_PI / 180.0;
+        we = (mir ? -1.0 : 1.0) * r->y1 * SK_PI / 180.0;
+        if (mir) {
+            double t = ws;
+
+            ws = we;
+            we = t;
+        }
+        sa = ws;
+        sw = we - ws;
+        while (sa < 0.0)
+            sa += 2.0 * SK_PI;
+        while (sa >= 2.0 * SK_PI - 1e-9)
+            sa -= 2.0 * SK_PI;
+        while (sw <= 1e-9)
+            sw += 2.0 * SK_PI;
+        if (full) {
+            sa = 0.0;
+            sw = 2.0 * SK_PI;
+        }
+        tilt = rho + r->tilt * SK_PI / 180.0;
+        e->ltype = 101;
+        e->d[0] = cx;
+        e->d[1] = cy;
+        e->d[2] = rx;
+        e->d[3] = rx > 0.0 ? ry / rx : 1.0;
+        e->d[4] = norm_pi(tilt);
+        e->d[5] = sa;
+        e->d[6] = sw;
+        switch (r->solid) {
+        case 2:
+            e->d[7] = full ? 100.0 : 0.0;
+            break;
+        case 3:
+            e->d[7] = 5.0;
+            break;
+        case 4:
+            e->d[7] = -1.0;
+            break;
+        case 5:
+            e->ltype = 105;
+            e->d[7] = r->inner * r->fac;
+            break;
+        case 6:
+            e->ltype = 106;
+            e->d[7] = r->inner * r->fac;
+            break;
+        default:
+            e->ltype = 111;
+            e->d[7] = 100.0;
+            break;
+        }
+    }
+    return 1;
+}
+
 /* 文字入力の行か（20000・21000・25000・26000 台）。22000 台は入力をスキップした
    ときの文字で、それ自体は置かない */
 static int is_input_row(const jw_sk_row *r)
@@ -659,6 +835,7 @@ static void sk_context(sk_ctx *c, const jw_sk_item *it, const jw_sk_pose *p)
     c->rho2 = atan2(p->u2y, p->u2x) - SK_PI / 2.0;
     c->mirror = p->have1 && p->have2 &&
                 p->u1x * p->u2y - p->u1y * p->u2x < 0.0;
+    c->rho = p->have1 ? c->rho1 : p->have2 ? c->rho2 : p->axis;
     c->msx = c->msy = 1.0;
     if (it->mouse && p->have_m)
         sk_mouse(it, p, &c->msx, &c->msy);
@@ -707,6 +884,9 @@ static int sk_rows(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
         case JW_SK_ARC:
             *made += sk_arc(d, c, it, r);
             break;
+        case JW_SK_SOLID:
+            *made += sk_solid(d, c, it, r);
+            break;
         case JW_SK_TEXTROW:
             if (!is_skip_row(r))
                 *made += sk_text(d, c, it, r, r->text);
@@ -719,7 +899,7 @@ static int sk_rows(jw_drawing *d, const sk_ctx *c, const jw_sk_item *it,
 }
 
 int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
-                const jw_sk_pose *p, jw_sk_run *r)
+                const jw_sk_pose *p, jw_sk_run *r, jw_sk_hist *hist)
 {
     const jw_sk_item *it;
     sk_ctx c;
@@ -731,17 +911,58 @@ int jw_sk_start(jw_drawing *d, const jw_senkigou *s, int item,
     it = &s->item[item];
     r->pose = *p;
     r->item = item;
+    r->hist = hist;
     sk_context(&c, it, &r->pose);
     r->next = sk_rows(d, &c, it, s, 0, &made);
     r->active = r->next < it->n;
     return made;
 }
 
+/* 末尾の数字に増分を足す（なければ 0 に足したものを付ける）。原典では
+   全角の数字は数字と見られず、「１」は「１1」「１2」…と増える
+   （decomp/res/sk_a19_x4.jww）。数字の桁（0 詰め）はそのまま */
+static void sk_inc_text(const char *prev, int inc, char *out, size_t cap)
+{
+    size_t n = strlen(prev), e = n, b;
+    long v = 0;
+    int width = 0;
+    char num[24];
+
+    while (e > 0 && prev[e - 1] >= '0' && prev[e - 1] <= '9')
+        e--;
+    b = e;
+    {
+        size_t i;
+
+        for (i = b; i < n; i++)
+            v = v * 10 + (prev[i] - '0');
+        width = (int)(n - b);
+    }
+    v += inc;
+    snprintf(num, sizeof num, "%0*ld", width, v);
+    snprintf(out, cap, "%.*s%s", (int)b, prev, num);
+}
+
+/* 止まっている行の、打たなければ置かれる文字 */
+static const char *sk_default(const jw_senkigou *s, const jw_sk_run *r,
+                              const jw_sk_row *row, int k, char *buf, size_t cap)
+{
+    (void)s;
+    if (row->have_inc && r->hist && k < JW_SK_HIST && (*r->hist)[k][0]) {
+        sk_inc_text((*r->hist)[k], row->inc, buf, cap);
+        return buf;
+    }
+    return row->text;
+}
+
 const char *jw_sk_prompt(const jw_senkigou *s, const jw_sk_run *r)
 {
+    static char buf[JW_SK_TEXT];
     const jw_sk_item *it = &s->item[r->item];
 
-    return r->active ? s->row[it->first + r->next].text : "";
+    if (!r->active)
+        return "";
+    return sk_default(s, r, &s->row[it->first + r->next], r->next, buf, sizeof buf);
 }
 
 int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
@@ -758,14 +979,23 @@ int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
     row = &s->row[it->first + r->next];
     sk_context(&c, it, &r->pose);
     if (!typed || !typed[0]) {          /* 入力をスキップ: スキップの行の文字を、この行の位置に */
+        char dbuf[JW_SK_TEXT];
+
         text = "";
-        for (k = 0; k < it->n; k++)
-            if (is_skip_row(&s->row[it->first + k])) {
-                text = s->row[it->first + k].text;
-                break;
-            }
+        if (row->c1 >= 21000) {         /* 文字変更: 変更しなければ行の文字（増分つきなら前の文字に増分） */
+            snprintf(r->tmp, sizeof r->tmp, "%s",
+                     sk_default(s, r, row, r->next, dbuf, sizeof dbuf));
+            text = r->tmp;
+        } else
+            for (k = 0; k < it->n; k++)
+                if (is_skip_row(&s->row[it->first + k])) {
+                    text = s->row[it->first + k].text;
+                    break;
+                }
     }
     made += sk_text(d, &c, it, row, text);
+    if (row->have_inc && r->hist && r->next < JW_SK_HIST)
+        snprintf((*r->hist)[r->next], JW_SK_TEXT, "%s", text);
     r->next = sk_rows(d, &c, it, s, r->next + 1, &made);
     r->active = r->next < it->n;
     return made;
@@ -774,7 +1004,7 @@ int jw_sk_input(jw_drawing *d, const jw_senkigou *s, jw_sk_run *r,
 int jw_sk_put(jw_drawing *d, const jw_senkigou *s, int item, const jw_sk_pose *p)
 {
     jw_sk_run r;
-    int made = jw_sk_start(d, s, item, p, &r);
+    int made = jw_sk_start(d, s, item, p, &r, 0);
 
     while (r.active)
         made += jw_sk_input(d, s, &r, "");

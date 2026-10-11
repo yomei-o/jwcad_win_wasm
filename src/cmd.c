@@ -422,7 +422,9 @@ static int sk_o1 = -1, sk_o2 = -1;
 static double sk_c1x, sk_c1y, sk_c2x, sk_c2y, sk_px, sk_py;
 static jw_drawing *sk_dst;              /* 仮表示のときの置き先（なければ図面） */
 static jw_sk_run sk_run;                /* 文字入力で止まっているあいだの置きかけ */
+static jw_sk_hist sk_hist;              /* "数字"+増分 の行の、前に置いた文字 */
 static int sk_op_at = -1;               /* そのときの 元に戻る の番号 */
+static int sk_first = -1;               /* 選んだ記号（続けて移った先から戻る） */
 
 int jw_cmd_kigou_need_pick(void)
 {
@@ -436,7 +438,8 @@ void jw_cmd_kigou_choose(int catalog, int item)
 {
     sk_need_pick = 0;
     sk_cat = catalog;
-    sk_item = item;
+    sk_item = sk_first = item;
+    memset(sk_hist, 0, sizeof sk_hist);
     sk_step = 0;
 }
 
@@ -9477,6 +9480,22 @@ static void sk_order(const double *p0, const double *p1, double ux, double uy,
     }
 }
 
+/* 一つ置き終えたあと: 10000 の行があればその記号に移る（10000 なら選び直し）。
+   移った先に次の指定が無ければ、最初に選んだ記号に戻る */
+static void sk_chain(const jw_senkigou *sg)
+{
+    const jw_sk_item *it = sk_item >= 0 && sk_item < sg->nitem ? &sg->item[sk_item] : 0;
+
+    if (!it)
+        return;
+    if (it->next == 10000)
+        sk_need_pick = 1;
+    else if (it->next > 0 && it->next <= sg->nitem)
+        sk_item = it->next - 1;
+    else if (sk_first >= 0 && sk_first < sg->nitem)
+        sk_item = sk_first;
+}
+
 /* 押したものから 記号の置き方を決めて置く。置いたら 1 */
 static int sk_place(jw_drawing *d)
 {
@@ -9599,7 +9618,7 @@ static int sk_place(jw_drawing *d)
         if (e2 >= 0)
             erase(d, e2, o);
     }
-    made = jw_sk_start(d, sg, sk_item, &p, &sk_run);
+    made = jw_sk_start(d, sg, sk_item, &p, &sk_run, &sk_hist);
     if (o) {
         o->n = made;
         sk_op_at = nop - 1;
@@ -9608,7 +9627,8 @@ static int sk_place(jw_drawing *d)
         sk_step = 4;                    /* 文字を入力してください */
         line_n = 0;
         line_gen++;
-    }
+    } else if (made > 0 || e1 >= 0)
+        sk_chain(sg);
     return made > 0 || e1 >= 0;
 }
 
@@ -12506,8 +12526,10 @@ placed:
                 op[sk_op_at].n += made;
             line_n = 0;
             line_gen++;
-            if (!sk_run.active)
+            if (!sk_run.active) {
                 sk_step = 0;
+                sk_chain(sg);
+            }
             return;
         }
         if (sk_step == 0 && it->need_l1) {

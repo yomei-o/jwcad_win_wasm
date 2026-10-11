@@ -1,7 +1,10 @@
 /* 線記号変形 (32869): 原典に置かせた答え（decomp/res/sk_*.jww、
-   tools/skprobe.sh と tools/skbatch*.sh）と、同じ押し方で置いた結果を比べる。
-   押し方は 壁（300,400）→（800,400）を引き、pre の線を引き、記号を選んで、
-   post の点を順に押す。 */
+   tools/skprobe.sh と tools/skbatch*.sh・tools/skall.sh）と、同じ押し方で置いた
+   結果を比べる。押し方は 壁（300,400）→（800,400）を引き、pre の線を足し、記号を
+   選んで、post の点を順に押す。post には
+       t:ABC;      文字を打つ
+       b:3 , 2;    倍率の箱に入れる
+   も書ける。 */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,21 +40,27 @@ typedef struct {
     const char *name;
     char file;                  /* 'A'〜'J' */
     int item;                   /* 1 から */
-    const char *pre;            /* 先に引く線（二点ずつ） */
-    const char *post;           /* 記号を選んだあとに押す点 */
+    const char *pre;            /* 先に足す線（二点ずつ） */
+    const char *post;           /* 記号を選んだあとに押す点・打つ文字 */
 } sc_t;
 
-static const sc_t sc[] = {
+/* 一つずつ原典に押させて確かめたもの */
+static const sc_t sc_hand[] = {
     { "a01_l", 'A', 1, "", "450,400;" },
     { "a01_r", 'A', 1, "", "700,400;" },
     { "a01_sl", 'A', 1, "300,700;700,500;", "350,675;" },
     { "a02_lp", 'A', 2, "", "450,400;500,470;" },
     { "a02_rev", 'A', 2, "", "700,400;500,470;" },
     { "a02_sl", 'A', 2, "300,700;700,500;", "400,650;500,600;" },
+    { "a02_s22", 'A', 2, "", "b:2 , 2;450,400;500,470;" },
     { "a03_pp", 'A', 3, "", "500,450;560,500;" },
     { "a03_x", 'A', 3, "", "500,450;600,430;" },
     { "a03_x2", 'A', 3, "", "500,450;460,470;" },
     { "a04_lp", 'A', 4, "", "450,400;500,470;" },
+    { "a04_s22", 'A', 4, "", "b:2 , 2;450,400;500,470;" },
+    { "a04_s1m", 'A', 4, "", "b:1 , -1;450,400;500,470;" },
+    { "a04_sm1", 'A', 4, "", "b:-1 , 1;450,400;500,470;" },
+    { "a04_s32", 'A', 4, "", "b:3 , 2;450,400;500,470;" },
     { "a05_cr", 'A', 5, "600,500;600,300;", "400,400;600,350;" },
     { "a05_sw", 'A', 5, "600,500;600,300;", "600,350;400,400;" },
     { "a05_rb", 'A', 5, "600,500;600,300;", "700,400;600,450;" },
@@ -64,7 +73,10 @@ static const sc_t sc[] = {
     { "a08_lp", 'A', 8, "", "450,400;500,470;" },
     { "a08_rev", 'A', 8, "", "700,400;500,470;" },
     { "a09_lp", 'A', 9, "", "450,400;500,470;" },
+    { "a09_s32", 'A', 9, "", "b:3 , 2;450,400;500,470;" },
     { "a10_p", 'A', 10, "", "500,450;" },
+    { "a10_s22", 'A', 10, "", "b:2 , 2;500,450;" },
+    { "a10_s32", 'A', 10, "", "b:3 , 2;500,450;" },
     { "a11_c", 'A', 11, "800,400;800,200;", "700,400;800,300;" },
     { "a11_cd", 'A', 11, "800,400;800,600;", "700,400;800,500;" },
     { "a11_rl", 'A', 11, "300,400;300,200;", "400,400;300,300;" },
@@ -82,8 +94,31 @@ static const sc_t sc[] = {
     { "a18_abc", 'A', 18, "", "500,450;t:A;700,300;t:B;700,300;t:C;700,300;" },
     { "a18_aee", 'A', 18, "", "500,450;t:A;700,300;700,300;700,300;" },
     { "a18_ea", 'A', 18, "", "500,450;700,300;t:B;700,300;" },
+    { "a19_s", 'A', 19, "", "500,450;700,300;" },
+    { "a19_x2", 'A', 19, "", "500,450;700,300;700,300;600,500;700,300;700,300;" },
+    { "a19_x3", 'A', 19, "", "500,450;700,300;t:5;700,300;600,500;700,300;700,300;" },
+    { "a19_x4", 'A', 19, "", "500,450;700,300;700,300;600,500;700,300;700,300;400,500;700,300;700,300;300,550;700,300;700,300;" },
+    { "a19_x5", 'A', 19, "", "500,450;700,300;t:P1;700,300;600,500;700,300;700,300;400,500;700,300;700,300;" },
+    { "a19_x6", 'A', 19, "", "500,450;700,300;t:B9;700,300;600,500;700,300;t:Z;700,300;400,500;700,300;700,300;" },
+    { "a20_s", 'A', 20, "", "500,450;700,300;700,300;" },
+    { "a21_s", 'A', 21, "", "500,450;700,300;700,300;700,300;" },
+    { "a22_s", 'A', 22, "", "500,450;700,300;700,300;700,300;" },
+    { "a23_m", 'A', 23, "", "500,450;580,350;" },
+    { "a24_m", 'A', 24, "", "500,450;580,350;" },
+    { "a25_m", 'A', 25, "", "500,450;580,350;" },
+    { "a26_m", 'A', 26, "", "500,450;580,350;" },
+    { "a27_m", 'A', 27, "", "500,450;580,350;" },
+    { "a28_m", 'A', 28, "", "500,450;580,350;" },
+    { "a29_m", 'A', 29, "", "500,450;580,350;" },
+    { "a30_lp", 'A', 30, "", "450,400;500,470;" },
     { "e01_f", 'E', 1, "", "450,400;500,470;" },
     { "g07_f", 'G', 7, "", "450,400;500,470;" },
+};
+
+/* tools/skall.py が全記号を自然な押し方で原典に置かせた答えの表。答えのファイルが
+   あるものだけ走らせる（SKAUTO=1 のとき。まだ合っていないものが混ざる） */
+static const sc_t sc_auto[] = {
+#include "skauto.inc"
 };
 
 /* 先に引く線は 線の命令では斜めが水平・垂直に寄せられるので、図面に直に足す
@@ -112,15 +147,23 @@ static void clicks(rect_t *r, const char *s)
     while (*s) {
         int x = 0, y = 0, n = 0;
 
+        if (s[0] == 'b' && s[1] == ':') {       /* 倍率の箱に（; まで） */
+            char buf[32];
+            int bn = 0;
+
+            s += 2;
+            while (*s && *s != ';' && bn < 30)
+                buf[bn++] = *s++;
+            buf[bn] = 0;
+            jw_cmd_box_put(1431, buf);
+            while (*s == ';' || *s == ' ')
+                s++;
+            continue;
+        }
         if (s[0] == 't' && s[1] == ':') {       /* 文字を打つ（; まで） */
             s += 2;
-            while (*s && *s != ';') {
-                int rk = app_key((unsigned char)*s);
-
-                if (getenv("SKDUMP"))
-                    printf("  key %c -> %d line [%s] cmd %x\n", *s, rk, jw_cmd_line(), jw_cmd());
-                s++;
-            }
+            while (*s && *s != ';')
+                app_key((unsigned char)*s++);
             while (*s == ';' || *s == ' ')
                 s++;
             continue;
@@ -164,7 +207,8 @@ static int same(const jw_drawing *ref, const jw_drawing *d, const char *name,
     }
     for (i = 0; i < rn && i < mn; i++) {
         const jw_obj *a = ra[i], *m = ma[i];
-        int nd = a->cls == JW_SEN ? 4 : a->cls == JW_ENKO ? 7 : 4;
+        int nd = a->cls == JW_SEN ? 4 : a->cls == JW_ENKO ? 7
+               : a->cls == JW_SOLID ? 8 : 4;
         int ok = 1;
 
         if (a->cls != m->cls) {
@@ -202,65 +246,69 @@ static int same(const jw_drawing *ref, const jw_drawing *d, const char *name,
 
 int main(int argc, char **argv)
 {
+    int fails = 0, pass, skipped = 0;
     size_t k;
-    int fails = 0;
 
-    for (k = 0; k < sizeof sc / sizeof sc[0]; k++) {
-        char path[96];
-        long n, rn;
-        unsigned char *b = slurp("decomp/res/new.jww", &n), *rb;
-        jw_drawing ref;
-        rect_t r;
-        int idx = jw_tgdat_index(4, sc[k].file - 'A');
+    for (pass = 0; pass < 2; pass++) {
+        const sc_t *tab = pass ? sc_auto : sc_hand;
+        size_t cnt = pass ? sizeof sc_auto / sizeof sc_auto[0] : sizeof sc_hand / sizeof sc_hand[0];
 
-        if (argc > 1 && strcmp(argv[1], sc[k].name))
-            continue;
-        snprintf(path, sizeof path, "decomp/res/sk_%s.jww", sc[k].name);
-        rb = slurp(path, &rn);
-        if (!rb || !b) {
-            printf("BAD  %s が読めません\n", path);
-            fails++;
-            continue;
+        if (pass && !getenv("SKAUTO") && !(argc > 1 && strlen(argv[1]) == 3))
+            break;
+        for (k = 0; k < cnt; k++) {
+            char path[96];
+            long n, rn;
+            unsigned char *b = slurp("decomp/res/new.jww", &n), *rb;
+            jw_drawing ref;
+            rect_t r;
+            int idx = jw_tgdat_index(4, tab[k].file - 'A');
+
+            if (argc > 1 && strcmp(argv[1], tab[k].name))
+                continue;
+            snprintf(path, sizeof path, "decomp/res/sk_%s.jww", tab[k].name);
+            rb = slurp(path, &rn);
+            if (!rb || !b) {
+                if (pass) {
+                    skipped++;
+                    continue;
+                }
+                printf("BAD  %s が読めません\n", path);
+                fails++;
+                continue;
+            }
+            memset(&ref, 0, sizeof ref);
+            jw_parse(&ref, rb, rn);
+            free(rb);
+            app_new();
+            app_resize(1264, 741);
+            app_open(b, n);
+            free(b);
+            ui_view_rect(app_fb()->w, app_fb()->h, &r);
+            app_command(32771);
+            clicks(&r, "300,400;800,400;");
+            addlines((jw_drawing *)app_drawing(), tab[k].pre);
+            app_command(32869);
+            jw_cmd_box_put(1431, "1 , 1");
+            jw_cmd_kigou_choose(idx, tab[k].item - 1);
+            clicks(&r, tab[k].post);
+            if (getenv("SKDUMP")) {
+                const jw_drawing *dd = app_drawing();
+                int q;
+
+                for (q = 0; q < dd->ndrawn; q++)
+                    if (!junk(&dd->obj[q]))
+                        printf("  post %d cls%d %.3f %.3f %.3f %.3f\n", q, dd->obj[q].cls,
+                               dd->obj[q].d[0], dd->obj[q].d[1], dd->obj[q].d[2],
+                               dd->obj[q].d[3]);
+            }
+            if (same(&ref, app_drawing(), tab[k].name, argc > 1))
+                fails++;
+            else
+                printf("ok   %s\n", tab[k].name);
         }
-        memset(&ref, 0, sizeof ref);
-        jw_parse(&ref, rb, rn);
-        free(rb);
-        app_new();
-        app_resize(1264, 741);
-        app_open(b, n);
-        free(b);
-        ui_view_rect(app_fb()->w, app_fb()->h, &r);
-        app_command(32771);
-        clicks(&r, "300,400;800,400;");
-        addlines((jw_drawing *)app_drawing(), sc[k].pre);
-        if (getenv("SKDUMP")) {
-            const jw_drawing *dd = app_drawing();
-            int q;
-
-            for (q = 0; q < dd->ndrawn; q++)
-                if (!junk(&dd->obj[q]))
-                    printf("  pre %d cls%d %.3f %.3f %.3f %.3f\n", q, dd->obj[q].cls,
-                           dd->obj[q].d[0], dd->obj[q].d[1], dd->obj[q].d[2],
-                           dd->obj[q].d[3]);
-        }
-        app_command(32869);
-        jw_cmd_kigou_choose(idx, sc[k].item - 1);
-        clicks(&r, sc[k].post);
-        if (getenv("SKDUMP")) {
-            const jw_drawing *dd = app_drawing();
-            int q;
-
-            for (q = 0; q < dd->ndrawn; q++)
-                if (!junk(&dd->obj[q]))
-                    printf("  post %d cls%d %.3f %.3f %.3f %.3f\n", q, dd->obj[q].cls,
-                           dd->obj[q].d[0], dd->obj[q].d[1], dd->obj[q].d[2],
-                           dd->obj[q].d[3]);
-        }
-        if (same(&ref, app_drawing(), sc[k].name, argc > 1)) {
-            fails++;
-        } else
-            printf("ok   %s\n", sc[k].name);
     }
+    if (skipped)
+        printf("(答えがまだ無い %d 件)\n", skipped);
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);
     return fails != 0;
 }
