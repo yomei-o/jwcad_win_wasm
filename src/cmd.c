@@ -372,6 +372,7 @@ static int au_st;                       /* AUTO の線編集: 0 なし 1 線を�
 static void au_reset(void);
 static int hk_north;
 static int hk_sub;
+static int hk_tbl_pending;
 static int hk_outlines(jw_drawing *d, int half);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
@@ -2364,6 +2365,7 @@ void jw_cmd_set(int id)
     au_reset();
     hk_north = 0;
     hk_sub = 0;
+    hk_tbl_pending = 0;
     if (id == JW_CMD_KIGOU) {
         sk_cat = -1;                /* 入るたびに選び直す */
         sk_step = 0;
@@ -3156,6 +3158,12 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5519;
     case JW_CMD_HIKAGE:
     case JW_CMD_TENKU:
+        if (hk_sub && hk_tbl_pending) {
+            static char pt[200];
+
+            snprintf(pt, sizeof pt, "%s     (Shift+L,R)\x81\x46\x82\x50\x8e\x9e\x8a\xd4\x96\x88", JW_STR_5560);
+            return pt;
+        }
         return hk_sub ? JW_STR_5403 : hk_north ? JW_STR_5525 : JW_STR_5524;
     case JW_CMD_AUTO:
         /* 何も持っていなければ AUTO の案内、線を押したら 線編集の案内、線を引き始めたら 線の問い */
@@ -8764,6 +8772,10 @@ static int bar_press(jw_drawing *d, int id)
         hk_sub = 0;
         return 1;
     }
+    if (current == JW_CMD_HIKAGE && hk_sub && id >= 1069 && id <= 1071) {
+        hk_tbl_pending = id;        /* 表を書く位置を指示 */
+        return 1;
+    }
     if (current == JW_CMD_HIKAGE && hk_sub && (id == 1065 || id == 1066)) {
         hk_outlines(d, id == 1066);
         return 1;
@@ -11994,6 +12006,127 @@ static int hk_outlines(jw_drawing *d, int half)
     return made;
 }
 
+/* 日影図の 表（影倍率表。decomp/res/hk_t1.jww）。置く位置 (cx,cy) の下に、八時から十六時まで三十分毎。
+   線は色 1、文字は書く色の 2.5 角（任意サイズ）。見出しの文字は 欄の中で中央、値は 右に 2.5 寄せ */
+
+static int hk_text_at(jw_drawing *d, double x, double y, const char *t, double wcell,
+                      int align, const jw_obj *like)
+{
+    jw_tg_out o;
+    double wx[2], wy[2], w = 0.0;
+    const char *q;
+    int n;
+
+    for (q = t; *q; ) {
+        int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+        w += wide ? 2.5 : 1.25;
+        q += wide ? 2 : 1;
+    }
+    (void)wcell;
+    wx[0] = x + (align == 2 ? -w : align == 1 ? -w / 2.0 : 0.0);
+    wy[0] = wy[1] = y;
+    wx[1] = wx[0] + w;
+    memset(&o, 0, sizeof o);
+    o.cls = JW_TG_TEXT_O;
+    o.kind = 2;
+    o.text = t;
+    n = jw_tg_text(d, &o, wx, wy, 0);
+    if (n > 0) {
+        d->obj[d->ndrawn - 1].n = 0;
+        if (like)
+            d->obj[d->ndrawn - 1].color = like->color;
+    }
+    return n;
+}
+
+/* 角度の文字は UTF-8（半角の ﾟ が EF BE 9F）で出てくるので CP932（DF）に */
+static void hk_cp932(char *s)
+{
+    char *w = s;
+
+    for (; *s; s++) {
+        if ((unsigned char)s[0] == 0xef && (unsigned char)s[1] == 0xbe && (unsigned char)s[2] == 0x9f) {
+            *w++ = (char)0xdf;
+            s += 2;
+        } else
+            *w++ = *s;
+    }
+    *w = 0;
+}
+
+static int hk_hline(jw_drawing *d, double x0, double y0, double x1, double y1)
+{
+    jw_obj *l = jw_add(d, JW_SEN);
+
+    if (!l)
+        return 0;
+    l->color = 1;
+    l->ltype = 1;
+    l->d[0] = x0; l->d[1] = y0; l->d[2] = x1; l->d[3] = y1;
+    return 1;
+}
+
+static int hk_table1(jw_drawing *d, double cx, double cy)
+{
+    static const double colx[7] = { 0.0, 11.25, 28.75, 46.25, 63.75, 78.75, 93.75 };
+    static const char *const head[6] = {
+        "\x8e\x9e\x20\x8d\x8f", "\x91\xbe\x97\x7a\x81\x40\x8d\x82\x93\x78",
+        "\x91\xbe\x97\x7a\x95\xfb\x88\xca\x8a\x70", "\x20\x89\x65\x92\xb7\x94\x7b\x97\xa6\x20",
+        "\x82\x77\x20\x94\x7b\x20\x97\xa6", "\x82\x78\x20\x94\x7b\x20\x97\xa6" };
+    char buf[96], num[32], lat_s[24];
+    double lat = 36.0, plane;
+    int made = 0, i, r, nrow = 17;
+    hk_sun sun;
+    jw_obj wcol;
+    const jw_obj *like = &wcol;
+    op_t *rec = op_new();
+    const char *bs = jw_cmd_box(1493);
+
+    memset(&wcol, 0, sizeof wcol);
+    wcol.color = (unsigned short)(d->write_ltype ? d->write_color : 2);
+    (void)plane;
+    if (bs && *bs)
+        lat = atof(bs);
+    hk_sun_init(&sun, lat, -23.45);
+    snprintf(lat_s, sizeof lat_s, "%g", lat);
+    snprintf(buf, sizeof buf, "\x89\x65\x94\x7b\x97\xa6\x95\x5c  [ \x88\xdc\x93\x78 = %s\xdf ][ \x93\x7e\x8e\x8a ]", lat_s);
+    made += hk_text_at(d, cx, cy + 1.0, buf, 0.0, 0, like);
+    for (i = 0; i < 7; i++) {
+        made += hk_hline(d, cx + colx[i], cy, cx + colx[i], cy - 90.0);
+        if (i < 6)
+            made += hk_text_at(d, cx + (colx[i] + colx[i + 1]) / 2.0, cy - 3.75 - 0.0, head[i],
+                               0.0, 1, like);
+    }
+    made += hk_hline(d, cx, cy, cx + colx[6], cy);
+    made += hk_hline(d, cx, cy - 5.0, cx + colx[6], cy - 5.0);
+    for (r = 0; r < nrow; r++) {
+        int ts = -14400 + r * 1800;
+        double x, y, y0 = cy - 5.0 * (r + 1) - 3.75, sa;
+
+        hk_sun_shadow(&sun, ts, &x, &y);
+        sa = hk_sun_sin_alt(&sun, ts);
+        snprintf(buf, sizeof buf, "%2d:%02d", 8 + (ts + 14400) / 3600, (ts + 14400) / 60 % 60);
+        made += hk_text_at(d, cx + (colx[0] + colx[1]) / 2.0, y0, buf, 0.0, 1, like);
+        hk_fmt_angle(num, sizeof num, 0, 0, asin(sa > 1.0 ? 1.0 : sa < -1.0 ? -1.0 : sa) * 180.0 / PI);
+        hk_cp932(num);
+        made += hk_text_at(d, cx + colx[2] - 2.5, y0, num, 0.0, 2, like);
+        hk_fmt_angle(num, sizeof num, 1, 0, hk_shadow_az_deg(x, y));
+        hk_cp932(num);
+        made += hk_text_at(d, cx + colx[3] - 2.5, y0, num, 0.0, 2, like);
+        snprintf(num, sizeof num, "%.3f", hk_shadow_mult(x, y));
+        made += hk_text_at(d, cx + colx[4] - 2.5, y0, num, 0.0, 2, like);
+        snprintf(num, sizeof num, "%.3f", x);
+        made += hk_text_at(d, cx + colx[5] - 2.5, y0, num, 0.0, 2, like);
+        snprintf(num, sizeof num, "%.3f", y);
+        made += hk_text_at(d, cx + colx[6] - 2.5, y0, num, 0.0, 2, like);
+        made += hk_hline(d, cx, cy - 5.0 * (r + 2), cx + colx[6], cy - 5.0 * (r + 2));
+    }
+    if (rec)
+        rec->n = made;
+    return made;
+}
+
 /* 高さの箱の式（+ - * / と かっこ）。読めなければ 0 */
 static const char *hk_e;
 static double hk_expr(void);
@@ -12176,6 +12309,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         }
         if (bi >= 0)
             jw_cmd_box_put(1491, jw_str(d, d->obj[bi].text));
+        return;
+    }
+    if (current == JW_CMD_HIKAGE && hk_sub && hk_tbl_pending && d && button <= 1) {
+        if (hk_tbl_pending == 1069)
+            hk_table1(d, x, y);
         return;
     }
     if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && hk_north && d && button <= 1) {
