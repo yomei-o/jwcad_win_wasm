@@ -9,7 +9,7 @@ PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
 sh tools/refenv.sh >/dev/null
 W=$(pwd -W | tr '/' '\\')
 FOLDER="${W}\\tmp\\$2"
-for k in TATEGUHEIMEN TATEGUDANMEN TATEGURITSUMEN; do
+for k in TATEGUHEIMEN TATEGUDANMEN TATEGURITSUMEN SENKIGOU; do
     powershell -Command "Set-ItemProperty -Path 'HKCU:\\Software\\Jw_cad\\jw_win\\Folder' -Name $k -Value '$FOLDER'"
 done
 cp decomp/res/new.jww tmp/rect.jww
