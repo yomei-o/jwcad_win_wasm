@@ -367,6 +367,8 @@ static int tg_cat = -1, tg_item = -1;   /* 選んだ建具（jw_tgdat の番号�
 static int tg_need_pick;
 static int tg_step;                     /* 0 基準線 1 位置、R の二点の途中は 2 */
 static double tg_ax, tg_ay, tg_ux, tg_uy;
+static int au_st;                       /* AUTO の線編集: 0 なし 1 線を押した 2 二点目まで */
+static void au_reset(void);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
 static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
@@ -2351,6 +2353,7 @@ void jw_cmd_set(int id)
         nisen_obj = -1;
     }
     auto_back = 0;
+    au_reset();
     if (id == JW_CMD_KIGOU) {
         sk_cat = -1;                /* 入るたびに選び直す */
         sk_step = 0;
@@ -2454,6 +2457,7 @@ void jw_cmd_escape(void)
     ten_cross = 0;
     ten_a = -1;
     sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
+    au_reset();
     if (current == JW_CMD_KIGOU && sk_step != 4)
         sk_step = 0;               /* 線・位置のとちゅうは捨てる（文字入力は別） */
 }
@@ -2489,6 +2493,7 @@ int jw_cmd_midway(void)
     case JW_CMD_CHUSHIN:   return chu_step != 0;
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
     case JW_CMD_KIGOU:     return sk_step >= 1 && sk_step <= 4;
+    case JW_CMD_AUTO:      return au_st != 0;
     /* ハッチ: a circle right-clicked leaves no corners and no chain --
        only a region -- and the original takes 戻る for that too
        (CZukeiHachi slot 16 tests +0x224 and +0x228, which is the
@@ -3143,7 +3148,11 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_TENKU:
         return JW_STR_5524;
     case JW_CMD_AUTO:
-        /* 何も持っていなければ AUTO の案内、線を引き始めたら 線の問い */
+        /* 何も持っていなければ AUTO の案内、線を押したら 線編集の案内、線を引き始めたら 線の問い */
+        if (au_st == 1)
+            return JW_STR_5435;
+        if (au_st == 2)
+            return JW_STR_5435;
         return step == 0 ? JW_STR_5434 : JW_STR_5321;
     case JW_CMD_SEN:
     case JW_CMD_KUKEI:
@@ -11370,6 +11379,307 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
     jw_cmd_point(d, v, x, y, 0);
 }
 
+/* ---- AUTO モードの 線編集（decomp/res/au_*.jww、tools/autoprobe.sh） ----------
+ * 線 A を L で押す（au_st 1）。そのあと
+ *   L で 別の線      → コーナー（A も B も 押した側を残して 交点まで）
+ *   L で 同じ線・何もない所 → 二点目 P2（au_st 2）。次の一点 P3 で、P2 が線の中なら
+ *                       P2〜P3 の部分消し、線の外なら 伸縮（P3 の側の端を P3 の足へ）
+ *   R で 同じ線          → A を消す
+ *   R で 別の線          → A を その線まで（線伸縮基準線）。その線は変わらない
+ *   au_st 2 の R で 同じ線 → 前後の交点のあいだを消す、R で読める点 → それを P3 に
+ * 変えた線は 元を消して 末尾に（A、B の順）足す。 */
+static int au_st = 0;
+static int au_a = -1;
+static double au_ax, au_ay, au_p2x, au_p2y;
+
+static void au_reset(void)
+{
+    au_st = 0;
+    au_a = -1;
+}
+
+/* 線 i の p0・p1 の どちらを 交点 x,y へ動かすか: 押した点 (px,py) の側を残す */
+static void au_move_end(const jw_obj *o, double px, double py, double ix,
+                        double iy, double *q)
+{
+    double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1];
+    double l = sqrt(ux * ux + uy * uy), s, v0, v1;
+
+    q[0] = o->d[0]; q[1] = o->d[1]; q[2] = o->d[2]; q[3] = o->d[3];
+    if (l < 1e-9)
+        return;
+    ux /= l;
+    uy /= l;
+    s = (px - ix) * ux + (py - iy) * uy >= 0.0 ? 1.0 : -1.0;
+    v0 = ((o->d[0] - ix) * ux + (o->d[1] - iy) * uy) * s;
+    v1 = ((o->d[2] - ix) * ux + (o->d[3] - iy) * uy) * s;
+    if (v0 >= v1) {             /* p0 が残る、p1 を動かす */
+        q[2] = ix;
+        q[3] = iy;
+    } else {
+        q[0] = ix;
+        q[1] = iy;
+    }
+}
+
+/* 二本の直線（延長して）の交点 */
+static int au_cross(const jw_obj *a, const jw_obj *b, double *ix, double *iy)
+{
+    double ax = a->d[2] - a->d[0], ay = a->d[3] - a->d[1];
+    double bx = b->d[2] - b->d[0], by = b->d[3] - b->d[1];
+    double det = ax * by - ay * bx, t;
+
+    if (fabs(det) < 1e-12)
+        return 0;
+    t = ((b->d[0] - a->d[0]) * by - (b->d[1] - a->d[1]) * bx) / det;
+    *ix = a->d[0] + ax * t;
+    *iy = a->d[1] + ay * t;
+    return 1;
+}
+
+static void au_add_line(jw_drawing *d, const jw_obj *from, const double *q)
+{
+    jw_obj *n = jw_add(d, JW_SEN);
+
+    if (!n)
+        return;
+    {
+        unsigned short ly = n->layer, lg = n->lgroup;
+
+        *n = *from;
+        n->layer = ly;
+        n->lgroup = lg;
+    }
+    n->layer = from->layer;
+    n->lgroup = from->lgroup;
+    n->d[0] = q[0]; n->d[1] = q[1]; n->d[2] = q[2]; n->d[3] = q[3];
+}
+
+/* コーナー（b==-1 なら A だけを 基準線 b2 まで） */
+static void au_corner(jw_drawing *d, int a, double apx, double apy, int b,
+                      double bpx, double bpy, int only_a)
+{
+    jw_obj oa, ob;
+    double ix, iy, qa[4], qb[4];
+    op_t *o;
+    int hi, lo;
+
+    if (a < 0 || b < 0 || a >= d->ndrawn || b >= d->ndrawn || a == b)
+        return;
+    oa = d->obj[a];
+    ob = d->obj[b];
+    if (!au_cross(&oa, &ob, &ix, &iy))
+        return;
+    au_move_end(&oa, apx, apy, ix, iy, qa);
+    au_move_end(&ob, bpx, bpy, ix, iy, qb);
+    o = op_new();
+    hi = a > b ? a : b;
+    lo = a > b ? b : a;
+    if (only_a) {
+        erase(d, a, o);
+    } else {
+        erase(d, hi, o);
+        erase(d, lo, o);
+    }
+    au_add_line(d, &oa, qa);
+    if (!only_a)
+        au_add_line(d, &ob, qb);
+    if (o)
+        o->n = only_a ? 1 : 2;
+}
+
+/* 伸縮: P3 の側の端を P3 の足へ */
+static void au_stretch(jw_drawing *d, int a, double apx, double apy,
+                       double p3x, double p3y)
+{
+    jw_obj oa;
+    double ux, uy, l, t, q[4];
+    op_t *o;
+
+    if (a < 0 || a >= d->ndrawn)
+        return;
+    oa = d->obj[a];
+    ux = oa.d[2] - oa.d[0];
+    uy = oa.d[3] - oa.d[1];
+    l = sqrt(ux * ux + uy * uy);
+    if (l < 1e-9)
+        return;
+    ux /= l;
+    uy /= l;
+    q[0] = oa.d[0]; q[1] = oa.d[1]; q[2] = oa.d[2]; q[3] = oa.d[3];
+    t = (p3x - oa.d[0]) * ux + (p3y - oa.d[1]) * uy;
+    {
+        double tp = (apx - oa.d[0]) * ux + (apy - oa.d[1]) * uy;
+
+        if (p3x * 0.0 + t >= tp) {      /* P3 が押した点より先（p1 の側） */
+            q[2] = oa.d[0] + ux * t;
+            q[3] = oa.d[1] + uy * t;
+        } else {
+            q[0] = oa.d[0] + ux * t;
+            q[1] = oa.d[1] + uy * t;
+        }
+    }
+    o = op_new();
+    erase(d, a, o);
+    au_add_line(d, &oa, q);
+    if (o)
+        o->n = 1;
+}
+
+/* 線 a と ほかの線の交点の、押した位置 t0 の前後の交点のあいだを消す */
+static void au_between(jw_drawing *d, int a, double cx, double cy)
+{
+    jw_obj oa;
+    double ux, uy, l, t0, lo = 0.0, hi, q[4];
+    int i, have_lo = 0, have_hi = 0;
+    op_t *o;
+
+    oa = d->obj[a];
+    ux = oa.d[2] - oa.d[0];
+    uy = oa.d[3] - oa.d[1];
+    l = sqrt(ux * ux + uy * uy);
+    if (l < 1e-9)
+        return;
+    ux /= l;
+    uy /= l;
+    hi = l;
+    t0 = (cx - oa.d[0]) * ux + (cy - oa.d[1]) * uy;
+    for (i = 0; i < d->ndrawn; i++) {
+        double ix, iy, t, bx, by, s;
+
+        if (i == a || d->obj[i].cls != JW_SEN)
+            continue;
+        if (!au_cross(&oa, &d->obj[i], &ix, &iy))
+            continue;
+        /* 相手の線の上にあること */
+        bx = d->obj[i].d[2] - d->obj[i].d[0];
+        by = d->obj[i].d[3] - d->obj[i].d[1];
+        s = ((ix - d->obj[i].d[0]) * bx + (iy - d->obj[i].d[1]) * by) / (bx * bx + by * by);
+        if (s < -1e-9 || s > 1.0 + 1e-9)
+            continue;
+        t = (ix - oa.d[0]) * ux + (iy - oa.d[1]) * uy;
+        if (t <= 1e-9 || t >= l - 1e-9)
+            continue;
+        if (t <= t0 && (!have_lo || t > lo)) {
+            lo = t;
+            have_lo = 1;
+        }
+        if (t >= t0 && (!have_hi || t < hi)) {
+            hi = t;
+            have_hi = 1;
+        }
+    }
+    o = op_new();
+    erase(d, a, o);
+    {
+        int made = 0;
+
+        if (have_lo) {
+            q[0] = oa.d[0]; q[1] = oa.d[1];
+            q[2] = oa.d[0] + ux * lo; q[3] = oa.d[1] + uy * lo;
+            au_add_line(d, &oa, q);
+            made++;
+        }
+        if (have_hi) {
+            q[0] = oa.d[0] + ux * hi; q[1] = oa.d[1] + uy * hi;
+            q[2] = oa.d[2]; q[3] = oa.d[3];
+            au_add_line(d, &oa, q);
+            made++;
+        }
+        if (o)
+            o->n = made;
+    }
+}
+
+/* AUTO の線編集の一押し。取り込んだら 1 */
+static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
+                   int button)
+{
+    int i;
+
+    if (au_st == 0) {
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0 || d->obj[i].cls != JW_SEN)
+            return 0;
+        if (button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr))
+                return 0;               /* 読める点があれば ＋ のほう */
+            return 0;                   /* 複線 */
+        }
+        au_a = i;
+        au_ax = x;
+        au_ay = y;
+        au_st = 1;
+        return 1;
+    }
+    if (au_a < 0 || au_a >= d->ndrawn || d->obj[au_a].cls != JW_SEN) {
+        au_reset();
+        return 0;
+    }
+    if (au_st == 1) {
+        i = jw_pick(d, v, x, y, 3);
+        if (button == 1) {
+            if (i < 0 || d->obj[i].cls != JW_SEN)
+                return 1;               /* 何もないところ: そのまま */
+            if (i == au_a) {
+                op_t *o = op_new();
+
+                erase(d, au_a, o);      /* 同じ線: 消去 */
+            } else
+                au_corner(d, au_a, au_ax, au_ay, i, x, y, 1);
+            au_reset();
+            return 1;
+        }
+        if (i >= 0 && i != au_a && d->obj[i].cls == JW_SEN) {
+            au_corner(d, au_a, au_ax, au_ay, i, x, y, 0);
+            au_reset();
+            return 1;
+        }
+        au_p2x = x;
+        au_p2y = y;
+        au_st = 2;
+        return 1;
+    }
+    /* au_st == 2 */
+    {
+        double px = x, py = y;
+
+        if (button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr)) {
+                px = sxr;
+                py = syr;
+            } else {
+                i = jw_pick(d, v, x, y, 3);
+                if (i == au_a)
+                    au_between(d, au_a, x, y);
+                au_reset();
+                return 1;
+            }
+        }
+        {
+            const jw_obj *oa = &d->obj[au_a];
+            double ux = oa->d[2] - oa->d[0], uy = oa->d[3] - oa->d[1];
+            double l = sqrt(ux * ux + uy * uy), t;
+
+            if (l < 1e-9) {
+                au_reset();
+                return 1;
+            }
+            t = ((au_p2x - oa->d[0]) * ux + (au_p2y - oa->d[1]) * uy) / l;
+            if (t <= -1e-7 || t >= l + 1e-7)
+                au_stretch(d, au_a, au_ax, au_ay, px, py);
+            else
+                cut_line(d, au_a, au_p2x, au_p2y, px, py);
+        }
+        au_reset();
+        return 1;
+    }
+}
+
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button);
 
@@ -11467,6 +11777,19 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
            R で線を押すと 複線、R で何も読めなければ 矩形、になり、それが終わると AUTO に
            戻る（tools/probe196）。L で線を押したときの 線編集（部分消し・コーナー・
            線伸縮）は未実装 */
+        if (d && step == 0 && au_st == 0 && button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr)) {
+                /* R で点が読めれば ＋: 読んだ点から線を引き始める（au_r5） */
+                current = JW_CMD_SEN;
+                jw_cmd_point_(d, v, sxr, syr, 0);
+                current = JW_CMD_AUTO;
+                return;
+            }
+        }
+        if (d && step == 0 && au_edit(d, v, x, y, button))
+            return;
         if (step == 0 && d) {
             int i = jw_pick(d, v, x, y, 3);
             double sxr, syr;
@@ -11476,14 +11799,6 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 para_step = 0;
                 auto_back = 1;
                 jw_cmd_point(d, v, x, y, 0);
-                return;
-            }
-            if (i >= 0 && d->obj[i].cls == JW_SEN) {
-                /* L で線 = 線編集。いまは 部分消し（消去の左と同じ三回の押し）だけ */
-                current = JW_CMD_SHOUKYO;
-                cut_step = 0;
-                auto_back = 1;
-                jw_cmd_point(d, v, x, y, button);
                 return;
             }
             if (button == 1 && !jw_read(d, v, x, y, &sxr, &syr)) {

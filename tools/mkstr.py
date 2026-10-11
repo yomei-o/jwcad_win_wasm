@@ -22,6 +22,7 @@ WANT = [
     (5309, 'the centre of a circle'),
     (5347, 'choose a fitting (tategu plan)'),
     (5478, 'the reference line, or two points (tategu plan)'),
+    (5435, 'AUTO: a line picked -- partial erase, stretch, corner'),
     (5490, 'choose a symbol (line symbol change)'),
     (5362, 'the first line to point at (line symbol change)'),
     (5363, 'the second line to point at (line symbol change)'),
