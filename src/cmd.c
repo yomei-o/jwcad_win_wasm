@@ -11955,6 +11955,8 @@ static int hk_outlines(jw_drawing *d, int half)
             l->d[2] = seg[j].b.x;
             l->d[3] = seg[j].b.y;
             l->id = gid;
+            /* 整時は 線種 1、半時は 2、そのほかは 3（原典の組の印 1・2・3） */
+            l->ltype = fabs(hour - floor(hour + 0.5)) < 1e-9 ? 1 : fabs(hour * 2.0 - floor(hour * 2.0 + 0.5)) < 1e-9 ? 2 : 3;
             made++;
             if (cs[j]) {
                 start = j;
