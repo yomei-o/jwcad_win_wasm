@@ -75,6 +75,7 @@ WANT = [
     (5357, 'the first line or circle a division takes'),
     (5358, 'the second one, once the first is a line'),
     (5359, 'the second one, once the first is a circle'),
+    (5434, 'AUTO mode, nothing in hand'),
     (5368, 'the second circle a tangent takes'),
     (5372, 'the first line or circle a tangent circle takes'),
     (5373, 'the second one'),

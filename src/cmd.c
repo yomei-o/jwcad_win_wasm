@@ -3069,6 +3069,9 @@ const char *jw_cmd_prompt(void)
         return sok_n ? JW_STR_5323 : JW_STR_5320;
     case JW_CMD_KYORITEN:
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
+    case JW_CMD_AUTO:
+        /* 何も持っていなければ AUTO の案内、線を引き始めたら 線の問い */
+        return step == 0 ? JW_STR_5434 : JW_STR_5321;
     case JW_CMD_SEN:
     case JW_CMD_KUKEI:
     case JW_CMD_RENZOKU:
@@ -3971,6 +3974,13 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
 int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 {
     int n;
+
+    if (current == JW_CMD_AUTO && step > 0) {       /* 引きかけの線 */
+        current = JW_CMD_SEN;
+        n = jw_cmd_pending(d, o, max);
+        current = JW_CMD_AUTO;
+        return n;
+    }
 
     /* 多角形の 任意: 積んだ頂点を線で結び、最後からカーソルまで。
        原典のスクリーンショット（tmp/s6.png）の赤い仮の線にならった形 */
@@ -11044,6 +11054,17 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    if (current == JW_CMD_AUTO) {
+        /* AUTOモード: 何もないところは 線（線のあいだ、始点→終点）。
+           原典に空の図面で二点を押させると 線が一本できて 始点の問いに戻る
+           （tools/probe196）。図形を押したときの 線編集・複線・移動などは未実装 */
+        if (step == 0 && d && jw_pick(d, v, x, y, 3) >= 0)
+            return;
+        current = JW_CMD_SEN;
+        jw_cmd_point(d, v, x, y, button);
+        current = JW_CMD_AUTO;
+        return;
+    }
     if (get_mode && get_click(d, v, x, y, button))
         return;
     if (read_mode == 33028 && d) {
