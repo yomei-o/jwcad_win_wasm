@@ -361,6 +361,9 @@ static const struct {
     { "CDataBlock",  JW_BLOCK },
     { "CDataList",   JW_LIST  },
     { "CDataSunpou", JW_SUNPOU },
+    { "CData3DSen",   JW_3DSEN   },
+    { "CData3DEnko",  JW_3DENKO  },
+    { "CData3DSolid", JW_3DSOLID },
 };
 #define NCLASSES ((int)(sizeof CLASSES / sizeof CLASSES[0]))
 
@@ -569,6 +572,20 @@ static void read_body(ar_t *a, jw_drawing *d, int v, jw_obj *o, lctx *L)
         if (o->color == 10)
             o->n = ar_l(a);
         break;
+    case JW_3DSEN:
+        for (i = 0; i < 6; i++)
+            o->d[i] = ar_d(a);
+        break;
+    case JW_3DENKO:
+        for (i = 0; i < 7; i++)
+            o->d[i] = ar_d(a);
+        break;
+    case JW_3DSOLID:
+        for (i = 0; i < 8; i++)
+            o->d[i] = ar_d(a);
+        for (i = 0; i < 4; i++)
+            o->e[i] = ar_d(a);
+        break;
     case JW_BLOCK:
         /* CDataBlock::Serialize (0x0049b2c0): where it sits, how big it is
            each way, which way round, and which definition it stands for */
@@ -702,12 +719,14 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
            every damaged drawing back out again.) */
         {
             int k;
-            for (k = 0; k < 8; k++)
-                if (!(o->d[k] > -1e12 && o->d[k] < 1e12)) {
+            for (k = 0; k < 12; k++) {
+                double x = k < 8 ? o->d[k] : o->e[k - 8];
+                if (!(x > -1e12 && x < 1e12)) {
                     d->error = "a coordinate that cannot be";
                     a->bad = 1;
                     break;
                 }
+            }
         }
     }
 }

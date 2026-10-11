@@ -136,7 +136,8 @@ static void w_str(wbuf *w, const char *s, int wide)
 
 static const char *CLASS_NAME[JW_NCLASS] = {
     "CDataSen", "CDataEnko", "CDataTen", "CDataMoji", "CDataSolid",
-    "CDataBlock", "CDataList", "CDataSunpou"
+    "CDataBlock", "CDataList", "CDataSunpou",
+    "CData3DSen", "CData3DEnko", "CData3DSolid"
 };
 
 /* CData::Serialize, the store side of FUN_0042e690 */
@@ -198,6 +199,20 @@ static void w_body(wbuf *w, const jw_drawing *d, int v, const jw_obj *o)
             w_d(w, o->d[i]);
         if (o->color == 10)
             w_l(w, o->n);
+        break;
+    case JW_3DSEN:
+        for (i = 0; i < 6; i++)
+            w_d(w, o->d[i]);
+        break;
+    case JW_3DENKO:
+        for (i = 0; i < 7; i++)
+            w_d(w, o->d[i]);
+        break;
+    case JW_3DSOLID:
+        for (i = 0; i < 8; i++)
+            w_d(w, o->d[i]);
+        for (i = 0; i < 4; i++)
+            w_d(w, o->e[i]);
         break;
     case JW_BLOCK:
         for (i = 0; i < 5; i++)
@@ -300,7 +315,7 @@ static void w_objs(wbuf *w, const jw_drawing *d, int from, int to,
         }
         if (!seen[c]) {
             w_w(w, 0xffff);
-            w_w(w, d->schema[c]);
+            w_w(w, d->schema[c] ? d->schema[c] : 700);
             w_w(w, (unsigned)strlen(CLASS_NAME[c]));
             w_raw(w, CLASS_NAME[c], (long)strlen(CLASS_NAME[c]));
             seen[c] = (*nload)++;   /* the class takes a number */

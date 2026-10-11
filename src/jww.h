@@ -21,6 +21,12 @@ enum {
     JW_SUNPOU,      /* CDataSunpou -- only ever a class tag in the file: the
                        reader lays its members out as plain elements marked
                        with jw_obj.sub, and the writer puts them back */
+    /* 2.5D elements: a common 15 bytes, then 6, 7 and 12 doubles
+       (CData3DSen / CData3DEnko / CData3DSolid::Serialize, 0x00442860,
+       0x004426f0, 0x00442990).  Kept as they are; nothing draws them yet. */
+    JW_3DSEN,       /* d[0..5]                  */
+    JW_3DENKO,      /* d[0..6]                  */
+    JW_3DSOLID,     /* d[0..7] then e[0..3]     */
     JW_NCLASS
 };
 
@@ -46,6 +52,7 @@ typedef struct {
     unsigned char sel;          /* not in the file */
     int id;                     /* +0x04  a serial number, not the layer  */
     double d[8];                /* the geometry, class by class           */
+    double e[4];                /* the rest of a JW_3DSOLID's twelve      */
     int n;                      /* the trailing long some classes carry   */
     /* JW_BLOCK: which definition it stands for.  A definition (JW_LIST)
        carries its own number in list[0], and this is that number. */
