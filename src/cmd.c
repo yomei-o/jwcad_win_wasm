@@ -7,6 +7,7 @@
 #include "cmd.h"
 #include "tategu.h"
 #include "senkigou.h"
+#include "takaku.h"
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
@@ -9786,88 +9787,23 @@ static void tk_solid(jw_drawing *d, const double *x, const double *y, int n)
     }
 }
 
-static int tk_convex(const double *x, const double *y, int n)
-{
-    int i, pos = 0, neg = 0;
-
-    for (i = 0; i < n; i++) {
-        int j = (i + 1) % n, k = (i + 2) % n;
-        double c = (x[j] - x[i]) * (y[k] - y[j]) - (y[j] - y[i]) * (x[k] - x[j]);
-
-        if (c > 1e-7)
-            pos++;
-        else if (c < -1e-7)
-            neg++;
-    }
-    return pos == 0 || neg == 0;
-}
-
 static int tk_solids(jw_drawing *d, const double *x, const double *y, int n)
 {
-    int made = 0;
+    static double out[1003][8];
+    int k, nout = 0;
 
-    if (n == 3) {
+    tk_decompose(x, y, n, out, &nout);
+    for (k = 0; k < nout; k++) {
         double px[4], py[4];
         int i;
-        for (i = 0; i < 3; i++) { px[i] = x[i]; py[i] = y[i]; }
-        px[3] = x[0];
-        py[3] = y[0];
+
+        for (i = 0; i < 4; i++) {
+            px[i] = out[k][i * 2];
+            py[i] = out[k][i * 2 + 1];
+        }
         tk_solid(d, px, py, 4);
-        return 1;
     }
-    if (n == 4) {
-        tk_solid(d, x, y, 4);
-        return 1;
-    }
-    if (tk_convex(x, y, n)) {
-        double px[4], py[4];
-
-        px[0] = x[0]; py[0] = y[0];
-        px[1] = x[1]; py[1] = y[1];
-        px[2] = x[n - 2]; py[2] = y[n - 2];
-        px[3] = x[n - 1]; py[3] = y[n - 1];
-        tk_solid(d, px, py, 4);
-        made = 1;
-        if (n - 2 == 3) {
-            double qx[3], qy[3];
-            int i;
-            for (i = 0; i < 3; i++) { qx[i] = x[1 + i]; qy[i] = y[1 + i]; }
-            tk_solid(d, qx, qy, 3);     /* 四点目は三点目の繰り返し */
-            return made + 1;
-        }
-        return made + tk_solids(d, x + 1, y + 1, n - 2);
-    }
-    {
-        int i, m = 0;
-        double area = 0.0;
-
-        for (i = 1; i < n; i++)
-            if (x[i] < x[m])
-                m = i;
-        for (i = 0; i < n; i++) {
-            int j = (i + 1) % n;
-            area += x[i] * y[j] - x[j] * y[i];
-        }
-        for (i = 1; i + 1 < n; i++) {
-            int a = (m + i) % n, b = (m + i + 1) % n;
-            double c = (x[a] - x[m]) * (y[b] - y[m]) - (y[a] - y[m]) * (x[b] - x[m]);
-            double tx[3], ty[3];
-
-            if (fabs(c) < 1e-7)
-                continue;               /* つぶれた三角は出ない */
-            tx[0] = x[m]; ty[0] = y[m];
-            tx[1] = x[a]; ty[1] = y[a];
-            tx[2] = x[b]; ty[2] = y[b];
-            if (c < 0.0) {              /* 反時計回りに直す */
-                tx[1] = x[b]; ty[1] = y[b];
-                tx[2] = x[a]; ty[2] = y[a];
-            }
-            tk_solid(d, tx, ty, 3);
-            made++;
-        }
-        (void)area;
-    }
-    return made;
+    return nout;
 }
 
 static void takaku_any(jw_drawing *d)

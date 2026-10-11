@@ -119,6 +119,7 @@ static const sc_t sc_hand[] = {
    あるものだけ走らせる（SKAUTO=1 のとき。まだ合っていないものが混ざる） */
 static const sc_t sc_auto[] = {
 #include "skauto.inc"
+#include "skauto_t.inc"
 };
 
 /* 先に引く線は 線の命令では斜めが水平・垂直に寄せられるので、図面に直に足す
