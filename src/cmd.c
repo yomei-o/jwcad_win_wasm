@@ -120,6 +120,7 @@ void jw_cmd_any_color_set(unsigned int rgb)
 /* 線伸縮: the line, while its end is being moved. */
 static int stretch_step;
 static int stretch_obj;
+static double stretch_t0;       /* where along the line the first click fell */
 
 /* 文字: what has been typed but not placed yet.  The original wants it that
    way round -- type into its floating box first, then click where it goes;
@@ -4692,7 +4693,7 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
         return;
     dist = box_num(sz, 0.0);
     if (mt_mode != 1692 && dist <= 0.0)
-        return;                 /* no size typed in: nothing to cut */
+        return;                 /* a size of 0: nothing to cut */
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
@@ -4961,6 +4962,36 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
     }
     ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
     bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
+    {
+        /* Which ends go together is settled by the two clicks: where the
+           lines cross (or, parallel, at their middles) each click falls on
+           one side, and the ends on those sides are paired, the other two
+           with each other.  The longer rung is written first
+           (tools/fzcheck.py over fuzz cases 5, 9, 11-13, 18-21, 23, 26). */
+        double adx = ax1 - ax0, ady = ay1 - ay0, bdx = bx1 - bx0, bdy = by1 - by0;
+        double den = adx * bdy - ady * bdx;
+        double ta = ((ax - ax0) * adx + (ay - ay0) * ady) / (adx * adx + ady * ady + 1e-30);
+        double tb = ((bx - bx0) * bdx + (by - by0) * bdy) / (bdx * bdx + bdy * bdy + 1e-30);
+        double ip = 0.5, iq = 0.5, tx, ty;
+
+        if (fabs(den) > 1e-9 * (adx * adx + ady * ady + 1e-30)) {
+            ip = ((bx0 - ax0) * bdy - (by0 - ay0) * bdx) / den;
+            iq = ((bx0 - ax0) * ady - (by0 - ay0) * adx) / den;
+        }
+        if ((ta >= ip) != (tb >= iq)) {
+            tx = bx0; ty = by0;
+            bx0 = bx1; by0 = by1;
+            bx1 = tx; by1 = ty;
+        }
+        if (hypot(bx0 - ax0, by0 - ay0) < hypot(bx1 - ax1, by1 - ay1) - 1e-6) {
+            tx = ax0; ty = ay0;
+            ax0 = ax1; ay0 = ay1;
+            ax1 = tx; ay1 = ty;
+            tx = bx0; ty = by0;
+            bx0 = bx1; by0 = by1;
+            bx1 = tx; by1 = ty;
+        }
+    }
     for (k = 1; k <= count; k++) {
         double t = (double)k / n;
         jw_obj *o = jw_add(d, JW_SEN);
@@ -13937,6 +13968,12 @@ placed:
             if (i < 0 || d->obj[i].cls != JW_SEN)
                 return;
             stretch_obj = i;
+            {
+                jw_obj *q = &d->obj[i];
+                double ex = q->d[2] - q->d[0], ey = q->d[3] - q->d[1];
+                double l2 = ex * ex + ey * ey;
+                stretch_t0 = l2 > 1e-14 ? ((x - q->d[0]) * ex + (y - q->d[1]) * ey) / l2 : 0;
+            }
             stretch_step = 1;
             return;
         }
@@ -13952,7 +13989,9 @@ placed:
             nx = o->d[0] + t * dx;
             ny = o->d[1] + t * dy;
             op_keep(op_new(), d, i, 0);
-            if (fabs(t) <= fabs(t - 1.0)) {
+            /* a point inside the line keeps the side that was clicked and
+               moves the far end; one past an end extends that end */
+            if (t >= 0.0 && t <= 1.0 ? stretch_t0 > 0.5 : t < 0.0) {
                 o->d[0] = nx;
                 o->d[1] = ny;
             } else {
@@ -14604,6 +14643,10 @@ placed:
         return;
     }
     if (current == JW_CMD_RENZOKU) {
+        /* (R) reading the point before the last one puts nothing in (fuzz
+           case 14: the last click 4.5 px from the one before it, then R) */
+        if (button == 1 && step == 3 && fabs(x - sx) < 1e-9 && fabs(y - sy) < 1e-9)
+            return;
         if (step == 0) {
             sx = x;
             sy = y;

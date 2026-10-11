@@ -204,8 +204,18 @@ int main(int argc, char **argv)
                 double zx = p0->d[0] + (q0->d[0] - p0->d[0]) * F[f].last;
                 double zy = p0->d[1] + (q0->d[1] - p0->d[1]) * F[f].last;
 
-                good = near(a->d[0], ex) && near(a->d[1], ey)
-                       && near(z->d[0], zx) && near(z->d[1], zy);
+                /* the original writes the longer rung's end first
+                   (decomp/res/bunkatsu.jww; tools/fzcheck.py), so the line
+                   may run from either side */
+                double ex2 = p0->d[2] + (q0->d[2] - p0->d[2]) * F[f].first;
+                double ey2 = p0->d[3] + (q0->d[3] - p0->d[3]) * F[f].first;
+                double zx2 = p0->d[2] + (q0->d[2] - p0->d[2]) * F[f].last;
+                double zy2 = p0->d[3] + (q0->d[3] - p0->d[3]) * F[f].last;
+
+                good = (near(a->d[0], ex) && near(a->d[1], ey)
+                        && near(z->d[0], zx) && near(z->d[1], zy))
+                       || (near(a->d[0], ex2) && near(a->d[1], ey2)
+                           && near(z->d[0], zx2) && near(z->d[1], zy2));
             }
             good = good && jw_cmd_box(1411)
                    && !strcmp(jw_cmd_box(1411), F[f].after);

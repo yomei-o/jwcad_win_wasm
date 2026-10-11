@@ -52,9 +52,9 @@ class Gen:
         k, g = e
         if k == 'L':
             t = self.r.uniform(.15, .85) if t is None else t
-            return (clampi(g[0] + (g[2] - g[0]) * t, 0, 1263), clampi(g[1] + (g[3] - g[1]) * t, 0, 740))
+            return (clampi(g[0] + (g[2] - g[0]) * t, 0, 1100), clampi(g[1] + (g[3] - g[1]) * t, 0, 680))
         a = self.r.uniform(0, 2 * math.pi)
-        return (clampi(g[0] + g[2] * math.cos(a), 0, 1263), clampi(g[1] + g[2] * math.sin(a), 0, 740))
+        return (clampi(g[0] + g[2] * math.cos(a), 0, 1100), clampi(g[1] + g[2] * math.sin(a), 0, 680))
 
     def side_pt(self, e, p):
         k, g = e
@@ -63,10 +63,10 @@ class Gen:
         if k == 'L':
             dx, dy = g[2] - g[0], g[3] - g[1]
             n = math.hypot(dx, dy) or 1
-            return (clampi(p[0] - dy / n * d * s, 0, 1263), clampi(p[1] + dx / n * d * s, 0, 740))
+            return (clampi(p[0] - dy / n * d * s, 0, 1100), clampi(p[1] + dx / n * d * s, 0, 680))
         dx, dy = p[0] - g[0], p[1] - g[1]
         n = math.hypot(dx, dy) or 1
-        return (clampi(g[0] + dx / n * (g[2] + d * s), 0, 1263), clampi(g[1] + dy / n * (g[2] + d * s), 0, 740))
+        return (clampi(g[0] + dx / n * (g[2] + d * s), 0, 1100), clampi(g[1] + dy / n * (g[2] + d * s), 0, 680))
 
     @staticmethod
     def S(p):
@@ -96,7 +96,7 @@ class Gen:
         c = self.pt()
         r = self.r.randint(30, 150)
         a = self.r.choice((0, 0, math.pi / 2, self.r.uniform(0, 6.28)))
-        p = (clampi(c[0] + r * math.cos(a), 0, 1263), clampi(c[1] + r * math.sin(a), 0, 740))
+        p = (clampi(c[0] + r * math.cos(a), 0, 1100), clampi(c[1] + r * math.sin(a), 0, 680))
         rr = max(1, int(round(math.hypot(p[0] - c[0], p[1] - c[1]))))
         self.circs.append((c[0], c[1], rr))
         return ('circle', ['cmd:32773', self.S(c), self.S(p)])
@@ -212,8 +212,8 @@ class Gen:
             else:
                 xs += [g[0] - g[2], g[0] + g[2]]; ys += [g[1] - g[2], g[1] + g[2]]
         m = 10
-        return (clampi(min(xs) - m, 5, 1250), clampi(min(ys) - m, 5, 730),
-                clampi(max(xs) + m, 5, 1250), clampi(max(ys) + m, 5, 730))
+        return (clampi(min(xs) - m, 5, 1100), clampi(min(ys) - m, 5, 680),
+                clampi(max(xs) + m, 5, 1100), clampi(max(ys) + m, 5, 680))
 
     def op_range_erase(self):
         b = self.rng_box()
@@ -226,7 +226,7 @@ class Gen:
         if not b:
             return None
         bp = self.pt()
-        dp = (clampi(bp[0] + self.r.randint(-200, 200), 0, 1263), clampi(bp[1] + self.r.randint(-150, 150), 0, 740))
+        dp = (clampi(bp[0] + self.r.randint(-200, 200), 0, 1100), clampi(bp[1] + self.r.randint(-150, 150), 0, 680))
         return ('copy' if copy else 'move',
                 ['cmd:32804' if copy else 'cmd:32918', '%d,%d' % b[:2], '%d,%d' % b[2:],
                  'm%d,%d' % bp, 'btn:1120', 'pb:1066', self.S(bp), self.S(dp)])
@@ -434,6 +434,8 @@ def cmd_shrink(a):
     for sid, c in res.items():
         if c['status'] != 'diverge' or sid in mins:
             continue
+        if a.only and not re.match(a.only, sid):
+            continue
         m = shrink([tuple(o) for o in c['ops']])
         ok, cc = diverges(m)
         mins[sid] = dict(steps=steps_of(m), ops=m, cmp=cc)
@@ -475,6 +477,7 @@ if __name__ == '__main__':
     sp = ap.add_subparsers(dest='cmd', required=True)
     p = sp.add_parser('run'); p.add_argument('--n', type=int, default=130); p.add_argument('--seed', type=int, default=1)
     p = sp.add_parser('one'); p.add_argument('steps')
-    sp.add_parser('shrink'); sp.add_parser('report')
+    p = sp.add_parser('shrink'); p.add_argument('--only', default='')
+    sp.add_parser('report')
     a = ap.parse_args()
     {'run': cmd_run, 'one': cmd_one, 'shrink': cmd_shrink, 'report': cmd_report}[a.cmd](a)
