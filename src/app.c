@@ -447,9 +447,11 @@ static int tgp_open, tgp_kind, tgp_file, tgp_page;
 
 static void tgp_check(void)
 {
-    if (!tgp_open && jw_cmd_tategu_need_pick() && (jw_cmd() == JW_CMD_TATEGU || jw_cmd() == JW_CMD_TATEGU_DAN)) {
+    if (!tgp_open && jw_cmd_tategu_need_pick() && (jw_cmd() == JW_CMD_TATEGU || jw_cmd() == JW_CMD_TATEGU_DAN ||
+         jw_cmd() == JW_CMD_TATEGU_RITSU)) {
         tgp_open = 1;
-        tgp_kind = jw_cmd() == JW_CMD_TATEGU_DAN ? 2 : 1;
+        tgp_kind = jw_cmd() == JW_CMD_TATEGU_RITSU ? 3
+                 : jw_cmd() == JW_CMD_TATEGU_DAN ? 2 : 1;
         tgp_file = 0;
         tgp_page = 0;
     }
@@ -473,7 +475,7 @@ static int press_tgp(int x, int y)
             tgp_page--;
     } else if (r == 5) {
         const jw_tategu *t = jw_tategu_load(jw_tgdat_index(tgp_kind, tgp_file));
-        int per = ui_tgp_per_page(fb.w, fb.h);
+        int per = ui_tgp_per_page(fb.w, fb.h, tgp_kind);
 
         if (t && (tgp_page + 1) * per < t->nitem)
             tgp_page++;

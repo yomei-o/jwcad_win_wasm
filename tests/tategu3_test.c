@@ -109,6 +109,84 @@ static void run(const char *name, const int (*wall)[2], const clk *c, int nc)
         fails++;
 }
 
+/* 建具立面 (32865): 位置を一回指すだけ。基準点の釦・反転・角度・内法の箱で
+   p192_* と同じ設定を作ってクリックする */
+typedef struct {
+    const char *name;
+    int item;
+    const char *size;           /* 内法の箱 */
+    int bh, bv;                 /* 左内法・下内法の釦を押した回数 */
+    int flip_h, flip_v;         /* 横反転・縦反転 */
+    const char *angle;
+} case3;
+
+static void run3(const case3 *k)
+{
+    char path[96];
+    jw_drawing ref;
+    unsigned char *b;
+    long n;
+    const jw_drawing *d;
+    rect_t r;
+    int i, ok = 1, ri = 0, mi = 0;
+    const jw_obj *ra[256], *ma[256];
+
+    b = slurp("decomp/res/new.jww", &n);
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    free(b);
+    snprintf(path, sizeof path, "decomp/res/%s.jww", k->name);
+    memset(&ref, 0, sizeof ref);
+    b = slurp(path, &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  %s が読めません\n", path);
+        fails++;
+        return;
+    }
+    free(b);
+    ui_view_rect(app_fb()->w, app_fb()->h, &r);
+    app_command(32865);
+    jw_cmd_tategu_choose(jw_tgdat_index(3, 0), k->item);
+    jw_cmd_box_put(1426, k->size);
+    jw_cmd_box_put(1430, k->angle);
+    for (i = 0; i < k->bh; i++)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1065);
+    for (i = 0; i < k->bv; i++)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1066);
+    /* 反転の箱は次の試験まで残るので、ほしい状態にそろえる */
+    if ((jw_cmd_bar_check(1323) > 0) != (k->flip_h != 0))
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
+    if ((jw_cmd_bar_check(1324) > 0) != (k->flip_v != 0))
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1324);
+    app_press(r.x + 450, r.y + 400, 0);
+    d = app_drawing();
+    for (i = 0; i < ref.ndrawn && ri < 256; i++)
+        if (ref.obj[i].cls == JW_SEN)
+            ra[ri++] = &ref.obj[i];
+    for (i = 0; i < d->ndrawn && mi < 256; i++)
+        if (d->obj[i].cls == JW_SEN)
+            ma[mi++] = &d->obj[i];
+    if (ri != mi) {
+        printf("BAD  %s: 線 原典 %d・移植 %d\n", k->name, ri, mi);
+        fails++;
+        return;
+    }
+    for (i = 0; i < ri; i++) {
+        int j;
+
+        for (j = 0; j < 4; j++)
+            if (fabs(ra[i]->d[j] - ma[i]->d[j]) > 2e-3) {
+                ok = 0;
+                printf("     %d.d[%d] 原典 %.4f・移植 %.4f\n", i, j,
+                       ra[i]->d[j], ma[i]->d[j]);
+            }
+    }
+    printf("%-4s %s\n", ok ? "ok" : "BAD", k->name);
+    if (!ok)
+        fails++;
+}
+
 int main(void)
 {
     static const int H[2][2] = { {300,400}, {800,400} };
@@ -153,6 +231,21 @@ int main(void)
     run("p187_C7", H, a, 2);
     itm = 8;
     run("p187_C9", H, a, 2);
+    {
+        static const case3 c3[] = {
+            { "p192_n4_h2400", 3, "1700 , 2400", 0, 0, 0, 0, "" },
+            { "p192_n4_rhr",   3, "1700 , 2400", 2, 0, 0, 0, "" },
+            { "p192_n4_rvc",   3, "1700 , 2400", 0, 1, 0, 0, "" },
+            { "p192_n4_fh",    3, "1700 , 2400", 0, 0, 1, 0, "" },
+            { "p192_n4_fv",    3, "1700 , 2400", 0, 0, 0, 1, "" },
+            { "p192_n4_a30",   3, "1700 , 2400", 0, 0, 0, 0, "30" },
+            { "p192_n2_w3000", 1, "3000 , 2400", 0, 0, 0, 0, "" },
+        };
+        unsigned k;
+
+        for (k = 0; k < sizeof c3 / sizeof c3[0]; k++)
+            run3(&c3[k]);
+    }
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }

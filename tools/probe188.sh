@@ -3,9 +3,11 @@
 #   sh tools/probe188.sh   → decomp/res/p188_*.jww
 # 見込・枠幅・内法・芯ずれを変えて、同じ建具を水平な壁に置かせる。
 cd "$(dirname "$0")/.."
+# 原典は建具の窓を閉じるたびに orig/ に空の 20…-…-… を作り、木の行が一つずつずれていく
+for d in orig/20??????-??????-???; do rmdir "$d" 2>/dev/null; done
 set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
-idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; }
+idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; for d in orig/20??????-??????-???; do rmdir "$d" 2>/dev/null; done; }
 cell() { n=$1; r=$(( (n - 1) / 2 )); c=$(( (n - 1) % 2 )); echo "$(( 480 + c * 398 )),$(( 60 + r * 72 ))"; }
 run() {   # 名前 行の y 建具番号 設定
     idle; sh tools/refenv.sh >/dev/null

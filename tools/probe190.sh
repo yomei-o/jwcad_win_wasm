@@ -4,9 +4,11 @@
 # file は A（木で選ばない・初めの一枚）か、木の行の y（客領域。B=192 …）。
 # 断面は 2×8、立面は 4×4 のますが並ぶ。
 cd "$(dirname "$0")/.."
+# 原典は建具の窓を閉じるたびに orig/ に空の 20…-…-… を作り、木の行が一つずつずれていく
+for d in orig/20??????-??????-???; do rmdir "$d" 2>/dev/null; done
 set +e
 PS="powershell -ExecutionPolicy Bypass -File tools/jwdraw.ps1"
-idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; }
+idle() { k=0; while tasklist //FI 'IMAGENAME eq Jw_win.exe' 2>/dev/null | grep -q Jw_win.exe; do k=$((k+1)); [ $k -gt 90 ] && break; sleep 1; done; for d in orig/20??????-??????-???; do rmdir "$d" 2>/dev/null; done; }
 CMD=$1; F=$2
 cell() {
     n=$1

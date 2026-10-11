@@ -44,6 +44,7 @@ enum {
     JW_CMD_BUNKATSU = 0x8063,       /* 分割 -- CZukeiBunkatsu */
     JW_CMD_TATEGU = 0x8050,         /* 建具平面 (32848) */
     JW_CMD_TATEGU_DAN = 0x8062,     /* 建具断面 (32866) */
+    JW_CMD_TATEGU_RITSU = 0x8061,   /* 建具立面 (32865) */
     JW_CMD_NISEN = 0x807c,          /* ２線 -- the menu resource and the
                                        toolbar cell both say 0x807c; it
                                        was 0x805c here, which is not a
@@ -88,6 +89,7 @@ int  jw_cmd_tategu_need_pick(void);
 void jw_cmd_tategu_choose(int catalog, int item);
 /* 線の長さの寸法値（「線の寸法値」と同じ書き方）を `t` に作る。1 で作った */
 int  jw_cmd_dim_value(const jw_drawing *d, const jw_obj *line, jw_obj *t);
+const char *jw_cmd_bar_label(int id);   /* 釦の字が動くもの。無ければ 0 */
 int  jw_cmd_tategu_catalog(void);       /* いま選んでいるもの。無ければ -1 */
 int  jw_cmd_tategu_item(void);   /* 連続線 の手前の線を図面へ */
 void jw_cmd_reset(void);            /* back to how it starts, for a new drawing */

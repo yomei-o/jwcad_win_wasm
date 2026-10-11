@@ -18,6 +18,7 @@
 #include "../src/jww.h"
 
 static int fails;
+static int nwall = 1;                    /* 原典の答えの頭の壁の本数（立面は 0） */
 
 static unsigned char *slurp(const char *path, long *n)
 {
@@ -87,13 +88,13 @@ static void run(const char *name, int dat, int item, jw_tg_pose p)
             if (mine.obj[i].cls != JW_MOJI)
                 ma[mi++] = &mine.obj[i];
         /* ra[0] は壁の線 */
-        if (ri - 1 != mi) {
-            printf("BAD  %s: 要素 原典 %d・移植 %d\n", name, ri - 1, mi);
+        if (ri - nwall != mi) {
+            printf("BAD  %s: 要素 原典 %d・移植 %d\n", name, ri - nwall, mi);
             fails++;
             return;
         }
         for (i = 0; i < mi; i++) {
-            const jw_obj *r = ra[i + 1], *m = ma[i];
+            const jw_obj *r = ra[i + nwall], *m = ma[i];
             int cnt = r->cls == JW_SEN ? 4 : r->cls == JW_ENKO ? 7 : 2;
 
             if (r->cls != m->cls) {
@@ -149,7 +150,7 @@ static void run_full(const char *name, int dat, int item, jw_tg_pose p)
     jw_tategu_put(&mine, t, item, &p);
     /* 原典の答えの終わりには、建具とは関係のない文字（Printer_…）が並ぶ */
     for (i = 0; i < mine.ndrawn - first; i++) {
-        const jw_obj *r = &ref.obj[i + 1], *m = &mine.obj[first + i];
+        const jw_obj *r = &ref.obj[i + nwall], *m = &mine.obj[first + i];
         int cnt = r->cls == JW_SEN ? 4 : r->cls == JW_MOJI ? 6 : 2;
 
 #define NEQ(what, a, c) do { if ((a) != (c)) { ok = 0; if (bad++ < 6) \
@@ -273,6 +274,104 @@ int main(void)
     p = base();
     p.shinzure = 10;
     run("p180_z10", 0, 4, p);
+    /* 建具立面（JW_OPT3）: 壁なし。クリック (450,400) が基準点（左内法・下内法） */
+    nwall = 0;
+    {
+        static const struct {
+            const char *nm;
+            int item;
+            double w, h;
+            int rh, rv, fl, fi;
+            double ang;
+        } c3[] = {
+            { "p192_i1",        0, 1700, 1700, 0, 0, 0, 0, 0 },
+            { "p192_i3_h1000",  2, 1700, 1000, 0, 0, 0, 0, 0 },
+            { "p192_n1_h2400",  0, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n2_h2400",  1, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n3_h2400",  2, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n4_h2400",  3, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n5_h2400",  4, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n6_h2400",  5, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_i7_h1000",  6, 1700, 1000, 0, 0, 0, 0, 0 },
+            { "p192_i7_h1700",  6, 1700, 1700, 0, 0, 0, 0, 0 },
+            { "p192_i7_h2400",  6, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_i7_h4000",  6, 1700, 4000, 0, 0, 0, 0, 0 },
+            { "p192_i8_h2400",  7, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_i8_h4000",  7, 1700, 4000, 0, 0, 0, 0, 0 },
+            { "p192_n9_h2400",  8, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n10_h2400", 9, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n11_h2400", 10, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n12_h2400", 11, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n13_h2400", 12, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n4_rhc",    3, 1700, 2400, 1, 0, 0, 0, 0 },
+            { "p192_n4_rhr",    3, 1700, 2400, 2, 0, 0, 0, 0 },
+            { "p192_n4_rvc",    3, 1700, 2400, 0, 1, 0, 0, 0 },
+            { "p192_n4_rvt",    3, 1700, 2400, 0, 2, 0, 0, 0 },
+            { "p192_n4_fh",     3, 1700, 2400, 0, 0, 1, 0, 0 },
+            { "p192_n4_fv",     3, 1700, 2400, 0, 0, 0, 1, 0 },
+            { "p192_n4_a30",    3, 1700, 2400, 0, 0, 0, 0, 30 },
+            { "p192_n4_sq",     3, 1700, 2400, 0, 0, 0, 0, 0 },
+            { "p192_n2_w3000",  1, 3000, 2400, 0, 0, 0, 0, 0 },
+        };
+        unsigned k;
+
+        for (k = 0; k < sizeof c3 / sizeof c3[0]; k++) {
+            char path[96];
+            FILE *f;
+
+            snprintf(path, sizeof path, "decomp/res/%s.jww", c3[k].nm);
+            f = fopen(path, "rb");
+            if (!f)
+                continue;               /* まだ取っていない答え */
+            fclose(f);
+            p = base();
+            p.ox = -63.673;
+            p.oy = -34.898;
+            p.uchinori = c3[k].w;
+            p.height = c3[k].h;
+            p.ref_h = c3[k].rh;
+            p.ref_v = c3[k].rv;
+            p.flip_lr = c3[k].fl;
+            p.flip_io = c3[k].fi;
+            p.ux = cos(c3[k].ang * 3.14159265358979 / 180.0);
+            p.uy = sin(c3[k].ang * 3.14159265358979 / 180.0);
+            run(c3[k].nm, jw_tgdat_index(3, 0), c3[k].item, p);
+        }
+    }
+    /* 立面の 文字（D11 の 403・D13 の 103、斜体）と実点も含めて全部 */
+    p = base();
+    p.ox = -63.673;
+    p.oy = -34.898;
+    p.uchinori = 1700;
+    p.height = 2400;
+    run_full("p192_D11_h2400", jw_tgdat_index(3, 3), 10, p);
+    run_full("p192_D13_h2400", jw_tgdat_index(3, 3), 12, p);
+    {   /* 立面の B・C・D（高さ 2400、幅 1700、基準は左下） */
+        static const struct { char c; int dat, n; } f3[] = {
+            { 'B', 1, 12 }, { 'C', 2, 12 }, { 'D', 3, 14 },
+        };
+        unsigned f;
+        int n2;
+
+        for (f = 0; f < sizeof f3 / sizeof f3[0]; f++)
+            for (n2 = 1; n2 <= f3[f].n; n2++) {
+                char nm2[64];
+                FILE *fp;
+
+                snprintf(nm2, sizeof nm2, "p192_%c%d_h2400", f3[f].c, n2);
+                snprintf(nm, sizeof nm, "decomp/res/%s.jww", nm2);
+                fp = fopen(nm, "rb");
+                if (!fp)
+                    continue;           /* まだ取っていない答え */
+                fclose(fp);
+                p = base();
+                p.ox = -63.673;
+                p.oy = -34.898;
+                p.uchinori = 1700;
+                p.height = 2400;
+                run(nm2, jw_tgdat_index(3, f3[f].dat), n2 - 1, p);
+            }
+    }
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }

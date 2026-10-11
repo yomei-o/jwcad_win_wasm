@@ -339,10 +339,10 @@ typedef struct {
     int lx, ly, lw;             /* 左の一覧 */
     int gx, gy, cols, rows, cellw, cellh;       /* 右のます */
 } jw_tgp_layout;
-void ui_tgp_layout(int cw, int ch, jw_tgp_layout *L);
+void ui_tgp_layout(int cw, int ch, int kind, jw_tgp_layout *L);
 void ui_tgp(fb_t *fb, int kind, int file, int page, int hover);
 int  ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
                 int *val);
-int  ui_tgp_per_page(int cw, int ch);
+int  ui_tgp_per_page(int cw, int ch, int kind);
 
 #endif

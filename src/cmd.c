@@ -353,6 +353,7 @@ static int ses_mode = 1689;     /* the bar button: 1689..1692 */
  */
 
 #define TG_IS(c) ((c) == JW_CMD_TATEGU || (c) == JW_CMD_TATEGU_DAN)
+#define TG_IS3(c) ((c) == JW_CMD_TATEGU_RITSU)
 
 /* 建具平面 (32848).  選ぶ（ファイル選択の窓）→ 基準線 → 位置、を繰り返す。
  * 原典に置かせた答え（tools/probe179〜186.sh、tests/tategu2_test.c）:
@@ -365,7 +366,8 @@ static int tg_need_pick;
 static int tg_step;                     /* 0 基準線 1 位置、R の二点の途中は 2 */
 static double tg_ax, tg_ay, tg_ux, tg_uy;
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
-static int tg_last;                     /* 平面か断面か（最後に入った方） */
+static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
+static int tg_rh, tg_rv;                /* 立面の基準点: 左・中・右 / 下・中・上 */
 
 int jw_cmd_tategu_need_pick(void)
 {
@@ -578,6 +580,8 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TATEGU_DAN, 1427, "0" },       /*        芯ずれ */
     { JW_CMD_TATEGU_DAN, 1428, "75" },      /*        内出（S の建具だけ） */
     { JW_CMD_TATEGU_DAN, 1429, "75" },      /*        外出 */
+    { JW_CMD_TATEGU_RITSU, 1426, "1700 , 1700" }, /* 立面の 内法（幅 , 高さ） */
+    { JW_CMD_TATEGU_RITSU, 1430, "" },      /*        角度 */
     { JW_CMD_TAKAKU, 1412, "1000 , 1000" },     /* ２辺の「横 , 縦」 */
     { JW_CMD_TAKAKU, 1413, "5" },       /* 角数      */
     { JW_CMD_TAKAKU, 1414, "0" },       /* 底辺角度  */
@@ -2273,6 +2277,14 @@ void jw_cmd_set(int id)
         nisen_step = 0;
         nisen_obj = -1;
     }
+    if (TG_IS3(id)) {
+        if (tg_last != id)
+            tg_cat = -1;
+        tg_last = id;
+        tg_step = 0;
+        tg_need_pick = 1;
+        tg_rh = tg_rv = 0;      /* 左内法・下内法で入る */
+    }
     if (TG_IS(id)) {
         if (tg_last != id)
             tg_cat = -1;            /* 平面と断面で建具の一覧は別 */
@@ -3227,10 +3239,13 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5383;
     case JW_CMD_TATEGU:
     case JW_CMD_TATEGU_DAN:
+    case JW_CMD_TATEGU_RITSU:
         /* 選ぶまでは「建具を選択してください。」、選んだら基準線、壁を
            指したら位置。(R) で二点を読むあいだは 線の「終点」の問い */
         if (tg_cat < 0)
             return JW_STR_5347;
+        if (current == JW_CMD_TATEGU_RITSU)     /* 立面は位置だけ */
+            return JW_STR_5346;
         if (tg_step == 1)
             return JW_STR_5346;
         if (tg_step == 2)
@@ -8395,6 +8410,8 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (id == 1064 && TG_IS3(current))
+        return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
     if (id == 1146 && TG_IS(current))
         return tg_page2;            /* ＞ で替わる二枚目 */
     if ((id == 1428 || id == 2448) && TG_IS(current)) {
@@ -8590,6 +8607,18 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_TAKAKU && id >= 1689 && id <= 1692) {
         tk_mode = id;
+        return 1;
+    }
+    if (TG_IS3(current) && id == 1064) {
+        tg_need_pick = 1;
+        return 1;
+    }
+    if (TG_IS3(current) && id == 1065) {
+        tg_rh = (tg_rh + 1) % 3;
+        return 1;
+    }
+    if (TG_IS3(current) && id == 1066) {
+        tg_rv = (tg_rv + 1) % 3;
         return 1;
     }
     if (TG_IS(current) && id == 1064) {
@@ -9204,6 +9233,66 @@ static void tg_place(jw_drawing *d, double x, double y)
     p.oy = tg_ay + along * tg_uy;
     p.ux = tg_ux;
     p.uy = tg_uy;
+    made = jw_tategu_put(d, t, tg_item, &p);
+    if (made > 0)
+        op_push(made);
+}
+
+/* 建具立面の 基準点の釦の字: 押すたびに 左内法→中→右内法、下内法→中→上内法 */
+const char *jw_cmd_bar_label(int id)
+{
+    static const char *const h[3] = { "\x8d\xb6\x93\xe0\x96\x40", "\x92\x86", "\x89\x45\x93\xe0\x96\x40" };
+    static const char *const v[3] = { "\x89\xba\x93\xe0\x96\x40", "\x92\x86", "\x8f\xe3\x93\xe0\x96\x40" };
+
+    if (!TG_IS3(current))
+        return 0;
+    if (id == 1065)
+        return h[tg_rh];
+    if (id == 1066)
+        return v[tg_rv];
+    return 0;
+}
+
+/* 建具立面 (32865).  選んだら 位置（L: free）だけ。内法は「幅 , 高さ」の一つの箱
+ * （1426）。基準点は 左内法/中/右内法（1065）と 下内法/中/上内法（1066）。
+ * 横反転・縦反転は基準点のまわりの鏡。角度（1430）は基準点のまわりに回す。
+ * 原典の答え: tools/probe192.sh、tests/tategu2_test.c の p192_* */
+static void tg_place3(jw_drawing *d, double x, double y)
+{
+    const jw_tategu *t;
+    jw_tg_pose p;
+    const char *s = jw_cmd_box(1426);
+    double w = 1700.0, h = 1700.0, ang;
+    char *e;
+    int made;
+
+    if (tg_cat < 0 || !d || !(t = jw_tategu_load(tg_cat)))
+        return;
+    if (s && *s) {
+        w = strtod(s, &e);
+        if (e == s)
+            w = 1700.0;
+        h = w;
+        while (*e == ' ' || *e == ',' || *e == '	')
+            e++;
+        if (*e)
+            h = strtod(e, 0);
+    }
+    if (jw_cmd_bar_check(1325) > 0)      /* 縦＝横 */
+        h = w;
+    ang = box_num(jw_cmd_box(1430), 0.0) * PI / 180.0;
+    memset(&p, 0, sizeof p);
+    p.uchinori = w;
+    p.height = h;
+    p.ref_h = tg_rh;
+    p.ref_v = tg_rv;
+    p.flip_lr = jw_cmd_bar_check(1323) > 0;
+    p.flip_io = jw_cmd_bar_check(1324) > 0;
+    p.scale = write_scale(d);
+    p.ox = x;
+    p.oy = y;
+    p.ux = cos(ang);
+    p.uy = sin(ang);
     made = jw_tategu_put(d, t, tg_item, &p);
     if (made > 0)
         op_push(made);
@@ -11910,6 +11999,12 @@ placed:
                 bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
         }
         corner_step = 0;
+        return;
+    }
+    if (TG_IS3(current)) {
+        if (!d || tg_cat < 0 || button != 0)
+            return;
+        tg_place3(d, x, y);
         return;
     }
     if (TG_IS(current)) {

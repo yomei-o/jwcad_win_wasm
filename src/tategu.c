@@ -122,8 +122,14 @@ static void scan_text(const char *s, jw_tg_part *p)
                 k = sizeof p->font - 1;
             memcpy(p->font, b + 2, k);
             p->font[k] = 0;
-            if (c[1] == '/')
+            /* フォント名のあとの / は斜体、そのあとの ! は太字 */
+            if (c[1] == '/') {
                 p->italic = 1;
+                if (c[2] == '!')
+                    p->bold = 1;
+            } else if (c[1] == '!') {
+                p->bold = 1;
+            }
         }
     }
 }
@@ -138,7 +144,8 @@ static const char *skip_space(const char *s)
 int jw_tategu_parse(jw_tategu *t, const char *b, long n)
 {
     long i = 0;
-    int in_item = 0, hidden = 0, head_seen = 0;
+    int in_item = 0, hidden = 0, head_seen = 0, circ_w = 0;
+    double scale3 = 1.0;                /* 立面の 700（部材寸法の倍率）・750（円の半径の比） */
     jw_tg_item *it = 0;
 
     if (!t || !b)
@@ -245,6 +252,8 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
             it->base_mikomi = 70.0;     /* S 行が無いときの基準。説明の 4 */
             it->base_wakuhaba = 25.0;
             it->first = t->npart;
+            scale3 = 1.0;
+            circ_w = 0;
             /* 二個以上の空白のあとが札 */
             p2 = s;
             while (*p2 && *p2 != ' ' && *p2 != '\t')
@@ -271,6 +280,16 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
             hidden = 1;
             continue;
         }
+        /* 立面の 500（一覧の位置ずらし）・700（倍率）・750（円の半径の比の向き）。
+           ブロック番号の欄に 500・700・750 を書いて、そのあとに数が続く */
+        if (in_item && it && k >= 2 && k < 6 &&
+            (d[0] == 500.0 || d[0] == 700.0 || d[0] == 750.0)) {
+            if (d[0] == 700.0 && d[1] > 0.0)
+                scale3 = d[1];
+            else if (d[0] == 750.0)
+                circ_w = d[1] == 1.0;
+            continue;
+        }
         if (k < 6)                      /* 部材には座標が要ります */
             continue;
         if (t->npart >= JW_TG_PARTS)
@@ -285,6 +304,8 @@ int jw_tategu_parse(jw_tategu *t, const char *b, long n)
             p->y0 = d[3];
             p->x1 = d[4];
             p->y1 = d[5];
+            p->scale3 = scale3;
+            p->circ_w = circ_w;
             p->layer = -1;
             p->layer_raw = -1;
             p->hidden = hidden;
@@ -356,6 +377,8 @@ static double map_x(const jw_tg_item *it, int kind, int b, double x,
        原典の答え（p190_32866_*、p191_*） */
     if (kind == 2 && b == 1)
         return org + x;
+    if (kind == 3)              /* 立面の幅は伸びない（枠は 35 のまま） */
+        return org + x;
     k = wakuhaba / it->base_wakuhaba;
     if (it->has_s) {
         /* 説明の 5-1): 枠幅の基準を基準に平均に伸縮。
@@ -377,6 +400,25 @@ static double map_x(const jw_tg_item *it, int kind, int b, double x,
         }
     }
     return org + x;
+}
+
+/* 建具立面の Y。データの高さは 10000 が 内法の高さで、千の位で四捨五入した
+   ところ（0・3000・5000・7000・10000 …）が 高さの 0・0.3・0.5・0.7・1 倍に
+   動き、そこからのずれ（-37・40・9960・10035 …）は mm のまま。
+   原典に 内法の高さを 1000・1700・2400・4000 で置かせた答え（p192_*） */
+static double map_y3(const jw_tg_item *it, double y, double height,
+                     double scale)
+{
+    /* 縦内法は 10 分割（`s N` があれば N 分割）。1000 単位に四捨五入した値が
+       その分割の位置（0 が下、1000×分割数 が上）、-500 以上 500 未満の
+       残りは mm のまま（700 の倍率だけ掛かる）。
+       原典の答え: 高さ 1000・1700・2400・4000（p192_*）と 階段の `s 14` など */
+    double n = it->has_s && it->base_mikomi > 0.0 ? it->base_mikomi : 10.0;
+    double a = floor(y / 1000.0 + 0.5) * 1000.0;
+
+    if (a < 0.0)
+        a = 0.0;
+    return (y - a) * scale + a / (n * 1000.0) * height;
 }
 
 static double map_y(const jw_tg_item *it, double y, double mikomi)
@@ -436,10 +478,16 @@ int jw_tategu_place_io(const jw_tategu *t, int item, double mikomi,
         jw_tg_out *o = &out[n];
 
         memset(o, 0, sizeof *o);
-        o->x0 = map_x(it, t->kind, tg_blk(p->b0), p->x0, wakuhaba, uchinori);
-        o->y0 = map_y(it, p->y0, mikomi) + tg_dy(it, p->b0, mikomi, uchide, sotode);
-        o->x1 = map_x(it, t->kind, tg_blk(p->b1), p->x1, wakuhaba, uchinori);
-        o->y1 = map_y(it, p->y1, mikomi) + tg_dy(it, p->b1, mikomi, uchide, sotode);
+        o->x0 = map_x(it, t->kind, tg_blk(p->b0),
+                      t->kind == 3 && p->scale3 > 0.0 ? p->x0 * p->scale3 : p->x0,
+                      wakuhaba, uchinori);
+        o->y0 = (t->kind == 3 ? map_y3(it, p->y0, mikomi, p->scale3 > 0.0 ? p->scale3 : 1.0) : map_y(it, p->y0, mikomi))
+                + tg_dy(it, p->b0, mikomi, uchide, sotode);
+        o->x1 = map_x(it, t->kind, tg_blk(p->b1),
+                      t->kind == 3 && p->scale3 > 0.0 ? p->x1 * p->scale3 : p->x1,
+                      wakuhaba, uchinori);
+        o->y1 = (t->kind == 3 ? map_y3(it, p->y1, mikomi, p->scale3 > 0.0 ? p->scale3 : 1.0) : map_y(it, p->y1, mikomi))
+                + tg_dy(it, p->b1, mikomi, uchide, sotode);
         o->color = p->color;
         o->ltype = p->ltype;
         o->width = p->width;
@@ -451,6 +499,7 @@ int jw_tategu_place_io(const jw_tategu *t, int item, double mikomi,
         o->text = p->text[0] ? p->text : 0;
         o->font = p->font[0] ? p->font : 0;
         o->italic = p->italic;
+        o->bold = p->bold;
         if (p->color == JW_TG_TEN) {
             o->cls = JW_TG_POINT;
             o->color = 0;               /* 30000 は目印なので色ではありません */
@@ -636,19 +685,28 @@ static int tg_dimension(jw_drawing *d, const jw_tg_out *o, unsigned short flags,
 /* 文字。始点座標が置く位置（文字種類の百の位 1..8 が、その位置が文字の
    どこに当たるか: 1 中下 2 右下 3 左中 4 中中 5 右中 6 左上 7 中上 8 右上、
    0 は左下）で、始点から終点への向きが文字の角度。千の位 1 は縦書き。
-   [1] の「引き違い」（p185_i1）は 701: 中上。大きさと色は 文字種 1 番の
-   もの、種類・n は原典の答えのまま。 */
+   [1] の「引き違い」（p185_i1）は 701: 中上。
+
+   下二桁は 文字種の番号（1 から。大きさ・色・間隔はその文字種）。原典の
+   答え（p185_i1 の 701、立面の D11 の 403・D13 の 103）から:
+     ltype = 百の位 + 1、旗 = 0x2000、
+     n = 10000 × （斜体 1 + 太字 2）+ 文字種の番号、
+     d[7] = 基線の角度（度）、書体は $<…> か 既定。 */
 static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
                    const double *wy)
 {
     double dx = wx[1] - wx[0], dy = wy[1] - wy[0], l = sqrt(dx * dx + dy * dy);
     double ux = 1.0, uy = 0.0, vx, vy, cw, ch, sp, w = 0.0, ax, ay;
     int h = (o->kind / 100) % 10, tate = (o->kind / 1000) % 10, nch = 0;
+    int sn = o->kind % 100;
     const char *q;
     jw_obj *e;
     char face[JW_TG_FONT + 8];
 
-    if (!o->text || !o->text[0] || d->style[0].w <= 0.0 || d->style[0].h <= 0.0)
+    if (sn < 1 || sn > 10)
+        sn = 1;
+    if (!o->text || !o->text[0] || d->style[sn - 1].w <= 0.0 ||
+        d->style[sn - 1].h <= 0.0)
         return 0;
     if (l > 1e-9) {
         ux = dx / l;
@@ -656,9 +714,9 @@ static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
     }
     vx = -uy;
     vy = ux;
-    cw = d->style[0].w;
-    ch = d->style[0].h;
-    sp = d->style[0].sp;
+    cw = d->style[sn - 1].w;
+    ch = d->style[sn - 1].h;
+    sp = d->style[sn - 1].sp;
     for (q = o->text; *q; ) {
         int wide = jw_is_lead((unsigned char)q[0]) && q[1];
 
@@ -675,10 +733,10 @@ static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
     e = jw_add(d, JW_MOJI);
     if (!e)
         return 0;
-    e->color = (unsigned short)d->style[0].color;
-    e->ltype = 8;
-    e->n = 30001;
-    e->flags = (unsigned short)(o->italic ? 0x2000 : 0) | (tate ? 0x20 : 0);
+    e->color = (unsigned short)d->style[sn - 1].color;
+    e->ltype = (unsigned char)(h + 1);
+    e->n = 10000 * ((o->italic ? 1 : 0) + (o->bold ? 2 : 0)) + sn;
+    e->flags = (unsigned short)(0x2000 | (tate ? 0x20 : 0));
     e->d[0] = wx[0] - ax * ux - ay * vx;
     e->d[1] = wy[0] - ax * uy - ay * vy;
     e->d[2] = e->d[0] + w * ux;
@@ -686,7 +744,9 @@ static int tg_text(jw_drawing *d, const jw_tg_out *o, const double *wx,
     e->d[4] = cw;
     e->d[5] = ch;
     e->d[6] = sp;
-    e->d[7] = 0.0;
+    e->d[7] = atan2(uy, ux) * 180.0 / TG_PI;
+    if (fabs(e->d[7]) < 1e-9)
+        e->d[7] = 0.0;
     e->text = jw_add_str(d, o->text);
     snprintf(face, sizeof face, "%s", o->font && o->font[0] ? o->font : "\x82l\x82r \x83S\x83V\x83" "b\x83N");
     e->face = jw_add_str(d, face);
@@ -707,12 +767,17 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
     if (!d || !t || item < 0 || item >= t->nitem || p->scale <= 0.0)
         return 0;
     it = &t->item[item];
-    if (it->fix_mikomi > 0.0)
+    if (t->kind == 3)
+        mik = p->height;        /* 立面は 内法の高さ */
+    else if (it->fix_mikomi > 0.0)
         mik = it->fix_mikomi;
-    if (it->s_flip)             /* 芯ずれ＝（内出−外出）／２ */
+    if (t->kind == 3)
+        shin = 0.0;
+    else if (it->s_flip)        /* 芯ずれ＝（内出−外出）／２ */
         shin = ((p->have_io ? p->uchide : TG_IO_DEFAULT) -
                 (p->have_io ? p->sotode : TG_IO_DEFAULT)) / 2.0;
-    n = jw_tategu_place_io(t, item, p->mikomi, p->wakuhaba, p->uchinori,
+    n = jw_tategu_place_io(t, item, t->kind == 3 ? p->height : p->mikomi,
+                           p->wakuhaba, p->uchinori,
                            p->have_io ? p->uchide : TG_IO_DEFAULT,
                            p->have_io ? p->sotode : TG_IO_DEFAULT,
                            out, JW_TG_PARTS);
@@ -730,11 +795,25 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
         for (k = 0; k < 2; k++) {
             double lx = x[k], ly = y[k];
 
-            if (p->flip_lr)
-                lx = p->uchinori - lx;
-            if (p->flip_io)
-                ly = mik - ly;
-            ly += shin - mik / 2.0;
+            if (t->kind == 3) {
+                /* 立面の 横反転・縦反転 は 基準点のまわりの鏡
+                   （p192_n4_fh・p192_n4_fv）。基準点の移動はそのあと */
+                if (p->flip_lr)
+                    lx = -lx;
+                if (p->flip_io)
+                    ly = -ly;
+            } else {
+                if (p->flip_lr)
+                    lx = p->uchinori - lx;
+                if (p->flip_io)
+                    ly = mik - ly;
+            }
+            if (t->kind == 3) {
+                lx -= p->ref_h * p->uchinori / 2.0;
+                ly -= p->ref_v * mik / 2.0;
+            } else {
+                ly += shin - mik / 2.0;
+            }
             wx[k] = p->ox + (lx * p->ux + ly * vx) / p->scale;
             wy[k] = p->oy + (lx * p->uy + ly * vy) / p->scale;
         }
@@ -765,17 +844,66 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
                 return made;
             e->d[0] = wx[0];
             e->d[1] = wy[0];
-            e->n = o->kind;
-            tg_attr(e, o, flags, 0);
+            /* 原典の答え（p192_D13、「実点 5」）: 線種 1・色 = 実点種類・n 0・旗 0x80 */
+            e->ltype = 1;
+            e->color = (unsigned short)(o->kind > 0 ? o->kind : 1);
+            e->n = 0;
+            e->flags = 0x80;
             made++;
         } else if (o->cls == JW_TG_ARC) {
             int code = o->sector % 10;
             double sw = o->sweep * TG_PI / 180.0 * (mirror ? -1.0 : 1.0);
             double sx = wx[1] - wx[0], sy = wy[1] - wy[0];
             double r = sqrt(sx * sx + sy * sy), a = atan2(sy, sx);
-            double endx = wx[0] + r * cos(a + sw);
-            double endy = wy[0] + r * sin(a + sw);
+            double endx, endy;
+            double st3 = 0.0;
+            int k3 = 0;
             jw_obj *e;
+
+            {   /* 建具立面の 円・円弧: (x1,y1) は 始角・終角（度。0,0 なら一周）、
+                   E のあとの数が半径（mm。負なら 内法の高さに対する割合）。
+                   原典の答え（p192_n11_h2400、p192_D5/D6/D7）。円弧の中心は
+                   (x0,y0)。始角は d[3]、振りは d[4]、傾きは 0 */
+                const jw_tg_part *q0 = &t->part[it->first + i];
+
+                if (t->kind == 3 && q0->sweep != 0.0) {
+                    double sc3 = q0->scale3 > 0.0 ? q0->scale3 : 1.0;
+                    /* 負の半径は 内法の縦（750 1 なら横）に対する割合。
+                       そのあとの数（sector）は mm のまま足す（p192_D9） */
+                    double rmm = (q0->sweep > 0.0 ? q0->sweep * sc3
+                                  : -q0->sweep * (q0->circ_w ? p->uchinori : mik))
+                                 + q0->sector;
+                    double s0, w0, rot = atan2(p->uy, p->ux);
+
+                    if (q0->x1 == 0.0 && q0->y1 == 0.0) {
+                        s0 = 0.0;
+                        w0 = 2.0 * TG_PI;
+                    } else {
+                        s0 = q0->x1 * TG_PI / 180.0;
+                        w0 = (q0->y1 - q0->x1) * TG_PI / 180.0;
+                        while (w0 <= 0.0)
+                            w0 += 2.0 * TG_PI;
+                    }
+                    if (p->flip_lr)
+                        s0 = TG_PI - s0 - w0;
+                    if (p->flip_io)
+                        s0 = -s0 - w0;
+                    st3 = s0 + rot;
+                    while (st3 > TG_PI + 1e-9)      /* 始角は (-π, π] で持つ */
+                        st3 -= 2.0 * TG_PI;
+                    while (st3 <= -TG_PI + 1e-9)
+                        st3 += 2.0 * TG_PI;
+                    r = rmm / p->scale;
+                    a = 0.0;
+                    sw = w0;
+                    code = 0;
+                    k3 = 1;
+                    wx[1] = wx[0] + r;
+                    wy[1] = wy[0];
+                }
+            }
+            endx = wx[0] + r * cos(a + sw);
+            endy = wy[0] + r * sin(a + sw);
 
             if (code == 8) {
                 /* 前の二つの円弧の終点どうしを結ぶ。x0,y0 が二つ前の終点から、
@@ -803,9 +931,9 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
                 e->d[0] = wx[0];
                 e->d[1] = wy[0];
                 e->d[2] = r;
-                e->d[3] = 0.0;
+                e->d[3] = k3 ? st3 : 0.0;
                 e->d[4] = sw;
-                e->d[5] = a;
+                e->d[5] = k3 ? 0.0 : a;
                 e->d[6] = 1.0;
                 e->n = 0;
                 tg_attr(e, o, flags, 1);

@@ -40,12 +40,15 @@ typedef struct {
     int loose;                  /* 建具属性も外す（レイヤ 3 桁） */
     int arc;                    /* 'E' があれば 1 */
     int dim;                    /* 行の最後が &m（長さを寸法図形にする） */
+    double scale3;              /* 立面の 700 の倍率（なければ 1） */
+    int circ_w;                 /* 立面の 750 1: 円の半径の比が 横の内法に対して */
     double sweep;               /* 円弧の角度（度、左回りが +） */
     int sector;                 /* 扇形の指定。一の位 0..3、十の位 1 でシザリング */
     int kind;                   /* 点なら実点種類、文字なら文字種類（原文のまま） */
     char text[JW_TG_TEXT];      /* 文字（CP932） */
     char font[JW_TG_FONT];      /* "$<…> のフォント名（CP932） */
     int italic;                 /* フォント名のあとの / */
+    int bold;                   /* その次の ! */
     int hidden;                 /* ブロック 0 の行より後（仮表示に出ない） */
 } jw_tg_part;
 
@@ -95,7 +98,7 @@ typedef struct {
     int dim;
     int kind;                   /* 実点種類・文字種類（原文のまま） */
     const char *text, *font;
-    int italic;
+    int italic, bold;
 } jw_tg_out;
 
 /* 一件を、指定の 見込・枠幅・内法 で伸ばして並べます。
@@ -146,6 +149,10 @@ typedef struct {
     double mikomi, wakuhaba, uchinori, shinzure;    /* mm（実寸） */
     double uchide, sotode;      /* 内出・外出。have_io が 0 なら 75 */
     int have_io;
+    /* 建具立面: 内法は幅（uchinori）と高さ（height）。基準点は 横（0 左・1 中・2 右）
+       と 縦（0 下・1 中・2 上）の内法の角。ux,uy を回して 角度 にする */
+    double height;
+    int ref_h, ref_v;
     int flip_lr, flip_io;       /* 左右反転・内外反転 */
     double scale;               /* 紙 = 実寸 / scale */
     double ox, oy;              /* ブロック①の原点（紙 mm） */

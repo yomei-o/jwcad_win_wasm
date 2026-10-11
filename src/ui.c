@@ -4395,8 +4395,10 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else {
+                const char *lab = jw_cmd_bar_label(c[i].id);
+
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
-                           c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
+                           lab ? lab : c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
             }
             break;
         case JW_CTL_STATIC:
@@ -4871,7 +4873,7 @@ int ui_tdlg_drop_hit(int cw, int ch, int t, int i, int n, int x, int y)
 #define TGP_TITLE_H 24
 #define TGP_FOOT_H  26
 
-void ui_tgp_layout(int cw, int ch, jw_tgp_layout *L)
+void ui_tgp_layout(int cw, int ch, int kind, jw_tgp_layout *L)
 {
     L->w = cw - 40 < 1000 ? cw - 40 : 1000;
     L->h = ch - 40 < 560 ? ch - 40 : 560;
@@ -4886,9 +4888,9 @@ void ui_tgp_layout(int cw, int ch, jw_tgp_layout *L)
     L->lw = TGP_LIST_W;
     L->gx = L->lx + L->lw + 6;
     L->gy = L->ly;
-    L->cols = 2;
+    L->cols = kind == 3 ? 4 : 2;        /* 立面は 4×4 の大きな絵 */
     L->cellw = (L->x + L->w - 4 - L->gx) / L->cols;
-    L->cellh = TGP_CELL_H;
+    L->cellh = kind == 3 ? (L->y + L->h - TGP_FOOT_H - L->gy) / 4 : TGP_CELL_H;
     L->rows = (L->y + L->h - TGP_FOOT_H - L->gy) / L->cellh;
     if (L->rows < 1)
         L->rows = 1;
@@ -4921,7 +4923,8 @@ static void tgp_thumb(fb_t *fb, const jw_tategu *t, int item,
                       int x, int y, int w, int h)
 {
     static jw_tg_out o[JW_TG_PARTS];
-    int n = jw_tategu_place(t, item, 70.0, 35.0, 1700.0, o, JW_TG_PARTS), i;
+    int n = jw_tategu_place(t, item, t->kind == 3 ? 1700.0 : 70.0, 35.0, 1700.0,
+                            o, JW_TG_PARTS), i;
     double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, sc;
 
     for (i = 0; i < n; i++) {
@@ -4974,9 +4977,9 @@ void ui_tgp(fb_t *fb, int kind, int file, int page, int hover)
     jw_tgp_layout L;
     int nf = jw_tgdat_count(kind), i, th = jw_text_height();
     const jw_tategu *t;
-    char lab[16];
+    char lab[JW_TG_NAME + 16];
 
-    ui_tgp_layout(fb->w, fb->h, &L);
+    ui_tgp_layout(fb->w, fb->h, kind, &L);
     fb_fill(fb, L.x, L.y, L.w, L.h, C_BTNFACE);
     fb_edge(fb, L.x, L.y, L.w, L.h, C_BTNSHADOW, C_3DDKSHADOW);
     fb_fill(fb, L.x + 1, L.y + 1, L.w - 2, TGP_TITLE_H - 1, C_WINDOW);
@@ -5014,7 +5017,10 @@ void ui_tgp(fb_t *fb, int kind, int file, int page, int hover)
             fb_edge(fb, cx, cy, L.cellw - 2, L.cellh - 2, C_BTNSHADOW, C_BTNSHADOW);
             if (item == hover)
                 fb_fill(fb, cx + 1, cy + 1, 3 * 6 + 12, th + 2, 0x404040u);
-            snprintf(lab, sizeof lab, "[%d]", item + 1);
+            if (kind == 3 && t->item[item].name[0])     /* 立面は札の名前が出る */
+                snprintf(lab, sizeof lab, "%s", t->item[item].name);
+            else
+                snprintf(lab, sizeof lab, "[%d]", item + 1);
             jw_text_px(fb, cx + 4, cy + 2, lab, item == hover ? C_WINDOW : C_BTNTEXT);
             tgp_thumb(fb, t, item, cx, cy, L.cellw - 2, L.cellh - 2);
         }
@@ -5033,7 +5039,7 @@ int ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
     const jw_tategu *t;
     int nf = jw_tgdat_count(kind);
 
-    ui_tgp_layout(cw, ch, &L);
+    ui_tgp_layout(cw, ch, kind, &L);
     if (x < L.x || x >= L.x + L.w || y < L.y || y >= L.y + L.h)
         return -1;
     if (y < L.y + TGP_TITLE_H)
@@ -5068,10 +5074,10 @@ int ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
     return 0;
 }
 
-int ui_tgp_per_page(int cw, int ch)
+int ui_tgp_per_page(int cw, int ch, int kind)
 {
     jw_tgp_layout L;
 
-    ui_tgp_layout(cw, ch, &L);
+    ui_tgp_layout(cw, ch, kind, &L);
     return L.cols * L.rows;
 }
