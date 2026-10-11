@@ -373,6 +373,10 @@ static void au_reset(void);
 static int hk_north;
 static int hk_sub;
 static int hk_tbl_pending;
+static int hk_pts;
+static int hkp_n;
+static int hk_calc_step;
+static int hk_first_no = 1;
 static int hk_outlines(jw_drawing *d, int half);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
@@ -2366,6 +2370,9 @@ void jw_cmd_set(int id)
     hk_north = 0;
     hk_sub = 0;
     hk_tbl_pending = 0;
+    hk_pts = 0;
+    hk_calc_step = 0;
+    hkp_n = 0;
     if (id == JW_CMD_KIGOU) {
         sk_cat = -1;                /* 入るたびに選び直す */
         sk_step = 0;
@@ -3158,6 +3165,14 @@ const char *jw_cmd_prompt(void)
         return JW_STR_5519;
     case JW_CMD_HIKAGE:
     case JW_CMD_TENKU:
+        if (hk_pts && hk_calc_step)
+            return JW_STR_5560;
+        if (hk_pts) {
+            static char pn[160];
+
+            snprintf(pn, sizeof pn, "%s    (No.%d)", JW_STR_5541, hk_first_no + hkp_n);
+            return pn;
+        }
         if (hk_sub && hk_tbl_pending) {
             static char pt[200];
 
@@ -8561,6 +8576,8 @@ int jw_cmd_bar_check(int id)
         return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
     if (id == 9002 && current == JW_CMD_HIKAGE)
         return hk_sub;
+    if (id == 9003 && current == JW_CMD_HIKAGE)
+        return hk_pts;
     if (id == 9001 && current == JW_CMD_KIGOU)
         return sk_step == 4;        /* 文字入力のあいだの バー */
     if (id == 1146 && TG_IS(current))
@@ -8616,6 +8633,10 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
        面積測定 out.  On 測定's bar everything is alive except
        ○単独円指定, which dies while 角度測定 is chosen
        (tools/probe130.sh). */
+    if (current == JW_CMD_HIKAGE && hk_pts && (id == 1065 || id == 1066))
+        return hkp_n > 0;           /* 測定点を置いてから */
+    if (current == JW_CMD_HIKAGE && hk_pts && id == 1070)
+        return hkp_n == 0;
     if (current == JW_CMD_SOKUTEI)
         return id == 1068 ? sok_mode != SOK_ANG : 1;
     if (current == JW_CMD_TAKAKU && tk_any) {
@@ -8762,6 +8783,22 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_KIGOU && id == 1064) {
         sk_need_pick = 1;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && id == 1064 && hk_pts) {
+        hk_pts = 0;                 /* 指定点 から戻る */
+        hk_calc_step = 0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && id == 1066 && !hk_sub && !hk_pts) {
+        hk_pts = 1;                 /* 指定点: 測定点を押す */
+        hkp_n = 0;
+        hk_calc_step = 0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_pts && (id == 1065 || id == 1066)) {
+        if (hkp_n > 0)
+            hk_calc_step = id == 1065 ? 60 : 10;     /* 結果を書く位置を押す */
         return 1;
     }
     if (current == JW_CMD_HIKAGE && id == 1064) {
@@ -12127,6 +12164,119 @@ static int hk_table1(jw_drawing *d, double cx, double cy)
     return made;
 }
 
+/* 日影図の 指定点（decomp/res/hk_k*.jww）。測定点を押すと 仮点（色 1）と「No.n」を置き、
+   計算の釦（1 分・10 秒間隔）のあと 結果を書く位置を押すと 点ごとに一行、日影になる時間を書く */
+#define HK_MAXPT 99
+static double hkp_x[HK_MAXPT], hkp_y[HK_MAXPT];
+
+static void hk_point_add(jw_drawing *d, double x, double y)
+{
+    jw_obj *o;
+    jw_tg_out to;
+    double wx[2], wy[2];
+    char lab[16];
+    int made = 1;
+    op_t *rec;
+
+    if (hkp_n >= HK_MAXPT)
+        return;
+    rec = op_new();
+    o = jw_add(d, JW_TEN);
+    if (!o)
+        return;
+    o->color = 1;
+    o->ltype = 1;
+    o->d[0] = x;
+    o->d[1] = y;
+    hkp_x[hkp_n] = x;
+    hkp_y[hkp_n] = y;
+    snprintf(lab, sizeof lab, "No.%d", hk_first_no + hkp_n);
+    hkp_n++;
+    wx[0] = x;
+    wx[1] = x + 4.0;
+    wy[0] = wy[1] = y;
+    memset(&to, 0, sizeof to);
+    to.cls = JW_TG_TEXT_O;
+    to.kind = 1;
+    to.text = lab;
+    if (jw_tg_text(d, &to, wx, wy, 0) > 0) {
+        d->obj[d->ndrawn - 1].n = 0;
+        d->obj[d->ndrawn - 1].color = 1;
+        made++;
+    }
+    if (rec)
+        rec->n = made;
+}
+
+static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
+{
+    static hk_edge ed[1000];
+    double plane = 4.0, lat = 36.0, north = 0.0;
+    const char *bs;
+    int ne, k, i, made = 0, nt = 28800 / step + 1;
+    hk_sun sun;
+    static hk_quad qd[1000];
+    static unsigned char in[28801];
+    op_t *rec;
+
+    bs = jw_cmd_box(1492);
+    if (bs && *bs)
+        plane = atof(bs);
+    bs = jw_cmd_box(1493);
+    if (bs && *bs)
+        lat = atof(bs);
+    for (k = 0; k < d->ndrawn; k++)
+        if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+            d->obj[k].color == 5) {
+            const char *t = jw_str(d, d->obj[k].text);
+
+            if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
+                north = atof(t);
+        }
+    ne = hk_edges(d, ed, 1000, plane, write_scale(d));
+    if (ne < 2)
+        return 0;
+    hk_sun_init(&sun, lat, -23.45);
+    rec = op_new();
+    for (k = 0; k < hkp_n; k++) {
+        char line[200];
+        hk_interval iv[40];
+        int niv;
+        jw_tg_out to;
+        double wx[2], wy[2], w = 0.0;
+        const char *q;
+
+        for (i = 0; i < nt; i++) {
+            double x, y, sx, sy;
+            int ts = -14400 + i * step;
+
+            hk_sun_shadow(&sun, ts, &x, &y);
+            hk_rot(x, y, north, &sx, &sy);
+            hk_build_quads(ed, ne, sx, sy, qd);
+            in[i] = (unsigned char)hk_point_in_quads(qd, ne, hkp_x[k], hkp_y[k]);
+        }
+        niv = hk_intervals(in, nt, -14400, step, iv, 40);
+        hk_fmt_n0_line(line, sizeof line, hk_first_no + k, iv, niv, step);
+        for (q = line; *q; q++)
+            w += 1.0;
+        wx[0] = cx;
+        wx[1] = cx + w;
+        wy[0] = wy[1] = cy - 4.0 * k;
+        memset(&to, 0, sizeof to);
+        to.cls = JW_TG_TEXT_O;
+        to.kind = 1;
+        to.text = line;
+        if (jw_tg_text(d, &to, wx, wy, 0) > 0) {
+            d->obj[d->ndrawn - 1].n = 0;
+            d->obj[d->ndrawn - 1].color = 1;
+            made++;
+        }
+    }
+    if (rec)
+        rec->n = made;
+    return made;
+}
+
 /* 高さの箱の式（+ - * / と かっこ）。読めなければ 0 */
 static const char *hk_e;
 static double hk_expr(void);
@@ -12309,6 +12459,24 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         }
         if (bi >= 0)
             jw_cmd_box_put(1491, jw_str(d, d->obj[bi].text));
+        return;
+    }
+    if (current == JW_CMD_HIKAGE && hk_pts && d && button <= 1) {
+        double px = x, py = y;
+
+        if (button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr)) {
+                px = sxr;
+                py = syr;
+            }
+        }
+        if (hk_calc_step) {
+            hk_points_write(d, px, py, hk_calc_step);
+            hk_calc_step = 0;
+        } else
+            hk_point_add(d, px, py);
         return;
     }
     if (current == JW_CMD_HIKAGE && hk_sub && hk_tbl_pending && d && button <= 1) {

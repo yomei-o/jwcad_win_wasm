@@ -2716,6 +2716,16 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 put(fb, &v->clip, x + 1, y, col);
                 put(fb, &v->clip, x, y - 1, col);
                 put(fb, &v->clip, x, y + 1, col);
+            } else if (o->flags & 0x800) {
+                /* A fourth shape, seen only in d07 (flags 0x3b00, no 0x400
+                 * bit): an L of three pixels, the one itself with the two
+                 * to its upper left.  All fourteen of that drawing's
+                 * points come out so in the original (465,211) (465,212)
+                 * (466,212) round a point at (466,212), and none of the
+                 * other fifteen sample drawings has a point with 0x800.
+                 * Keyed on that bit, which is a rule read off the sample. */
+                put(fb, &v->clip, x - 1, y - 1, col);
+                put(fb, &v->clip, x - 1, y, col);
             } else if ((o->flags & ~0x40u) == 0) {
                 /* three rows of three: doc+0x8238 == 2 */
                 int i2, j2;
