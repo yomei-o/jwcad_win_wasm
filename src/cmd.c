@@ -378,6 +378,7 @@ static int hkp_n;
 static int hk_calc_step;
 static int hk_first_no = 1;
 static int hk_outlines(jw_drawing *d, int half);
+static void hk_height_text(char *out, size_t cap, const char *box, int d25);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
 static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
@@ -12104,6 +12105,193 @@ static int hk_hline(jw_drawing *d, double x0, double y0, double x1, double y1)
     return 1;
 }
 
+/* 日影長さ図・方位角倍率図（decomp/res/hk_t2.jww・hk_t3.jww）。置く位置 O から 三十分毎の
+   影の向きに 線を引く（長さ図は 影の長さそのまま、倍率図は 50 mm 一定）。線は色 1、整時は線種 1・半時は 2 */
+static int hk_text_u(jw_drawing *d, double x, double y, double ux, double uy,
+                     const char *t, int kind, unsigned short color)
+{
+    jw_tg_out o;
+    double wx[2], wy[2], w = 0.0, sz = kind == 1 ? 2.0 : 2.5;
+    const char *q;
+    int n;
+
+    for (q = t; *q; ) {
+        int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+        w += wide ? sz : sz / 2.0;
+        q += wide ? 2 : 1;
+    }
+    wx[0] = x;
+    wy[0] = y;
+    wx[1] = x + ux * w;
+    wy[1] = y + uy * w;
+    memset(&o, 0, sizeof o);
+    o.cls = JW_TG_TEXT_O;
+    o.kind = kind;
+    o.text = t;
+    n = jw_tg_text(d, &o, wx, wy, 0);
+    if (n > 0) {
+        d->obj[d->ndrawn - 1].n = 0;
+        d->obj[d->ndrawn - 1].color = color;
+    }
+    return n;
+}
+
+static int hk_table23(jw_drawing *d, double cx, double cy, int which)
+{
+    char buf[120], num[40], lat_s[24], hs[24];
+    double lat = 36.0, plane = 4.0, hgt = 10.0, north = 0.0, scale = write_scale(d);
+    int made = 0, r, k;
+    hk_sun sun;
+    const char *bs;
+    unsigned short wc = (unsigned short)(d->write_ltype ? d->write_color : 2);
+    op_t *rec = op_new();
+    static const char t2a[] = "\x93\xfa\x89\x65\x92\xb7\x82\xb3\x90\x7d";
+    static const char t3a[] = "\x95\xfb\x88\xca\x8a\x70\x94\x7b\x97\xa6\x90\x7d";
+
+    bs = jw_cmd_box(1493);
+    if (bs && *bs)
+        lat = atof(bs);
+    bs = jw_cmd_box(1492);
+    if (bs && *bs)
+        plane = atof(bs);
+    bs = jw_cmd_box(1491);
+    if (bs && *bs) {
+        char tmp[64];
+
+        hk_height_text(tmp, sizeof tmp, bs, 0);
+        hgt = atof(tmp);
+    }
+    for (k = 0; k < d->ndrawn; k++)
+        if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+            d->obj[k].color == 5) {
+            const char *t = jw_str(d, d->obj[k].text);
+
+            if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
+                north = atof(t);
+        }
+    hk_sun_init(&sun, lat, -23.45);
+    snprintf(lat_s, sizeof lat_s, "%g", lat);
+    /* 見出し: 題・緯度と季節（・高さと測定面・縮尺と計算高さ）。真ん中に */
+    {
+        double hh = (hgt - plane);
+        char l1[24];
+        double w1 = which == 2 ? 12.5 : 15.0;
+
+        snprintf(l1, sizeof l1, "%s", which == 2 ? t2a : t3a);
+        made += hk_text_u(d, cx - w1 / 2.0, cy - 3.0, 1.0, 0.0, l1, 2, wc);
+        snprintf(buf, sizeof buf, "[ \x88\xdc\x93\x78 = %s\xdf ][ \x93\x7e\x8e\x8a ]", lat_s);
+        {
+            double w = 0.0;
+            const char *q;
+
+            for (q = buf; *q; ) {
+                int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+                w += wide ? 2.5 : 1.25;
+                q += wide ? 2 : 1;
+            }
+            made += hk_text_u(d, cx - w / 2.0, cy - 6.0, 1.0, 0.0, buf, 2, wc);
+        }
+        if (which == 2) {
+            double w;
+            const char *q;
+
+            snprintf(hs, sizeof hs, "%.3f", hgt);
+            snprintf(buf, sizeof buf, "\x8d\x82\x82\xb3\x81\x81%s(m) \x81\x40\x91\xaa\x92\xe8\x96\xca\x8d\x82\x82\xb3\x81\x81%g(m)", hs, plane);
+            for (w = 0.0, q = buf; *q; ) {
+                int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+                w += wide ? 2.5 : 1.25;
+                q += wide ? 2 : 1;
+            }
+            made += hk_text_u(d, cx - w / 2.0, cy - 9.0, 1.0, 0.0, buf, 2, wc);
+            snprintf(buf, sizeof buf, "S=1/%g \x81\x40\x8c\x76\x8e\x5a\x8d\x82\x82\xb3\x81\x81%.3f(m)", scale, hh);
+            for (w = 0.0, q = buf; *q; ) {
+                int wide = jw_is_lead((unsigned char)q[0]) && q[1];
+
+                w += wide ? 2.5 : 1.25;
+                q += wide ? 2 : 1;
+            }
+            made += hk_text_u(d, cx - w / 2.0, cy - 12.0, 1.0, 0.0, buf, 2, wc);
+        }
+    }
+    for (r = 0; r < 17; r++) {
+        int ts = -14400 + r * 1800;
+        int whole = (r % 2) == 0;
+        double x, y, sx, sy, mult, len, ux, uy, nx, ny, tipx, tipy, hmm;
+        char tm[16];
+        jw_obj *ln;
+
+        hk_sun_shadow(&sun, ts, &x, &y);
+        hk_rot(x, y, north, &sx, &sy);
+        mult = hk_shadow_mult(x, y);
+        len = sqrt(sx * sx + sy * sy);
+        ux = len > 0.0 ? sx / len : 1.0;
+        uy = len > 0.0 ? sy / len : 0.0;
+        nx = -uy;
+        ny = ux;
+        hmm = (hgt - plane) * 1000.0 / scale;
+        if (which == 2) {
+            char m3[32];
+            double mr;
+
+            snprintf(m3, sizeof m3, "%.3f", mult);
+            mr = atof(m3);
+            snprintf(num, sizeof num, "%.3f(m)", (hgt - plane) * mr);
+            tipx = cx + sx * hmm;
+            tipy = cy + sy * hmm;
+            len = len * hmm;
+            made += hk_text_u(d, tipx - ux * 11.0 + nx * 0.2, tipy - uy * 11.0 + ny * 0.2, ux, uy, num, 1, wc);
+        } else {
+            double deg;
+            char a[40];
+
+            if (r == 0) {
+                made += hk_text_u(d, cx + ux * 28.0 + nx * 2.8, cy + uy * 28.0 + ny * 2.8, ux, uy,
+                                  "\x91\xbe\x97\x7a\x95\xfb\x88\xca\x8a\x70", 1, wc);
+                made += hk_text_u(d, cx + ux * 39.0 + nx * 2.8, cy + uy * 39.0 + ny * 2.8, ux, uy,
+                                  "\x20\x89\x65\x92\xb7\x94\x7b\x97\xa6\x20", 1, wc);
+            }
+            deg = hk_shadow_az_deg(x, y);
+            hk_fmt_angle(a, sizeof a, 1, 0, deg);
+            hk_cp932(a);
+            {
+                double aw = (double)strlen(a);      /* 右（36 mm）にそろえる */
+
+                made += hk_text_u(d, cx + ux * (36.0 - aw) + nx * 0.2, cy + uy * (36.0 - aw) + ny * 0.2, ux, uy, a, 1, wc);
+            }
+            snprintf(num, sizeof num, "%.3f", mult);
+            made += hk_text_u(d, cx + ux * 41.0 + nx * 0.2, cy + uy * 41.0 + ny * 0.2, ux, uy, num, 1, wc);
+            tipx = cx + ux * 50.0;
+            tipy = cy + uy * 50.0;
+        }
+        ln = jw_add(d, JW_SEN);
+        if (!ln)
+            break;
+        ln->color = 1;
+        ln->ltype = whole ? 1 : 2;
+        ln->d[0] = cx; ln->d[1] = cy; ln->d[2] = tipx; ln->d[3] = tipy;
+        made++;
+        if (which == 2) {
+            jw_obj *pt = jw_add(d, JW_TEN);
+
+            if (pt) {
+                pt->color = 1;
+                pt->ltype = 1;
+                pt->d[0] = tipx;
+                pt->d[1] = tipy;
+                made++;
+            }
+        }
+        snprintf(tm, sizeof tm, "%2d:%02d", 8 + (ts + 14400) / 3600, (ts + 14400) / 60 % 60);
+        made += hk_text_u(d, tipx + ux * 1.0 - nx * 1.25, tipy + uy * 1.0 - ny * 1.25, ux, uy, tm, 2, wc);
+    }
+    if (rec)
+        rec->n = made;
+    return made;
+}
+
 static int hk_table1(jw_drawing *d, double cx, double cy)
 {
     static const double colx[7] = { 0.0, 11.25, 28.75, 46.25, 63.75, 78.75, 93.75 };
@@ -12482,6 +12670,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_HIKAGE && hk_sub && hk_tbl_pending && d && button <= 1) {
         if (hk_tbl_pending == 1069)
             hk_table1(d, x, y);
+        else if (hk_tbl_pending == 1070)
+            hk_table23(d, x, y, 2);
+        else if (hk_tbl_pending == 1071)
+            hk_table23(d, x, y, 3);
         return;
     }
     if ((current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && hk_north && d && button <= 1) {
