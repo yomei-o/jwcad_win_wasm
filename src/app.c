@@ -444,6 +444,7 @@ static int sk_open, sk_group, sk_caret;
 /* 建具のファイル選択（src/ui.c の ui_tgp）。建具平面に入ると（そして
    建具選択を押すと）出る。原典は窓が自分で絵を描くので、ここも同じ作り */
 static int tgp_open, tgp_kind, tgp_file, tgp_page;
+static int kj_open, kj_sel;             /* 基準点選択（建具の 基準点変更） */
 
 static void tgp_check(void)
 {
@@ -455,6 +456,22 @@ static void tgp_check(void)
         tgp_file = 0;
         tgp_page = 0;
     }
+    if (!kj_open && !tgp_open && jw_cmd_tategu_need_ref()) {
+        kj_open = 1;
+        kj_sel = jw_cmd_tategu_ref();
+    }
+}
+
+/* 基準点選択: ○ を押すと選んで閉じる（原典の窓は ○ を押すとそのまま閉じた） */
+static int press_kj(int x, int y)
+{
+    int r = ui_kijun_hit(fb.w, fb.h, x, y);
+
+    if (r >= 0) {
+        jw_cmd_tategu_set_ref(r);
+        kj_open = 0;
+    }
+    return 1;
 }
 
 static int press_tgp(int x, int y)
@@ -2486,6 +2503,8 @@ int app_press(int x, int y, int button)
        (ブロック名を指定して選択 over 属性選択), so it hears first */
     if (tgp_open)
         return press_tgp(x, y);
+    if (kj_open)
+        return press_kj(x, y);
     if (td_open)
         return td_tpl == 314 ? press_kp(x, y, button) : press_tdlg(x, y);
     if (zoku_open)
@@ -2692,7 +2711,7 @@ static int dialog_open(void)
 {
     return zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
-           || sk_open || ld_open || td_open || tgp_open;
+           || sk_open || ld_open || td_open || tgp_open || kj_open;
 }
 
 /* whether any of them is up, for whoever is outside */
@@ -2707,6 +2726,7 @@ static void dialog_close(void)
     sd_open = br_open = kh_open = zhen_open = sk_open = ld_open = 0;
     td_open = 0;
     tgp_open = 0;
+    kj_open = 0;
     sd_caret = 0;
     sd_edit[0] = 0;
 }
@@ -2716,6 +2736,12 @@ int app_key(int c)
     if (tgp_open) {
         if (c == 27)
             tgp_open = 0;
+        app_paint();
+        return 1;
+    }
+    if (kj_open) {
+        if (c == 27)
+            kj_open = 0;
         app_paint();
         return 1;
     }
@@ -3340,6 +3366,8 @@ void app_paint(void)
         ui_layerdlg(&fb, have_drawing ? &drawing : 0, ld_on);
     if (tgp_open)
         ui_tgp(&fb, tgp_kind, tgp_file, tgp_page, -1);
+    if (kj_open)
+        ui_kijun(&fb, kj_sel);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

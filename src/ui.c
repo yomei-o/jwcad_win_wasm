@@ -5081,3 +5081,69 @@ int ui_tgp_per_page(int cw, int ch, int kind)
     ui_tgp_layout(cw, ch, kind, &L);
     return L.cols * L.rows;
 }
+
+/* ---- 基準点選択（建具平面・断面の 基準点変更 1065。DIALOG 297）-----------
+ *
+ * 十五の○が 三行×五列: 左外・左内・中央・右内・右外 × 上・中・下。入ったとき
+ * 選ばれているのは 左内の中（1693）。窓の大きさ（285×122）と○の位置は
+ * 原典の窓を測ったもの（tools/probe193.sh、dlg:b1065）。 */
+#define KJ_W 285
+#define KJ_H 146
+#define KJ_TITLE 24
+
+static const int kj_cx[5] = { 11, 37, 124, 221, 247 };
+static const int kj_cy[3] = { 2, 32, 62 };
+
+static void kj_origin(int cw, int ch, int *x, int *y)
+{
+    *x = (cw - KJ_W) / 2;
+    *y = (ch - KJ_H) / 2;
+}
+
+void ui_kijun(fb_t *fb, int sel)
+{
+    int x, y, i, th = jw_text_height();
+
+    kj_origin(fb->w, fb->h, &x, &y);
+    fb_fill(fb, x, y, KJ_W, KJ_H, C_BTNFACE);
+    fb_edge(fb, x, y, KJ_W, KJ_H, C_BTNSHADOW, C_3DDKSHADOW);
+    fb_fill(fb, x + 1, y + 1, KJ_W - 2, KJ_TITLE - 1, C_WINDOW);
+    jw_text_px(fb, x + 12, y + (KJ_TITLE - th) / 2, "\x8a\xee\x8f\x80\x93\x5f\x91\x49\x91\xf0", C_BTNTEXT);
+    for (i = 0; i < 15; i++) {
+        int cx = x + kj_cx[i / 3] + 4, cy = y + KJ_TITLE + 6 + kj_cy[i % 3];
+
+        mj_radio(fb, cx, cy, i == sel);
+    }
+    /* 絵: 左の枠・内法の線・右の枠（点線は内法、縦線は枠の内端） */
+    {
+        int top = y + KJ_TITLE + 12, bot = y + KJ_TITLE + 72;
+        int xs[5], k;
+
+        for (k = 0; k < 5; k++)
+            xs[k] = x + kj_cx[k] + 11;
+        for (k = xs[1]; k < xs[2]; k += 2)
+            fb_fill(fb, k, top, 1, 1, C_BTNTEXT);
+        for (k = xs[2]; k < xs[3]; k += 2)
+            fb_fill(fb, k, bot, 1, 1, C_BTNTEXT);
+        fb_fill(fb, xs[1], top, 1, bot - top, C_BTNTEXT);
+        fb_fill(fb, xs[2], top, 1, bot - top, C_BTNTEXT);
+        fb_fill(fb, xs[3], top, 1, bot - top, C_BTNTEXT);
+    }
+}
+
+/* 押した所: 0〜14 は ○（番号は 1689 からの順）、-2 は窓の中の何もない所、-1 は外 */
+int ui_kijun_hit(int cw, int ch, int px, int py)
+{
+    int x, y, i;
+
+    kj_origin(cw, ch, &x, &y);
+    if (px < x || px >= x + KJ_W || py < y || py >= y + KJ_H)
+        return -1;
+    for (i = 0; i < 15; i++) {
+        int cx = x + kj_cx[i / 3], cy = y + KJ_TITLE + 6 + kj_cy[i % 3];
+
+        if (px >= cx && px < cx + 22 && py >= cy - 3 && py < cy + 22)
+            return i;
+    }
+    return -2;
+}

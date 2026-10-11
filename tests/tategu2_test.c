@@ -274,6 +274,21 @@ int main(void)
     p = base();
     p.shinzure = 10;
     run("p180_z10", 0, 4, p);
+    /* 基準点変更（基準点選択の窓の ○ 1689〜1703）。建具 [5]、壁は水平 */
+    {
+        static const int ids[] = { 1689, 1690, 1691, 1692, 1694, 1695, 1696, 1697,
+                                   1698, 1699, 1700, 1701, 1702, 1703 };
+        unsigned q;
+
+        for (q = 0; q < sizeof ids / sizeof ids[0]; q++) {
+            p = base();
+            p.have_ref = 1;
+            p.ref_col = (ids[q] - 1689) / 3;
+            p.ref_row = (ids[q] - 1689) % 3;
+            snprintf(nm, sizeof nm, "p193_r%d", ids[q]);
+            run(nm, 0, 4, p);
+        }
+    }
     /* 建具立面（JW_OPT3）: 壁なし。クリック (450,400) が基準点（左内法・下内法） */
     nwall = 0;
     {

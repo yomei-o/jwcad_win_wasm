@@ -187,6 +187,72 @@ static void run3(const case3 *k)
         fails++;
 }
 
+/* 建具立面の (R)Read: 矩形の角に右クリック → 吸って置く。何もないところの
+   右クリックは何も起きない（p194_rr） */
+static void run3r(void)
+{
+    const char *name = "p194_rr";
+    char path[96];
+    jw_drawing ref;
+    unsigned char *b;
+    long n;
+    const jw_drawing *d;
+    rect_t r;
+    int i, ok = 1, ri = 0, mi = 0;
+    const jw_obj *ra[256], *ma[256];
+
+    b = slurp("decomp/res/new.jww", &n);
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    free(b);
+    snprintf(path, sizeof path, "decomp/res/%s.jww", name);
+    memset(&ref, 0, sizeof ref);
+    b = slurp(path, &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  %s が読めません\n", path);
+        fails++;
+        return;
+    }
+    free(b);
+    ui_view_rect(app_fb()->w, app_fb()->h, &r);
+    app_command(32772);
+    app_press(r.x + 300, r.y + 300, 0);
+    app_press(r.x + 550, r.y + 500, 0);
+    app_command(32865);
+    jw_cmd_tategu_choose(jw_tgdat_index(3, 0), 0);
+    jw_cmd_box_put(1426, "1700 , 1700");        /* 前の試験の箱を残さない */
+    jw_cmd_box_put(1430, "");
+    app_press(r.x + 300, r.y + 300, 1);
+    app_press(r.x + 550, r.y + 500, 1);
+    app_press(r.x + 420, r.y + 420, 1);
+    d = app_drawing();
+    for (i = 0; i < ref.ndrawn && ri < 256; i++)
+        if (ref.obj[i].cls == JW_SEN)
+            ra[ri++] = &ref.obj[i];
+    for (i = 0; i < d->ndrawn && mi < 256; i++)
+        if (d->obj[i].cls == JW_SEN)
+            ma[mi++] = &d->obj[i];
+    if (ri != mi) {
+        printf("BAD  %s: 線 原典 %d・移植 %d\n", name, ri, mi);
+        fails++;
+        return;
+    }
+    for (i = 0; i < ri; i++) {
+        int j;
+
+        for (j = 0; j < 4; j++)
+            if (fabs(ra[i]->d[j] - ma[i]->d[j]) > 2e-3) {
+                ok = 0;
+                printf("     %d.d[%d] 原典 %.4f・移植 %.4f\n", i, j,
+                       ra[i]->d[j], ma[i]->d[j]);
+            }
+    }
+    printf("%-4s %s\n", ok ? "ok" : "BAD", name);
+    if (!ok)
+        fails++;
+}
+
 int main(void)
 {
     static const int H[2][2] = { {300,400}, {800,400} };
@@ -245,6 +311,7 @@ int main(void)
 
         for (k = 0; k < sizeof c3 / sizeof c3[0]; k++)
             run3(&c3[k]);
+        run3r();
     }
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;

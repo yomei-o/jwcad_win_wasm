@@ -89,6 +89,9 @@ int  jw_cmd_tategu_need_pick(void);
 void jw_cmd_tategu_choose(int catalog, int item);
 /* 線の長さの寸法値（「線の寸法値」と同じ書き方）を `t` に作る。1 で作った */
 int  jw_cmd_dim_value(const jw_drawing *d, const jw_obj *line, jw_obj *t);
+int  jw_cmd_tategu_need_ref(void);     /* 基準点選択の窓を出してほしいとき 1（読むと戻る） */
+int  jw_cmd_tategu_ref(void);          /* 選ばれている ○（0〜14、1689 からの順） */
+void jw_cmd_tategu_set_ref(int idx);
 const char *jw_cmd_bar_label(int id);   /* 釦の字が動くもの。無ければ 0 */
 int  jw_cmd_tategu_catalog(void);       /* いま選んでいるもの。無ければ -1 */
 int  jw_cmd_tategu_item(void);   /* 連続線 の手前の線を図面へ */

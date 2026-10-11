@@ -344,5 +344,7 @@ void ui_tgp(fb_t *fb, int kind, int file, int page, int hover);
 int  ui_tgp_hit(int cw, int ch, int kind, int file, int page, int x, int y,
                 int *val);
 int  ui_tgp_per_page(int cw, int ch, int kind);
+void ui_kijun(fb_t *fb, int sel);                    /* 基準点選択 (DIALOG 297) */
+int  ui_kijun_hit(int cw, int ch, int px, int py);
 
 #endif

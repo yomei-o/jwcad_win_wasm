@@ -153,6 +153,9 @@ typedef struct {
        と 縦（0 下・1 中・2 上）の内法の角。ux,uy を回して 角度 にする */
     double height;
     int ref_h, ref_v;
+    /* 平面・断面の 基準点変更（基準点選択の窓）: 列 0 左外・1 左内・2 中央・3 右内・
+       4 右外、行 0 上・1 中・2 下。have_ref が 0 なら 左内の中（置き方のまま） */
+    int have_ref, ref_col, ref_row;
     int flip_lr, flip_io;       /* 左右反転・内外反転 */
     double scale;               /* 紙 = 実寸 / scale */
     double ox, oy;              /* ブロック①の原点（紙 mm） */

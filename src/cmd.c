@@ -368,6 +368,27 @@ static double tg_ax, tg_ay, tg_ux, tg_uy;
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
 static int tg_last;                     /* 平面か断面か立面か（最後に入った方） */
 static int tg_rh, tg_rv;                /* 立面の基準点: 左・中・右 / 下・中・上 */
+static int tg_ref = 4;                  /* 平面・断面の基準点（基準点選択の ○ の番号 0〜14、初めは 左内の中） */
+static int tg_need_ref;
+
+int jw_cmd_tategu_need_ref(void)
+{
+    int r = tg_need_ref;
+
+    tg_need_ref = 0;
+    return r;
+}
+
+int jw_cmd_tategu_ref(void)
+{
+    return tg_ref;
+}
+
+void jw_cmd_tategu_set_ref(int idx)
+{
+    if (idx >= 0 && idx < 15)
+        tg_ref = idx;
+}
 
 int jw_cmd_tategu_need_pick(void)
 {
@@ -8621,6 +8642,10 @@ static int bar_press(jw_drawing *d, int id)
         tg_rv = (tg_rv + 1) % 3;
         return 1;
     }
+    if (TG_IS(current) && id == 1065) {
+        tg_need_ref = 1;            /* 基準点選択の窓 */
+        return 1;
+    }
     if (TG_IS(current) && id == 1064) {
         tg_need_pick = 1;
         return 1;
@@ -9228,6 +9253,9 @@ static void tg_place(jw_drawing *d, double x, double y)
     p.have_io = 1;
     p.flip_lr = jw_cmd_bar_check(1325) > 0;
     p.flip_io = jw_cmd_bar_check(1324) > 0;
+    p.have_ref = 1;
+    p.ref_col = tg_ref / 3;
+    p.ref_row = tg_ref % 3;
     p.scale = write_scale(d);
     p.ox = tg_ax + along * tg_ux;
     p.oy = tg_ay + along * tg_uy;
@@ -12002,8 +12030,16 @@ placed:
         return;
     }
     if (TG_IS3(current)) {
-        if (!d || tg_cat < 0 || button != 0)
+        if (!d || tg_cat < 0 || button > 1)
             return;
+        if (button == 1) {      /* (R)Read: 読める点に吸わせる。なければ何も起きない */
+            double sxr, syr;
+
+            if (!jw_read(d, v, x, y, &sxr, &syr))
+                return;
+            x = sxr;
+            y = syr;
+        }
         tg_place3(d, x, y);
         return;
     }

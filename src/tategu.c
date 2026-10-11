@@ -813,6 +813,18 @@ int jw_tategu_put(jw_drawing *d, const jw_tategu *t, int item,
                 ly -= p->ref_v * mik / 2.0;
             } else {
                 ly += shin - mik / 2.0;
+                if (p->have_ref) {
+                    /* 基準点がクリックの足に来るよう 全体をずらす
+                       （原典の答え p193_r1689〜1703） */
+                    static const double xk[5] = { -1.0, 0.0, 0.5, 1.0, 2.0 };
+                    double xref = p->ref_col == 0 ? -p->wakuhaba
+                                : p->ref_col == 4 ? p->uchinori + p->wakuhaba
+                                : xk[p->ref_col] * p->uchinori;
+                    double yref = (1 - p->ref_row) * mik / 2.0;
+
+                    lx -= xref;
+                    ly -= yref;
+                }
             }
             wx[k] = p->ox + (lx * p->ux + ly * vx) / p->scale;
             wy[k] = p->oy + (lx * p->uy + ly * vy) / p->scale;
