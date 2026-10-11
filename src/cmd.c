@@ -10,6 +10,7 @@
 #include "takaku.h"
 #include "hikage.h"
 #include "tenku.h"
+#include "tenku_sansha.h"
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
@@ -374,7 +375,7 @@ static void au_reset(void);
 static int hk_north;
 static int hk_sub;
 static int hk_tbl_pending;
-static int tn_mode, tn_equi, tn_count;
+static int tn_mode, tn_equi, tn_count, tn_sansha;
 static double tn_px, tn_py;
 static int hk_pts;
 static int hkp_n;
@@ -8852,6 +8853,7 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_TENKU && (id == 1064 || id == 1065)) {
         tn_mode = 1;                /* 測定点を指示 */
         tn_equi = id == 1065;
+        tn_sansha = 0;
         return 1;
     }
     if (current == JW_CMD_HIKAGE && id == 1068) {
@@ -8859,7 +8861,9 @@ static int bar_press(jw_drawing *d, int id)
         return 1;
     }
     if (current == JW_CMD_TENKU && id == 1068) {
-        hk_north = 1;               /* 真北を設定する線端部を指示 */
+        tn_mode = 1;                /* 三斜（+0x1a0 = 1）で 測定点を指示 */
+        tn_equi = 0;
+        tn_sansha = 1;
         return 1;
     }
     if (TG_IS3(current) && id == 1064) {
@@ -12977,7 +12981,18 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             o.calc = jw_cmd_bar_check(1323) > 0;
             o.precise = jw_cmd_bar_check(1327) > 0;
             o.number = tn_count + 1;
-            r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
+            if (tn_sansha) {
+                hk_sansha_opts so;
+                const char *md = jw_cmd_box(2210);
+
+                hk_sansha_opts_default(&so);
+                so.t = o;
+                if (md && *md && atof(md) > 0.0)
+                    so.maxdiv = atof(md);
+                snprintf(so.name, sizeof so.name, "No.%d", tn_count + 1);
+                r = jw_tenku_sansha_draw_ex(d, &so, tn_px, tn_py, px, py, NULL);
+            } else
+                r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
             if (r >= 0) {
                 tn_count++;
                 if (rec)
