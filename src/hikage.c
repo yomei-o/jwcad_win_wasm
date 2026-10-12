@@ -220,9 +220,10 @@ int hk_outline(const hk_edge *e, int n, double sx, double sy,
 {
     hk_quad *q = (hk_quad *)malloc(sizeof(hk_quad) * (size_t)(n > 0 ? n : 1));
     hk_seg *pc = (hk_seg *)malloc(sizeof(hk_seg) * MAXPIECE);
-    int np = 0, i, j, k, m, changed;
+    hk_pt *drop_pt = (hk_pt *)malloc(sizeof(hk_pt) * 2 * MAXPIECE);
+    int np = 0, i, j, k, m, changed, ndrop = 0;
     double *ts = (double *)malloc(sizeof(double) * (size_t)(4 * n + 8));
-    if (!q || !pc || !ts) { free(q); free(pc); free(ts); return 0; }
+    if (!q || !pc || !ts || !drop_pt) { free(q); free(pc); free(ts); free(drop_pt); return 0; }
     hk_build_quads(e, n, sx, sy, q);
 
     /* 1. split every quad side at every crossing and keep the pieces with exactly
@@ -283,7 +284,10 @@ int hk_outline(const hk_edge *e, int n, double sx, double sy,
                 if (dist(e[j].a, e[j].b) > 1e-9 &&
                     dist_line(pc[i].a, e[j].a, e[j].b) < 1e-5 &&
                     dist_line(pc[i].b, e[j].a, e[j].b) < 1e-5) { on = 1; break; }
-            if (!on) pc[w++] = pc[i];
+            if (on) {
+                if (ndrop < 2 * MAXPIECE) { drop_pt[ndrop++] = pc[i].a; drop_pt[ndrop++] = pc[i].b; }
+            } else
+                pc[w++] = pc[i];
         }
         np = w;
     }
@@ -343,7 +347,42 @@ int hk_outline(const hk_edge *e, int n, double sx, double sy,
             }
         }
         free(used);
-        free(q); free(pc); free(ts);
+        /* 原典は 鎖を「いちばん下（y 最小）、同じなら いちばん右（x 最大）」の頂点から回して書く。
+           建物の平面の辺（書かない）も そのまわりの一周には入っている。
+           その頂点が 鎖の途中なら そこから始め、前の部分を あとに回す [V c2・c8（夏）] */
+        {
+            hk_pt S;
+            int have = 0, c0, c1;
+
+            for (i = 0; i < 2 * np + ndrop; i++) {
+                hk_pt p = i < 2 * np ? (i & 1 ? pc[i / 2].b : pc[i / 2].a) : drop_pt[i - 2 * np];
+                if (!have || p.y < S.y - 1e-6 || (fabs(p.y - S.y) <= 1e-6 && p.x > S.x + 1e-6)) {
+                    S = p;
+                    have = 1;
+                }
+            }
+            for (c0 = 0; have && c0 < cnt; c0 = c1) {
+                hk_seg tmp[1024];
+                int len, r = -1;
+
+                for (c1 = c0 + 1; c1 < cnt && !chain_start[c1]; c1++)
+                    ;
+                len = c1 - c0;
+                for (k = 1; k < len; k++)
+                    if (dist(out[c0 + k].a, S) < 1e-6) { r = k; break; }
+                if (r > 0 && len <= 1024) {
+                    memcpy(tmp, out + c0, sizeof(hk_seg) * (size_t)len);
+                    for (k = 0; k < len; k++) {
+                        out[c0 + k] = tmp[(k + r) % len];
+                        chain_start[c0 + k] = (k == 0);
+                    }
+                    /* 開いた鎖は 平面の辺を書かなかったところで 切れたまま（別の鎖）。閉じた輪なら 一本 */
+                    if (dist(tmp[len - 1].b, tmp[0].a) > 1e-6)
+                        chain_start[c0 + len - r] = 1;
+                }
+            }
+        }
+        free(q); free(pc); free(ts); free(drop_pt);
         return cnt;
     }
 }
@@ -491,4 +530,399 @@ int hk_compare_ok(double plan_pct, double base_pct, double tol)
 {
     double d = fabs(plan_pct) - fabs(base_pct);
     return d > tol + 1e-07;
+}
+
+/* 日影図の 等時間 (CZukeiKage2): 測定格子に 影になった標本の数を数え、その等高線を引く。
+ *
+ * 原典のデコンパイルから起こした（FUN_0054a0b0 = 格子と数え上げ、FUN_0069b4c0 = 既定の範囲、
+ * FUN_00545810 = 建物のまわりの印、FUN_00548b30 = 等高線の追跡）。仕様の要点:
+ *
+ *  * 範囲は 建物の外枠（真北に合わせて回した枠）の 中心まわりに、影の届く長さ + 5 mm を足し、
+ *    用紙の半分の大きさ（中心から ±用紙/2）で切る。
+ *  * 格子は 30000 点まで（辺が 50 以上のあいだ）、1 点の間隔は 精度の 2 mm（60 秒）以上。
+ *  * 標本は 12 時の前後 ±4 時間（9～15時 なら ±3 時間）を 精度の秒数ごと、半区間ずらして。
+ *    各標本で 影の中にある格子点に 1 を足す。建物の中と その左右・上の 1 点は 10001 の印。
+ *  * 等高線は 水準 level*3600/精度 - 0.1 を横切る辺をたどる。四角の 4 隅の平均（対角の大きいほう）
+ *    の 中心点を 間にはさむ折れ線。印の点（>= 10000）に触れる四角では線を引かない。
+ */
+
+
+typedef struct {
+    int nx, ny;
+    double dx, dy, ox, oy;
+    int *v;                 /* (行 - 1) * (nx + 1) + 列、行・列は 1 から */
+    double T;
+    double cx, cy, north;
+    hk_isoseg *out;
+    int nout, maxout;
+    /* 追跡の状態 */
+    int e0, bc;
+    double best;
+} grid_t;
+
+#define V(g, c, r) ((g)->v[((r) - 1) * ((g)->nx + 1) + (c)])
+
+static int iabs(int a) { return a < 0 ? -a : a; }
+
+static double fx(const grid_t *g, double p1, double p2, int p4, int p5)
+{
+    return (double)p4 * g->dx + g->ox + (p1 * g->dx * (g->T - (double)p5)) / (p2 - (double)p5);
+}
+
+static double fy(const grid_t *g, double p1, double p2, int p4, int p5)
+{
+    return (double)p4 * g->dy + g->oy + (p1 * g->dy * (g->T - (double)p5)) / (p2 - (double)p5);
+}
+
+static void to_world(const grid_t *g, double x, double y, double *wx, double *wy)
+{
+    double rx, ry;
+
+    hk_rot(x, y, g->north, &rx, &ry);
+    *wx = rx + g->cx;
+    *wy = ry + g->cy;
+}
+
+/* 線を一本（FUN_0053f880）。返り値 1 = 引いた */
+static int emit(grid_t *g, int valid, double x0, double y0, double x1, double y1, int rowkey)
+{
+    hk_isoseg *s;
+
+    if (!valid || (x0 == x1 && y0 == y1))
+        return 0;
+    if (g->nout >= g->maxout)
+        return 0;
+    s = &g->out[g->nout];
+    to_world(g, x0, y0, &s->x0, &s->y0);
+    to_world(g, x1, y1, &s->x1, &s->y1);
+    s->label = 0;
+    g->nout++;
+    g->e0++;
+    if (g->best < (double)rowkey) {
+        g->best = (double)rowkey;
+        g->bc = g->nout;                /* 1 から（0 は無し） */
+    }
+    return 1;
+}
+
+static void flush(grid_t *g, int need)
+{
+    if (g->e0 > need && g->bc) {
+        g->out[g->bc - 1].label = 1;
+        g->out[g->bc - 1].label_at = g->nout;
+    }
+    g->bc = 0;
+    g->e0 = 0;
+    g->best = -9e40;
+}
+
+/* 一本の等高線を スタートの辺（(c1,r1)-(c2,r2)）から たどる。FUN_00548b30 の中身 */
+static void follow(grid_t *g, int d8, int dc, int i7, int i10)
+{
+    int a8 = d8, a4 = dc, b0 = i7, b4 = i10;
+    int n9c = iabs(V(g, a8, a4)), na0 = iabs(V(g, b0, b4));
+    int ac = b0 - a8, b8 = b4 - a4;
+    double x13c = fx(g, (double)ac, (double)na0, a8, n9c);
+    double y144 = fy(g, (double)b8, (double)na0, a4, n9c);
+    int valid;
+
+    do {
+        int cc = iabs(V(g, a8 + ac - b8, a4 + ac + b8));
+        int d0 = iabs(V(g, a8 - b8, a4 + ac));
+        int s5, s4, s8, s6, i9;
+        double c134, dv1, dv2;
+
+        if (n9c < 10000 && na0 < 10000 && cc < 10000 && d0 < 10000)
+            valid = 1;
+        else {
+            valid = 0;
+            flush(g, 20);
+        }
+        s6 = a4;
+        s5 = a8;
+        s4 = b0;
+        s8 = b4;
+        i9 = na0 + d0 < n9c + cc ? n9c + cc : na0 + d0;
+        c134 = (double)i9 / 2.0;
+        a8 = b0;
+        b0 = s5;
+        a4 = b4;
+        b4 = s6;
+        n9c = iabs(V(g, s4, s8));
+        na0 = iabs(V(g, b0, b4));
+        ac = b0 - a8;
+        b8 = b4 - a4;
+        if ((c134 - g->T) * ((double)na0 - g->T) < 0.0) {
+            do {
+                int m4 = b0, m8 = b4;
+
+                a8 = b0;
+                a4 = b4;
+                b0 = b0 + b8;
+                b4 = b4 - ac;
+                n9c = iabs(V(g, m4, m8));
+                na0 = iabs(V(g, b0, b4));
+                ac = b0 - a8;
+                b8 = b4 - a4;
+                dv1 = fx(g, (double)(ac + b8) / 2.0, c134, a8, n9c);
+                dv2 = fy(g, (double)(b8 - ac) / 2.0, c134, a4, n9c);
+                emit(g, valid, x13c, y144, dv1, dv2, a4);
+                y144 = dv2;
+                x13c = dv1;
+            } while (0.0 <= ((double)n9c - g->T) * ((double)na0 - g->T));
+        } else {
+            do {
+                dv1 = fx(g, (double)(ac + b8) / 2.0, c134, a8, n9c);
+                dv2 = fy(g, (double)(b8 - ac) / 2.0, c134, a4, n9c);
+                emit(g, valid, x13c, y144, dv1, dv2, a4);
+                b0 = a8;
+                b4 = a4;
+                a8 = a8 + b8;
+                a4 = a4 - ac;
+                n9c = iabs(V(g, a8, a4));
+                na0 = iabs(V(g, b0, b4));
+                ac = b0 - a8;
+                b8 = b4 - a4;
+                y144 = dv2;
+                x13c = dv1;
+            } while (0.0 <= ((double)n9c - g->T) * ((double)na0 - g->T));
+        }
+        {                               /* 通った 2 点に 印（負）を付ける */
+            int *p = &V(g, a8, a4);
+
+            *p = -iabs(*p);
+            p = &V(g, b0, b4);
+            *p = -iabs(*p);
+        }
+        dv1 = fx(g, (double)ac, (double)na0, a8, n9c);
+        dv2 = fy(g, (double)b8, (double)na0, a4, n9c);
+        emit(g, valid, x13c, y144, dv1, dv2, a4);
+        y144 = dv2;
+        x13c = dv1;
+    } while (0 < a8 - b8 && a8 - b8 <= g->nx && 0 < a4 + ac && a4 + ac <= g->ny &&
+             (a8 != d8 || a4 != dc || b0 != i7 || b4 != i10));
+    if (g->e0 > 10)
+        flush(g, 0);
+}
+
+static void trace(grid_t *g)
+{
+    int c0, nx = g->nx, ny = g->ny, k;
+    int ds[5] = { 0, 2, ny, 1, 1 }, de[5] = { 0, ny, ny, ny - 1, ny - 1 };
+    int doff[5] = { 0, -1, 0, 1, 0 };
+    int es[5] = { 0, 1, 2, nx, 1 }, ee[5] = { 0, 1, nx, nx, nx - 1 };
+    int eoff[5] = { 0, 0, -1, 0, 1 };
+
+    g->e0 = 0;
+    g->bc = 0;
+    g->best = -9e40;
+    for (c0 = 1; c0 < 5; c0++)
+        for (int dc = ds[c0]; dc <= de[c0]; dc++) {
+            int i10 = dc + doff[c0];
+
+            for (int d8 = es[c0]; d8 <= ee[c0]; d8++) {
+                int i7 = d8 + eoff[c0];
+                int v1 = V(g, d8, dc), v2 = V(g, i7, i10);
+                double a1 = (double)iabs(v1), a2 = (double)iabs(v2);
+
+                if ((a1 - g->T) * (a2 - g->T) < 0.0 && (v1 > 0 || v2 > 0))
+                    follow(g, d8, dc, i7, i10);
+            }
+        }
+    for (k = 1; k < (nx + 1) * ny; k++)
+        g->v[k] = iabs(g->v[k]);
+}
+
+/* 辺の集まりを 偶奇で見て (px,py) が 建物の平面の中か */
+static int inside_plan(const hk_edge *e, int n, double px, double py)
+{
+    int q, in = 0;
+
+    for (q = 0; q < n; q++) {
+        double ax = e[q].a.x, ay = e[q].a.y, bx = e[q].b.x, by = e[q].b.y;
+
+        if ((ay > py) != (by > py) && px < ax + (py - ay) * (bx - ax) / (by - ay))
+            in = !in;
+    }
+    return in;
+}
+
+int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int maxout)
+{
+    grid_t g;
+    hk_sun sun;
+    double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30, maxz = 0.0;
+    double hx, hy, mult, sa, ca, d8, f0, len2, c, s;
+    double lo_x, hi_x, lo_y, hi_y, w, h, asp, dxs, dys, pitch;
+    double cl_lo, cl_hi, cl_top;
+    int i, j, k, nx, ny, t, t0, t1, nsamp, step = in->step > 0 ? in->step : 60;
+    int *val = 0, np;
+    hk_quad *qd;
+
+    if (ne < 1)
+        return 0;
+    for (i = 0; i < ne; i++) {
+        double px[2] = { e[i].a.x, e[i].b.x }, py[2] = { e[i].a.y, e[i].b.y };
+
+        for (j = 0; j < 2; j++) {
+            if (px[j] < xmin) xmin = px[j];
+            if (px[j] > xmax) xmax = px[j];
+            if (py[j] < ymin) ymin = py[j];
+            if (py[j] > ymax) ymax = py[j];
+        }
+        if (e[i].za_mm > maxz) maxz = e[i].za_mm;
+        if (e[i].zb_mm > maxz) maxz = e[i].zb_mm;
+    }
+    memset(&g, 0, sizeof g);
+    g.north = in->north;
+    g.cx = (xmin + xmax) / 2.0;
+    g.cy = (ymin + ymax) / 2.0;
+    /* 外枠を 真北に合わせて回した 半分の大きさ */
+    c = cos(in->north * PI / 180.0);
+    s = sin(in->north * PI / 180.0);
+    hx = hy = 0.0;
+    for (i = 0; i < 4; i++) {
+        double qx = (i & 1 ? xmax : xmin) - g.cx, qy = (i & 2 ? ymax : ymin) - g.cy;
+        double lx = qx * c + qy * s, ly = -qx * s + qy * c;
+
+        if (fabs(lx) > hx) hx = fabs(lx);
+        if (fabs(ly) > hy) hy = fabs(ly);
+    }
+    /* 影の届く長さ: 9:00（-10800 秒）と 正午 */
+    hk_wall_sun_side(in->lat, in->dec, -10800, 0.0, 0.0, &mult, &sa, &ca);
+    len2 = maxz * mult;
+    d8 = fabs(len2 * sa);
+    f0 = fabs(len2 * ca);
+    hk_wall_sun_side(in->lat, in->dec, 0, 0.0, 0.0, &mult, &sa, &ca);
+    len2 = maxz * mult;
+    if (fabs(len2 * sa) > d8) d8 = fabs(len2 * sa);
+    if (fabs(len2 * ca) > f0) f0 = fabs(len2 * ca);
+    lo_x = -hx - d8 - 5.0;
+    hi_x = hx + d8 + 5.0;
+    lo_y = -hy - 5.0;
+    hi_y = hy + f0 + 5.0;
+    /* 用紙の半分で切る（回した枠の中心は 原点） */
+    {
+        double sw = in->sheet_w / 2.0, sh = in->sheet_h / 2.0;
+        double cxs[4] = { -sw, sw, sw, -sw }, cys[4] = { sh, sh, -sh, -sh };
+
+        cl_lo = 1e30;
+        cl_hi = -1e30;
+        cl_top = -1e30;
+        for (i = 0; i < 4; i++) {
+            double qx = cxs[i] - g.cx, qy = cys[i] - g.cy;
+            double lx = qx * c + qy * s, ly = -qx * s + qy * c;
+
+            if (lx < cl_lo) cl_lo = lx;
+            if (lx > cl_hi) cl_hi = lx;
+            if (ly > cl_top) cl_top = ly;
+        }
+    }
+    if (lo_x < cl_lo) lo_x = cl_lo;
+    if (hi_x > cl_hi) hi_x = cl_hi;
+    if (hi_y > cl_top) hi_y = cl_top;
+    /* 格子 */
+    w = hi_x - lo_x;
+    h = hi_y - lo_y;
+    if (w < 50.0) w = 50.0;
+    if (h < 50.0) h = 50.0;
+    asp = h / w;
+    nx = (int)sqrt(30000.0 / asp);
+    ny = (int)((double)nx * asp);
+    while (30000 < (nx + 1) * ny) {
+        if (50 < nx) nx--;
+        if (50 < ny) ny--;
+    }
+    dxs = w / (double)nx;
+    dys = h / (double)ny;
+    pitch = step == 180 ? 5.0 : step == 60 ? 2.0 : step == 20 ? 0.75 : step == 10 ? 0.5
+          : step == 4 ? 0.2 : step == 2 ? 0.1 : 10.0;
+    if (dxs <= pitch && dxs != pitch) {
+        dxs = pitch;
+        nx = (int)(w / dxs);
+    }
+    if (dys <= pitch && dys != pitch) {
+        dys = pitch;
+        ny = (int)(h / dys);
+    }
+    g.nx = nx;
+    g.ny = ny;
+    g.dx = dxs;
+    g.dy = dys;
+    g.ox = lo_x;
+    g.oy = lo_y;
+    val = (int *)calloc((size_t)(nx + 1) * (size_t)ny + 2, sizeof(int));
+    qd = (hk_quad *)malloc(sizeof(hk_quad) * (size_t)ne);
+    if (!val || !qd) {
+        free(val);
+        free(qd);
+        return 0;
+    }
+    g.v = val;
+    g.out = out;
+    g.maxout = maxout;
+    g.T = in->level * 3600.0 / (double)step - 0.1;
+
+    /* 建物の平面の中と そのまわり（左右 1 点・上 1 段）に 印 */
+    for (j = 1; j <= ny; j++)
+        for (i = 1; i <= nx; i++) {
+            double lx = g.ox + (double)i * g.dx, ly = g.oy + (double)j * g.dy, wx, wy;
+
+            to_world(&g, lx, ly, &wx, &wy);
+            if (inside_plan(e, ne, wx, wy))
+                V(&g, i, j) = 1;
+        }
+    for (j = 1; j <= ny; j++)
+        for (i = 1; i <= nx; i++) {
+            int idx = (j - 1) * (nx + 1) + i;
+
+            if (val[idx] == 0) {
+                if (i < nx && val[idx + 1] == 1)
+                    val[idx] = 2;
+                if (1 < i && val[idx - 1] == 1)
+                    val[idx] = 2;
+                if (1 < j && (val[idx - nx] == 1 || val[idx - nx] == 2))
+                    val[idx] = 3;
+            }
+        }
+    for (j = 1; j <= ny; j++)
+        for (i = 1; i <= nx; i++)
+            if (V(&g, i, j))
+                V(&g, i, j) = 10001;
+
+    /* 数え上げ */
+    hk_sun_init(&sun, in->lat, in->dec);
+    t1 = in->n15 ? 0x2a30 : 0x3840;
+    t0 = step / 2 - t1;
+    nsamp = 0;
+    np = 0;
+    for (t = t0; t <= t1; t += step) {
+        double x, y, sx, sy;
+
+        hk_sun_shadow(&sun, t, &x, &y);
+        hk_rot(x, y, in->north, &sx, &sy);
+        hk_build_quads(e, ne, sx, sy, qd);
+        /* 原典は 影の先の点を 0.01 mm の整数に切り捨てて 走査する（0 に向かって） */
+        for (i = 0; i < ne; i++)
+            for (j = 2; j < 4; j++) {
+                qd[i].p[j].x = (double)(long)(qd[i].p[j].x * 100.0) / 100.0;
+                qd[i].p[j].y = (double)(long)(qd[i].p[j].y * 100.0) / 100.0;
+            }
+        for (j = 1; j <= ny; j++)
+            for (i = 1; i <= nx; i++) {
+                double lx = g.ox + (double)i * g.dx, ly = g.oy + (double)j * g.dy, wx, wy;
+
+                to_world(&g, lx, ly, &wx, &wy);
+                if (hk_point_in_quads(qd, ne, wx, wy))
+                    V(&g, i, j)++;
+            }
+        nsamp++;
+    }
+    (void)k;
+    (void)np;
+    (void)nsamp;
+    trace(&g);
+    free(val);
+    free(qd);
+    return g.nout;
 }

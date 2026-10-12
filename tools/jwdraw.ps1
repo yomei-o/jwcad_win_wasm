@@ -164,6 +164,7 @@ public static class Jw {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
     [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr h);
     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int i);
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
@@ -934,6 +935,26 @@ try {
                 [void][Jw]::PostMessage($h, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
                 Start-Sleep -Milliseconds $StepMs
                 break
+            }
+
+            # cbsel:<id>,<row> — pick a row of a command-bar combo and tell the frame
+            '^cbsel:(\d+),(\d+)$' {
+                $h = Ctl ([int]$Matches[1])
+                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                [void][Jw]::SendMessageW($h, 0x014E, [IntPtr][int]$Matches[2], [IntPtr]::Zero)   # CB_SETCURSEL
+                $wp = ([int]$Matches[1] -band 0xffff) -bor (1 -shl 16)                           # CBN_SELCHANGE
+                [void][Jw]::SendMessageW([Jw]::GetParent($h), $WM_COMMAND, [IntPtr]$wp, $h)
+                Start-Sleep -Milliseconds $StepMs; break
+            }
+
+            # pcbsel:<id>,<row> — the same, posted, for a row that puts a dialog up
+            '^pcbsel:(\d+),(\d+)$' {
+                $h = Ctl ([int]$Matches[1])
+                if ($h -eq [IntPtr]::Zero) { throw "no control $($Matches[1])" }
+                [void][Jw]::SendMessageW($h, 0x014E, [IntPtr][int]$Matches[2], [IntPtr]::Zero)
+                $wp = ([int]$Matches[1] -band 0xffff) -bor (1 -shl 16)
+                [void][Jw]::PostMessage([Jw]::GetParent($h), $WM_COMMAND, [IntPtr]$wp, $h)
+                Start-Sleep -Milliseconds $StepMs; break
             }
 
             '^btn:(\d+)$' {

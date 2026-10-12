@@ -504,11 +504,14 @@ static void mb_close(int ok);
 static int mb_open, mb_kind;
 
 static void tgp_tp_open(void);
+static int hk_kind;                     /* 日影の窓の種類（jw_cmd_hikage_ask） */
 
 static void tgp_check(void)
 {
-    if (!td_open && have_drawing && jw_cmd() == JW_CMD_HIKAGE && jw_cmd_hikage_ask() && td_start(348))
-        td_caret_set(1411);
+    if (!td_open && have_drawing && jw_cmd() == JW_CMD_HIKAGE && (hk_kind = jw_cmd_hikage_ask()) != 0) {
+        if (td_start(348))
+            td_caret_set(1411);
+    }
     if (jw_cmd() == JW_CMD_GAZOU) {
         gz_check();
         if (!td_open && !mb_open)
@@ -1689,7 +1692,7 @@ static void hk_time_close(int ok)
 
     td_open = 0;
     if (ok && i >= 0 && i < TD_MAX)
-        jw_cmd_hikage_time(&drawing, td_txt[i]);
+        jw_cmd_hikage_answer(&drawing, hk_kind, td_txt[i]);
 }
 
 static int td_item_cmp(const void *a, const void *b)

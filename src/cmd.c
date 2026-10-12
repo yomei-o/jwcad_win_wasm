@@ -399,6 +399,9 @@ static int au_st;                       /* AUTO の線編集: 0 なし 1 線を�
 static void au_reset(void);
 static int hk_north;
 static int hk_sub;
+static int hk_iso_on;             /* 等時間の バー */
+static int hk_iso_step = 60;      /* 精度（秒）: 60・10・4 */
+static int hk_iso_n(jw_drawing *d, double level, double label);
 static int hk_tbl_pending;
 static int tn_mode, tn_equi, tn_count, tn_sansha;
 static double tn_px, tn_py;
@@ -2419,6 +2422,7 @@ void jw_cmd_set(int id)
     tn_mode = 0;
     tn_count = 0;
     hk_sub = 0;
+    hk_iso_on = 0;
     hk_tbl_pending = 0;
     hk_pts = 0;
     hk_calc_step = 0;
@@ -9369,6 +9373,8 @@ int jw_cmd_bar_check(int id)
         return hk_sub;
     if (id == 9003 && current == JW_CMD_HIKAGE)
         return hk_pts;
+    if (id == 9004 && current == JW_CMD_HIKAGE)
+        return hk_iso_on;
     if (id == 9001 && current == JW_CMD_KIGOU)
         return sk_step == 4;        /* 文字入力のあいだの バー */
     if (id == 1146 && TG_IS(current))
@@ -9583,6 +9589,29 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_KIGOU && id == 1064) {
         sk_need_pick = 1;
         return 1;
+    }
+    if (current == JW_CMD_HIKAGE && !hk_sub && !hk_pts && !hk_iso_on && id == 1065) {
+        hk_iso_on = 1;              /* 等時間: 時間の選択へ */
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_iso_on) {
+        static const double lv[5] = { 2.0, 2.5, 3.0, 4.0, 5.0 };
+
+        if (id == 1064) {
+            hk_iso_on = 0;
+            return 1;
+        }
+        if (id == 1070) {
+            hk_ask_time = 2;        /* 時間（1 - 8）を入力 */
+            return 1;
+        }
+        if (id >= 1065 && id <= 1069)
+            return hk_iso_n(d, lv[id - 1065], lv[id - 1065]) > 0;
+        if (id == 1071) {           /* 精度: 標準 (60 秒) と 10 秒 */
+            hk_iso_step = hk_iso_step == 60 ? 10 : 60;
+            return 1;
+        }
+        return 0;
     }
     if (current == JW_CMD_HIKAGE && id == 1064 && hk_pts) {
         hk_pts = 0;                 /* 指定点 から戻る */
@@ -12855,6 +12884,156 @@ static void hk_north_set(jw_drawing *d, const jw_view *v, double x, double y,
     }
 }
 
+/* 日影図の 条件（バーの 緯度 1493・季節 2436・9～15時 1323）。
+   緯度は 負なら 0、55 を超えれば 55、46 を超えると 9～15時 が強制（spec_hikage 1.4）。
+   季節は 冬至 -23.45・春秋分 0・夏至 +23.45・任意時期（日赤緯の数）。
+   季節の箱の中身は 原典の並びの番号 "0"～"3" か、名前（UTF-8 でも CP932 でも）。 */
+static double hk_dec_user = -23.45;     /* 任意時期で入れた 日赤緯 */
+typedef struct {
+    double lat, dec;
+    int n15;                            /* 9～15時 */
+    int season;                         /* 0 冬至 1 春秋分 2 夏至 3 任意時期 */
+    char head[40];                      /* 表の見出しの「季節」（CP932） */
+} hk_cond_t;
+
+static void hk_cond(hk_cond_t *c)
+{
+    const char *bs = jw_cmd_box(1493), *sb = jw_cmd_box(2436);
+
+    c->lat = 36.0;
+    if (bs && *bs)
+        c->lat = atof(bs);
+    if (c->lat < -1e-6)
+        c->lat = 0.0;
+    if (c->lat > 55.0)
+        c->lat = 55.0;
+    c->n15 = jw_cmd_bar_check(1323) > 0;
+    if (c->lat > 46.0)
+        c->n15 = 1;
+    c->season = 0;
+    if (sb && *sb) {
+        if (!strcmp(sb, "1") || !strcmp(sb, "\x8f\x74\x8f\x57\x95\xaa") || !strcmp(sb, "春秋分"))
+            c->season = 1;
+        else if (!strcmp(sb, "2") || !strcmp(sb, "\x89\xc4\x8e\x8a") || !strcmp(sb, "夏至"))
+            c->season = 2;
+        else if (!strcmp(sb, "3") || !strcmp(sb, "\x94\x43\x88\xd3\x8e\x9e\x8a\xfa") ||
+                 !strcmp(sb, "任意時期"))
+            c->season = 3;
+    }
+    c->dec = c->season == 1 ? 0.0 : c->season == 2 ? 23.45 : c->season == 3 ? hk_dec_user : -23.45;
+    if (c->season == 0)
+        snprintf(c->head, sizeof c->head, "\x93\x7e\x8e\x8a");
+    else if (c->season == 1)
+        snprintf(c->head, sizeof c->head, "\x8f\x74\x8f\x57\x95\xaa");
+    else if (c->season == 2)
+        snprintf(c->head, sizeof c->head, "\x89\xc4\x8e\x8a");
+    else
+        snprintf(c->head, sizeof c->head, "\x93\xfa\x90\xd4\x88\xdc = %g", hk_dec_user);
+}
+
+static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m, double scale);
+
+/* 等時間 (decomp/res/hk_i*.jww)。水準 level 時間の等高線を 一組（同じ id）で書く */
+static int hk_iso_n(jw_drawing *d, double level, double label)
+{
+    static hk_edge ed[1000];
+    static hk_isoseg seg[4000];
+    static const double sw[12] = { 1189, 841, 594, 420, 297, 514, 364, 257, 1682, 2378, 3364, 4756 };
+    static const double sh[12] = { 841, 594, 420, 297, 210, 364, 257, 182, 1189, 1682, 2378, 3364 };
+    hk_iso_in in;
+    hk_cond_t cond;
+    const char *bs;
+    double plane = 4.0, north = 0.0;
+    int ne, n, k, made = 0, gid = 0, ps = d->paper_size, lab = -1;
+    op_t *o;
+
+    hk_cond(&cond);
+    bs = jw_cmd_box(1492);
+    if (bs && *bs)
+        plane = atof(bs);
+    for (k = 0; k < d->ndrawn; k++) {
+        if (d->obj[k].id > gid)
+            gid = d->obj[k].id;
+        if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+            d->obj[k].color == 5) {
+            const char *t = jw_str(d, d->obj[k].text);
+
+            if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
+                north = atof(t);
+        }
+    }
+    ne = hk_edges(d, ed, 1000, plane, write_scale(d));
+    if (ne < 2)
+        return 0;
+    if (ps < 0 || ps > 11)
+        ps = 3;
+    memset(&in, 0, sizeof in);
+    in.lat = cond.lat;
+    in.dec = cond.dec;
+    in.north = north;
+    in.level = level;
+    in.n15 = cond.n15;
+    in.step = hk_iso_step;
+    in.sheet_w = sw[ps];
+    in.sheet_h = sh[ps];
+    n = hk_iso(ed, ne, &in, seg, 4000);
+    o = op_new();
+    gid++;
+    for (k = 0; k < n; k++) {
+        int q;
+        jw_obj *l = jw_add(d, JW_SEN);
+
+        if (!l)
+            break;
+        l->d[0] = seg[k].x0;
+        l->d[1] = seg[k].y0;
+        l->d[2] = seg[k].x1;
+        l->d[3] = seg[k].y1;
+        l->id = gid;
+        made++;
+        for (q = 0; q < n; q++) {
+            char lab_s[24];
+            jw_tg_out to;
+            double wx[2], wy[2], w, ang;
+            hk_pt a, b;
+            int nn;
+
+            if (!seg[q].label || seg[q].label_at != k + 1)
+                continue;
+            snprintf(lab_s, sizeof lab_s, "%.1f", label);
+            if ((int)(label * 100.0) % 10 > 0)
+                snprintf(lab_s, sizeof lab_s, "%.2f", label);
+            if ((int)(label * 1000.0) % 10 > 0)
+                snprintf(lab_s, sizeof lab_s, "%.3f", label);
+            w = (double)strlen(lab_s);
+            a.x = seg[q].x0;
+            a.y = seg[q].y0;
+            b.x = seg[q].x1;
+            b.y = seg[q].y1;
+            if (hypot(b.x - a.x, b.y - a.y) < 1e-4)
+                continue;
+            hk_label_place(a, b, w, &a, &b, &ang);
+            wx[0] = a.x; wy[0] = a.y; wx[1] = b.x; wy[1] = b.y;
+            memset(&to, 0, sizeof to);
+            to.cls = JW_TG_TEXT_O;
+            to.kind = 1;
+            to.text = lab_s;
+            nn = jw_tg_text(d, &to, wx, wy, 0);
+            if (nn > 0) {
+                d->obj[d->ndrawn - 1].id = gid;
+                d->obj[d->ndrawn - 1].n = 0;
+                d->obj[d->ndrawn - 1].color = l->color;
+            }
+            made += nn;
+            lab = q;
+        }
+    }
+    (void)lab;
+    if (o)
+        o->n = made;
+    return made;
+}
+
 /* 日影図の 日影の線（decomp/res/hk_b*.jww、tools/hkprobe.sh、tmp/spec_hikage の核）。
    高さの文字（旗 0x80）が両端にある線が 建物の辺。時刻ごとに 外形の線を書く。 */
 
@@ -12906,7 +13085,8 @@ static int hk_outlines(jw_drawing *d, int half)
     static hk_seg seg[400];
     static int cs[400];
     const char *bs;
-    double plane = 4.0, lat = 36.0, north = 0.0, hour;
+    double plane = 4.0, lat = 36.0, north = 0.0, hour, h0, h1;
+    hk_cond_t cond;
     int ne, made = 0, k, gid = 0;
     hk_sun sun;
     op_t *o;
@@ -12914,9 +13094,10 @@ static int hk_outlines(jw_drawing *d, int half)
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
-    bs = jw_cmd_box(1493);
-    if (bs && *bs)
-        lat = atof(bs);
+    hk_cond(&cond);
+    lat = cond.lat;
+    h0 = cond.n15 ? 9.0 : 8.0;
+    h1 = cond.n15 ? 15.0 : 16.0;
     for (k = 0; k < d->ndrawn; k++) {
         if (d->obj[k].id > gid)
             gid = d->obj[k].id;
@@ -12931,9 +13112,9 @@ static int hk_outlines(jw_drawing *d, int half)
     ne = hk_edges(d, ed, 1000, plane, write_scale(d));
     if (ne < 2)
         return 0;
-    hk_sun_init(&sun, lat, -23.45);
+    hk_sun_init(&sun, lat, cond.dec);
     o = op_new();
-    for (hour = half == 2 ? hk_one_hour : 8.0; hour <= (half == 2 ? hk_one_hour : 16.0) + 1e-9;
+    for (hour = half == 2 ? hk_one_hour : h0; hour <= (half == 2 ? hk_one_hour : h1) + 1e-9;
          hour += half == 1 ? 0.5 : 1.0) {
         double x, y, sx, sy;
         int ts = (int)floor((hour - 12.0) * 3600.0 + 0.5), n, j, start = 0, chain_n = 0;
@@ -13024,7 +13205,39 @@ int jw_cmd_hikage_ask(void)
     int r = hk_ask_time;
 
     hk_ask_time = 0;
-    return r && current == JW_CMD_HIKAGE;
+    return r && current == JW_CMD_HIKAGE ? r : 0;
+}
+
+/* 窓の答え。kind は jw_cmd_hikage_ask の返り値（1 時間指定・2 等時間の時間指定・3 日赤緯） */
+int jw_cmd_hikage_answer(jw_drawing *d, int kind, const char *txt)
+{
+    if (kind == 1)
+        return jw_cmd_hikage_time(d, txt);
+    if (kind == 2)
+        return jw_cmd_hikage_level(d, txt);
+    if (kind == 3)
+        return jw_cmd_hikage_dec(txt);
+    return 0;
+}
+
+/* 等時間の 時間指定: 1 - 8（9～15時 なら 1 - 6）の数。水準は 範囲の上限近くでは 0.01 引く */
+int jw_cmd_hikage_level(jw_drawing *d, const char *txt)
+{
+    hk_cond_t cond;
+    double v, mx, lv;
+    char *end;
+
+    if (current != JW_CMD_HIKAGE || !d || !txt || !hk_iso_on)
+        return 0;
+    hk_cond(&cond);
+    mx = cond.n15 ? 6.0 : 8.0;
+    v = strtod(txt, &end);
+    if (end == txt || v < 0.9999999 || v > mx + 1e-7)
+        return 0;                   /* 0x1599: データが不適当 */
+    lv = v;
+    if (mx - 0.01 < lv)
+        lv -= 0.01;
+    return hk_iso_n(d, lv, v) > 0;
 }
 
 int jw_cmd_hikage_time(jw_drawing *d, const char *txt)
@@ -13035,10 +13248,33 @@ int jw_cmd_hikage_time(jw_drawing *d, const char *txt)
     if (current != JW_CMD_HIKAGE || !d || !txt)
         return 0;
     h = strtod(txt, &end);
-    if (end == txt || h < 8.0 - 1e-9 || h > 16.0 + 1e-9)
-        return 0;                   /* 0x1599: 範囲外 */
+    {
+        hk_cond_t cond;
+        double hh;
+
+        hk_cond(&cond);
+        hh = cond.n15 ? 3.0 : 4.0;
+        if (end == txt || h < 12.0 - hh - 1e-9 || h > 12.0 + hh + 1e-9)
+            return 0;               /* 0x1599: 範囲外 */
+    }
     hk_one_hour = 8.0 + floor((h - 8.0) * 3600.0 + 0.5) / 3600.0;
     return hk_outlines(d, 2) > 0;
+}
+
+/* 任意時期: 日赤緯の窓（-23.45～23.45）の答え。範囲外は 0x1599（何も変えない） */
+int jw_cmd_hikage_dec(const char *txt)
+{
+    double v;
+    char *end;
+
+    if (current != JW_CMD_HIKAGE || !txt)
+        return 0;
+    v = strtod(txt, &end);
+    if (end == txt || v < -23.45 - 1e-7 || v > 23.45 + 1e-7)
+        return 0;
+    hk_dec_user = v;
+    jw_cmd_box_put(2436, "3");
+    return 1;
 }
 
 /* 日影図の 表（影倍率表。decomp/res/hk_t1.jww）。置く位置 (cx,cy) の下に、八時から十六時まで三十分毎。
@@ -13140,15 +13376,15 @@ static int hk_table23(jw_drawing *d, double cx, double cy, int which)
     double lat = 36.0, plane = 4.0, hgt = 10.0, north = 0.0, scale = write_scale(d);
     int made = 0, r, k;
     hk_sun sun;
+    hk_cond_t cond;
     const char *bs;
     unsigned short wc = (unsigned short)(d->write_ltype ? d->write_color : 2);
     op_t *rec = op_new();
     static const char t2a[] = "\x93\xfa\x89\x65\x92\xb7\x82\xb3\x90\x7d";
     static const char t3a[] = "\x95\xfb\x88\xca\x8a\x70\x94\x7b\x97\xa6\x90\x7d";
 
-    bs = jw_cmd_box(1493);
-    if (bs && *bs)
-        lat = atof(bs);
+    hk_cond(&cond);
+    lat = cond.lat;
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
@@ -13167,7 +13403,7 @@ static int hk_table23(jw_drawing *d, double cx, double cy, int which)
             if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
                 north = atof(t);
         }
-    hk_sun_init(&sun, lat, -23.45);
+    hk_sun_init(&sun, lat, cond.dec);
     snprintf(lat_s, sizeof lat_s, "%g", lat);
     /* 見出し: 題・緯度と季節（・高さと測定面・縮尺と計算高さ）。真ん中に */
     {
@@ -13177,7 +13413,7 @@ static int hk_table23(jw_drawing *d, double cx, double cy, int which)
 
         snprintf(l1, sizeof l1, "%s", which == 2 ? t2a : t3a);
         made += hk_text_u(d, cx - w1 / 2.0, cy - 3.0, 1.0, 0.0, l1, 2, wc);
-        snprintf(buf, sizeof buf, "[ \x88\xdc\x93\x78 = %s\xdf ][ \x93\x7e\x8e\x8a ]", lat_s);
+        snprintf(buf, sizeof buf, "[ \x88\xdc\x93\x78 = %s\xdf ][ %s ]", lat_s, cond.head);
         {
             double w = 0.0;
             const char *q;
@@ -13213,8 +13449,8 @@ static int hk_table23(jw_drawing *d, double cx, double cy, int which)
             made += hk_text_u(d, cx - w / 2.0, cy - 12.0, 1.0, 0.0, buf, 2, wc);
         }
     }
-    for (r = 0; r < 17; r++) {
-        int ts = -14400 + r * 1800;
+    for (r = 0; r < (cond.n15 ? 13 : 17); r++) {
+        int ts = (cond.n15 ? -10800 : -14400) + r * 1800;
         int whole = (r % 2) == 0;
         double x, y, sx, sy, mult, len, ux, uy, nx, ny, tipx, tipy, hmm;
         char tm[16];
@@ -13281,7 +13517,7 @@ static int hk_table23(jw_drawing *d, double cx, double cy, int which)
                 made++;
             }
         }
-        snprintf(tm, sizeof tm, "%2d:%02d", 8 + (ts + 14400) / 3600, (ts + 14400) / 60 % 60);
+        snprintf(tm, sizeof tm, "%2d:%02d", (ts + 43200) / 3600, (ts + 43200) / 60 % 60);
         made += hk_text_u(d, tipx + ux * 1.0 - nx * 1.25, tipy + uy * 1.0 - ny * 1.25, ux, uy, tm, 2, wc);
     }
     if (rec)
@@ -13300,6 +13536,7 @@ static int hk_table1(jw_drawing *d, double cx, double cy)
     double lat = 36.0, plane;
     int made = 0, i, r, nrow = 17;
     hk_sun sun;
+    hk_cond_t cond;
     jw_obj wcol;
     const jw_obj *like = &wcol;
     op_t *rec = op_new();
@@ -13308,14 +13545,16 @@ static int hk_table1(jw_drawing *d, double cx, double cy)
     memset(&wcol, 0, sizeof wcol);
     wcol.color = (unsigned short)(d->write_ltype ? d->write_color : 2);
     (void)plane;
-    if (bs && *bs)
-        lat = atof(bs);
-    hk_sun_init(&sun, lat, -23.45);
+    (void)bs;
+    hk_cond(&cond);
+    lat = cond.lat;
+    nrow = cond.n15 ? 13 : 17;
+    hk_sun_init(&sun, lat, cond.dec);
     snprintf(lat_s, sizeof lat_s, "%g", lat);
-    snprintf(buf, sizeof buf, "\x89\x65\x94\x7b\x97\xa6\x95\x5c  [ \x88\xdc\x93\x78 = %s\xdf ][ \x93\x7e\x8e\x8a ]", lat_s);
+    snprintf(buf, sizeof buf, "\x89\x65\x94\x7b\x97\xa6\x95\x5c  [ \x88\xdc\x93\x78 = %s\xdf ][ %s ]", lat_s, cond.head);
     made += hk_text_at(d, cx, cy + 1.0, buf, 0.0, 0, like);
     for (i = 0; i < 7; i++) {
-        made += hk_hline(d, cx + colx[i], cy, cx + colx[i], cy - 90.0);
+        made += hk_hline(d, cx + colx[i], cy, cx + colx[i], cy - 5.0 * (nrow + 1));
         if (i < 6)
             made += hk_text_at(d, cx + (colx[i] + colx[i + 1]) / 2.0, cy - 3.75 - 0.0, head[i],
                                0.0, 1, like);
@@ -13323,12 +13562,12 @@ static int hk_table1(jw_drawing *d, double cx, double cy)
     made += hk_hline(d, cx, cy, cx + colx[6], cy);
     made += hk_hline(d, cx, cy - 5.0, cx + colx[6], cy - 5.0);
     for (r = 0; r < nrow; r++) {
-        int ts = -14400 + r * 1800;
+        int ts = (cond.n15 ? -10800 : -14400) + r * 1800;
         double x, y, y0 = cy - 5.0 * (r + 1) - 3.75, sa;
 
         hk_sun_shadow(&sun, ts, &x, &y);
         sa = hk_sun_sin_alt(&sun, ts);
-        snprintf(buf, sizeof buf, "%2d:%02d", 8 + (ts + 14400) / 3600, (ts + 14400) / 60 % 60);
+        snprintf(buf, sizeof buf, "%2d:%02d", (ts + 43200) / 3600, (ts + 43200) / 60 % 60);
         made += hk_text_at(d, cx + (colx[0] + colx[1]) / 2.0, y0, buf, 0.0, 1, like);
         hk_fmt_angle(num, sizeof num, 0, 0, asin(sa > 1.0 ? 1.0 : sa < -1.0 ? -1.0 : sa) * 180.0 / PI);
         hk_cp932(num);
@@ -13398,8 +13637,9 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     static hk_edge ed[1000];
     double plane = 4.0, lat = 36.0, north = 0.0;
     const char *bs;
-    int ne, k, i, made = 0, nt = 28800 / step + 1;
+    int ne, k, i, made = 0, nt, t0;
     hk_sun sun;
+    hk_cond_t cond;
     static hk_quad qd[1000];
     static unsigned char in[28801];
     op_t *rec;
@@ -13407,9 +13647,10 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
-    bs = jw_cmd_box(1493);
-    if (bs && *bs)
-        lat = atof(bs);
+    hk_cond(&cond);
+    lat = cond.lat;
+    t0 = cond.n15 ? -10800 : -14400;
+    nt = -2 * t0 / step + 1;
     for (k = 0; k < d->ndrawn; k++)
         if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
             d->obj[k].color == 5) {
@@ -13421,7 +13662,7 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     ne = hk_edges(d, ed, 1000, plane, write_scale(d));
     if (ne < 2)
         return 0;
-    hk_sun_init(&sun, lat, -23.45);
+    hk_sun_init(&sun, lat, cond.dec);
     rec = op_new();
     for (k = 0; k < hkp_n; k++) {
         char line[200];
@@ -13433,14 +13674,14 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
 
         for (i = 0; i < nt; i++) {
             double x, y, sx, sy;
-            int ts = -14400 + i * step;
+            int ts = t0 + i * step;
 
             hk_sun_shadow(&sun, ts, &x, &y);
             hk_rot(x, y, north, &sx, &sy);
             hk_build_quads(ed, ne, sx, sy, qd);
             in[i] = (unsigned char)hk_point_in_quads(qd, ne, hkp_x[k], hkp_y[k]);
         }
-        niv = hk_intervals(in, nt, -14400, step, iv, 40);
+        niv = hk_intervals(in, nt, t0, step, iv, 40);
         hk_fmt_n0_line(line, sizeof line, hk_first_no + k, iv, niv, step);
         for (q = line; *q; q++)
             w += 1.0;

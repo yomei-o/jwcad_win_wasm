@@ -99,8 +99,12 @@ int  jw_cmd_tategu_need_ref(void);     /* 基準点選択の窓を出してほ�
 int  jw_cmd_tategu_ref(void);          /* 選ばれている ○（0〜14、1689 からの順） */
 void jw_cmd_tategu_set_ref(int idx);
 const char *jw_cmd_bar_label(int id);   /* 釦の字が動くもの。無ければ 0 */
-int  jw_cmd_hikage_ask(void);        /* 日影図 時間指定: 作図時間の窓を出してほしいとき 1（読むと戻る） */
+int  jw_cmd_hikage_ask(void);        /* 日影図 時間指定: 作図時間の窓を出してほしいとき 1・等時間の時間指定 2（読むと戻る） */
 int  jw_cmd_hikage_time(jw_drawing *d, const char *txt);
+/* 日影図の 季節で 任意時期 を選んだあとの 日赤緯の窓の答え（-23.45～23.45）。範囲外は 0 */
+int  jw_cmd_hikage_dec(const char *txt);
+int  jw_cmd_hikage_level(jw_drawing *d, const char *txt);   /* 等時間の 時間指定の答え（1 - 8） */
+int  jw_cmd_hikage_answer(jw_drawing *d, int kind, const char *txt);
 int  jw_cmd_kigou_need_pick(void);   /* 線記号変形: 記号の選択窓を出してほしいとき 1（読むと戻る） */
 void jw_cmd_kigou_choose(int catalog, int item);
 int  jw_cmd_kigou_catalog(void);

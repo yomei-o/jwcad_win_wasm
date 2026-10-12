@@ -141,6 +141,15 @@ void hk_fmt_n0_line(char *out, int outsz, int no, const hk_interval *iv, int niv
  *   level_hours*3600/step - 0.1   [D 0x00548b30] [V sample: totals on the iso lines] */
 double hk_iso_threshold(double level_hours, int step_sec);
 
+/* 等時間の 等高線（src/hkiso.c）。線は 世界座標で、label = 1 の線に 水準の文字を付ける。
+ * step = 精度の秒数（既定 60）、level = 時間（2.0 など）、sheet = 用紙の大きさ（mm）。 */
+typedef struct { double x0, y0, x1, y1; int label; int label_at; } hk_isoseg;   /* label_at: 何本目まで書いたあとに 文字を書くか */
+typedef struct {
+    double lat, dec, north, level, sheet_w, sheet_h;
+    int n15, step;
+} hk_iso_in;
+int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int maxout);
+
 /* ------------------------------------------------------------------ */
 /* 6. 天空図 / 天空率                                                  */
 /* ------------------------------------------------------------------ */
