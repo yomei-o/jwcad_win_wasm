@@ -132,7 +132,10 @@ int main(int argc, char **argv)
         double b1y = (r[1]->d[1] + r[1]->d[3]) / 2;
         jw_cmd_point(d, app_view(), a1x, a1y, 0);
         jw_cmd_point(d, app_view(), b1x, b1y, 0);
-        ck(d->ndrawn == before, "and divides nothing while it is empty");
+        ck(d->ndrawn == before + 1, "and divides in two while it is empty");
+        while (d->ndrawn > before && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+        jw_cmd_set(JW_CMD_BUNKATSU);
         type_box(1411, "3");
         jw_cmd_point(d, app_view(), a1x, a1y, 0);
         jw_cmd_point(d, app_view(), b1x, b1y, 0);

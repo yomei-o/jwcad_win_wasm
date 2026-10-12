@@ -121,11 +121,13 @@ int main(int argc, char **argv)
     jw_cmd_set(JW_CMD_MENTORI);
     ck(jw_cmd_box(1411) && !*jw_cmd_box(1411),
        "面取 starts with an empty 寸法, as the original does");
-    /* with nothing typed in it, nothing is cut */
+    /* with nothing typed in it the original still cuts a hair (0.1) */
     jw_cmd_point(d, app_view(), (ax + cx) / 2, (ay + cy) / 2, 0);
     jw_cmd_point(d, app_view(), (bx + cx) / 2, (by + cy) / 2, 0);
-    ck(d->ndrawn == before && near(d->obj[before - 2].d[2], cx),
-       "and cuts nothing while it is empty");
+    ck(d->ndrawn == before + 1, "and cuts 0.1 while it is empty");
+    while (d->ndrawn > before && jw_cmd_can_undo())
+        jw_cmd_undo(d);
+    jw_cmd_set(JW_CMD_MENTORI);
 
     type_box(1411, "2000");
     jw_cmd_point(d, app_view(), (ax + cx) / 2, (ay + cy) / 2, 0);

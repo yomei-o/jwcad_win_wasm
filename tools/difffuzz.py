@@ -161,10 +161,12 @@ class Gen:
         e = self.r.choice(es)
         p = self.pick(e)
         q = self.side_pt(e, p)
-        toks = ['cmd:32800']
+        toks = ['cmd:32800', self.S(p)]
+        # typed before the first pick the original ignores the value (harness
+        # limit); after it, it takes it
         if self.r.random() < .3:
             toks.append('chr:1411,%d' % self.r.choice((500, 1000, 3000, 7000)))
-        toks += [self.S(p), self.S(q)]
+        toks += [self.S(q)]
         return ('fukusen', toks)
 
     def op_corner(self):

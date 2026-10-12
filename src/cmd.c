@@ -4729,13 +4729,15 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
         return;
     dist = box_num(sz, 0.0);
-    if (mt_mode != 1692 && dist <= 0.0)
+    if (mt_mode != 1692 && dist <= 0.0 && sz && *sz)
         return;                 /* a size of 0: nothing to cut */
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
     if (d->group[wg].scale > 0.0)
         dist /= d->group[wg].scale;
+    if (!sz || !*sz)
+        dist = 0.1;             /* a blank box cuts 0.1 (fuzz cases 1, 2, 16) */
     pdx = p->d[2] - p->d[0];
     pdy = p->d[3] - p->d[1];
     qdx = q->d[2] - q->d[0];
@@ -4937,7 +4939,9 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
 
     if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
         return;
-    if (!ns || !*ns || n <= 0.0)
+    if (!ns || !*ns)
+        n = 2.0;                /* the original divides in two when the box is blank */
+    if (n <= 0.0)
         return;
     if (n <= 1.01) {
         char t[16];
