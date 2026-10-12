@@ -46,6 +46,7 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_SAVE_DXF, JW_ACT_OPEN_DXF, JW_ACT_OPEN_SFC,
        JW_ACT_SAVE_SFC, JW_ACT_OPEN_JWC, JW_ACT_SAVE_JWC,
        JW_ACT_SAVE_FIG, JW_ACT_SAVE_COORD,
+       JW_ACT_ENV_READ, JW_ACT_ENV_WRITE, JW_ACT_ENV_EDIT,
        JW_ACT_PLOT,
        /* 文読 (1069) on the 文字 bar: the original puts up an
           ordinary 「開く」 and the port has none, so the front end
@@ -178,6 +179,10 @@ int  app_save_dxf(unsigned char **out, long *n);
 int  app_save_sfc(const char *name, unsigned char **out, long *n);
 /* 「JWC形式で保存」, which needs nothing from outside the drawing. */
 int  app_save_jwc(unsigned char **out, long *n);
+/* 環境設定ファイル 書出し (32924): the .jwf text, CP932; name is the first line */
+int  app_save_env(const char *name, unsigned char **out, long *n);
+/* 環境設定ファイル 読込み (32923) */
+int  app_open_env(const unsigned char *b, long n);
 /* a DXF read into what is open (src/dxfread.c) */
 int  app_open_dxf(const unsigned char *b, long n);
 /* and an SFC (src/sfcread.c) */

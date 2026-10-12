@@ -8277,8 +8277,24 @@ int jw_env_write(const jw_drawing *d, const char *name, unsigned char **out,
                 char *q = strstr(line, "   A");
 
                 if (q && q[4] >= '0' && q[4] <= '9') {
+                    char *f = strchr(line, '=') + 1;
+                    int g, wg = 0;
+
                     strcpy(mine, line);
                     mine[(q + 4) - line] = (char)('0' + d->paper_size);
+                    /* the first number: the write group and its write
+                       layer, one hex digit each (Test1 0A, Test5 08) */
+                    for (g = 0; g < 16; g++)
+                        if (d->group[g].state == 3) {
+                            wg = g;
+                            break;
+                        }
+                    while (*f == ' ')
+                        f++;
+                    sprintf(key, "%X%X", wg & 15,
+                            d->group[wg].write_layer & 15);
+                    if (f[0] && f[1] && f[2] == ' ')
+                        memcpy(mine + (f - line), key, 2);
                     mod = 1;
                 }
             } else if (!strcmp(key, "LAYSCALE")) {

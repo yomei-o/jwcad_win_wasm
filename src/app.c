@@ -3136,6 +3136,15 @@ int app_command(int cmd)
     case 32809:                         /* JWCファイルを開く */
         action = JW_ACT_OPEN_JWC;
         return 0;
+    case 32923:                         /* 環境設定ファイル 読込み */
+        action = JW_ACT_ENV_READ;
+        return 0;
+    case 32924:                         /* 環境設定ファイル 書出し */
+        action = JW_ACT_ENV_WRITE;
+        return 0;
+    case 32954:                         /* 環境設定ファイル 編集・作成 */
+        action = JW_ACT_ENV_EDIT;       /* greyed in the browser */
+        return 0;
     case 32810:                         /* JWC形式で保存 */
         action = JW_ACT_SAVE_JWC;
         return 0;
@@ -3477,6 +3486,10 @@ int app_menu_state(int id)
         return jw_cmd() == 0x80f5 ? 1 : 0;
     case 33032:
         return 2;
+#ifdef __EMSCRIPTEN__
+    case 32954:                         /* no Notepad in a browser */
+        return 2;
+#endif
     }
     return 0;
 }
@@ -3736,6 +3749,29 @@ int app_save_jwc(unsigned char **out, long *n)
     if (!have_drawing)
         return 0;
     return jw_jwc_write(&drawing, out, n);
+}
+
+/* 環境設定ファイル 書出し (src/cmd.c jw_env_write) */
+int app_save_env(const char *name, unsigned char **out, long *n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_env_write(&drawing, name, out, n);
+}
+
+/* 環境設定ファイル 読込み */
+int app_open_env(const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        app_new();
+    if (!have_drawing)
+        return 0;
+    if (!jw_env_read(&drawing, b, n)) {
+        last_error = "not a JWF";
+        return 0;
+    }
+    last_error = "";
+    return 1;
 }
 
 int app_move(int x, int y)

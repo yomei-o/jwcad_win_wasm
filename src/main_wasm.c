@@ -212,6 +212,10 @@ static int finish(int redraw)
         return 5;               /* 座標ファイル: so does that one */
     case JW_ACT_OPEN_TEXT:
         return 6;               /* 文読: a text file to read */
+    case JW_ACT_ENV_WRITE:
+        return 8;               /* 環境設定ファイル 書出し: a .jwf to download */
+    case JW_ACT_ENV_READ:
+        return 9;               /* and 読込み: a .jwf to pick */
     case JW_ACT_NEW_ASK:
         return 7;               /* 新規 over changes: ask first */
     }
@@ -381,6 +385,25 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_sfc(const char *name)
     if (!app_save_sfc(name, &saved, &saved_n))
         return 0;
     return saved;
+}
+
+/* 環境設定ファイル: 書出し gives the bytes, 読込み takes them. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_env(const char *name)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_save_env(name, &saved, &saved_n))
+        return 0;
+    return saved;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_open_env(unsigned char *b, int n)
+{
+    if (!app_open_env(b, n))
+        return 0;
+    app_paint();
+    return 1;
 }
 
 /* The same, as JWC. */

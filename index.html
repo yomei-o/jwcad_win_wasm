@@ -24,7 +24,7 @@
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
 <div id="note">
-  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く</label>
+  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt,.jwf"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く</label>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
@@ -372,6 +372,8 @@
   const save      = mod.cwrap('jw_save', 'number', []);
   const saveDxf   = mod.cwrap('jw_save_dxf', 'number', []);
   const saveSfc   = mod.cwrap('jw_save_sfc', 'number', ['string']);
+  const saveEnv   = mod.cwrap('jw_save_env', 'number', ['string']);
+  const openEnv   = mod.cwrap('jw_open_env', 'number', ['number', 'number']);
   const saveJwc   = mod.cwrap('jw_save_jwc', 'number', []);
   const savedLen  = mod.cwrap('jw_saved_len', 'number', []);
   const savedFree = mod.cwrap('jw_saved_free', null, []);
@@ -447,6 +449,7 @@
 
   // 文読 (1069) asks for a text file; the next one picked goes to jw_text
   let askedText = false;
+  let askedEnv = false;
 
   // What a press or a command came back asking for (see finish() in
   // src/main_wasm.c): a file to open or write, or just a repaint.
@@ -455,6 +458,14 @@
     else if (r === 3) download();
     else if (r === 4) downloadFig();
     else if (r === 5) downloadCoord();
+    else if (r === 8) {
+      const n = curName().replace(/\.[^.]*$/, '') + '.jwf';
+      offer(saveEnv(n), n);
+    }
+    else if (r === 9) {
+      askedEnv = true;
+      document.getElementById('pick').click();
+    }
     else if (r === 6) {
       askedText = true;
       document.getElementById('pick').click();
@@ -488,8 +499,11 @@
     // go down from the next click instead
     const wantText = askedText;
     askedText = false;
-    const fig = wantText || /\.(jws|txt)$/i.test(file.name);
-    const ok = wantText                  ? text(p, bytes.length)
+    const wantEnv = askedEnv || /\.jwf$/i.test(file.name);
+    askedEnv = false;
+    const fig = !wantEnv && (wantText || /\.(jws|txt)$/i.test(file.name));
+    const ok = wantEnv                   ? openEnv(p, bytes.length)
+             : wantText                  ? text(p, bytes.length)
              : /\.dxf$/i.test(file.name) ? openDxf(p, bytes.length)
              : /\.sfc$/i.test(file.name) ? openSfc(p, bytes.length)
              : /\.jwc$/i.test(file.name) ? openJwc(p, bytes.length)
@@ -497,7 +511,7 @@
              : fig ? figure(p, bytes.length)
              : open(p, bytes.length);
     mod._free(p);
-    if (ok && !fig) {
+    if (ok && !fig && !wantEnv) {
       openedName = file.name;
       setName(file.name);
     }
