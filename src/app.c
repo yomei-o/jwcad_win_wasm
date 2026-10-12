@@ -3799,8 +3799,8 @@ int app_key(int c)
                 }
         }
     }
-    if (c == 27) {              /* Esc lets go of the points taken so far */
-        jw_cmd_escape();
+    if (c == 27) {              /* Esc steps the command back (see jw_cmd_esc_key) */
+        jw_cmd_esc_key(have_drawing ? &drawing : 0);
         app_paint();
         return 1;
     }

@@ -10,8 +10,10 @@
  * to be sent to the *frame* to see this: a driven session never gives the
  * view the focus, which is why an earlier look said Esc did nothing.)
  *
- * The rule this checks is the one that holds for every command: after Esc,
- * the command asks for what it asked for when it was entered.
+ * The rule this checks is the one that holds for every command: after Esc
+ * (a few presses at most -- it steps back one stage each), the command asks
+ * for what it asked for when it was entered.  tests/promptsweep_test.c has
+ * the stage-by-stage ones.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,10 +111,17 @@ int main(void)
         strncpy(after, p ? p : "", sizeof after - 1);
         after[sizeof after - 1] = 0;
 
-        app_key(27);
-        p = jw_cmd_prompt();
-        strncpy(later, p ? p : "", sizeof later - 1);
-        later[sizeof later - 1] = 0;
+        /* Esc steps back a stage a press (jw_cmd_esc_key): a finished 線 is
+           re-armed by the first, the range commands go placing -> selection
+           -> second corner -> first corner.  Never more than three. */
+        for (k = 0; k < 4; k++) {
+            app_key(27);
+            p = jw_cmd_prompt();
+            strncpy(later, p ? p : "", sizeof later - 1);
+            later[sizeof later - 1] = 0;
+            if (!strcmp(first, later))
+                break;
+        }
 
         if (strcmp(first, after))
             moved++;

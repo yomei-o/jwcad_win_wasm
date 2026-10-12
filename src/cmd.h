@@ -209,6 +209,8 @@ void jw_cmd_redo(jw_drawing *d);
    command.  The original does this -- its status line goes back from
    「終点を指示してください」 to 「始点を指示してください」. */
 void jw_cmd_escape(void);
+/* the Esc key itself: steps the command back a stage (see cmd.c) */
+void jw_cmd_esc_key(jw_drawing *d);
 
 /* Space: turn 水平・垂直 over, which is what the original does with it. */
 void jw_cmd_space(void);

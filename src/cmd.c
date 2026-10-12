@@ -45,6 +45,12 @@ static int hv;
  */
 static int step;
 static double sx, sy;           /* the first point, in paper millimetres */
+/* 線・矩形・円: Esc pressed right after one was finished takes the pen back
+ * to that shape's first point (the status line says 終点 again, and the next
+ * click draws from the same start); a second Esc lets go.  Read off the
+ * original with tools/escprobe.sh (tmp/esc_report.md). */
+static int esc_rearm, esc_cmd;
+static double esc_x, esc_y;
 /* 連続線 keeps one segment back.  Clicking n times in Jw_cad and saving
  * leaves n-2 lines in the file -- two clicks leave none, four leave two,
  * five leave three (driven with tmp/jwdraw.ps1 -Cmd 32883) -- so the segment
@@ -1411,6 +1417,7 @@ static int sok_dp = 3;          /* 小数桁: 0..4、5 は F（小数六桁） *
 #define SOK_MAX 256
 static double sok_rx[SOK_MAX], sok_ry[SOK_MAX];  /* every point, for 仮表示 */
 static int sok_n;               /* how many points are down */
+static int sok_esc;             /* Esc was pressed: the prompt says 始点 again though the chain goes on */
 static double sok_px, sok_py;   /* the last one, in paper millimetres */
 static double sok_x0, sok_y0;   /* the first, which 面積 and 角度 need */
 static double sok_total;        /* the run so far */
@@ -1422,6 +1429,7 @@ static void sok_reset(void)
     sok_total = 0.0;
     sok_seg = 0.0;
     sok_one = 0;
+    sok_esc = 0;
 }
 
 /* how many decimals 小数桁 is asking for: F means six */
@@ -2362,6 +2370,7 @@ void jw_cmd_set(int id)
         hv = !hv;
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
+    esc_rearm = 0;
     if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU)
         box_put(1411, "");      /* asking for it again empties the box (s4_10) */
     step = 0;
@@ -2542,6 +2551,70 @@ void jw_cmd_escape(void)
     au_reset();
     if (current == JW_CMD_KIGOU && sk_step != 4)
         sk_step = 0;               /* 線・位置のとちゅうは捨てる（文字入力は別） */
+}
+
+/* The Esc *key*.  The original does not simply let go of everything: it steps
+ * the command back, one stage a press, and which stage it comes back to
+ * depends on the command (tools/escprobe.sh, tmp/esc_report.md):
+ *
+ *   範囲選択・複写・移動  placing -> the selection -> the box's second corner
+ *        (with the selection cleared, the first corner kept) -> the first
+ *        corner.  (The status line is only redrawn on the next mouse move
+ *        when it comes back to the first corner; here it is right at once.)
+ *   測定        the prompt says 始点 again, but the chain goes on: the next
+ *        click is still a 次の点 and adds to the total
+ *   消去 (部分消し)  終点 -> 始点 -> the line
+ *   線・矩形・円  one press before the first click lets go (as jw_cmd_escape);
+ *        pressed right after a shape was finished it re-arms that shape's
+ *        first point
+ * Everything else goes straight back to its first stage.  jw_cmd_escape
+ * stays the plain "let go of everything" that 戻る and the tests use. */
+void jw_cmd_esc_key(jw_drawing *d)
+{
+    if (range_cmd(current) && current != JW_CMD_ZUKEIREG) {
+        switch (sel_step) {
+        case 1:
+            sel_step = 0;
+            tracking = 0;
+            return;
+        case 2:
+            sel_clear(d);
+            sel_step = 1;          /* the first corner (sel_x0, sel_y0) stays */
+            return;
+        case 3:
+        case 4:
+            if (sel_flip || sel_base_wait) {
+                sel_flip = sel_base_wait = 0;
+                return;
+            }
+            sel_free();
+            sel_step = d && jw_cmd_sel_count(d) > 0 ? 2 : 0;
+            return;
+        }
+    }
+    if (current == JW_CMD_SOKUTEI && sok_mode == SOK_LEN && !sok_write
+        && !sok_one && sok_n > 0) {
+        sok_esc = 1;
+        return;
+    }
+    if (current == JW_CMD_SHOUKYO && cut_step > 0) {
+        cut_step--;
+        if (cut_step == 0)
+            cut_obj = -1;
+        return;
+    }
+    if ((current == JW_CMD_SEN || current == JW_CMD_KUKEI
+         || current == JW_CMD_ENKO) && step == 0 && en_step == 0
+        && esc_rearm && esc_cmd == current
+        && !(current == JW_CMD_ENKO && box_mm(d, 1411) > 0.0)
+        && !(current == JW_CMD_ENKO && jw_cmd_bar_check(1318) > 0)) {
+        esc_rearm = 0;
+        sx = tx = esc_x;
+        sy = ty = esc_y;
+        step = 2;
+        return;
+    }
+    jw_cmd_escape();
 }
 
 /* Whether the command in force is part way through -- a point down, an
@@ -3233,7 +3306,7 @@ const char *jw_cmd_prompt(void)
             return JW_STR_5367;
         if (sok_mode == SOK_XY)
             return sok_n == 0 ? JW_STR_5404 : JW_STR_5405;
-        return sok_n ? JW_STR_5323 : JW_STR_5320;
+        return sok_n && !sok_esc ? JW_STR_5323 : JW_STR_5320;
     case JW_CMD_KYORITEN:
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
     case JW_CMD_25D:
@@ -14414,6 +14487,8 @@ placed:
     if (current == JW_CMD_SOKUTEI) {
         double rx = x, ry = y;
 
+        sok_esc = 0;
+
         if (sok_write) {
             /* 測定結果書込: the click says where the number goes.  文字種
                2's size, the writing pen, and the click at its left foot
@@ -16001,6 +16076,7 @@ placed:
         sy = y;
         tx = x;
         ty = y;
+        esc_rearm = 0;
         /* One click is a whole circle when its radius is already known, so
            this one falls through to the drawing below instead of waiting
            for a second point. */
@@ -16053,6 +16129,10 @@ placed:
     }
     step = 0;
     tracking = 0;
+    esc_rearm = 1;
+    esc_cmd = current;
+    esc_x = sx;
+    esc_y = sy;
 }
 
 /* ---------------------------------------------------------------------------
