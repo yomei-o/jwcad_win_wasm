@@ -257,7 +257,7 @@ say 'what the original puts at the top of a DXF'
 # A drawing of one line per pen and per line type, written by the port's own
 # writer, exported by the original: the tables in it are the same in every
 # DXF, and the colours it gives each pen are in the entities.
-$CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c
 ./tmp/mkpens.exe orig/Test5.jww tmp/pens.jww
 refenv >/dev/null
 ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1 \

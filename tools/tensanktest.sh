@@ -8,5 +8,5 @@ for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
 done
 mkdir -p tmp
 gcc -O2 -Wall -Wextra -Wno-unused-parameter -std=c99 -Isrc -o tmp/tenku_sansha_test.exe \
-    tests/tenku_sansha_test.c src/tenku_sansha.c src/tenku.c src/hikage.c src/jww.c src/cp932.c -lm || exit 1
+    tests/tenku_sansha_test.c src/tenku_sansha.c src/tenku.c src/hikage.c src/jww.c src/image.c src/imgpic.c src/cp932.c -lm || exit 1
 ./tmp/tenku_sansha_test.exe "$@"

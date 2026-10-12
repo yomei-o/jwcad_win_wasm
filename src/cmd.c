@@ -3443,6 +3443,7 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_FUKUSHA:
     case JW_CMD_IDOU:
     case JW_CMD_SEIRI:
+    case JW_CMD_ZUKEIREG:
         /* 5383 while the box has no first corner, 5326 while it is being
            dragged, then 5314 基準点 and 5307/5311 for where it goes. */
         if (sel_step == 1)
@@ -3454,6 +3455,9 @@ const char *jw_cmd_prompt(void)
            the port's 整理 stands once the selection is settled. */
         if (sel_step == 3 && current == JW_CMD_SEIRI)
             return JW_STR_5420;
+        /* 図形登録: after 選択確定 the next point is the 基準点 */
+        if (sel_step == 3 && current == JW_CMD_ZUKEIREG)
+            return JW_STR_5314;
         if (sel_step == 3)
             return current != JW_CMD_SEIRI && range_moves()
                    ? JW_STR_5311 : JW_STR_5307;
@@ -5003,8 +5007,17 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
         double pdx = p->d[2] - p->d[0], pdy = p->d[3] - p->d[1];
         double qdx = q->d[2] - q->d[0], qdy = q->d[3] - q->d[1];
         double den = pdx * qdy - pdy * qdx;
+        /* nearly parallel lines cross a long way off: a hair's breadth
+           of den put the crossing at 1e15 and the lines came out with
+           coordinates no drawing can hold (tests/fail_test.c's
+           press_everything found it).  Past a sheet's reach they are
+           parallel, which 等距離分割 handles. */
+        double tp0 = den != 0.0
+            ? ((q->d[0] - p->d[0]) * qdy - (q->d[1] - p->d[1]) * qdx) / den : 0.0;
+        int crosses = den != 0.0
+            && fabs(p->d[0] + tp0 * pdx) < 1e8 && fabs(p->d[1] + tp0 * pdy) < 1e8;
 
-        if (den != 0.0) {
+        if (crosses) {
             double tp = ((q->d[0] - p->d[0]) * qdy - (q->d[1] - p->d[1]) * qdx) / den;
             double tq = ((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / den;
             double ix = p->d[0] + tp * pdx, iy = p->d[1] + tp * pdy;

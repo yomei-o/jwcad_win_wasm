@@ -23,12 +23,13 @@ done
 [ -n "$NODE" ] || { echo "no node under $EMSDK"; exit 1; }
 
 COMMON="src/cp932.c src/pick.c src/fb.c src/ui.c src/cmd.c src/app.c
-        src/jww.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c
+        src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/coord.c src/dxf.c src/dxfread.c
         src/sfcread.c src/sfcwrite.c src/jwcread.c src/jwcwrite.c
-        src/houraku.c src/tategu.c src/senkigou.c src/takaku.c src/hikage.c src/tenku.c src/tenku_sansha.c src/view.c src/draw.c src/text.c src/fontx.c src/outfont.c src/image.c src/imgpic.c
+        src/houraku.c src/tategu.c src/senkigou.c src/takaku.c src/hikage.c src/tenku.c src/tenku_sansha.c src/view.c src/draw.c src/text.c src/fontx.c src/outfont.c
         src/gen/jwres.c src/gen/jwfont.c src/gen/newjww.c"
 EXTRA=""
 grep -q '"png.h"' "tests/$T.c" && EXTRA="tests/png.c"
+grep -q "plot.h" "tests/$T.c" && EXTRA="$EXTRA src/plot.c src/png.c"
 
 RUN=tmp/one.$$
 mkdir -p "$RUN"

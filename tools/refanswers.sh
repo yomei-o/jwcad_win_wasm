@@ -732,8 +732,8 @@ done
 echo "=== dxf (the original's own DXF for three drawings)"
 idle
 sh tools/refenv.sh >/dev/null
-$CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null \
-    || gcc -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c 2>/dev/null \
+    || gcc -O2 -Isrc -o tmp/mkpens.exe tools/mkpens.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c
 ./tmp/mkpens.exe orig/Test5.jww tmp/pens.jww
 $PS -Open tmp/pens.jww -NoSave -Clicks 'export:32961,decomp/res/pens.dxf' \
     2>&1 | sed 's/^/        /'
@@ -770,8 +770,8 @@ $PS -Open tmp/rect.jww -NoSave \
     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
-$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null \
-    || gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c 2>/dev/null \
+    || gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c
 ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
 $PS -Open tmp/geom.jww -NoSave -Clicks 'export:32961,decomp/res/geom.dxf' \
     2>&1 | sed 's/^/        /'
@@ -853,8 +853,8 @@ done
 # and squashed circles and parts of them, which none of the shipped drawings
 # has: tools/mkellip.c makes six, and what the original writes for them is
 # what src/sfcwrite.c's ellipse_arc_feature arm is scored against
-$CC -O2 -Isrc -o tmp/mkellip.exe tools/mkellip.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null \
-    || gcc -O2 -Isrc -o tmp/mkellip.exe tools/mkellip.c src/jww.c src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mkellip.exe tools/mkellip.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c 2>/dev/null \
+    || gcc -O2 -Isrc -o tmp/mkellip.exe tools/mkellip.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c
 ./tmp/mkellip.exe orig/Test5.jww tmp/ellip.jww
 idle
 sh tools/refenv.sh >/dev/null
@@ -1008,7 +1008,7 @@ cp decomp/res/blkmake.jww tmp/rect.jww
 $PS -Open tmp/rect.jww -NoSave     -Clicks 'cmd:32787;100,100;r1150,650;dlgin:32986,2359=NEWNAME,3=!;cmd:32985;saveas:decomp/res/blkrename.jww'     2>&1 | sed 's/^/        /'
 idle
 sh tools/refenv.sh >/dev/null
-$CC -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c src/jwwrite.c     src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c            src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c     src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c            src/jwwrite.c src/cp932.c
 ./tmp/mk2blk.exe decomp/res/blkmake.jww tmp/twoblk.jww
 for k in 2410,blk2all 2411,blk2one; do
     sets="2410=!,2410=!"
@@ -1045,7 +1045,7 @@ sh tools/refenv.sh >/dev/null
 # drawing is tools/mkseiri.c's ten pairs, each pair a different kind of "the
 # same"; tests/seiri_test.c holds what the port makes of it against these.
 echo "=== seiri (重複整理・連結整理)"
-$CC -O2 -Isrc -o tmp/mkseiri.exe tools/mkseiri.c src/jww.c src/jwwrite.c     src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mkseiri.exe tools/mkseiri.c src/jww.c            src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mkseiri.exe tools/mkseiri.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c     src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mkseiri.exe tools/mkseiri.c src/jww.c            src/jwwrite.c src/cp932.c
 ./tmp/mkseiri.exe orig/Test5.jww tmp/seiri.jww
 for k in 1064,seiridup 1065,seirijoin; do
     idle
@@ -1086,7 +1086,7 @@ sh tools/refenv.sh >/dev/null
 # with two colours, to see whether the sort moves them as well as turning
 # them.  tests/seiri_test.c scores the port against these.
 echo "=== seiri_col, seiri_ang, seiri_line, seiri_colline (the other four)"
-$CC -O2 -Isrc -o tmp/mksort.exe tools/mksort.c src/jww.c src/jwwrite.c     src/cp932.c -lm 2>/dev/null     || gcc -O2 -Isrc -o tmp/mksort.exe tools/mksort.c src/jww.c            src/jwwrite.c src/cp932.c -lm
+$CC -O2 -Isrc -o tmp/mksort.exe tools/mksort.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c     src/cp932.c -lm 2>/dev/null     || gcc -O2 -Isrc -o tmp/mksort.exe tools/mksort.c src/jww.c            src/jwwrite.c src/cp932.c -lm
 ./tmp/mksort.exe orig/Test5.jww tmp/sort.jww
 ./tmp/mksort.exe orig/Test5.jww tmp/sort2.jww scramble
 ./tmp/mksort.exe orig/Test5.jww tmp/sort3.jww scramble twocol
@@ -1300,7 +1300,7 @@ sh tools/refenv.sh >/dev/null
 echo "=== figreg (図形登録)"
 idle
 sh tools/refenv.sh >/dev/null
-$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c
+$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c 2>/dev/null     || gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c src/cp932.c
 ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
 $PS -Open tmp/geom.jww -NoSave     -Clicks 'cmd:32946;100,80;1000,640;wait:800;btn:1120;wait:1200;400,300;wait:800;figout:decomp/res/figreg.jws'     2>&1 | sed 's/^/        /'
 idle

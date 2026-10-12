@@ -53,7 +53,7 @@ if [ ! -f tmp/geom.jww ]; then
                 [ -x "$d/gcc.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
             done
         fi
-        ${CC:-gcc} -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c             src/jwwrite.c src/cp932.c && ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
+        ${CC:-gcc} -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/image.c src/imgpic.c             src/jwwrite.c src/cp932.c && ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
     )
 fi
 

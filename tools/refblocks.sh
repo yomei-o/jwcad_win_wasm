@@ -39,7 +39,7 @@ run() {                         # run <what> <open> <clicks>
 }
 
 # the twelve-element drawing over Test5's sheet
-$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/jwwrite.c \
+$CC -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c \
     src/cp932.c
 ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww
 
@@ -52,7 +52,7 @@ run blkedit decomp/res/blkmake.jww \
 run blkrename decomp/res/blkmake.jww \
  'cmd:32787;100,100;r1150,650;dlgin:32986,2359=NEWNAME,3=!;cmd:32985;saveas:decomp/res/blkrename.jww'
 
-$CC -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c src/jwwrite.c \
+$CC -O2 -Isrc -o tmp/mk2blk.exe tools/mk2blk.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c \
     src/cp932.c
 ./tmp/mk2blk.exe decomp/res/blkmake.jww tmp/twoblk.jww
 
