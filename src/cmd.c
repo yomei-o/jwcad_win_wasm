@@ -2349,6 +2349,8 @@ void jw_cmd_set(int id)
         hv = !hv;
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
+    if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU)
+        box_put(1411, "");      /* asking for it again empties the box (s4_10) */
     step = 0;
     en_step = 0;
     hou_step = 0;
@@ -14043,19 +14045,15 @@ placed:
             nx = o->d[0] + t * dx;
             ny = o->d[1] + t * dy;
             op_keep(op_new(), d, i, 0);
-            /* a point inside the line keeps the side that was clicked and
-               moves the far end; one past an end extends that end */
-            {
-                double eps = 0.6 / sqrt(len2);    /* about a pixel: on the end counts as past it */
-                int past = t <= eps || t >= 1.0 - eps;
-
-                if (past ? t < 0.5 : stretch_t0 > 0.5) {
-                    o->d[0] = nx;
-                    o->d[1] = ny;
-                } else {
-                    o->d[2] = nx;
-                    o->d[3] = ny;
-                }
+            /* the end that moves is the one on P's side of the first click,
+               so the first click stays on what is left (fuzz cases 3, 4,
+               24, 59, s4_5) -- past an end that is the end it is past */
+            if (t < stretch_t0) {
+                o->d[0] = nx;
+                o->d[1] = ny;
+            } else {
+                o->d[2] = nx;
+                o->d[3] = ny;
             }
         }
         return;
