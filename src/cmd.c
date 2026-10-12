@@ -14597,13 +14597,32 @@ placed:
             return;
         if (para_step == 0) {
             i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i < 0 || (d->obj[i].cls != JW_SEN
+                          && !(d->obj[i].cls == JW_ENKO
+                               && fabs(d->obj[i].d[6] - 1.0) < 1e-9)))
                 return;
             para_obj = i;
             para_step = 1;
             return;
         }
-        if (para_step == 1) {
+        if (para_step == 1 && d->obj[para_obj].cls == JW_ENKO) {
+            /* a circle or arc is offset concentrically: the click says
+               inside or out, and how far */
+            const jw_obj *o = &d->obj[para_obj];
+            double typed = 0.0;
+            para_off = sqrt((x - o->d[0]) * (x - o->d[0])
+                            + (y - o->d[1]) * (y - o->d[1])) - o->d[2];
+            if (jw_cmd_get_kankaku(&typed))
+                have_kan = 0;
+            else
+                typed = box_mm(d, 1411);
+            if (typed <= 0.0) {
+                para_step = 2;
+                return;
+            }
+            para_off = para_off < 0.0 ? -typed : typed;
+        }
+        else if (para_step == 1) {
             const jw_obj *o = &d->obj[para_obj];
             double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
             double len = sqrt(dx * dx + dy * dy);
@@ -14649,6 +14668,28 @@ placed:
             /* and with one, this click was the direction: fall through */
         }
         para_step = 0;
+        if (para_obj >= 0 && para_obj < d->ndrawn
+            && d->obj[para_obj].cls == JW_ENKO) {
+            jw_obj src = d->obj[para_obj];
+            jw_obj *o;
+            if (src.d[2] + para_off < 1e-9)
+                return;
+            o = jw_add(d, JW_ENKO);
+            if (!o)
+                return;
+            {
+                jw_obj *keep = o;
+                double r = src.d[2] + para_off;
+                int k;
+                for (k = 0; k < 8; k++)
+                    keep->d[k] = src.d[k];
+                keep->d[2] = r;
+            }
+            para_last = (int)(o - d->obj);
+            para_last_obj = *o;
+            op_push(1);
+            return;
+        }
         if (para_obj >= 0 && para_obj < d->ndrawn
             && d->obj[para_obj].cls == JW_SEN) {
             jw_obj src = d->obj[para_obj];
