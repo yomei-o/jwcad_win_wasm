@@ -11,7 +11,7 @@
 
 int main(int argc, char **argv)
 {
-    FILE *f = fopen("tmp/esc5.jww", "rb");
+    FILE *f = fopen(getenv("JWFILE") ? getenv("JWFILE") : "tmp/esc5.jww", "rb");
     static unsigned char b[1 << 22];
     long n = f ? (long)fread(b, 1, sizeof b, f) : 0;
     int i;
@@ -31,6 +31,7 @@ int main(int argc, char **argv)
             else if (!strcmp(p, "N")) app_key(13);
             else if (!strcmp(p, "R")) { const char *t = jw_cmd_status(app_drawing()); printf("[ %s]\n", t ? t : ""); }
             else if (!strncmp(p, "raw:v,5136", 10)) jw_cmd_bar(app_drawing(), 1120);
+            else if (!strncmp(p, "pb:", 3)) jw_cmd_bar(app_drawing(), atoi(p + 3));
             else if (*p == 'm' && sscanf(p + 1, "%d,%d", &x, &y) == 2) app_move(x + 78, y + 34);
             else if (!strncmp(p, "wait:", 5) || !strncmp(p, "shot:", 5)) ;
             else if (*p == 'r' && sscanf(p + 1, "%d,%d", &x, &y) == 2) app_press(x + 78, y + 34, 1);

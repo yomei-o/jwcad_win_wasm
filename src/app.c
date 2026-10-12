@@ -3804,6 +3804,10 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (c == 13 && have_drawing && jw_cmd_enter_key(&drawing)) {
+        app_paint();
+        return 1;
+    }
     if (c == 32 && !jw_cmd_text_mode()) {
         jw_cmd_space();         /* Space turns 水平・垂直 over */
         app_paint();

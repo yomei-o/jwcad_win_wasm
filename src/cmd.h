@@ -211,6 +211,8 @@ void jw_cmd_redo(jw_drawing *d);
 void jw_cmd_escape(void);
 /* the Esc key itself: steps the command back a stage (see cmd.c) */
 void jw_cmd_esc_key(jw_drawing *d);
+/* Enter: 範囲確定 in the 追加・除外 stage of 複写・移動・整理.  1 if it took it. */
+int jw_cmd_enter_key(jw_drawing *d);
 
 /* Space: turn 水平・垂直 over, which is what the original does with it. */
 void jw_cmd_space(void);

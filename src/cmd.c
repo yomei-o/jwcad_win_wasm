@@ -50,6 +50,7 @@ static double sx, sy;           /* the first point, in paper millimetres */
  * click draws from the same start); a second Esc lets go.  Read off the
  * original with tools/escprobe.sh (tmp/esc_report.md). */
 static int esc_rearm, esc_cmd;
+static int esc_arc;             /* an 円弧 was just finished: Esc takes its 終点 back */
 static double esc_x, esc_y;
 /* 連続線 keeps one segment back.  Clicking n times in Jw_cad and saving
  * leaves n-2 lines in the file -- two clicks leave none, four leave two,
@@ -280,6 +281,7 @@ static int sel_n;
  * are in src/gen/sunpo.h, and every one of them showed up in the dimension
  * the original drew for us. */
 static int sun_step;
+static int sun_made;            /* a dimension has just been made: 5333 asks for the next */
 static int ika_step;            /* 一括処理: 0 idle, 1 始線, 2 終線, 3 (R) */
 static int ika_live;            /* a dimension is in, so its button is up */
 static double ika_tog[512];     /* the 追加・除外 clicks, along the row  */
@@ -2371,6 +2373,7 @@ void jw_cmd_set(int id)
     /* FUN_004fdc40: the new command's state starts empty. */
     current = id;
     esc_rearm = 0;
+    esc_arc = 0;
     if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU)
         box_put(1411, "");      /* asking for it again empties the box (s4_10) */
     step = 0;
@@ -2400,6 +2403,7 @@ void jw_cmd_set(int id)
     tk_step = 0;
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
+        sun_made = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
         /* 一括処理 is dead again until a dimension has been drawn */
         ika_step = ika_live = ika_ntog = 0;
@@ -2548,6 +2552,7 @@ void jw_cmd_escape(void)
     ten_cross = 0;
     ten_a = -1;
     sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
+    sun_made = 0;
     au_reset();
     if (current == JW_CMD_KIGOU && sk_step != 4)
         sk_step = 0;               /* 線・位置のとちゅうは捨てる（文字入力は別） */
@@ -2589,6 +2594,51 @@ void jw_cmd_esc_key(jw_drawing *d)
             }
             sel_free();
             sel_step = d && jw_cmd_sel_count(d) > 0 ? 2 : 0;
+            return;
+        }
+    }
+    /* 寸法: one dimension in -> its 終点 -> 始点 -> ■寸法線の位置 -> start
+       (probed on the original, tools/stagecmp.sh).  角度・円周・半径・寸法値
+       have walks of their own and are let go of at once as before. */
+    if (current == JW_CMD_SUNPO && !sun_chi && !sun_kaku && !sun_enshu
+        && !sun_radius && !ika_step) {
+        if (sun_made && sun_step == 2) {
+            sun_made = 0;
+            sun_step = 3;
+            tracking = 0;
+            return;
+        }
+        if (sun_step >= 1 && sun_step <= 3) {
+            sun_step--;
+            if (sun_step == 2)
+                sun_made = 0;
+            tracking = 0;
+            return;
+        }
+    }
+    /* 複線: the direction -> the interval -> the line to offset */
+    if (current == JW_CMD_FUKUSEN && para_step > 0) {
+        para_step--;
+        if (para_step < 1)
+            para_obj = -1;
+        tracking = 0;
+        return;
+    }
+    /* 円弧 (the 円 bar's 1318, not 3点指示): 終点 -> 始点 -> 中心点, and right
+       after a finished arc the first press is back at its 終点 */
+    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1318) > 0
+        && jw_cmd_bar_check(1321) <= 0) {
+        if (en_step == 0 && esc_arc) {
+            esc_arc = 0;
+            en_step = 2;
+            tx = sx;
+            ty = sy;
+            tracking = 0;
+            return;
+        }
+        if (en_step > 0) {
+            en_step--;
+            tracking = 0;
             return;
         }
     }
@@ -3257,6 +3307,31 @@ const char *jw_cmd_status(const jw_drawing *d)
     return p;
 }
 
+/* The two prompts of a range: 5326 and its tail while the second corner is
+   asked for, and 5325 (+ what Enter does) once the box is made -- the stage
+   where more clicks add or take away (probed on the original; copy and move
+   end it with Enter-範囲確定 and ShiftEnter-基点変更, データ整理 with the
+   first only, 範囲選択 and 図形登録 with neither). */
+static const char *sel_prompt_corner(void)
+{
+    static char b[300];
+
+    snprintf(b, sizeof b, "%s �@%s", JW_STR_5326, JW_STR_5762);
+    return b;
+}
+
+static const char *sel_prompt_add(void)
+{
+    static char b[400];
+
+    snprintf(b, sizeof b, "%s%s%s", JW_STR_5325,
+             current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU
+             || current == JW_CMD_SEIRI ? JW_STR_5828 : "",
+             current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU
+             ? JW_STR_5829 : "");
+    return b;
+}
+
 const char *jw_cmd_prompt(void)
 {
     /* a 取得 takes the status line over while it is on */
@@ -3380,7 +3455,19 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_FUKUSEN:
         /* 「複線にする図形を選択してください ﾏｳｽ(L)　前回値 ﾏｳｽ(R)」 then
            「複線方向を指示 ﾏｳｽ(L)…」 */
-        return para_step == 0 ? JW_STR_5305 : JW_STR_5366;
+        /* the original's three: the line, then (with no interval typed) the
+           interval or where to put it, then the side */
+        if (para_step == 0)
+            return JW_STR_5305;
+        if (para_step == 1 && box_num(jw_cmd_box(1411), 0.0) <= 0.0
+            && !have_kan)
+            return JW_STR_5312;
+        {
+            static char fp[200];
+
+            snprintf(fp, sizeof fp, "%s%s", JW_STR_5310, JW_STR_5708);
+            return fp;
+        }
     case JW_CMD_SHINSHUKU:
         /* FUN_00717df0: 0x14d8 while its state is 0, 0x14da once a line is
            picked.  (Its states 3 and 4 are the 基準線 variant, where the end
@@ -3486,7 +3573,7 @@ const char *jw_cmd_prompt(void)
         if (ht_base_wait)
             return JW_STR_5314;
         if (ht_sel)
-            return ht_sel == 2 ? JW_STR_5326 : JW_STR_5383;
+            return ht_sel == 2 ? sel_prompt_corner() : JW_STR_5383;
         return ht_nchain == 0 ? JW_STR_5377 : JW_STR_5378;
     case JW_CMD_ZUKEI:
         /* CZukeiTourokuZukei asks FUN_00572c70 whether there is a figure to
@@ -3520,7 +3607,7 @@ const char *jw_cmd_prompt(void)
         /* 5383 while the box has no first corner, 5326 while it is being
            dragged, then 5314 基準点 and 5307/5311 for where it goes. */
         if (sel_step == 1)
-            return JW_STR_5326;
+            return sel_prompt_corner();
         /* 整理 places nothing, so 「複写先の点」 was never its line.
            CZukeiSeiri's FUN_006e62c0 asks FUN_0044fcd0 whether the
            selection is empty: if not it puts up 0x152c 「実行項目を指示
@@ -3535,7 +3622,7 @@ const char *jw_cmd_prompt(void)
             return current != JW_CMD_SEIRI && range_moves()
                    ? JW_STR_5311 : JW_STR_5307;
         if (sel_step == 2)
-            return JW_STR_5314;
+            return sel_prompt_add();
         return JW_STR_5383;
     case JW_CMD_KIGOU: {
         const jw_senkigou *sg = sk_cat >= 0 ? jw_sk_load(sk_cat) : 0;
@@ -3611,6 +3698,9 @@ const char *jw_cmd_prompt(void)
             return JW_STR_5329;
         if (sun_step == 1)
             return JW_STR_5330;
+        /* one dimension in, the next one's start (L) or a 連続入力 end (R) */
+        if (sun_made && sun_step == 2 && !sun_enshu && !sun_kaku)
+            return JW_STR_5333;
         p = sun_step == 2 ? JW_STR_5331 : JW_STR_5332;
         if (!sun_enshu && !sun_kaku)
             return p;
@@ -3625,6 +3715,9 @@ const char *jw_cmd_prompt(void)
            goes through.  It leads with 円位置 instead only when a radius has
            been typed into its command bar, which there is nowhere to do
            yet. */
+        if (jw_cmd_bar_check(1318) > 0 && jw_cmd_bar_check(1321) <= 0)
+            return en_step == 0 ? JW_STR_5309
+                 : en_step == 1 ? JW_STR_5304 : JW_STR_5321;
         return step == 0 ? JW_STR_5309 : JW_STR_5301;
     }
     /* Every other command puts its own string there; which one is in that
@@ -9206,6 +9299,16 @@ static int sel_confirm(jw_drawing *d)
     return 1;
 }
 
+/* Enter in the 追加・除外 stage is 範囲確定, the same as 選択確定. */
+int jw_cmd_enter_key(jw_drawing *d)
+{
+    if (!d || sel_step != 2
+        || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU
+            && current != JW_CMD_SEIRI))
+        return 0;
+    return sel_confirm(d);
+}
+
 /* 消去 entered with a settled selection takes it out at once.  The original
  * does exactly that: 範囲選択 over Test5, 選択確定, then 消去, and the file
  * it saved had 25 of its 46 lines gone and nothing left picked.
@@ -14780,6 +14883,7 @@ placed:
             sun_sx = rx;
             sun_sy = ry;
             sun_step = 3;
+            sun_made = 0;
             return;
         }
         if (sun_kaku || sun_enshu)
@@ -14787,6 +14891,7 @@ placed:
         else
             sunpo_make(d, rx, ry);
         sun_step = 2;           /* ready for the next one */
+        sun_made = 1;
         return;
     }
     if (range_cmd(current)) {
@@ -14806,16 +14911,31 @@ placed:
             sel_y1 = y;
             sel_box(d, button != 0);
             sel_sub = 0;
-            sel_step = jw_cmd_sel_count(d) > 0 ? 2 : 0;
+            sel_step = 2;       /* a box that caught nothing stays in the stage */
             return;
-        case 2:
-            /* another box, on top of what is already picked */
-            if (button != 0)
+        case 2: {
+            /* 追加・除外図形指示: (L) a line, circle or point, (R) a text,
+               is added if it was not picked and taken away if it was.  A
+               click on nothing does nothing -- two of them do not make a
+               box either (tools/stageprobe.sh c3 c4 c5 c6); more boxes come
+               from 追加範囲 and 除外範囲. */
+            int k;
+
+            if (!d)
                 return;
-            sel_x0 = sel_x1 = x;
-            sel_y0 = sel_y1 = y;
-            sel_step = 1;
+            k = jw_pick(d, v, x, y, 0);
+            if (k < 0 || k >= d->ndrawn
+                || (d->obj[k].cls == JW_MOJI) != (button != 0))
+                return;
+            if (d->obj[k].sel) {
+                d->obj[k].flags = (unsigned short)(d->obj[k].flags & ~2u);
+                d->obj[k].sel = 0;
+            } else {
+                d->obj[k].flags = (unsigned short)(d->obj[k].flags | 2u);
+                d->obj[k].sel = 1;
+            }
             return;
+        }
         default:
             if (button != 0)
                 return;
@@ -16028,6 +16148,7 @@ placed:
             tx = x;
             ty = y;
             en_step = 1;
+            esc_arc = 0;
             return;
         }
         if (en_step == 1) {
@@ -16062,6 +16183,7 @@ placed:
                 en_kihon_shift(&o->d[0], &o->d[1], &o->d[2], dx, dy, u, v,
                                box_mm(d, 1411), ratio > 0.0 ? ratio : 1.0, tilt);
                 op_push(1);
+                esc_arc = 1;
             }
         }
         en_step = 0;

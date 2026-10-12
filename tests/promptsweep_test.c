@@ -139,6 +139,105 @@ static void esc_stages(void)
     ck(d->nobj == 2, "線: Esc after a first click lets go of it (nothing drawn)");
 }
 
+/* The stages the original has between the box and the work, and 寸法・複線・円弧
+   one press at a time (tools/stagecmp.sh, tmp/stage_report.md). */
+static void stage_prompts(void)
+{
+    jw_drawing *d;
+    int k, i;
+    static const int RANGE[3] = { JW_CMD_HANI, JW_CMD_FUKUSHA, JW_CMD_IDOU };
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, app_view(), 10, 10, 0);
+    jw_cmd_point(d, app_view(), 60, 10, 0);
+    jw_cmd_point(d, app_view(), 10, 20, 0);
+    jw_cmd_point(d, app_view(), 60, 20, 0);
+    for (k = 0; k < 3; k++) {
+        jw_cmd_set(RANGE[k]);
+        jw_cmd_point(d, app_view(), 0, 0, 0);
+        ck(is(jw_cmd_prompt(), JW_STR_5326) && strstr(jw_cmd_prompt(), JW_STR_5762),
+           "stage: second corner prompt has the (LL)(RR) tail");
+        jw_cmd_point(d, app_view(), 100, 50, 0);
+        ck(is(jw_cmd_prompt(), JW_STR_5325) && jw_cmd_sel_stage() == 2, "stage: box made -> 追加・除外");
+        ck((strstr(jw_cmd_prompt(), JW_STR_5828) != 0) == (RANGE[k] != JW_CMD_HANI),
+           "stage: Enter-範囲確定 only for copy and move");
+        ck((strstr(jw_cmd_prompt(), JW_STR_5829) != 0) == (RANGE[k] != JW_CMD_HANI),
+           "stage: ShiftEnter-基点変更 only for copy and move");
+        jw_cmd_point(d, app_view(), 30, 10, 0);          /* on the first line: takes it away */
+        ck(jw_cmd_sel_count(d) == 1, "stage: a click on a picked line lets go of it");
+        jw_cmd_point(d, app_view(), 30, 10, 0);
+        ck(jw_cmd_sel_count(d) == 2, "stage: and picks it again");
+        jw_cmd_point(d, app_view(), 80, 40, 0);
+        jw_cmd_point(d, app_view(), 90, 45, 0);
+        ck(jw_cmd_sel_count(d) == 2 && jw_cmd_sel_stage() == 2, "stage: clicks on nothing do nothing, two make no box");
+        if (RANGE[k] != JW_CMD_HANI) {
+            jw_cmd_track(30, 5);
+            ck(jw_cmd_enter_key(d) && jw_cmd_sel_stage() == 3, "stage: Enter confirms the range");
+        }
+        jw_cmd_escape();
+        /* a box that catches nothing stays in the stage */
+        jw_cmd_set(RANGE[k]);
+        jw_cmd_point(d, app_view(), 200, 200, 0);
+        jw_cmd_point(d, app_view(), 210, 210, 0);
+        ck(jw_cmd_sel_stage() == 2 && jw_cmd_sel_count(d) == 0, "stage: an empty box stays in 追加・除外");
+        jw_cmd_point(d, app_view(), 30, 10, 0);
+        ck(jw_cmd_sel_count(d) == 1, "stage: and a click adds a line to it");
+        app_key(27);
+        ck(jw_cmd_sel_stage() == 1, "stage: Esc is back at the second corner");
+        jw_cmd_escape();
+    }
+
+    /* 寸法: a dimension in -> 終点 -> 始点 -> 寸法線の位置 -> 引出し線 */
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_point(d, app_view(), 10, 40, 0);
+    jw_cmd_point(d, app_view(), 12, 42, 0);
+    ck(is(jw_cmd_prompt(), JW_STR_5331), "寸法: 始点");
+    jw_cmd_point(d, app_view(), 10, 10, 1);
+    jw_cmd_point(d, app_view(), 60, 10, 1);
+    ck(is(jw_cmd_prompt(), JW_STR_5333), "寸法: a dimension is in, 連続入力");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5332), "寸法: Esc -> 終点");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5331), "寸法: Esc -> 始点");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5330), "寸法: Esc -> 寸法線の位置");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5329), "寸法: Esc -> 引出し線の始点");
+
+    /* 複線 */
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    ck(is(jw_cmd_prompt(), JW_STR_5305), "複線: pick");
+    jw_cmd_point(d, app_view(), 30, 10, 0);
+    ck(is(jw_cmd_prompt(), JW_STR_5312), "複線: line picked -> interval or position");
+    jw_cmd_point(d, app_view(), 30, 15, 0);
+    ck(is(jw_cmd_prompt(), JW_STR_5310), "複線: position given -> direction");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5312), "複線: Esc -> interval");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5305), "複線: Esc -> pick");
+
+    /* 円弧: 中心点 -> 始点 -> 終点, Esc walks back, and after a finished arc
+       the first press is the 終点 again */
+    jw_cmd_set(JW_CMD_ENKO);
+    jw_cmd_bar(d, 1318);
+    ck(is(jw_cmd_prompt(), JW_STR_5309), "円弧: 中心点");
+    jw_cmd_point(d, app_view(), 100, 100, 0);
+    ck(is(jw_cmd_prompt(), JW_STR_5304), "円弧: 始点");
+    jw_cmd_point(d, app_view(), 120, 100, 0);
+    ck(is(jw_cmd_prompt(), JW_STR_5321), "円弧: 終点");
+    i = d->nobj;
+    jw_cmd_point(d, app_view(), 100, 120, 0);
+    ck(d->nobj == i + 1 && is(jw_cmd_prompt(), JW_STR_5309), "円弧: made, back to 中心点");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5321), "円弧: Esc after it -> 終点 again");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5304), "円弧: Esc -> 始点");
+    app_key(27);
+    ck(is(jw_cmd_prompt(), JW_STR_5309), "円弧: Esc -> 中心点");
+}
+
 int main(int argc, char **argv)
 {
     int id, fails = 0, n = 0, v = argc > 1;
@@ -146,6 +245,7 @@ int main(int argc, char **argv)
 
     app_resize(1264, 741);
     esc_stages();                               /* before anything leaves state behind */
+    stage_prompts();
     app_new();
     d = (jw_drawing *)app_drawing();
     jw_cmd_set(JW_CMD_TEN);
