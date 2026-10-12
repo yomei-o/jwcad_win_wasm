@@ -399,6 +399,8 @@ static int au_st;                       /* AUTO の線編集: 0 なし 1 線を�
 static void au_reset(void);
 static int hk_north;
 static int hk_sub;
+static int hk_iso_rng;            /* 範囲指定: 1 始点待ち 2 終点待ち 3 設定済み */
+static double hk_rx[4], hk_ry[4], hk_rx0, hk_ry0;
 static int hk_iso_on;             /* 等時間の バー */
 static int hk_iso_step = 60;      /* 精度（秒）: 60・10・4 */
 static int hk_iso_n(jw_drawing *d, double level, double label);
@@ -2423,6 +2425,8 @@ void jw_cmd_set(int id)
     tn_count = 0;
     hk_sub = 0;
     hk_iso_on = 0;
+    hk_iso_rng = 0;
+    hk_iso_step = 60;
     hk_tbl_pending = 0;
     hk_pts = 0;
     hk_calc_step = 0;
@@ -3238,6 +3242,10 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_TENKU:
         if (current == JW_CMD_TENKU && tn_mode)
             return tn_mode == 1 ? JW_STR_5712 : JW_STR_5713;
+        if (current == JW_CMD_HIKAGE && hk_iso_on && hk_iso_rng == 1)
+            return "\x93\x99\x8e\x9e\x8a\xd4\x90}\x82\xcc\x8d\xec\x90}\x94\xcd\x88\xcd\x82\xcc\x8en\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81B  (L)free  (R)Read";
+        if (current == JW_CMD_HIKAGE && hk_iso_on && hk_iso_rng == 2)
+            return "\x81\x9f\x81@\x81@\x8fI\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2  (L)free  (R)Read";
         if (hk_write_cond)
             return JW_STR_5582;
         if (hk_pts && hk_calc_step)
@@ -9607,8 +9615,17 @@ static int bar_press(jw_drawing *d, int id)
         }
         if (id >= 1065 && id <= 1069)
             return hk_iso_n(d, lv[id - 1065], lv[id - 1065]) > 0;
-        if (id == 1071) {           /* 精度: 標準 (60 秒) と 10 秒 */
-            hk_iso_step = hk_iso_step == 60 ? 10 : 60;
+        if (id == 1071) {           /* 精度: 標準 (60 秒) と 10 秒、範囲指定のあとは 10 と 4 */
+            if (hk_iso_rng == 3)
+                hk_iso_step = hk_iso_step == 10 ? 4 : 10;
+            else
+                hk_iso_step = hk_iso_step == 60 ? 10 : 60;
+            return 1;
+        }
+        if (id == 1072) {           /* 範囲指定 と 範囲解除 */
+            hk_iso_rng = hk_iso_rng == 3 ? 0 : 1;
+            if (hk_iso_rng == 0 && hk_iso_step != 60 && hk_iso_step != 10)
+                hk_iso_step = 60;
             return 1;
         }
         return 0;
@@ -12974,6 +12991,14 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
     in.level = level;
     in.n15 = cond.n15;
     in.step = hk_iso_step;
+    if (hk_iso_rng == 3) {
+        in.range = 1;
+        memcpy(in.rx, hk_rx, sizeof in.rx);
+        memcpy(in.ry, hk_ry, sizeof in.ry);
+        if (in.step != 4)
+            in.step = 10;
+    } else if (in.step != 10)
+        in.step = 60;
     in.sheet_w = sw[ps];
     in.sheet_h = sh[ps];
     n = hk_iso(ed, ne, &in, seg, 4000);
@@ -13958,6 +13983,54 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             hk_calc_step = 0;
         } else
             hk_point_add(d, px, py);
+        return;
+    }
+    if (current == JW_CMD_HIKAGE && hk_iso_on && (hk_iso_rng == 1 || hk_iso_rng == 2) && d && button <= 1) {
+        double px = x, py = y;
+
+        if (button == 1) {
+            double sxr, syr;
+
+            if (jw_read(d, v, x, y, &sxr, &syr)) {
+                px = sxr;
+                py = syr;
+            }
+        }
+        if (hk_iso_rng == 1) {
+            hk_rx0 = px;
+            hk_ry0 = py;
+            hk_iso_rng = 2;
+        } else {
+            double north = 0.0, c, sn, ex, ey, dx, dy;
+            int k;
+
+            for (k = 0; k < d->ndrawn; k++)
+                if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+                    d->obj[k].color == 5) {
+                    const char *t = jw_str(d, d->obj[k].text);
+
+                    if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
+                        north = atof(t);
+                }
+            c = cos(north * 3.14159265358979323846 / 180.0);
+            sn = sin(north * 3.14159265358979323846 / 180.0);
+            ex = px - hk_rx0;
+            ey = py - hk_ry0;
+            dx = ex * c + ey * sn;                  /* 始点を原点に 真北に合わせた枠 */
+            dy = -ex * sn + ey * c;
+            if (fabs(dx) < 50.0)
+                dx = dx < 0.0 ? -50.0 : 50.0;
+            if (fabs(dy) < 50.0)
+                dy = dy < 0.0 ? -50.0 : 50.0;
+            for (k = 0; k < 4; k++) {
+                double lx = k & 1 ? dx : 0.0, ly = k & 2 ? dy : 0.0;
+
+                hk_rx[k] = hk_rx0 + lx * c - ly * sn;
+                hk_ry[k] = hk_ry0 + lx * sn + ly * c;
+            }
+            hk_iso_rng = 3;
+            hk_iso_step = 10;
+        }
         return;
     }
     if (current == JW_CMD_HIKAGE && hk_sub && hk_tbl_pending && d && button <= 1) {

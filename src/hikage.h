@@ -147,6 +147,8 @@ typedef struct { double x0, y0, x1, y1; int label; int label_at; } hk_isoseg;   
 typedef struct {
     double lat, dec, north, level, sheet_w, sheet_h;
     int n15, step;
+    int range;                  /* 1: 範囲指定（世界の 4 隅 rx・ry） */
+    double rx[4], ry[4];
 } hk_iso_in;
 int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int maxout);
 

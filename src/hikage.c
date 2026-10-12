@@ -821,6 +821,19 @@ int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int ma
     if (lo_x < cl_lo) lo_x = cl_lo;
     if (hi_x > cl_hi) hi_x = cl_hi;
     if (hi_y > cl_top) hi_y = cl_top;
+    if (in->range) {                     /* 範囲指定: 4 隅を 回した枠に直して 最小・最大 */
+        lo_x = lo_y = 1e30;
+        hi_x = hi_y = -1e30;
+        for (i = 0; i < 4; i++) {
+            double qx = in->rx[i] - g.cx, qy = in->ry[i] - g.cy;
+            double lx = qx * c + qy * s, ly = -qx * s + qy * c;
+
+            if (lx < lo_x) lo_x = lx;
+            if (lx > hi_x) hi_x = lx;
+            if (ly < lo_y) lo_y = ly;
+            if (ly > hi_y) hi_y = ly;
+        }
+    }
     /* 格子 */
     w = hi_x - lo_x;
     h = hi_y - lo_y;
