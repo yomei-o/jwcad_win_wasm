@@ -1901,10 +1901,12 @@ try {
                 break
             }
 
-            '^opendlg:(.+)$' {
+            '^opendlg:(?:(\d+)\|)?(.+)$' {
                 # an existing file into whatever 開く dialog is up, and OK;
-                # whatever the program does with it is for the next steps
-                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[1]))
+                # whatever the program does with it is for the next steps.
+                # `opendlg:<n>|<path>` picks the n-th (0 based) 「ファイルの種類」 first.
+                $ftype = $Matches[1]
+                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[2]))
                 $dlg = [IntPtr]::Zero
                 $deadline = (Get-Date).AddSeconds(12)
                 while ((Get-Date) -lt $deadline -and $dlg -eq [IntPtr]::Zero) {
@@ -1922,6 +1924,16 @@ try {
                 $edit = [IntPtr]::Zero
                 foreach ($k in [Jw]::Kids($dlg)) {
                     if ([Jw]::Cls($k) -eq 'Edit') { $edit = $k; break }
+                }
+                if ($ftype -ne '') {
+                    foreach ($k in [Jw]::Kids($dlg)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq 1136) {
+                            [void][Jw]::SendMessageW($k, 0x014E, [IntPtr][int]$ftype, [IntPtr]::Zero)
+                            [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr](1136 -bor (1 -shl 16)), $k)
+                            Start-Sleep -Milliseconds 400
+                            break
+                        }
+                    }
                 }
                 [void][Jw]::SendMessageStr($edit, $WM_SETTEXT, [IntPtr]::Zero, $full)
                 Start-Sleep -Milliseconds 300

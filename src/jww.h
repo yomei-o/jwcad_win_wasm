@@ -330,6 +330,7 @@ void jw_obj_move(jw_obj *o, double dx, double dy);
 /* Put a string in the drawing's pool and return its offset, for a new text.
    Returns -1 if it could not. */
 int jw_add_str(jw_drawing *d, const char *s);
+int jw_add_str_w(jw_drawing *d, const char *s, int wide);
 
 /* Add an element at the very end, past the drawn ones: a block definition
    and the elements inside it live there, and jw_add would put them in the

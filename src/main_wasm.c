@@ -9,7 +9,9 @@
 #include <emscripten/emscripten.h>
 
 #include <stdlib.h>
+#include <string.h>
 
+#include "image.h"
 #include "app.h"
 #include "plot.h"
 #include "cp932.h"
@@ -218,6 +220,10 @@ static int finish(int redraw)
         return 9;               /* and 読込み: a .jwf to pick */
     case JW_ACT_NEW_ASK:
         return 7;               /* 新規 over changes: ask first */
+    case JW_ACT_OPEN_IMAGE:
+        return 10;              /* 画像挿入: a bitmap, PNG or JPEG to pick */
+    case JW_ACT_SAVE_IMAGES:
+        return 11;              /* 同梱画像分離: the pictures to hand out */
     }
     if (redraw)
         app_paint();
@@ -332,6 +338,84 @@ EMSCRIPTEN_KEEPALIVE int jw_coord(unsigned char *b, int n)
         return 0;
     app_paint();
     return 1;
+}
+
+/* 画像挿入 (画像編集): the page picked a picture file and hands over its name
+   (UTF-16, what the drawing will call it) and its bytes. */
+EMSCRIPTEN_KEEPALIVE int jw_image(const unsigned short *name, int nlen, unsigned char *b, int n)
+{
+    char buf[300];
+    long m = jw_from_utf16(name, nlen, buf, sizeof buf - 1);
+
+    if (m < 0)
+        m = 0;
+    if (m > (long)sizeof buf - 1)
+        m = (long)sizeof buf - 1;
+    buf[m] = 0;
+    if (!app_image(buf, b, n))
+        return 0;
+    app_paint();
+    return 1;
+}
+
+/* A picture file handed over without being put in: so that a drawing that
+   names it by file name finds it. */
+EMSCRIPTEN_KEEPALIVE int jw_image_store(const unsigned short *name, int nlen, unsigned char *b, int n)
+{
+    char buf[300];
+    long m = jw_from_utf16(name, nlen, buf, sizeof buf - 1);
+
+    if (m < 0)
+        m = 0;
+    if (m > (long)sizeof buf - 1)
+        m = (long)sizeof buf - 1;
+    buf[m] = 0;
+    jw_img_put(buf, b, n);
+    app_paint();
+    return 1;
+}
+
+/* 同梱画像分離's pictures, one at a time: how many, the i-th name (UTF-16
+   into `out`, its length returned), its bytes' address and length. */
+EMSCRIPTEN_KEEPALIVE int jw_image_out_count(void)
+{
+    const char *nm;
+    const unsigned char *b;
+    long n;
+    int i = 0;
+
+    while (app_image_out(i, &nm, &b, &n))
+        i++;
+    return i;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_image_out_name(int i, unsigned short *out, int cap)
+{
+    const char *nm;
+    const unsigned char *b;
+    long n;
+
+    if (!app_image_out(i, &nm, &b, &n))
+        return 0;
+    return (int)jw_to_utf16(nm, (long)strlen(nm), out, cap);
+}
+
+EMSCRIPTEN_KEEPALIVE const unsigned char *jw_image_out_ptr(int i)
+{
+    const char *nm;
+    const unsigned char *b;
+    long n;
+
+    return app_image_out(i, &nm, &b, &n) ? b : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_image_out_len(int i)
+{
+    const char *nm;
+    const unsigned char *b;
+    long n;
+
+    return app_image_out(i, &nm, &b, &n) ? (int)n : 0;
 }
 
 /* 座標ファイル (32895): the command hands back 5 from a press, and the page

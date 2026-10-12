@@ -499,11 +499,21 @@ static int kj_open, kj_sel;             /* 基準点選択（建具の 基準点
 static int td_open;
 static int td_start(int tpl);
 static int td_caret_set(int id);
+static void gz_check(void);
+static void mb_close(int ok);
+static int mb_open, mb_kind;
+
+static void tgp_tp_open(void);
 
 static void tgp_check(void)
 {
     if (!td_open && have_drawing && jw_cmd() == JW_CMD_HIKAGE && jw_cmd_hikage_ask() && td_start(348))
         td_caret_set(1411);
+    if (jw_cmd() == JW_CMD_GAZOU) {
+        gz_check();
+        if (!td_open && !mb_open)
+            tgp_tp_open();
+    }
     if (!tgp_open && jw_cmd_tategu_need_pick() && (jw_cmd() == JW_CMD_TATEGU || jw_cmd() == JW_CMD_TATEGU_DAN ||
          jw_cmd() == JW_CMD_TATEGU_RITSU)) {
         tgp_open = 1;
@@ -943,6 +953,37 @@ int app_coord(const unsigned char *b, long n)
     if (!have_drawing)
         return 0;
     return jw_cmd_coord_load(&drawing, b, n);
+}
+
+/* 画像挿入: the file the front end picked, under the name that goes into the
+   drawing (its path, or what the browser calls it) */
+int app_image(const char *path, const unsigned char *b, long n)
+{
+    if (!have_drawing)
+        return 0;
+    return jw_cmd_gazou_insert(&drawing, path, b, n);
+}
+
+/* 同梱画像分離's files, for the front end to put in the folder */
+int app_image_out(int i, const char **name, const unsigned char **b, long *n)
+{
+    return jw_cmd_gazou_out(i, name, b, n);
+}
+
+/* the folder the drawing is in (CP932, "" when it has none): 相対パス and the
+   folder 同梱画像分離 makes are measured from it */
+static char doc_dir[260];
+
+void app_doc_dir(const char *dir)
+{
+    strncpy(doc_dir, dir ? dir : "", sizeof doc_dir - 1);
+    doc_dir[sizeof doc_dir - 1] = 0;
+}
+
+void app_doc(const char *dir, const char *stem)
+{
+    app_doc_dir(dir);
+    jw_cmd_gazou_doc(doc_dir, stem);
 }
 
 /* 図形読込 (32862): the bytes of a .jws, in place of the original's own
@@ -1600,6 +1641,48 @@ static void tr_close(int ok)
     }
 }
 
+/* 透過色 (391): three boxes for 赤 緑 青, 0 to 255.  OK puts the colour on
+   the picture that was clicked; anything else leaves it. */
+static void gp_close(int ok)
+{
+    int r = 0, g = 0, b = 0, i;
+
+    if (ok) {
+        i = ui_tdlg_index(td_t, 2579);
+        if (i >= 0 && i < TD_MAX)
+            r = atoi(td_txt[i]);
+        i = ui_tdlg_index(td_t, 2580);
+        if (i >= 0 && i < TD_MAX)
+            g = atoi(td_txt[i]);
+        i = ui_tdlg_index(td_t, 2581);
+        if (i >= 0 && i < TD_MAX)
+            b = atoi(td_txt[i]);
+    }
+    td_open = 0;
+    if (ok && have_drawing)
+        jw_cmd_gazou_tp_set(&drawing, r, g, b);
+    else if (have_drawing)
+        jw_cmd_gazou_tp_set(&drawing, -1, 0, 0);       /* cancelled */
+}
+
+static void tgp_tp_open(void)
+{
+    int r, g, b, i;
+
+    if (!jw_cmd_gazou_tp_ask(&r, &g, &b) || !td_start(391))
+        return;
+    i = ui_tdlg_index(td_t, 2579);
+    if (i >= 0 && i < TD_MAX)
+        sprintf(td_txt[i], "%d", r);
+    i = ui_tdlg_index(td_t, 2580);
+    if (i >= 0 && i < TD_MAX)
+        sprintf(td_txt[i], "%d", g);
+    i = ui_tdlg_index(td_t, 2581);
+    if (i >= 0 && i < TD_MAX)
+        sprintf(td_txt[i], "%d", b);
+    td_caret = 2579;
+}
+
 static void hk_time_close(int ok)
 {
     int i = ui_tdlg_index(td_t, 1411);
@@ -1761,6 +1844,10 @@ static int press_tdlg(int x, int y)
     }
     if (td_tpl == 348 && (id == 1 || id == 2)) {
         hk_time_close(id == 1);
+        return 1;
+    }
+    if (td_tpl == 391 && (id == 1 || id == 2)) {
+        gp_close(id == 1);
         return 1;
     }
     if (td_tpl == 384 && (id == 1 || id == 2)) {
@@ -2020,6 +2107,10 @@ static int td_key(int c)
         hk_time_close(c == 13);
         return 1;
     }
+    if ((c == 13 || c == 27) && td_tpl == 391) {
+        gp_close(c == 13);
+        return 1;
+    }
     if ((c == 13 || c == 27) && td_tpl == 384) {
         tr_close(c == 13);
         return 1;
@@ -2173,6 +2264,10 @@ static int bt_trans;
 static int d2d_on, aa_on;
 /* 表示 > ダイアログボックス: the original asks first (AfxMessageBox) */
 static int mb_open;
+/* 0: the dialog-position question above; 1 and 2: 画像編集's (OK and キャンセル,
+   OK alone), whose words are mb_text */
+static int mb_kind;
+static char mb_text[400];
 static char tag_name[260];
 
 static int bt_open;
@@ -3046,6 +3141,12 @@ int app_command(int cmd)
     case 32936:                         /* 同           レイヤ非表示化 */
         jw_cmd_get_mode(cmd);
         return 1;
+    case 33013:                         /* 編集 > 画像編集 */
+        if (have_drawing)
+            jw_cmd_flush(&drawing);
+        jw_cmd_set(JW_CMD_GAZOU);
+        bt_close();
+        return 1;
     case 32862:                         /* 図形読込 */
         /* The original puts up a file window of its own here.  The port has
            none: the front end reads the .jws and calls app_figure, which is
@@ -3190,21 +3291,54 @@ int app_chrome_move(int x, int y)
     return 0;
 }
 
+/* 画像編集: what the command wants of the front end.  A file (画像挿入) is
+   an action; a question or a report is the message box; the 透過色 dialog is
+   template 391 (see tgp_check, which looks at it on every paint). */
+static void mb_close(int ok)
+{
+    int kind = mb_kind;
+
+    mb_open = 0;
+    mb_kind = 0;
+    if (kind == 0) {
+        if (ok)
+            ui_blktree_default(fb.w, fb.h, &bt_win);   /* every dialog back to where it first appears */
+        return;
+    }
+    if (have_drawing)
+        jw_cmd_gazou_answer(&drawing, kind == 1 && ok);
+    if (jw_cmd_gazou_out_ready())
+        action = JW_ACT_SAVE_IMAGES;
+    gz_check();
+}
+
+static void gz_check(void)
+{
+    const char *t;
+    int k;
+
+    if (jw_cmd() != JW_CMD_GAZOU)
+        return;
+    if (jw_cmd_gazou_file())
+        action = JW_ACT_OPEN_IMAGE;
+    if (!mb_open && (k = jw_cmd_gazou_ask(&t)) != 0) {
+        strncpy(mb_text, t, sizeof mb_text - 1);
+        mb_text[sizeof mb_text - 1] = 0;
+        mb_kind = k;
+        mb_open = 1;
+    }
+}
+
 int app_press(int x, int y, int button)
 {
     int k = hit_button(x, y);
     int id, g, n;
 
     if (mb_open) {                      /* modal over everything */
-        int h = ui_msgbox_hit(fb.w, fb.h, 1, x, y);
+        int h = ui_msgbox_hit(fb.w, fb.h, mb_kind != 2, x, y);
 
-        if (h == 1 || h == 2) {
-            mb_open = 0;
-            if (h == 1) {
-                /* every dialog back to where it first appears */
-                ui_blktree_default(fb.w, fb.h, &bt_win);
-            }
-        }
+        if (h == 1 || h == 2)
+            mb_close(h == 1);
         return 1;
     }
 
@@ -3380,8 +3514,10 @@ int app_press(int x, int y, int button)
             jw_cmd_box_click(id);
             return 1;
         }
-        if (jw_cmd_bar(have_drawing ? &drawing : 0, id))
+        if (jw_cmd_bar(have_drawing ? &drawing : 0, id)) {
+            gz_check();
             return 1;
+        }
     }
     if (k >= 0) {
         int cmd = jw_btn_cmd[k];
@@ -3519,11 +3655,8 @@ static void dialog_close(void)
 int app_key(int c)
 {
     if (mb_open) {
-        if (c == 13 || c == 27) {
-            mb_open = 0;
-            if (c == 13)
-                ui_blktree_default(fb.w, fb.h, &bt_win);
-        }
+        if (c == 13 || c == 27)
+            mb_close(c == 13);
         app_paint();
         return 1;
     }
@@ -3816,6 +3949,16 @@ void app_title(const char *name)
     const char *tail = " - jw_win";
     size_t n = name ? strlen(name) : 0;
 
+    {   /* the name without its .jww, for what 画像編集 puts a folder's name to */
+        char nm[160];
+        size_t m = n < sizeof nm - 1 ? n : sizeof nm - 1;
+
+        memcpy(nm, name ? name : "", m);
+        nm[m] = 0;
+        if (m > 4 && !strcmp(nm + m - 4, ".jww"))
+            nm[m - 4] = 0;
+        jw_cmd_gazou_doc(doc_dir, nm);
+    }
     if (!name || !*name) {
         /* 無題, the way the original starts */
         strcpy(title, "\x96\xb3\x91\xe8 - jw_win");
@@ -4246,7 +4389,7 @@ void app_paint(void)
     if (bt_open)
         bt_paint();
     if (mb_open)
-        ui_msgbox(&fb, "jw_win", MB_TEXT, 1);
+        ui_msgbox(&fb, "jw_win", mb_kind ? mb_text : MB_TEXT, mb_kind != 2);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

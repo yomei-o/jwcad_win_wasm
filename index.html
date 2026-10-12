@@ -24,7 +24,8 @@
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
 <div id="note">
-  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt,.jwf"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く</label>
+  <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt,.jwf,.bmp,.png,.jpg,.jpeg"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く（画像は 画像編集 の 画像挿入 で）</label>
+  <input type="file" id="pickimg" accept=".bmp,.png,.jpg,.jpeg,image/bmp,image/png,image/jpeg" hidden>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
@@ -140,6 +141,13 @@
   const figure = mod.cwrap('jw_figure', 'number', ['number', 'number']);
   const text   = mod.cwrap('jw_bunyomi', 'number', ['number', 'number']);
   const saveFig = mod.cwrap('jw_save_fig', 'number', []);
+  // 画像編集: a picture file goes in by name and bytes; 画像分離 hands pictures out
+  const imageIn = mod.cwrap('jw_image', 'number', ['number', 'number', 'number', 'number']);
+  const imageStore = mod.cwrap('jw_image_store', 'number', ['number', 'number', 'number', 'number']);
+  const imageOutCount = mod.cwrap('jw_image_out_count', 'number', []);
+  const imageOutName = mod.cwrap('jw_image_out_name', 'number', ['number', 'number', 'number']);
+  const imageOutPtr = mod.cwrap('jw_image_out_ptr', 'number', ['number']);
+  const imageOutLen = mod.cwrap('jw_image_out_len', 'number', ['number']);
   const saveCoord = mod.cwrap('jw_save_coord', 'number', []);
   const coord = mod.cwrap('jw_coord', 'number', ['number', 'number']);
   const nobj  = mod.cwrap('jw_nobj',  'number', []);
@@ -470,6 +478,8 @@
       askedText = true;
       document.getElementById('pick').click();
     }
+    else if (r === 10) document.getElementById('pickimg').click();
+    else if (r === 11) downloadImages();
     else if (r === 7) {
       if (confirm('変更を保存していません。破棄して新規作成しますか？')) {
         newDrawing();
@@ -481,7 +491,46 @@
     else if (r) present();
   }
 
+  // 同梱画像分離: the folder a browser cannot make is a run of downloads
+  function downloadImages() {
+    const n = imageOutCount();
+    for (let i = 0; i < n; i++) {
+      const nb = mod._malloc(600);
+      const len = imageOutName(i, nb, 300);
+      let name = '';
+      for (let k = 0; k < len; k++) name += String.fromCharCode(mod.HEAPU16[(nb >> 1) + k]);
+      mod._free(nb);
+      const bytes = mod.HEAPU8.slice(imageOutPtr(i), imageOutPtr(i) + imageOutLen(i));
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([bytes], { type: 'image/bmp' }));
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 30000);
+    }
+  }
+
+  // a picture file: its name and bytes to the port (as 画像挿入 -- or, when
+  // no 画像挿入 is waiting, only kept so a drawing that names it finds it)
+  async function loadImage(file, insert) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const p = mod._malloc(bytes.length);
+    mod.HEAPU8.set(bytes, p);
+    const nb = mod._malloc(Math.max(2, file.name.length * 2));
+    for (let i = 0; i < file.name.length; i++)
+      mod.HEAPU16[(nb >> 1) + i] = file.name.charCodeAt(i);
+    const ok = (insert ? imageIn : imageStore)(nb, file.name.length, p, bytes.length);
+    mod._free(nb);
+    mod._free(p);
+    document.getElementById('msg').textContent = insert
+      ? `${file.name} — 基準点を指示してください`
+      : `${file.name} — 画像を覚えました（図面が名前で呼べます）`;
+    present();
+    return ok;
+  }
+
   async function load(file) {
+    if (/\.(bmp|png|jpe?g)$/i.test(file.name)) return loadImage(file, false);
     // a .jww replaces the drawing that is open; the other formats go into it
     // (or hang on the cursor), which is no reason to ask
     if (!askedText && /\.jww$/i.test(file.name) && modified()
@@ -528,6 +577,11 @@
   document.getElementById('pdf').addEventListener('click', () => downloadPlot(false));
   document.getElementById('png').addEventListener('click', () => downloadPlot(true));
 
+  document.getElementById('pickimg').addEventListener('change', e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) loadImage(f, true);
+  });
   document.getElementById('pick').addEventListener('change', e => {
     const f = e.target.files[0];
     // Without this, choosing the same file again (to go back to what was

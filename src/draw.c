@@ -9,6 +9,7 @@
 #include "gen/pens.h"
 #include "gen/wide.h"
 #include "text.h"
+#include "image.h"
 
 #define PI 3.14159265358979323846
 
@@ -2659,6 +2660,241 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
     }
 }
 
+/* 画像 (a CDataMoji whose text starts "^@BM", see src/image.h).
+ *
+ * What was read off the original: the picture is stretched nearest-neighbour
+ * over the box its corners make, the pixel of the picture a screen pixel
+ * shows being the one under its middle (a 40 pixel picture over 163 screen
+ * pixels gave runs of 4,4,4,4,4,4,5 ...), white is transparent unless the
+ * text names another colour, and the pictures lie over everything else
+ * whatever order they were drawn in.  A picture whose file cannot be read is
+ * a dotted frame in (0,192,192), a dot every eight pixels round the box. */
+static void pic_dash(fb_t *fb, const jw_view *v, double x0, double y0, double x1, double y1,
+                     unsigned int col)
+{
+    double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy), t;
+
+    if (len < 1.0)
+        return;
+    for (t = 0; t < len; t += 1.0)
+        if (((int)t & 7) < 4)
+            put(fb, &v->clip, v->bx + jw_px_round(x0 + dx * t / len),
+                v->by - jw_px_round(y0 + dy * t / len), col);
+}
+
+static void pic_dots(fb_t *fb, const jw_view *v, double x0, double y0, double x1, double y1,
+                     unsigned int col)
+{
+    double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy), t;
+
+    if (len < 1.0)
+        return;
+    for (t = 0; t < len; t += 8.0)
+        put(fb, &v->clip, v->bx + jw_px_round(x0 + dx * t / len),
+            v->by - jw_px_round(y0 + dy * t / len), col);
+}
+
+/* The part of the file's picture that is shown, in whole pixels, the way the
+   original takes it (FUN_00487290): the left edge is sw*x, the width sw*c, the
+   height sw*(h/w)*c and the top sh - sw*y - that, each cut to a whole number
+   (towards nought), and nothing of it is a fraction of a pixel. */
+typedef struct {
+    int cl, ct, cw, ch;
+    double mm;                  /* paper millimetres to a source pixel */
+    int untrimmed;
+} pic_crop;
+
+static void pic_crop_of(const jw_pic *p, const jw_img *im, pic_crop *c)
+{
+    double sw = im->w, sh = im->h, h = p->h;
+
+    c->untrimmed = p->x == 0.0 && p->y == 0.0 && p->c == 1.0;
+    if (c->untrimmed && p->w > 0.0)
+        h = p->w * sh / sw;                 /* its own shape, whatever the text says */
+    c->cl = (int)(sw * p->x);
+    c->cw = (int)(sw * p->c);
+    c->ch = (int)(((sw * h) / p->w) * p->c);
+    c->ct = (int)((sh - sw * p->y) - c->ch);
+    if (c->cl < 0) c->cl = 0;
+    if (c->ct < 0) c->ct = 0;
+    if (c->cl + c->cw > im->w) c->cw = im->w - c->cl;
+    if (c->ct + c->ch > im->h) c->ch = im->h - c->ct;
+    c->mm = p->c > 0.0 && sw > 0.0 ? p->w / (sw * p->c) : 1.0;
+}
+
+static double pic_ox = 0.0, pic_oy = 0.0;
+
+static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_obj *o)
+{
+    jw_pic p;
+    const jw_img *im;
+    pic_crop cr;
+    double cx[4], cy[4], px[4], py[4], cosa, sina;
+    int i, x, y;
+    unsigned int trans;
+
+    if (!jw_pic_parse(d, o, &p))
+        return;
+    jw_pic_corners(o, &p, cx, cy);
+    for (i = 0; i < 4; i++) {
+        px[i] = jw_ux(v, cx[i]);
+        py[i] = jw_uy(v, cy[i]);
+    }
+    im = jw_img_get(p.name);
+    if (!im) {
+        for (i = 0; i < 4; i++)
+            pic_dots(fb, v, px[i], py[i], px[(i + 1) & 3], py[(i + 1) & 3], 0x00c0c0u);
+        return;
+    }
+    pic_crop_of(&p, im, &cr);
+    if (cr.cw <= 0 || cr.ch <= 0)
+        return;
+    trans = (unsigned)(p.r & 255) << 16 | (unsigned)(p.g & 255) << 8 | (unsigned)(p.b & 255);
+    cosa = cos(jw_pic_angle(o, &p));
+    sina = sin(jw_pic_angle(o, &p));
+    if (fabs(sina) < 1e-9 && cosa > 0.0) {
+        int left = jw_sx(v, o->d[0]), bottom = jw_sy(v, o->d[1]), right, top;
+        int dw, dh;
+
+        if (cr.untrimmed) {
+            right = jw_sx(v, o->d[0] + p.w);
+            top = jw_sy(v, o->d[1] + p.w * im->h / im->w);
+        } else {
+            /* the box of what is cut out stands on the same corner and takes
+               its far edges to the next pixel up -- ceil of where they fall
+               (five of the six trims asked of the original; the sixth is a
+               pixel less wide) */
+            right = (int)ceil(v->bx + jw_ux(v, o->d[0] + cr.cw * cr.mm) - 1e-9);
+            top = (int)ceil(v->by - jw_uy(v, o->d[1] + cr.ch * cr.mm) - 1e-9);
+        }
+        dw = right - left;
+        dh = bottom - top;
+        if (dw <= 0 || dh <= 0)
+            return;
+        /* A picture that runs off the drawing area is cut the way the original
+           cuts it: the whole pixels of the picture that are hidden are taken
+           off -- rounding the count of them up -- and what is left is
+           stretched over what is left of the box.  (A 200 mm picture half off
+           the top of the view: its rows came out 8.26 pixels tall rather than
+           the 8.17 of the whole, which is 27 rows over 223 pixels, not 30
+           over 245.  tools/imgref.sh's fitx.) */
+        {
+            int clipb = v->clip.y + v->clip.h, clipr = v->clip.x + v->clip.w;
+
+            if (top < v->clip.y) {
+                int gone = (int)ceil((v->clip.y - top) * (double)cr.ch / dh - 1e-9);
+
+                if (gone >= cr.ch)
+                    return;
+                cr.ct += gone;
+                cr.ch -= gone;
+                top = v->clip.y;
+            }
+            if (bottom > clipb) {
+                int gone = (int)ceil((bottom - clipb) * (double)cr.ch / dh - 1e-9);
+
+                if (gone >= cr.ch)
+                    return;
+                cr.ch -= gone;
+                bottom = clipb;
+            }
+            if (left < v->clip.x) {
+                int gone = (int)ceil((v->clip.x - left) * (double)cr.cw / dw - 1e-9);
+
+                if (gone >= cr.cw)
+                    return;
+                cr.cl += gone;
+                cr.cw -= gone;
+                left = v->clip.x;
+            }
+            if (right > clipr) {
+                int gone = (int)ceil((right - clipr) * (double)cr.cw / dw - 1e-9);
+
+                if (gone >= cr.cw)
+                    return;
+                cr.cw -= gone;
+                right = clipr;
+            }
+            dw = right - left;
+            dh = bottom - top;
+            if (dw <= 0 || dh <= 0)
+                return;
+        }
+        for (y = top; y < bottom; y++) {
+            int sr;
+
+            if (y < v->clip.y || y >= v->clip.y + v->clip.h)
+                continue;
+            sr = cr.ct + (int)floor((y - top + 0.5) * cr.ch / dh);
+            if (sr < 0 || sr >= im->h)
+                continue;
+            for (x = left; x < right; x++) {
+                int sc;
+                const unsigned char *q;
+                unsigned int c;
+
+                if (x < v->clip.x || x >= v->clip.x + v->clip.w)
+                    continue;
+                sc = cr.cl + (int)floor((x - left + 0.5) * cr.cw / dw);
+                if (sc < 0 || sc >= im->w)
+                    continue;
+                q = im->rgb + ((size_t)sr * im->w + sc) * 3;
+                c = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
+                if (c == trans)
+                    continue;
+                put(fb, &v->clip, x, y, c);
+            }
+        }
+        return;
+    }
+    {   /* turned: every pixel of the box's hull asks the picture what it is over.
+           (PlgBlt in the original, which picks nearest too; sampling at the top left
+           of each pixel is the closest to its pixels of those tried -- 1,872 of 84,680
+           pixels of tools/imgref.sh's rot1 differ) */
+        int xmin = jw_px_round(px[0]), xmax = xmin, ymin = jw_px_round(py[0]), ymax = ymin;
+        int x0, x1, y0, y1;
+        double pw = cr.cw * cr.mm, ph = cr.ch * cr.mm;
+
+        for (i = 1; i < 4; i++) {
+            int a2 = jw_px_round(px[i]), b2 = jw_px_round(py[i]);
+            if (a2 < xmin) xmin = a2;
+            if (a2 > xmax) xmax = a2;
+            if (b2 < ymin) ymin = b2;
+            if (b2 > ymax) ymax = b2;
+        }
+        x0 = v->bx + xmin - 1;
+        x1 = v->bx + xmax + 2;
+        y0 = v->by - ymax - 1;
+        y1 = v->by - ymin + 2;
+        if (x0 < v->clip.x) x0 = v->clip.x;
+        if (y0 < v->clip.y) y0 = v->clip.y;
+        if (x1 > v->clip.x + v->clip.w) x1 = v->clip.x + v->clip.w;
+        if (y1 > v->clip.y + v->clip.h) y1 = v->clip.y + v->clip.h;
+        for (y = y0; y < y1; y++)
+            for (x = x0; x < x1; x++) {
+                double X = (x + pic_ox - v->bx), Y = (v->by - (y + pic_oy));
+                double dx = X - px[0], dy = Y - py[0], lx, ly;
+                int sc, sr;
+                const unsigned char *q;
+                unsigned int c;
+
+                lx = (cosa * dx + sina * dy) * v->mmpp;
+                ly = (-sina * dx + cosa * dy) * v->mmpp;
+                if (lx < 0.0 || lx >= pw || ly < 0.0 || ly >= ph)
+                    continue;
+                sc = cr.cl + (int)floor(lx / cr.mm);
+                sr = cr.ct + cr.ch - 1 - (int)floor(ly / cr.mm);
+                if (sc < 0 || sc >= im->w || sr < 0 || sr >= im->h)
+                    continue;
+                q = im->rgb + ((size_t)sr * im->w + sc) * 3;
+                c = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
+                if (c == trans)
+                    continue;
+                put(fb, &v->clip, x, y, c);
+            }
+    }
+}
+
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
@@ -2823,6 +3059,25 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         }
         case JW_MOJI:
+            if (jw_is_pic(d, o)) {
+                /* the pictures go on last, below; one hanging off the cursor
+                   is a dashed outline (four on, four off) and, as for any text,
+                   the box of its baseline */
+                if (!jw_draw_kari)
+                    break;
+                {
+                    jw_pic pk;
+                    double qx[4], qy[4];
+                    int kk;
+
+                    if (jw_pic_parse(d, o, &pk)) {
+                        jw_pic_corners(o, &pk, qx, qy);
+                        for (kk = 0; kk < 4; kk++)
+                            pic_dash(fb, v, jw_ux(v, qx[kk]), jw_uy(v, qy[kk]),
+                                     jw_ux(v, qx[(kk + 1) & 3]), jw_uy(v, qy[(kk + 1) & 3]), col);
+                    }
+                }
+            }
             /* A text that is only hanging off the cursor comes out as
              * its **box** and not as its glyphs.  Both ways in say so:
              * a 文字 typed but not yet placed shows an empty rectangle
@@ -2888,6 +3143,27 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
         }
         default:
             break;
+        }
+    }
+    /* the pictures lie over everything, in the order they were put in */
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        if (o->cls != JW_MOJI || jw_draw_kari || !shown(d, o) || !jw_is_pic(d, o))
+            continue;
+        pic_draw(fb, v, d, o);
+        if (o->sel) {
+            jw_pic pp;
+            double qx[4], qy[4], ppb = pix_per_bit(v);
+            int kk;
+
+            if (jw_pic_parse(d, o, &pp)) {
+                jw_pic_corners(o, &pp, qx, qy);
+                for (kk = 0; kk < 4; kk++)
+                    line(fb, v, jw_ux(v, qx[kk]), jw_uy(v, qy[kk]),
+                         jw_ux(v, qx[(kk + 1) & 3]), jw_uy(v, qy[(kk + 1) & 3]),
+                         row_sel, 1, 1, ppb, 0);
+            }
         }
     }
 }

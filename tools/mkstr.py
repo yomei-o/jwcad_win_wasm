@@ -108,6 +108,23 @@ WANT = [
     (5401, 'where a double line starts, once its base line is picked'),
     (5402, 'and where it ends'),
     (5420, 'which cleanup to run, once a selection is settled'),
+    (5409, 'a picture read: where its lower left goes'),
+    (10147, 'trim: the first corner of the part to keep'),
+    (10148, 'trim: the opposite corner'),
+    (10149, 'fit: the first point on the picture'),
+    (10150, 'fit: the second point on the picture'),
+    (10151, 'fit: where the first goes'),
+    (10152, 'fit: where the second goes'),
+    (10153, 'untrim: the picture to restore'),
+    (10154, 'move: the picture to move'),
+    (10155, 'move: where it goes'),
+    (10160, 'embed the pictures: are you sure'),
+    (10161, 'N pictures embedded'),
+    (10162, 'too many pictures to embed'),
+    (10167, 'separate them into this folder'),
+    (10168, 'a new drawing must be saved first'),
+    (10169, 'N pictures separated'),
+    (10171, 'transparent colour: the picture to set it on'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

@@ -9,6 +9,7 @@
 #include "senkigou.h"
 #include "takaku.h"
 #include "hikage.h"
+#include "image.h"
 #include "tenku.h"
 #include "tenku_sansha.h"
 #include "pick.h"
@@ -1093,6 +1094,13 @@ static void op_push(int n)
 }
 
 #define PI 3.14159265358979323846
+
+/* 画像編集 (see the block at the end of this file) */
+static void gz_reset(void);
+static int  gz_midway(void);
+static int  gz_pending(jw_drawing *d, jw_obj *o, int max);
+static int  gz_bar(jw_drawing *d, int id);
+static void gz_point(jw_drawing *d, const jw_view *v, double x, double y, int button);
 
 /* A number typed into a command bar box, in paper millimetres.
  *
@@ -2464,6 +2472,8 @@ void jw_cmd_set(int id)
     }
     if (id == JW_CMD_ZOKUHEN)
         zh_type = zh_layer = 1;
+    if (id == JW_CMD_GAZOU)
+        gz_reset();
     sel_flip = sel_base_wait = sel_dir = 0;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
@@ -2491,6 +2501,8 @@ void jw_cmd_set(int id)
  */
 void jw_cmd_escape(void)
 {
+    if (current == JW_CMD_GAZOU)
+        gz_reset();
     step = 0;
     en_step = 0;
     tk_step = 0;
@@ -2535,6 +2547,8 @@ int jw_cmd_midway(void)
 {
     int sun_rest = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
 
+    if (current == JW_CMD_GAZOU)
+        return gz_midway();
     /* Only the command in force: another one's state stays as it was left
        -- 中心線 keeps its middle after drawing, ready for the next line --
        and is put back when that command is entered again. */
@@ -3515,6 +3529,8 @@ const char *jw_cmd_prompt(void)
                  sun_enshu ? JW_STR_6158 : JW_STR_6157);
         return tail;
     }
+    case JW_CMD_GAZOU:
+        return jw_cmd_gazou_prompt();
     case JW_CMD_ENKO:
         /* CZukeiEnko asks for the centre first and then a point the circle
            goes through.  It leads with 円位置 instead only when a radius has
@@ -4163,6 +4179,9 @@ static int figure(const jw_drawing *d, jw_obj *o, int max,
 int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 {
     int n;
+
+    if (current == JW_CMD_GAZOU)
+        return gz_pending(d, o, max);
 
     if (current == JW_CMD_AUTO && step > 0) {       /* 引きかけの線 */
         current = JW_CMD_SEN;
@@ -9338,6 +9357,12 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
    means "not one of them, use what the original came up with". */
 int jw_cmd_bar_check(int id)
 {
+    if (current == JW_CMD_GAZOU) {
+        int r = jw_cmd_gazou_check(id);
+
+        if (r >= 0)
+            return r;
+    }
     if (id == 1064 && TG_IS3(current))
         return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
     if (id == 9002 && current == JW_CMD_HIKAGE)
@@ -9394,6 +9419,8 @@ int jw_cmd_bar_check(int id)
 
 int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
+    if (current == JW_CMD_GAZOU)
+        return jw_cmd_gazou_enabled(id);
     /* 測定's bar shares its ids with 範囲選択's, and the cases below are
        written for that one -- so they would have greyed 距離測定 and
        面積測定 out.  On 測定's bar everything is alive except
@@ -9854,6 +9881,8 @@ int jw_cmd_bar(jw_drawing *d, int id)
 {
     unsigned char *on;
 
+    if (current == JW_CMD_GAZOU && gz_bar(d, id))
+        return 1;
     if (bar_press(d, id))
         return 1;
     /* Anything the command itself does not act on, and that the original has
@@ -13595,6 +13624,10 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
+    if (current == JW_CMD_GAZOU) {
+        gz_point(d, v, x, y, button);
+        return;
+    }
     if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)
         && !hk_north && button == 1 && d) {
         /* (R) 高さ取得: 押した線端の文字を 高さの箱へ写す（なければ何も起きない） */
@@ -15693,4 +15726,647 @@ placed:
     }
     step = 0;
     tracking = 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 画像編集 (33013, CZukeiGazou, 0x80f5)
+ *
+ * What was read off the original -- tools/img1.sh, img3.sh, imgref.sh run it;
+ * the answers it gave are decomp/res/img_*.jww; tests/image_test.c holds the
+ * port to them; tmp/image_report.md has the log and the original's help.
+ *
+ * A picture is a CDataMoji whose text begins "^@BM" (src/image.h).  The bar
+ * has five modes of which one is ticked at a time -- フィット 1345,
+ * トリミング 1335, トリミング解除 1336, 移動 1337 (what it comes up in) and
+ * 透過色設定 1339 -- and two ticks of their own: 回転する 1346, which only
+ * lives while フィット is ticked, and 相対パス 1338.  Unticking the ticked
+ * one leaves none.
+ *
+ *   画像挿入   the front end asks for a file; then 基準点 (the picture's lower
+ *              left, 100 mm wide, shaped like the file) -- and the mode in
+ *              force carries on from there
+ *   移動       click a picture (the topmost one under the point), click where
+ *              the point you clicked should go
+ *   フィット   two points on a picture (a rectangle's corners, or with 回転する
+ *              two points of the picture), then two points of the sheet: the
+ *              picture is scaled by the long side of the first rectangle onto
+ *              the second, the centres meeting -- or, turning, the first point
+ *              onto the first and the second towards the second
+ *   トリミング two corners; what is inside stays (kept in the picture's own
+ *              frame if it is turned)
+ *   解除       click a trimmed picture
+ *   同梱/分離  a question, the work, and a report
+ *   透過色     click a picture; a dialog (template 391) asks for R G B
+ */
+enum {
+    GZ_FIT = 1345, GZ_TURN = 1346, GZ_TRIM = 1335, GZ_UNTRIM = 1336,
+    GZ_MOVE = 1337, GZ_REL = 1338, GZ_TP = 1339
+};
+
+static int gz_mode = GZ_MOVE;           /* the ticked mode, 0 for none */
+static int gz_turn, gz_rel;
+static int gz_step;                     /* how far the mode's clicks are */
+static int gz_at = -1;                  /* the picture a click picked */
+static double gz_x[4], gz_y[4];         /* the points taken */
+static int gz_need_file;                /* 画像挿入 was pressed */
+static int gz_ins;                      /* a file is read: the 基準点 is next */
+static char gz_ins_name[260];
+static int gz_ins_w, gz_ins_h;
+static int gz_ask_kind;                 /* a message box wanted: 1 OK/キャンセル, 2 OK */
+static int gz_ask_what;                 /* 1 同梱 2 分離 */
+static char gz_ask_text[400];
+static int gz_tp_ask, gz_tp_at = -1, gz_tp_c[3];
+static char gz_doc_dir[260], gz_doc_name[160];
+static struct { char name[300]; unsigned char *b; long n; } gz_out[64];
+static int gz_nout;
+static int gz_out_ready;               /* a 画像分離 left files for the front end */
+
+void jw_cmd_gazou_doc(const char *dir, const char *name)
+{
+    strncpy(gz_doc_dir, dir ? dir : "", sizeof gz_doc_dir - 1);
+    gz_doc_dir[sizeof gz_doc_dir - 1] = 0;
+    strncpy(gz_doc_name, name ? name : "", sizeof gz_doc_name - 1);
+    gz_doc_name[sizeof gz_doc_name - 1] = 0;
+}
+
+static int gz_midway(void)
+{
+    return gz_step != 0 || gz_ins;
+}
+
+/* What 移動 shows while a picture is picked and the place is being chosen
+ * (the original's shot, decomp/res img: tools/imgref.sh's ghost): the picture
+ * as a dashed outline where the click would put it, a line from the point
+ * taken to the cursor, a big circle on the point and a small one on the
+ * cursor -- the help says "移動元の位置が大きめの仮円で、マウスの位置が小さめの
+ * 仮円".  The circles are the same size on the screen whatever the zoom, which
+ * is why the last click's scale is kept. */
+static double gz_mmpp = 0.612244898;
+
+static int gz_pending(jw_drawing *d, jw_obj *o, int max)
+{
+    jw_obj *c;
+
+    if (!d || gz_mode != GZ_MOVE || gz_step != 1 || gz_at < 0 || gz_at >= d->ndrawn || !tracking
+        || max < 4)
+        return 0;
+    o[0] = d->obj[gz_at];
+    o[0].sel = 0;
+    o[0].flags = (unsigned short)(o[0].flags & ~2u);
+    jw_obj_move(&o[0], tx - gz_x[0], ty - gz_y[0]);
+    blank(&o[1]);
+    o[1].cls = JW_SEN;
+    o[1].d[0] = gz_x[0];
+    o[1].d[1] = gz_y[0];
+    o[1].d[2] = tx;
+    o[1].d[3] = ty;
+    c = &o[2];
+    blank(c);
+    c->cls = JW_ENKO;
+    c->d[0] = gz_x[0];
+    c->d[1] = gz_y[0];
+    c->d[2] = 9.0 * gz_mmpp;
+    c->d[4] = 2 * PI;
+    c->d[6] = 1.0;
+    c->n = 1;
+    c = &o[3];
+    blank(c);
+    c->cls = JW_ENKO;
+    c->d[0] = tx;
+    c->d[1] = ty;
+    c->d[2] = 5.0 * gz_mmpp;
+    c->d[4] = 2 * PI;
+    c->d[6] = 1.0;
+    c->n = 1;
+    return 4;
+}
+
+static void gz_reset(void)
+{
+    gz_step = 0;
+    gz_at = -1;
+    gz_ins = 0;
+    gz_ask_kind = 0;
+    gz_tp_ask = 0;
+}
+
+int jw_cmd_gazou_mode(void)
+{
+    return gz_mode;
+}
+
+int jw_cmd_gazou_check(int id)
+{
+    switch (id) {
+    case GZ_FIT: case GZ_TRIM: case GZ_UNTRIM: case GZ_MOVE: case GZ_TP:
+        return gz_mode == id;
+    case GZ_TURN:
+        return gz_turn;
+    case GZ_REL:
+        return gz_rel;
+    }
+    return -1;
+}
+
+int jw_cmd_gazou_enabled(int id)
+{
+    if (id == GZ_TURN || id == 2558)
+        return gz_mode == GZ_FIT && !gz_ins;
+    /* while a file is read and its 基準点 is awaited, the five modes sleep and
+       the buttons do not (the bar read in that state) */
+    if (gz_ins)
+        return !(id == GZ_FIT || id == GZ_TRIM || id == GZ_UNTRIM || id == GZ_MOVE);
+    return 1;
+}
+
+int jw_cmd_gazou_file(void)
+{
+    int r = gz_need_file;
+
+    gz_need_file = 0;
+    return r;
+}
+
+/* The picture under a point: the last one in the drawing that has it. */
+static int gz_find(const jw_drawing *d, double x, double y)
+{
+    int i;
+
+    for (i = d->ndrawn - 1; i >= 0; i--) {
+        const jw_obj *o = &d->obj[i];
+        jw_pic p;
+
+        if (o->cls != JW_MOJI || !ika_editable(d, o) || !jw_pic_parse(d, o, &p))
+            continue;
+        if (jw_pic_hit(o, &p, x, y))
+            return i;
+    }
+    return -1;
+}
+
+/* A file was picked.  `path` is what goes into the text (the front end has
+   already made it relative if 相対パス is ticked: see jw_cmd_gazou_relative),
+   `b` its bytes, which go into the store under that name. */
+int jw_cmd_gazou_insert(jw_drawing *d, const char *path, const unsigned char *b, long n)
+{
+    jw_img im;
+    char rel[300];
+
+    (void)d;
+    if (!path || !*path)
+        return 0;
+    if (gz_rel && gz_doc_dir[0] && !strncmp(path, gz_doc_dir, strlen(gz_doc_dir))) {
+        const char *q = path + strlen(gz_doc_dir);
+
+        if (*q == '\\' || *q == '/')
+            q++;
+        strncpy(rel, q, sizeof rel - 1);
+        rel[sizeof rel - 1] = 0;
+        path = rel;
+    }
+    strncpy(gz_ins_name, path, sizeof gz_ins_name - 1);
+    gz_ins_name[sizeof gz_ins_name - 1] = 0;
+    jw_img_put(gz_ins_name, b, n);
+    gz_ins_w = gz_ins_h = 0;
+    if (jw_img_decode(b, n, &im)) {
+        gz_ins_w = im.w;
+        gz_ins_h = im.h;
+        jw_img_free(&im);
+    }
+    gz_step = 0;
+    gz_at = -1;
+    gz_ins = 1;
+    return 1;
+}
+
+int jw_cmd_gazou_inserting(void)
+{
+    return gz_ins;
+}
+
+/* the message box the last press wants.  1: OK and キャンセル, 2: OK only */
+int jw_cmd_gazou_ask(const char **text)
+{
+    if (!gz_ask_kind)
+        return 0;
+    if (text)
+        *text = gz_ask_text;
+    return gz_ask_kind;
+}
+
+static void gz_info(const char *fmt, int n)
+{
+    snprintf(gz_ask_text, sizeof gz_ask_text, fmt, n);
+    gz_ask_kind = 2;
+    gz_ask_what = 0;
+}
+
+/* 画像同梱: every picture that is still a file becomes "%temp%<name>" and its
+   bytes -- as a BMP, whatever they were -- go into the drawing */
+static int gz_embed(jw_drawing *d)
+{
+    int i, count = 0;
+    op_t *rec = 0;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+        jw_pic p;
+        const unsigned char *b;
+        long n;
+        char nm[300], key[330];
+        double base;
+
+        if (!jw_pic_parse(d, o, &p) || !strncmp(p.name, "%temp%", 6))
+            continue;
+        b = jw_img_bytes(p.name, &n);
+        if (!b)
+            continue;
+        jw_img_embed_name(p.name, nm, sizeof nm);
+        snprintf(key, sizeof key, "%%temp%%%s", nm);
+        if (b[0] == 'B' && b[1] == 'M')
+            jw_img_put(key, b, n);
+        else {
+            jw_img im;
+            long bn;
+            unsigned char *bm;
+
+            if (!jw_img_decode(b, n, &im))
+                continue;
+            bm = jw_img_bmp(&im, &bn);
+            jw_img_free(&im);
+            if (!bm)
+                continue;
+            jw_img_put(key, bm, bn);
+            free(bm);
+        }
+        if (!rec)
+            rec = op_new();
+        op_keep(rec, d, i, 0);
+        base = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
+        strncpy(p.name, key, sizeof p.name - 1);
+        if (p.nfield < 9)
+            p.nfield = 9;
+        jw_pic_write(d, o, &p, o->d[0], o->d[1], base);
+        count++;
+    }
+    return count;
+}
+
+static int gz_separate(jw_drawing *d)
+{
+    int i, count = 0, k;
+    char folder[400], rel[200];
+
+    for (k = 0; k < gz_nout; k++) {
+        free(gz_out[k].b);
+        gz_out[k].b = 0;
+    }
+    gz_nout = 0;
+    snprintf(rel, sizeof rel, "%s\x81\x60\x95\xaa\x97\xa3\x89\xe6\x91\x9c", gz_doc_name);
+    if (gz_doc_dir[0])
+        snprintf(folder, sizeof folder, "%s\\%s", gz_doc_dir, rel);
+    else
+        snprintf(folder, sizeof folder, "%s", rel);
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+        jw_pic p;
+        const unsigned char *b;
+        long n;
+        double base;
+        char path[500];
+        op_t *rec = 0;
+
+        if (!jw_pic_parse(d, o, &p) || strncmp(p.name, "%temp%", 6))
+            continue;
+        b = jw_img_bytes(p.name, &n);
+        if (!b)
+            continue;
+        for (k = 0; k < gz_nout; k++)
+            if (!strcmp(gz_out[k].name, p.name + 6))
+                break;
+        if (k == gz_nout && gz_nout < 64) {
+            strncpy(gz_out[k].name, p.name + 6, sizeof gz_out[k].name - 1);
+            gz_out[k].b = (unsigned char *)malloc((size_t)n);
+            if (gz_out[k].b)
+                memcpy(gz_out[k].b, b, (size_t)n);
+            gz_out[k].n = n;
+            gz_nout++;
+        }
+        rec = op_new();
+        op_keep(rec, d, i, 0);
+        if (gz_rel)
+            snprintf(path, sizeof path, "%s\\%s", rel, p.name + 6);
+        else
+            snprintf(path, sizeof path, "%s\\%s", folder, p.name + 6);
+        strncpy(p.name, path, sizeof p.name - 1);
+        if (p.nfield < 9)
+            p.nfield = 9;
+        base = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
+        jw_pic_write(d, o, &p, o->d[0], o->d[1], base);
+        count++;
+    }
+    if (gz_nout > 0)
+        gz_out_ready = 1;
+    return count;
+}
+
+int jw_cmd_gazou_out_ready(void)
+{
+    int r = gz_out_ready;
+
+    gz_out_ready = 0;
+    return r;
+}
+
+void jw_cmd_gazou_answer(jw_drawing *d, int ok)
+{
+    int what = gz_ask_what, n;
+
+    gz_ask_kind = 0;
+    if (!ok || !what || !d)
+        return;
+    if (what == 1) {
+        n = gz_embed(d);
+        gz_info(JW_STR_10161, n);
+    } else {
+        n = gz_separate(d);
+        gz_info(JW_STR_10169, n);
+    }
+}
+
+int jw_cmd_gazou_out(int i, const char **name, const unsigned char **b, long *n)
+{
+    if (i < 0 || i >= gz_nout)
+        return 0;
+    *name = gz_out[i].name;
+    *b = gz_out[i].b;
+    *n = gz_out[i].n;
+    return 1;
+}
+
+int jw_cmd_gazou_tp_ask(int *r, int *g, int *b)
+{
+    if (!gz_tp_ask)
+        return 0;
+    *r = gz_tp_c[0];
+    *g = gz_tp_c[1];
+    *b = gz_tp_c[2];
+    return 1;
+}
+
+void jw_cmd_gazou_tp_set(jw_drawing *d, int r, int g, int b)
+{
+    gz_tp_ask = 0;
+    if (r < 0 || !d || gz_tp_at < 0 || gz_tp_at >= d->ndrawn) {
+        gz_tp_at = -1;                  /* cancelled, or nothing to put it on */
+        return;
+    }
+    {
+        op_t *rec = op_new();
+
+        op_keep(rec, d, gz_tp_at, 0);
+    }
+    jw_pic_set_transparent(d, &d->obj[gz_tp_at], r < 0 ? 0 : r > 255 ? 255 : r,
+                           g < 0 ? 0 : g > 255 ? 255 : g, b < 0 ? 0 : b > 255 ? 255 : b);
+    gz_tp_at = -1;
+}
+
+/* a press on one of the bar's buttons; 1 when it was one of ours */
+static int gz_bar(jw_drawing *d, int id)
+{
+    switch (id) {
+    case 2557:                          /* 画像挿入 */
+        gz_need_file = 1;
+        gz_step = 0;
+        return 1;
+    case 2559:                          /* 画像同梱 */
+        gz_ask_kind = 1;
+        gz_ask_what = 1;
+        snprintf(gz_ask_text, sizeof gz_ask_text, "%s", JW_STR_10160);
+        return 1;
+    case 2561:                          /* 同梱画像分離 */
+        if (!gz_doc_name[0]) {
+            gz_ask_kind = 2;
+            gz_ask_what = 0;
+            snprintf(gz_ask_text, sizeof gz_ask_text, "%s", JW_STR_10168);
+            return 1;
+        }
+        gz_ask_kind = 1;
+        gz_ask_what = 2;
+        {
+            char f[400];
+
+            if (gz_doc_dir[0])
+                snprintf(f, sizeof f, "%s\\%s\x81\x60\x95\xaa\x97\xa3\x89\xe6\x91\x9c", gz_doc_dir, gz_doc_name);
+            else
+                snprintf(f, sizeof f, "%s\x81\x60\x95\xaa\x97\xa3\x89\xe6\x91\x9c", gz_doc_name);
+            snprintf(gz_ask_text, sizeof gz_ask_text, JW_STR_10167, f);
+        }
+        return 1;
+    case GZ_TURN:
+        if (gz_mode == GZ_FIT)
+            gz_turn = !gz_turn;
+        gz_step = 0;
+        return 1;
+    case GZ_REL:
+        gz_rel = !gz_rel;
+        return 1;
+    case GZ_FIT: case GZ_TRIM: case GZ_UNTRIM: case GZ_MOVE: case GZ_TP:
+        gz_mode = id;                   /* one of five: the ticked one stays ticked */
+        gz_step = 0;
+        gz_at = -1;
+        gz_ins = 0;
+        return 1;
+    }
+    (void)d;
+    return 0;
+}
+
+const char *jw_cmd_gazou_prompt(void)
+{
+    if (gz_ins)
+        return JW_STR_5409;
+    switch (gz_mode) {
+    case GZ_FIT:
+        return gz_step == 0 ? JW_STR_10149 : gz_step == 1 ? JW_STR_10150
+             : gz_step == 2 ? JW_STR_10151 : JW_STR_10152;
+    case GZ_TRIM:
+        return gz_step == 0 ? JW_STR_10147 : JW_STR_10148;
+    case GZ_UNTRIM:
+        return JW_STR_10153;
+    case GZ_TP:
+        return JW_STR_10171;
+    }
+    return gz_step == 0 ? JW_STR_10154 : JW_STR_10155;
+}
+
+static void gz_point(jw_drawing *d, const jw_view *v, double x, double y, int button)
+{
+    int at;
+
+    if (!d || button > 1)
+        return;
+    if (v && v->mmpp > 0.0)
+        gz_mmpp = v->mmpp;
+    if (button == 1) {                  /* (R) read: a point of the drawing, or nothing */
+        double rx, ry;
+
+        if (!jw_read(d, v, x, y, &rx, &ry))
+            return;
+        x = rx;
+        y = ry;
+    }
+    if (gz_ins) {                       /* 基準点 of a picture just read */
+        jw_obj *o = jw_pic_new(d, gz_ins_name, gz_ins_w, gz_ins_h, x, y, 100.0);
+
+        gz_ins = 0;
+        if (o) {
+            jw_pic pp;
+
+            if (!gz_ins_w && jw_pic_parse(d, o, &pp)) {
+                pp.nfield = 1;          /* a file that would not read: ",100" */
+                jw_pic_write(d, o, &pp, x, y, 0.0);
+            }
+            op_push(1);
+        }
+        gz_step = 0;
+        return;
+    }
+    switch (gz_mode) {
+    case GZ_MOVE:
+        if (gz_step == 0) {
+            at = gz_find(d, x, y);
+            if (at < 0)
+                return;
+            gz_at = at;
+            gz_x[0] = x;
+            gz_y[0] = y;
+            gz_step = 1;
+            return;
+        }
+        if (gz_at >= 0 && gz_at < d->ndrawn) {
+            jw_obj *o = &d->obj[gz_at];
+            op_t *rec = op_new();
+
+            op_keep(rec, d, gz_at, 0);
+            jw_obj_move(o, x - gz_x[0], y - gz_y[0]);
+        }
+        gz_step = 0;
+        gz_at = -1;
+        return;
+    case GZ_FIT:
+        if (gz_step == 0) {
+            at = gz_find(d, x, y);
+            if (at < 0)
+                return;
+            gz_at = at;
+            gz_x[0] = x;
+            gz_y[0] = y;
+            gz_step = 1;
+            return;
+        }
+        if (gz_step == 1 || gz_step == 3) {
+            /* the second point: a rectangle's other corner has to differ
+               in both ways, a turned fit's only has to be somewhere else */
+            double ax = gz_x[gz_step - 1], ay = gz_y[gz_step - 1];
+
+            if (gz_turn ? (x == ax && y == ay) : (x == ax || y == ay))
+                return;
+            gz_x[gz_step] = x;
+            gz_y[gz_step] = y;
+            if (gz_step == 1) {
+                gz_step = 2;
+                return;
+            }
+            if (gz_at >= 0 && gz_at < d->ndrawn) {
+                jw_obj *o = &d->obj[gz_at];
+                jw_obj was = *o;
+                op_t *rec = op_new();
+
+                op_keep(rec, d, gz_at, 0);
+                if (!(gz_turn ? jw_pic_fit_turn(d, o, gz_x[0], gz_y[0], gz_x[1], gz_y[1],
+                                               gz_x[2], gz_y[2], gz_x[3], gz_y[3])
+                              : jw_pic_fit_box(d, o, gz_x[0], gz_y[0], gz_x[1], gz_y[1],
+                                              gz_x[2], gz_y[2], gz_x[3], gz_y[3])))
+                    *o = was;
+            }
+            gz_step = 0;
+            gz_at = -1;
+            return;
+        }
+        gz_x[2] = x;                    /* step 2: where the first goes */
+        gz_y[2] = y;
+        gz_step = 3;
+        return;
+    case GZ_TRIM:
+        if (gz_step == 0) {
+            at = gz_find(d, x, y);
+            if (at < 0)
+                return;
+            gz_at = at;
+            gz_x[0] = x;
+            gz_y[0] = y;
+            gz_step = 1;
+            return;
+        }
+        if (x == gz_x[0] || y == gz_y[0])
+            return;
+        if (gz_at >= 0 && gz_at < d->ndrawn) {
+            jw_obj *o = &d->obj[gz_at];
+            jw_obj was = *o;
+            op_t *rec = op_new();
+
+            op_keep(rec, d, gz_at, 0);
+            if (!jw_pic_trim(d, o, gz_x[0], gz_y[0], x, y))
+                *o = was;
+        }
+        gz_step = 0;
+        gz_at = -1;
+        return;
+    case GZ_UNTRIM:
+        at = gz_find(d, x, y);
+        if (at < 0)
+            return;
+        {
+            jw_obj *o = &d->obj[at];
+            jw_obj was = *o;
+            op_t *rec = op_new();
+
+            op_keep(rec, d, at, 0);
+            if (!jw_pic_untrim(d, o))
+                *o = was;
+        }
+        return;
+    case GZ_TP:
+        at = gz_find(d, x, y);
+        if (at < 0)
+            return;
+        {
+            jw_pic p;
+            const jw_img *im;
+
+            jw_pic_parse(d, &d->obj[at], &p);
+            gz_tp_c[0] = p.r;
+            gz_tp_c[1] = p.g;
+            gz_tp_c[2] = p.b;
+            if (button == 1 && (im = jw_img_get(p.name)) != 0) {
+                /* (R) 色読込: the colour of the picture under the point */
+                double lx, ly, a = jw_pic_angle(&d->obj[at], &p);
+                int sc, sr;
+
+                lx = cos(a) * (x - d->obj[at].d[0]) + sin(a) * (y - d->obj[at].d[1]);
+                ly = -sin(a) * (x - d->obj[at].d[0]) + cos(a) * (y - d->obj[at].d[1]);
+                sc = (int)floor(p.x * im->w + lx * im->w * p.c / p.w);
+                sr = (int)floor(im->h - (p.y * im->w + ly * im->w * p.c / p.w));
+                if (sc >= 0 && sc < im->w && sr >= 0 && sr < im->h) {
+                    gz_tp_c[0] = im->rgb[((size_t)sr * im->w + sc) * 3];
+                    gz_tp_c[1] = im->rgb[((size_t)sr * im->w + sc) * 3 + 1];
+                    gz_tp_c[2] = im->rgb[((size_t)sr * im->w + sc) * 3 + 2];
+                }
+            }
+            gz_tp_at = at;
+            gz_tp_ask = 1;
+        }
+        return;
+    }
 }

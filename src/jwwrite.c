@@ -15,6 +15,8 @@
  * sample drawings and write it again, and the bytes have to come back
  * identical.
  */
+#include <stdio.h>
+#include "image.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -540,8 +542,45 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n)
         w_list(&w, d, 0, d->ndrawn, seen, &nload);
         w_list(&w, d, d->ndrawn, d->nobj, seen, &nload);
     }
-    if (d->version > 0x275)
-        w_l(&w, d->nimage);     /* the embedded image count, always 0 here */
+    if (d->version > 0x275) {
+        /* the pictures carried inside the drawing: those the elements name
+           as "%temp%<name>".  Each goes in as <name>.gz, its length and the
+           gzip (see tmp/image_report.md). */
+        char *names[256];
+        unsigned char *gz[256];
+        long gn[256];
+        int nn = 0, k;
+        jw_pic pc;
+
+        for (k = 0; k < d->ndrawn && nn < 256; k++) {
+            int j;
+
+            if (!jw_pic_parse(d, &d->obj[k], &pc) || strncmp(pc.name, "%temp%", 6))
+                continue;
+            for (j = 0; j < nn; j++)
+                if (!strcmp(names[j], pc.name))
+                    break;
+            if (j < nn)
+                continue;
+            if (!jw_img_gz(pc.name, &gz[nn], &gn[nn]))
+                continue;
+            names[nn] = (char *)malloc(strlen(pc.name) + 4);
+            if (!names[nn]) {
+                free(gz[nn]);
+                continue;
+            }
+            sprintf(names[nn], "%s.gz", pc.name + 6);
+            nn++;
+        }
+        w_l(&w, nn);
+        for (k = 0; k < nn; k++) {
+            w_str(&w, names[k], 1);
+            w_l(&w, gn[k]);
+            w_raw(&w, gz[k], gn[k]);
+            free(names[k]);
+            free(gz[k]);
+        }
+    }
     if (w.bad) {
         free(w.b);
         return 0;

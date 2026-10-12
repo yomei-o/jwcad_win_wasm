@@ -5,6 +5,7 @@
 #include "jww.h"
 #include "gen/pens.h"
 #include "cp932.h"
+#include "image.h"
 
 /* CArchive, reading.  Every read is bounds checked; a short file sets `bad`
  * and every later read returns zero, so the caller only has to test once. */
@@ -987,6 +988,7 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
 {
     ar_t a;
     const unsigned char *sig;
+    int i;
 
     memset(d, 0, sizeof *d);
     d->off_names = d->end_names = -1;
@@ -1025,15 +1027,40 @@ int jw_parse(jw_drawing *d, const unsigned char *b, long n)
     }
     if (d->version > 0x275) {
         /* Jw_cad 10 writes version 700, and after the two lists it puts the
-         * embedded image files: a count, then that many names, each unpacked
-         * into %temp% (FUN_00575010, the arm guarded by 0x275 < version).
-         * Every drawing to hand has none of them, and what one of those
-         * records holds has not been read out of the binary, so rather than
-         * guess at it the parse stops. */
+         * embedded image files (FUN_00575010, the arm guarded by 0x275 <
+         * version): a count, then that many pictures.  Read off a drawing
+         * the original saved with 画像同梱. */
         d->nimage = ar_l(&a);
-        if (d->nimage != 0 && !a.bad) {
-            d->error = "the drawing has embedded images, which are not read yet";
-            return 0;
+        /* each: its name with ".gz" on the end (a CString), the length, and
+           the gzip of the picture file.  The drawing's pictures point at them
+           as "%temp%<name>" (see tmp/image_report.md). */
+        if (d->nimage < 0 || d->nimage > 100000)
+            a.bad = 1;
+        for (i = 0; i < d->nimage && !a.bad; i++) {
+            int uni;
+            long nm = ar_strlen(&a, &uni);
+            const unsigned char *np = ar_raw(&a, uni ? nm * 2 : nm);
+            unsigned len = (unsigned)ar_l(&a);
+            const unsigned char *gp;
+            char name[300];
+
+            if (!np)
+                break;
+            if (uni)
+                nm = jw_from_utf16(np, nm, name + 6, (long)sizeof name - 8);
+            else {
+                if (nm > (long)sizeof name - 8)
+                    nm = (long)sizeof name - 8;
+                memcpy(name + 6, np, (size_t)nm);
+            }
+            memcpy(name, "%temp%", 6);
+            name[6 + nm] = 0;
+            if (nm > 3 && !strcmp(name + 6 + nm - 3, ".gz"))
+                name[6 + nm - 3] = 0;
+            gp = ar_raw(&a, (long)len);
+            if (!gp)
+                break;
+            jw_img_put_gz(name, gp, (long)len);
         }
     }
     if (a.bad) {
@@ -1142,6 +1169,28 @@ int jw_add_str(jw_drawing *d, const char *s)
     while (*p++)
         n++;
     return pool_put(d, (const unsigned char *)s, n, 0);
+}
+
+/* the same, for a string that is to go out as UTF-16 (version 700 keeps
+   every one of its strings that way) */
+int jw_add_str_w(jw_drawing *d, const char *s, int wide)
+{
+    long n = (long)strlen(s);
+
+    if (!wide)
+        return pool_put(d, (const unsigned char *)s, n, 0);
+    {
+        unsigned short *u = (unsigned short *)malloc((size_t)(n + 1) * 2);
+        long m;
+        int off;
+
+        if (!u)
+            return -1;
+        m = jw_to_utf16(s, n, u, n + 1);
+        off = pool_put(d, (const unsigned char *)u, m, 1);
+        free(u);
+        return off;
+    }
 }
 
 int jw_round_solid(const jw_obj *o, jw_obj *arc)

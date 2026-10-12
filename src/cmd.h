@@ -79,6 +79,7 @@ enum {
     JW_CMD_ZUKEIREG = 0x80b2,       /* 図形登録 -- it takes a range of its
                                        own, and the point after 選択確定 is
                                        the 基準点 */
+    JW_CMD_GAZOU = 0x80f5,          /* 画像編集 (33013) */
     JW_CMD_UNDO = 0xe12b,           /* 戻る */
     JW_CMD_REDO = 0xe12c            /* 進む */
 };
@@ -489,5 +490,28 @@ void jw_cmd_zuzoku_set(int k, int on);
 int  jw_env_write(const jw_drawing *d, const char *name, unsigned char **out,
                   long *n);
 int  jw_env_read(jw_drawing *d, const unsigned char *b, long n);
+
+
+/* 画像編集 (33013) -- see the block at the end of src/cmd.c.  The front end
+ * hands a file over with jw_cmd_gazou_insert when jw_cmd_gazou_file says 画像挿入
+ * was pressed; shows the message box jw_cmd_gazou_ask wants and answers it
+ * with jw_cmd_gazou_answer; and puts the 透過色 dialog up when
+ * jw_cmd_gazou_tp_ask says so. */
+int  jw_cmd_gazou_file(void);               /* 1 once after 画像挿入 */
+int  jw_cmd_gazou_insert(jw_drawing *d, const char *path, const unsigned char *b, long n);
+int  jw_cmd_gazou_inserting(void);          /* a file read, the 基準点 is next */
+int  jw_cmd_gazou_ask(const char **text);   /* 1 OK+キャンセル, 2 OK only, 0 none */
+void jw_cmd_gazou_answer(jw_drawing *d, int ok);
+int  jw_cmd_gazou_tp_ask(int *r, int *g, int *b);
+void jw_cmd_gazou_tp_set(jw_drawing *d, int r, int g, int b);
+int  jw_cmd_gazou_check(int id);
+int  jw_cmd_gazou_enabled(int id);
+int  jw_cmd_gazou_mode(void);
+const char *jw_cmd_gazou_prompt(void);
+/* where the drawing is, for 相対パス and 同梱画像分離 (CP932; dir "" if unknown) */
+void jw_cmd_gazou_doc(const char *dir, const char *name);
+/* what 同梱画像分離 wrote: the files for the front end to put in the folder */
+int  jw_cmd_gazou_out(int i, const char **name, const unsigned char **b, long *n);
+int  jw_cmd_gazou_out_ready(void);          /* 1 once after a 画像分離 left files */
 
 #endif

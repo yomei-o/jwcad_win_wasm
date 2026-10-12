@@ -57,7 +57,13 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
           whether to, and calls app_new if the answer is yes. */
        JW_ACT_NEW_ASK,
        /* ファイル > タグジャンプ: the file a picked text names (app_tag_name) */
-       JW_ACT_TAG };
+       JW_ACT_TAG,
+       /* 画像編集's 画像挿入: the front end picks a bitmap, PNG or JPEG and
+          hands it to app_image */
+       JW_ACT_OPEN_IMAGE,
+       /* 同梱画像分離 made files (app_image_out) for the front end to put in
+          the folder named <drawing>～分離画像 */
+       JW_ACT_SAVE_IMAGES };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
@@ -131,6 +137,19 @@ int  app_bairitsu_open(void);
    for.  Returns 0 if it is not a figure.  The command is entered, and the
    next press puts the figure down. */
 int  app_figure(const unsigned char *b, long n);
+
+/* 画像挿入 (画像編集): the file picked, under the name the drawing keeps it
+   by -- its path, or what the browser calls it.  0 if there is no command to
+   take it. */
+int  app_image(const char *path, const unsigned char *b, long n);
+/* 同梱画像分離 leaves files to put in the folder: the i-th, 0 past the last */
+int  app_image_out(int i, const char **name, const unsigned char **b, long *n);
+/* the folder the drawing is in (CP932; "" if it has none).  Set it before
+   app_title, which is what tells the command the drawing's name. */
+void app_doc_dir(const char *dir);
+/* the same, with the drawing's name (without .jww) as well: what the native
+   build calls when a drawing is opened or saved */
+void app_doc(const char *dir, const char *stem);
 
 /* 文読: the bytes of a text file.  Its lines then go down from
    the next click, 行間 apart. */

@@ -33,7 +33,7 @@ import re
 # 貼り付け (57637) puts the same bar up, so 倍率 (1431) and 回転角 (1412)
 # come with it.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
-       'decomp/res/bars3.txt', 'decomp/res/bars5.txt']
+       'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt']
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar
