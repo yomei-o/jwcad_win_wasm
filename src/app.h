@@ -54,7 +54,9 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        /* 新規 on a drawing that has been changed since it was opened or
           saved: nothing has been thrown away yet.  The front end asks
           whether to, and calls app_new if the answer is yes. */
-       JW_ACT_NEW_ASK };
+       JW_ACT_NEW_ASK,
+       /* ファイル > タグジャンプ: the file a picked text names (app_tag_name) */
+       JW_ACT_TAG };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
@@ -185,5 +187,17 @@ int  app_open_jwc(const unsigned char *b, long n);
 
 /* RGBA bytes for a canvas, in the buffer app_rgba() returns. */
 unsigned char *app_rgba(void);
+
+/* ブロックツリー (表示 > ブロックツリー) の窓が出ているか */
+int  app_blktree_open(void);
+int  app_blktree_n(void);
+void app_blktree_win(rect_t *r);
+int  app_blktree_found(void);
+int  app_blktree_all(void);
+
+/* What the menu says about an item: bit 0 ticked, bit 1 greyed */
+int  app_menu_state(int id);
+/* タグジャンプ: the text of the one that was picked, in CP932 */
+const char *app_tag_name(void);
 
 #endif

@@ -7,6 +7,10 @@
 #include "view.h"
 
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d);
+/* ブロックツリーで選んだ参照を選択色で描く。path は d->obj の添字を外側から */
+void jw_draw_hl(const jw_drawing *d, const int *path, int n);
+int  jw_draw_hl_n(void);
+const int *jw_draw_hl_path(void);
 
 /* The selection being dragged: every picked element drawn again dx,dy away,
    in the colour a picked element has.  What it shows is what a click will

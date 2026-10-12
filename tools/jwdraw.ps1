@@ -198,6 +198,69 @@ public static class Jw {
         return l.ToArray();
     }
 
+
+    [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint a, bool i, uint pid);
+    [DllImport("kernel32.dll")] public static extern IntPtr VirtualAllocEx(IntPtr p, IntPtr a, uint n, uint t, uint pr);
+    [DllImport("kernel32.dll")] public static extern bool VirtualFreeEx(IntPtr p, IntPtr a, uint n, uint t);
+    [DllImport("kernel32.dll")] public static extern bool ReadProcessMemory(IntPtr p, IntPtr a, byte[] b, int n, out int r);
+    [DllImport("kernel32.dll")] public static extern bool WriteProcessMemory(IntPtr p, IntPtr a, byte[] b, int n, out int r);
+
+    /// Every item of a SysTreeView32 in another process, depth first:
+    /// "depth|state|image|selimage|text".  state bit 1 = expanded (0x20),
+    /// selected (0x2), as TVIS_*.
+    public static List<string> TreeDump(IntPtr tv) {
+        List<string> o = new List<string>();
+        uint pid; GetWindowThreadProcessId(tv, out pid);
+        IntPtr hp = OpenProcess(0x1F0FFF, false, pid);
+        IntPtr rem = VirtualAllocEx(hp, IntPtr.Zero, 4096, 0x3000, 4);
+        IntPtr root = SendMessageW(tv, 0x110A, (IntPtr)0, IntPtr.Zero);   // TVM_GETNEXTITEM TVGN_ROOT
+        TreeWalk(tv, hp, rem, root, 0, o);
+        VirtualFreeEx(hp, rem, 0, 0x8000);
+        return o;
+    }
+    static void TreeWalk(IntPtr tv, IntPtr hp, IntPtr rem, IntPtr it, int depth, List<string> o) {
+        while (it != IntPtr.Zero) {
+            // TVITEMW: mask(4) hItem(4) state(4) stateMask(4) pszText(4) cchTextMax(4) iImage(4) iSelImage(4) cChildren(4) lParam(4)
+            byte[] b = new byte[60];
+            BitConverter.GetBytes(0x7F).CopyTo(b, 0);        // text|image|sel|child|param|state|handle
+            BitConverter.GetBytes((int)it).CopyTo(b, 4);
+            BitConverter.GetBytes(0xFFFFFFFF).CopyTo(b, 12);  // stateMask
+            BitConverter.GetBytes((int)rem + 64).CopyTo(b, 16);
+            BitConverter.GetBytes(256).CopyTo(b, 20);
+            int n;
+            WriteProcessMemory(hp, rem, b, 60, out n);
+            SendMessageW(tv, 0x113E, IntPtr.Zero, rem);       // TVM_GETITEMW
+            byte[] r = new byte[600];
+            ReadProcessMemory(hp, rem, r, 600, out n);
+            int state = BitConverter.ToInt32(r, 8), img = BitConverter.ToInt32(r, 24), simg = BitConverter.ToInt32(r, 28);
+            int kids = BitConverter.ToInt32(r, 32), lp = BitConverter.ToInt32(r, 36);
+            string t = Encoding.Unicode.GetString(r, 64, 512);
+            int z = t.IndexOf((char)0); if (z >= 0) t = t.Substring(0, z);
+            o.Add(depth + "|" + state.ToString("x") + "|" + img + "|" + simg + "|" + kids + "|" + lp.ToString("x") + "|" + t);
+            IntPtr ch = SendMessageW(tv, 0x110A, (IntPtr)4, it);  // TVGN_CHILD
+            TreeWalk(tv, hp, rem, ch, depth + 1, o);
+            it = SendMessageW(tv, 0x110A, (IntPtr)1, it);          // TVGN_NEXT
+        }
+    }
+
+
+    /// The n-th item (depth first, as TreeDump lists them) of a tree.
+    public static IntPtr TreeItem(IntPtr tv, int n) {
+        int[] k = new int[] { n };
+        IntPtr root = SendMessageW(tv, 0x110A, (IntPtr)0, IntPtr.Zero);
+        return TreeFind(tv, root, k);
+    }
+    static IntPtr TreeFind(IntPtr tv, IntPtr it, int[] k) {
+        while (it != IntPtr.Zero) {
+            if (k[0] == 0) return it;
+            k[0]--;
+            IntPtr r = TreeFind(tv, SendMessageW(tv, 0x110A, (IntPtr)4, it), k);
+            if (r != IntPtr.Zero) return r;
+            it = SendMessageW(tv, 0x110A, (IntPtr)1, it);
+        }
+        return IntPtr.Zero;
+    }
+
     public static IntPtr[] Tops(uint pid) {
         List<IntPtr> l = new List<IntPtr>();
         EnumWindows(delegate(IntPtr h, IntPtr p) {
@@ -968,6 +1031,46 @@ try {
             '^size:(\d+),(\d+)$' {
                 [void][Jw]::MoveWindow($frame, 0, 0, [int]$Matches[1], [int]$Matches[2], $true)
                 Start-Sleep -Milliseconds 1200
+                break
+            }
+
+            '^tsel:(\d+)$' {
+                # select the n-th item of the ブロックツリー (depth first)
+                $tv = Ctl 1775
+                $it = [Jw]::TreeItem($tv, [int]$Matches[1])
+                if ($it -eq [IntPtr]::Zero) { throw "no tree item $($Matches[1])" }
+                [void][Jw]::SendMessageW($tv, 0x110B, [IntPtr]9, $it)
+                Start-Sleep -Milliseconds 400
+                break
+            }
+
+            '^texp:(\d+)$' {
+                $tv = Ctl 1775
+                $it = [Jw]::TreeItem($tv, [int]$Matches[1])
+                if ($it -eq [IntPtr]::Zero) { throw "no tree item $($Matches[1])" }
+                [void][Jw]::SendMessageW($tv, 0x1102, [IntPtr]2, $it)
+                Start-Sleep -Milliseconds 400
+                break
+            }
+
+            '^tree$' {
+                $tv = Ctl 1775
+                if ($tv -eq [IntPtr]::Zero) { Emit 'no tree'; break }
+                foreach ($l in [Jw]::TreeDump($tv)) { Emit ('tree ' + $l) }
+                break
+            }
+
+            '^tshot:(.+)$' {
+                # the first visible top-level window that is not the frame
+                # (the modeless ブロックツリー window), painted into a PNG
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if ($t -eq $frame -or -not [Jw]::IsWindowVisible($t)) { continue }
+                    $b = [Jw]::Paint($t)
+                    $b.Save((Join-Path (Get-Location) $Matches[1]),
+                            [System.Drawing.Imaging.ImageFormat]::Png)
+                    $b.Dispose()
+                    break
+                }
                 break
             }
 
@@ -1795,6 +1898,35 @@ try {
                 if (-not (Test-Path $made)) { throw "figout: $name.jws was not written" }
                 Copy-Item $made $figTo -Force
                 Write-Host ("wrote {0} ({1:n0} bytes)" -f $Matches[1], (Get-Item $figTo).Length)
+                break
+            }
+
+            '^opendlg:(.+)$' {
+                # an existing file into whatever 開く dialog is up, and OK;
+                # whatever the program does with it is for the next steps
+                $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Matches[1]))
+                $dlg = [IntPtr]::Zero
+                $deadline = (Get-Date).AddSeconds(12)
+                while ((Get-Date) -lt $deadline -and $dlg -eq [IntPtr]::Zero) {
+                    foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                        if ([Jw]::Cls($t) -ne '#32770') { continue }
+                        if (-not [Jw]::IsWindowVisible($t)) { continue }
+                        foreach ($k in [Jw]::Kids($t)) {
+                            if ([Jw]::Cls($k) -eq 'Edit') { $dlg = $t; break }
+                        }
+                        if ($dlg -ne [IntPtr]::Zero) { break }
+                    }
+                    if ($dlg -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 300 }
+                }
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no file dialog came up' }
+                $edit = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::Cls($k) -eq 'Edit') { $edit = $k; break }
+                }
+                [void][Jw]::SendMessageStr($edit, $WM_SETTEXT, [IntPtr]::Zero, $full)
+                Start-Sleep -Milliseconds 300
+                [void][Jw]::SendMessageW($dlg, $WM_COMMAND, [IntPtr]1, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds 1500
                 break
             }
 

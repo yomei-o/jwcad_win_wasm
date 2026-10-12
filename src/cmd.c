@@ -6827,6 +6827,27 @@ int jw_cmd_sel_count(const jw_drawing *d)
     return n;
 }
 
+/* タグジャンプ (32967) works on a single picked text: its text, or 0 when
+   what is picked is not exactly one text.  The menu item is greyed the
+   same way (FUN_00511ca0). */
+int jw_cmd_sel_text(const jw_drawing *d, char *out, int cap)
+{
+    int i, n = 0, at = -1;
+
+    if (!d || cap < 1)
+        return 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel) {
+            n++;
+            at = i;
+        }
+    if (n != 1 || d->obj[at].cls != JW_MOJI)
+        return 0;
+    strncpy(out, jw_str(d, d->obj[at].text), (size_t)cap - 1);
+    out[cap - 1] = 0;
+    return 1;
+}
+
 static void sel_mirror(jw_drawing *d, const jw_obj *axis);
 
 static void sel_clear(jw_drawing *d)
@@ -7528,15 +7549,35 @@ int jw_cmd_block_make(jw_drawing *d, const char *name, int prefer_layer)
 static int blkedit_on;
 static int blkedit_num;         /* which definition */
 static double blkedit_x, blkedit_y;     /* where its reference sits */
+/* The reference the edit was started from, as a place in d->obj (-1 when
+   it is whichever one is picked), and the numbers of the definitions the
+   edit touches, innermost first: ブロックツリー can start one on a block
+   inside a block, and then both are written again at the end. */
+static int blkedit_ref = -1;
+static int blkedit_chain[9], blkedit_nchain;
+static jw_drawing *blkedit_d;
 
 int jw_cmd_block_editing(void)
 {
     return blkedit_on;
 }
 
+static void undo_forget(void);
+static void blk_reorder(jw_drawing *d, const int *chain, int nchain);
+
+/* The original ends an edit by writing the definitions it touched out
+ * again: they go to the back of the list, innermost first, with the time
+ * of the edit, and the numbers are given out afresh from 0 in the order the
+ * list now has (decomp/res/bt_*.jww -- tools/btprobe.sh).  With one
+ * definition, or with the edited one already last, nothing moves. */
 void jw_cmd_block_done(void)
 {
+    if (blkedit_on && blkedit_d && blkedit_nchain > 0)
+        blk_reorder(blkedit_d, blkedit_chain, blkedit_nchain);
     blkedit_on = 0;
+    blkedit_ref = -1;
+    blkedit_nchain = 0;
+    blkedit_d = 0;
 }
 
 /* Where the definition of the block being edited sits in the array. */
@@ -7586,9 +7627,52 @@ int jw_cmd_block_edit(jw_drawing *d)
             blkedit_x = d->obj[i].d[0];
             blkedit_y = d->obj[i].d[1];
             blkedit_on = blkedit_at(d) >= 0;
+            blkedit_ref = i;
+            blkedit_chain[0] = blkedit_num;
+            blkedit_nchain = blkedit_on ? 1 : 0;
+            blkedit_d = d;
             return blkedit_on;
         }
     return 0;
+}
+
+/* ブロックツリー's 選択BLK編集: the same mode, started on the reference the
+   tree has picked.  `path` is the references' places in d->obj, outermost
+   first; a block inside a block is edited where it sits, so what is drawn
+   lands in its definition relative to the place the two carry it to. */
+int jw_cmd_block_edit_path(jw_drawing *d, const int *path, int n)
+{
+    double x = 0.0, y = 0.0, sx = 1.0, sy = 1.0;
+    int k, last;
+
+    if (!d || n < 1 || n > 9)
+        return 0;
+    for (k = 0; k < n; k++) {
+        const jw_obj *o;
+
+        if (path[k] < 0 || path[k] >= d->nobj
+            || d->obj[path[k]].cls != JW_BLOCK)
+            return 0;
+        o = &d->obj[path[k]];
+        /* the way src/draw.c carries an inner reference by the outer one */
+        x = o->d[0] * sx + x;
+        y = o->d[1] * sy + y;
+        sx *= o->d[2];
+        sy *= o->d[3];
+    }
+    last = path[n - 1];
+    blkedit_num = d->obj[last].block;
+    blkedit_x = x;
+    blkedit_y = y;
+    blkedit_on = blkedit_at(d) >= 0;
+    blkedit_ref = last;
+    blkedit_nchain = 0;
+    if (blkedit_on)
+        /* innermost first: the block, then each one it sits in */
+        for (k = n - 1; k >= 0; k--)
+            blkedit_chain[blkedit_nchain++] = d->obj[path[k]].block;
+    blkedit_d = d;
+    return blkedit_on;
 }
 
 void jw_cmd_block_take(jw_drawing *d, int from)
@@ -7732,15 +7816,138 @@ int jw_cmd_block_split(jw_drawing *d)
     if (rec)
         rec->ndef += span + 1;
     /* and the one reference being edited points at the copy */
-    for (i = 0; i < d->ndrawn; i++)
-        if (d->obj[i].cls == JW_BLOCK && d->obj[i].sel
-            && d->obj[i].block == blkedit_num) {
-            op_keep(rec, d, i, 0);
-            d->obj[i].block = num_new;
-            break;
-        }
+    if (blkedit_ref >= 0 && blkedit_ref < d->nobj
+        && d->obj[blkedit_ref].cls == JW_BLOCK
+        && d->obj[blkedit_ref].block == blkedit_num) {
+        op_keep(rec, d, blkedit_ref, 0);
+        d->obj[blkedit_ref].block = num_new;
+    } else {
+        for (i = 0; i < d->ndrawn; i++)
+            if (d->obj[i].cls == JW_BLOCK && d->obj[i].sel
+                && d->obj[i].block == blkedit_num) {
+                op_keep(rec, d, i, 0);
+                d->obj[i].block = num_new;
+                break;
+            }
+    }
+    if (blkedit_nchain > 0 && blkedit_chain[0] == blkedit_num)
+        blkedit_chain[0] = num_new;
     blkedit_num = num_new;
     return 1;
+}
+
+static void undo_forget(void)
+{
+    nop = 0;
+    while (ntop > 0)
+        op_drop(&op[--ntop]);
+}
+
+/* See jw_cmd_block_done. */
+static void blk_reorder(jw_drawing *d, const int *chain, int nchain)
+{
+    struct def_s { int at, span, num, moved; } *df;
+    int *order, *ord2;
+    jw_obj *old, *neu;
+    int nd = 0, i, k, m, same = 1, region, now = (int)time(0);
+
+    df = (struct def_s *)malloc((size_t)(d->nobj - d->ndrawn + 1) * sizeof *df);
+    order = (int *)malloc((size_t)(d->nobj - d->ndrawn + 1) * sizeof *order);
+    ord2 = (int *)malloc((size_t)(d->nobj - d->ndrawn + 1) * sizeof *ord2);
+    if (!df || !order || !ord2) {
+        free(df);
+        free(order);
+        free(ord2);
+        return;
+    }
+    for (i = d->ndrawn; i < d->nobj && d->obj[i].cls == JW_LIST;
+         i += df[nd - 1].span) {
+        df[nd].at = i;
+        df[nd].span = d->obj[i].n + 1;
+        df[nd].num = d->obj[i].list[0];
+        df[nd].moved = 0;
+        if (i + df[nd].span > d->nobj)
+            break;
+        nd++;
+    }
+    /* who goes to the back: the touched ones, innermost first */
+    m = 0;
+    for (k = 0; k < nchain; k++)
+        for (i = 0; i < nd; i++)
+            if (df[i].num == chain[k] && !df[i].moved) {
+                df[i].moved = 1;
+                ord2[m++] = i;
+            }
+    k = 0;
+    for (i = 0; i < nd; i++)
+        if (!df[i].moved)
+            order[k++] = i;
+    for (i = 0; i < m; i++)
+        order[k++] = ord2[i];
+    for (i = 0; i < nd; i++)
+        if (order[i] != i)
+            same = 0;
+    for (i = 0; i < m; i++)
+        d->obj[df[ord2[i]].at].list[2] = now;
+    if (!same && k == nd) {
+        int *newnum = (int *)malloc((size_t)(nd + 1) * sizeof *newnum);
+        int o = 0;
+
+        region = d->nobj - d->ndrawn;
+        old = d->obj + d->ndrawn;
+        neu = (jw_obj *)malloc((size_t)(region + 1) * sizeof *neu);
+        if (newnum && neu) {
+            int tot = 0;
+
+            for (i = 0; i < nd; i++)
+                tot += df[i].span;
+            for (i = 0; i < nd; i++) {
+                int src = order[i];
+
+                memcpy(neu + o, d->obj + df[src].at,
+                       (size_t)df[src].span * sizeof *neu);
+                neu[o].list[0] = i;
+                newnum[src] = i;
+                o += df[src].span;
+            }
+            /* whatever lay past the definitions stays where it was */
+            if (tot < region)
+                memcpy(neu + tot, old + tot,
+                       (size_t)(region - tot) * sizeof *neu);
+            memcpy(old, neu, (size_t)region * sizeof *neu);
+            /* every reference follows its definition to the new number */
+            for (i = 0; i < d->nobj; i++)
+                if (d->obj[i].cls == JW_BLOCK)
+                    for (k = 0; k < nd; k++)
+                        if (df[k].num == d->obj[i].block) {
+                            d->obj[i].block = newnum[k] | 0x40000000;
+                            break;
+                        }
+            for (i = 0; i < d->nobj; i++)
+                if (d->obj[i].cls == JW_BLOCK && (d->obj[i].block & 0x40000000))
+                    d->obj[i].block &= ~0x40000000;
+            undo_forget();
+        }
+        free(newnum);
+        free(neu);
+    }
+    free(df);
+    free(order);
+    free(ord2);
+}
+
+/* The same three steps ブロックツリー's ブロック名変更 takes: start the edit
+   on the reference, give its definition the name, and end it. */
+int jw_cmd_block_rename_path(jw_drawing *d, const int *path, int n,
+                             const char *name)
+{
+    int ok;
+
+    if (!name || !*name || !jw_cmd_block_edit_path(d, path, n))
+        return 0;
+    ok = jw_cmd_block_rename(d, name);
+    jw_cmd_block_done();
+    return ok;
 }
 
 /* ブロック属性 (32970).  The same dialog as ブロック化 with the name box
@@ -7863,6 +8070,443 @@ int jw_cmd_block_free(jw_drawing *d)
         i = d->ndrawn;          /* start again: everything has moved */
     }
     return n;
+}
+
+/* ---------------------------------------------------- ブロックツリー ---
+ * 図面内のブロックを階層的に表示します (32988).  A window of its own with a
+ * tree in it: under the root come the references the drawing holds, and
+ * under each of those the references its definition holds, and so on.  A
+ * name is the definition's with the @@SfigorgFlag@@n taken off, and the
+ * children of one parent are in name order (TVI_SORT; two of one name stay
+ * as they were laid down).  A reference that has its hidden bit set does
+ * not show (the original tests `(flags & 1) == 0`).
+ *
+ * A node is named here by the place of its reference in d->obj.
+ */
+static int bt_def_at(const jw_drawing *d, int block)
+{
+    int i;
+
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == block)
+            return i;
+    return -1;
+}
+
+const char *jw_bt_name(const jw_drawing *d, int ref)
+{
+    static char t[128];
+    const char *p, *q;
+    int at;
+
+    t[0] = 0;
+    if (!d || ref < 0 || ref >= d->nobj || d->obj[ref].cls != JW_BLOCK)
+        return t;
+    at = bt_def_at(d, d->obj[ref].block);
+    if (at < 0)
+        return t;
+    p = jw_str(d, d->obj[at].text);
+    q = strstr(p, "@@");
+    if (!q)
+        q = p + strlen(p);
+    if ((size_t)(q - p) > sizeof t - 1)
+        q = p + sizeof t - 1;
+    memcpy(t, p, (size_t)(q - p));
+    t[q - p] = 0;
+    return t;
+}
+
+static int bt_cmp(const jw_drawing *d, int a, int b)
+{
+    char x[128];
+    const unsigned char *p, *q;
+
+    strcpy(x, jw_bt_name(d, a));
+    p = (const unsigned char *)x;
+    q = (const unsigned char *)jw_bt_name(d, b);
+    for (; *p && *q; p++, q++) {
+        int c = *p >= 'A' && *p <= 'Z' ? *p + 32 : *p;
+        int e = *q >= 'A' && *q <= 'Z' ? *q + 32 : *q;
+
+        if (c != e)
+            return c - e;
+    }
+    return (int)*p - (int)*q;
+}
+
+/* The children of `parent` (-1 for the root), in order; how many */
+int jw_bt_kids(const jw_drawing *d, int parent, int *out, int max)
+{
+    int n = 0, i, from, to;
+
+    if (!d)
+        return 0;
+    if (parent < 0) {
+        from = 0;
+        to = d->ndrawn;
+    } else {
+        int at;
+
+        if (parent >= d->nobj || d->obj[parent].cls != JW_BLOCK)
+            return 0;
+        at = bt_def_at(d, d->obj[parent].block);
+        if (at < 0)
+            return 0;
+        from = at + 1;
+        to = at + 1 + d->obj[at].n;
+        if (to > d->nobj)
+            to = d->nobj;
+    }
+    for (i = from; i < to && n < max; i++) {
+        int k;
+
+        if (d->obj[i].cls == JW_LIST)
+            break;
+        if (d->obj[i].cls != JW_BLOCK || (d->obj[i].flags & 1))
+            continue;
+        k = n++;
+        while (k > 0 && bt_cmp(d, out[k - 1], i) > 0) {
+            out[k] = out[k - 1];
+            k--;
+        }
+        out[k] = i;
+    }
+    return n;
+}
+
+/* Whether the node has anything under it (for the + box) */
+int jw_bt_has_kids(const jw_drawing *d, int ref)
+{
+    int one[1];
+
+    return jw_bt_kids(d, ref, one, 1) > 0;
+}
+
+/* ------------------------------------------- 環境設定ファイル (.jwf) ---
+ * 設定 > 環境設定ファイル > 書出し (32924) and 読込み (32923), both of which
+ * put a Windows file dialog up first ("Jwf|*.JWF|JwL|*.JWL|").  What the
+ * original writes is its whole configuration -- 303 lines of text, CRLF,
+ * CP932 -- and decomp/res/env_new.jwf is that file as it comes out of a fresh
+ * start (src/gen/jwf.h bakes it).  Of those lines these are the ones that
+ * follow the drawing that is open (found by writing from Test1, Test5 and
+ * 新規 and putting the three side by side, decomp/res/env_t1.jwf and
+ * env_t5.jwf; tools/envprobe.sh):
+ *
+ *   the first line      the file's name
+ *   S_COMM_0            its third number is the sheet (A1, A2, ...)
+ *   LAYSCALE            the sixteen group scales
+ *   LAYNAM_0 .. _F      each group's name, then its sixteen layers' names
+ *   LCOLLOR_1..8, _H, _B, _G   the screen pens: R G B and the width
+ *   PCOLLOR_1..8, _G    the printing pens: R G B, the width and (as it
+ *                       was) the thickness in mm
+ *   MWIDE MHIGH MDIST MPEN     the ten text sizes, gaps and pens
+ *
+ * The rest (the keys of the letters, AUTO's mouse map, the basic settings,
+ * hatch and dimension defaults...) is held by the original in its own
+ * globals and not in the drawing, so it goes out as a fresh start has it.
+ * Reading takes back what the list above is made of.
+ */
+#include "gen/jwf.h"
+
+static void env_pen3(char *o, const char *key, unsigned rgb_rrggbb, int w, int with_w)
+{
+    sprintf(o, "%s =", key);
+    sprintf(o + strlen(o), " %4u %4u %4u", (rgb_rrggbb >> 16) & 255,
+            (rgb_rrggbb >> 8) & 255, rgb_rrggbb & 255);
+    if (with_w)
+        sprintf(o + strlen(o), " %4d", w);
+    strcat(o, " ");
+}
+
+/* the text from the start of the template line up to and including '=' */
+static int env_key(const char *line, char *key, size_t cap)
+{
+    const char *e = strchr(line, '=');
+    size_t n;
+
+    if (!e)
+        return 0;
+    n = (size_t)(e - line);
+    if (n >= cap)
+        return 0;
+    memcpy(key, line, n);
+    key[n] = 0;
+    while (n > 0 && key[n - 1] == ' ')
+        key[--n] = 0;
+    return 1;
+}
+
+int jw_env_write(const jw_drawing *d, const char *name, unsigned char **out,
+                 long *outn)
+{
+    const char *p = (const char *)jw_jwf_tpl, *end = p + JW_JWF_LEN;
+    char *buf;
+    size_t cap = JW_JWF_LEN + 20000, len = 0;
+    int first = 1;
+
+    if (!d || !out || !outn)
+        return 0;
+    buf = (char *)malloc(cap);
+    if (!buf)
+        return 0;
+    while (p < end) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t ll = nl ? (size_t)(nl - p) + 1 : (size_t)(end - p);
+        char line[2048], key[64], mine[4096];
+        int mod = 0, k, i;
+
+        /* the template line without its CRLF */
+        i = (int)ll;
+        while (i > 0 && (p[i - 1] == '\n' || p[i - 1] == '\r'))
+            i--;
+        if (i >= (int)sizeof line)
+            i = (int)sizeof line - 1;
+        memcpy(line, p, (size_t)i);
+        line[i] = 0;
+        mine[0] = 0;
+
+        if (first) {
+            sprintf(mine, "#        %s       Jw_cad for Windows ",
+                    name && *name ? name : "env.jwf");
+            mod = 1;
+            first = 0;
+        } else if (env_key(line, key, sizeof key)) {
+            if (!strcmp(key, "S_COMM_0")
+                && d->paper_size >= 0 && d->paper_size <= 4) {
+                /* the third number is the sheet: A1, A2... */
+                char *q = strstr(line, "   A");
+
+                if (q && q[4] >= '0' && q[4] <= '9') {
+                    strcpy(mine, line);
+                    mine[(q + 4) - line] = (char)('0' + d->paper_size);
+                    mod = 1;
+                }
+            } else if (!strcmp(key, "LAYSCALE")) {
+                strcpy(mine, "LAYSCALE =");
+                for (k = 0; k < 16; k++)
+                    sprintf(mine + strlen(mine), " %g", d->group[k].scale);
+                strcat(mine, "  ");
+                mod = 1;
+            } else if (!strncmp(key, "LAYNAM_", 7) && key[7] && !key[8]
+                       && key[7] != 'N') {
+                int g = key[7] >= 'A' ? key[7] - 'A' + 10 : key[7] - '0';
+
+                if (g >= 0 && g < 16) {
+                    sprintf(mine, "%s =%s", key, jw_str(d, d->group[g].name));
+                    for (k = 0; k < 16; k++)
+                        sprintf(mine + strlen(mine), ",%s",
+                                jw_str(d, d->group[g].layer_name[k]));
+                    mod = 1;
+                }
+            } else if (!strncmp(key, "LCOLLOR_", 8) && key[8] && !key[9]) {
+                int c = key[8];
+
+                if (c >= '1' && c <= '8') {
+                    env_pen3(mine, key, d->pen_rgb[c - '0'],
+                             d->pen_width[c - '0'], 1);
+                    mod = 1;
+                } else if (c == 'H') {
+                    env_pen3(mine, key, d->pen_rgb[9], d->pen_width[9], 1);
+                    mod = 1;
+                } else if (c == 'B') {
+                    env_pen3(mine, key, d->pen_rgb[0], 0, 0);
+                    mod = 1;
+                } else if (c == 'G') {
+                    env_pen3(mine, key, d->gray_rgb, 0, 0);
+                    mod = 1;
+                }
+            } else if (!strncmp(key, "PCOLLOR_", 8) && key[8] && !key[9]) {
+                int c = key[8];
+
+                if (c >= '1' && c <= '8') {
+                    unsigned v = d->print_rgb[c - '0'];
+                    double pr = 0.0;
+                    const char *q = strchr(line, '=');
+
+                    /* the thickness in mm is the template's own */
+                    if (q) {
+                        int a, b2, cc, w;
+
+                        if (sscanf(q + 1, "%d %d %d %d %lf", &a, &b2, &cc, &w,
+                                   &pr) < 5)
+                            pr = 0.0;
+                    }
+                    sprintf(mine, "%s =", key);
+                    sprintf(mine + strlen(mine), " %4u %4u %4u %4d %7.2f ",
+                            v & 255, (v >> 8) & 255, (v >> 16) & 255,
+                            d->print_width[c - '0'], pr);
+                    mod = 1;
+                } else if (c == 'G') {
+                    unsigned v = d->print_rgb[9];
+
+                    sprintf(mine, "%s =", key);
+                    sprintf(mine + strlen(mine), " %4u %4u %4u ", v & 255,
+                            (v >> 8) & 255, (v >> 16) & 255);
+                    mod = 1;
+                }
+            } else if (!strcmp(key, "MWIDE") || !strcmp(key, "MHIGH")
+                       || !strcmp(key, "MDIST")) {
+                strcpy(mine, line);
+                mine[strchr(line, '=') - line + 1] = 0;
+                for (k = 0; k < 10; k++)
+                    sprintf(mine + strlen(mine), " %5.1f",
+                            key[1] == 'W' ? d->style[k].w
+                            : key[1] == 'H' ? d->style[k].h : d->style[k].sp);
+                strcat(mine, " ");
+                mod = 1;
+            } else if (!strcmp(key, "MPEN")) {
+                strcpy(mine, line);
+                mine[strchr(line, '=') - line + 1] = 0;
+                for (k = 0; k < 10; k++)
+                    sprintf(mine + strlen(mine), " %5d", d->style[k].color);
+                strcat(mine, " ");
+                mod = 1;
+            }
+        }
+        {
+            const char *src = mod ? mine : line;
+            size_t sl = strlen(src);
+
+            if (len + sl + 3 >= cap) {
+                char *nb = (char *)realloc(buf, cap * 2);
+
+                if (!nb) {
+                    free(buf);
+                    return 0;
+                }
+                buf = nb;
+                cap *= 2;
+            }
+            memcpy(buf + len, src, sl);
+            len += sl;
+            buf[len++] = '\r';
+            buf[len++] = '\n';
+        }
+        p += ll;
+    }
+    *out = (unsigned char *)buf;
+    *outn = (long)len;
+    return 1;
+}
+
+/* Reading: every key above that is found goes into the drawing.  Returns
+   how many lines it took in. */
+int jw_env_read(jw_drawing *d, const unsigned char *b, long n)
+{
+    const char *p = (const char *)b, *end = p + n;
+    int taken = 0;
+
+    if (!d || !b)
+        return 0;
+    while (p < end) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t ll = nl ? (size_t)(nl - p) + 1 : (size_t)(end - p);
+        char line[2048], key[64];
+        const char *v;
+        int i = (int)ll;
+
+        while (i > 0 && (p[i - 1] == '\n' || p[i - 1] == '\r'))
+            i--;
+        if (i >= (int)sizeof line)
+            i = (int)sizeof line - 1;
+        memcpy(line, p, (size_t)i);
+        line[i] = 0;
+        p += ll;
+        if (line[0] == '#' || !env_key(line, key, sizeof key))
+            continue;
+        v = strchr(line, '=') + 1;
+        if (!strcmp(key, "LAYSCALE")) {
+            int k = 0;
+            double s;
+            int used;
+
+            while (k < 16 && sscanf(v, "%lf%n", &s, &used) == 1) {
+                if (s >= 1.0)
+                    d->group[k].scale = s;
+                v += used;
+                k++;
+            }
+            taken++;
+        } else if (!strncmp(key, "LAYNAM_", 7) && key[7] && !key[8]
+                   && key[7] != 'N') {
+            int g = key[7] >= 'A' ? key[7] - 'A' + 10 : key[7] - '0';
+            int k = 0;
+
+            if (g < 0 || g > 15)
+                continue;
+            for (;;) {
+                char t[128];
+                const char *c = strchr(v, ',');
+                size_t m = c ? (size_t)(c - v) : strlen(v);
+                int off;
+
+                if (m >= sizeof t)
+                    m = sizeof t - 1;
+                memcpy(t, v, m);
+                t[m] = 0;
+                off = jw_add_str(d, t);
+                if (off >= 0) {
+                    if (k == 0)
+                        d->group[g].name = off;
+                    else if (k <= 16)
+                        d->group[g].layer_name[k - 1] = off;
+                }
+                k++;
+                if (!c || k > 16)
+                    break;
+                v = c + 1;
+            }
+            taken++;
+        } else if (!strncmp(key, "LCOLLOR_", 8) && key[8] && !key[9]) {
+            int c = key[8], r, g, bl, w = 0, nn;
+            int idx = c >= '1' && c <= '8' ? c - '0' : c == 'H' ? 9
+                      : c == 'B' ? 0 : -1;
+
+            nn = sscanf(v, "%d %d %d %d", &r, &g, &bl, &w);
+            if (nn >= 3 && idx >= 0 && r >= 0 && r < 256 && g >= 0 && g < 256
+                && bl >= 0 && bl < 256) {
+                d->pen_rgb[idx] = (unsigned)(r << 16 | g << 8 | bl);
+                if (nn >= 4 && w >= 1 && (idx >= 1))
+                    d->pen_width[idx] = w;
+                taken++;
+            } else if (nn >= 3 && c == 'G' && r >= 0 && r < 256 && g >= 0
+                       && g < 256 && bl >= 0 && bl < 256) {
+                d->gray_rgb = (unsigned)(r << 16 | g << 8 | bl);
+                taken++;
+            }
+        } else if (!strncmp(key, "PCOLLOR_", 8) && key[8] && !key[9]) {
+            int c = key[8], r, g, bl, w = 0, nn;
+            int idx = c >= '1' && c <= '8' ? c - '0' : c == 'G' ? 9 : -1;
+
+            nn = sscanf(v, "%d %d %d %d", &r, &g, &bl, &w);
+            if (nn >= 3 && idx >= 0 && r >= 0 && r < 256 && g >= 0 && g < 256
+                && bl >= 0 && bl < 256) {
+                d->print_rgb[idx] = (unsigned)(bl << 16 | g << 8 | r);
+                if (nn >= 4 && w >= 1 && idx < 9)
+                    d->print_width[idx] = w;
+                taken++;
+            }
+        } else if (!strcmp(key, "MWIDE") || !strcmp(key, "MHIGH")
+                   || !strcmp(key, "MDIST") || !strcmp(key, "MPEN")) {
+            int k = 0, used;
+            double x;
+
+            while (k < 10 && sscanf(v, "%lf%n", &x, &used) == 1) {
+                if (key[1] == 'P')
+                    d->style[k].color = (int)x;
+                else if (key[1] == 'W')
+                    d->style[k].w = x;
+                else if (key[1] == 'H')
+                    d->style[k].h = x;
+                else
+                    d->style[k].sp = x;
+                v += used;
+                k++;
+            }
+            taken++;
+        }
+    }
+    return taken;
 }
 
 /* ------------------------------------------------- 図形読込 (32862) ----

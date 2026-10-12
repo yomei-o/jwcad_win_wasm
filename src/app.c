@@ -1514,7 +1514,6 @@ static int td_nitems, td_dl = -1;
 
 static const struct { unsigned short cmd, tpl; } TD_CMD[] = {
     { 59392, 273 },     /* 表示 > ツールバー -- ツールバーの表示 */
-    { 32995, 384 },     /* 表示 > ブロックツリー半透明化 -- 透過率 */
     { 57664, 100 },     /* ヘルプ > バージョン情報 */
     { 32977, 368 },     /* ファイル操作 > ファイル一括変換 */
     { 32979, 371 },     /* ファイル操作 > ファイル名変更 -- ファイル選択 */
@@ -1588,6 +1587,19 @@ static int td_caret_set(int id)
 }
 
 /* 作図時間の窓 (348) を閉じる。OK なら 入れた時間で影を描く */
+static int bt_alpha;
+static void tr_close(int ok)
+{
+    int i = ui_tdlg_index(td_t, 1411);
+
+    td_open = 0;
+    if (ok && i >= 0 && i < TD_MAX) {
+        int v = atoi(td_txt[i]);
+
+        bt_alpha = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+}
+
 static void hk_time_close(int ok)
 {
     int i = ui_tdlg_index(td_t, 1411);
@@ -1749,6 +1761,10 @@ static int press_tdlg(int x, int y)
     }
     if (td_tpl == 348 && (id == 1 || id == 2)) {
         hk_time_close(id == 1);
+        return 1;
+    }
+    if (td_tpl == 384 && (id == 1 || id == 2)) {
+        tr_close(id == 1);
         return 1;
     }
     if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
@@ -2004,6 +2020,10 @@ static int td_key(int c)
         hk_time_close(c == 13);
         return 1;
     }
+    if ((c == 13 || c == 27) && td_tpl == 384) {
+        tr_close(c == 13);
+        return 1;
+    }
     if (c == 13 && td_tpl == 314) {     /* 数値入力's OK writes back */
         kp_ok();
         return 1;
@@ -2056,6 +2076,8 @@ const char *app_blkname(void)
     return blk_name;
 }
 
+static void bt_rename_ok(void);
+
 static int press_blkname(int x, int y)
 {
     int id = ui_blkname_hit(fb.w, fb.h, x, y);
@@ -2063,7 +2085,9 @@ static int press_blkname(int x, int y)
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1) {                      /* OK */
-        if (have_drawing && blk_attr)
+        if (blk_attr == 2)
+            bt_rename_ok();             /* ブロックツリー's ブロック名変更 */
+        else if (have_drawing && blk_attr)
             jw_cmd_block_attr(&drawing, blk_pref);
         else if (have_drawing && blk_name[0])
             jw_cmd_block_make(&drawing, blk_name, blk_pref);
@@ -2088,14 +2112,16 @@ static int blk_key(int c)
         return 1;
     }
     if (c == 13) {                      /* Enter is the OK button */
-        if (have_drawing && blk_attr)
+        if (blk_attr == 2)
+            bt_rename_ok();
+        else if (have_drawing && blk_attr)
             jw_cmd_block_attr(&drawing, blk_pref);
         else if (have_drawing && blk_name[0])
             jw_cmd_block_make(&drawing, blk_name, blk_pref);
         blk_open = 0;
         return 1;
     }
-    if (blk_attr)                       /* the box is greyed out there */
+    if (blk_attr == 1)                  /* the box is greyed out there */
         return 0;
     (void)n;
     if (c >= 0x20 && c < 256) {
@@ -2103,6 +2129,535 @@ static int blk_key(int c)
         return 1;
     }
     return 0;
+}
+
+/* ------------------------------------------------------ ブロックツリー ---
+ * 表示 > ブロックツリー (32988).  The original enters 範囲選択 (the command
+ * set puts the tree away, so it goes first) and then raises DIALOG 355, which
+ * stays up beside the drawing -- it is not modal, so the drawing and the
+ * menus work with it up.  What puts it away again is anything that sets a
+ * command and any press in the drawing area (probed with tools/jwdraw.ps1:
+ * `cmd:32787`, a click in the view, and `cmd:32771` all took it down; a
+ * command that only acts, like ブロック解除, left it alone).
+ *
+ * What it shows is in src/cmd.c (jw_bt_kids).  Picking a row picks the block
+ * in the drawing the way a range does -- it is drawn in the picked colour --
+ * but it is not a selection in the drawing's sense: the toolbar does not
+ * change and ブロック解除 with only the tree's pick does nothing.  So the
+ * pick is drawn by src/draw.c's jw_draw_hl and is kept here.
+ *
+ *   同名BLK全検索   every block (at any depth) with the name of the picked one
+ *                   goes bold, its ancestors open, the last one found is
+ *                   picked, and the line at the foot says 同名ブロック数 = n
+ *   選択BLK編集     ブロック編集 on the picked block, with 選択したブロックのみ
+ *                   as the check box says; the tree goes away
+ *   BLK名変更       asks for a name (編集後のブロック名を入力してください), gives
+ *                   it to the block's definition and ends the edit; the
+ *                   tree is made again with the new name found
+ *
+ * Both of the last two are greyed until a block (not the root) is picked.
+ */
+#define BT_MAXD 8
+#define BT_MAXROW 600
+#define BT_MARKS 128
+
+typedef struct { int n; int p[BT_MAXD]; } bt_path_t;
+
+/* ダイアログボックスの表示位置を初期状態にします。 / よろしいですか？ */
+#define MB_TEXT "\x83_\x83" "C\x83" "A\x83\x8d\x83O\x83{\x83" "b\x83N\x83X\x82\xcc\x95\x5c\x8e\xa6\x88\xca\x92u\x82\xf0\x8f\x89\x8a\xfa\x8f\xf3\x91\xd4\x82\xc9\x82\xb5\x82\xdc\x82\xb7\x81" "B\n\x82\xe6\x82\xeb\x82\xb5\x82\xa2\x82\xc5\x82\xb7\x82\xa9\x81H"
+/* 表示 > ブロックツリー半透明化: the window shows through (see bt_paint) */
+static int bt_trans;
+/* 表示 > Direct2D and ANTIALIAS: only their state is kept.  The port draws
+   the one way, the GDI way the original's reference pictures were taken
+   in; Direct2D is the original's other renderer, a Windows facility. */
+static int d2d_on, aa_on;
+/* 表示 > ダイアログボックス: the original asks first (AfxMessageBox) */
+static int mb_open;
+static char tag_name[260];
+
+static int bt_open;
+static rect_t bt_win;
+static bt_path_t bt_sel;                /* n 0: the root */
+static int bt_all;                      /* 選択したブロックのみに… */
+static int bt_scroll;
+static int bt_found = -1;               /* the count under 同名ブロック数 */
+static bt_path_t bt_exp[BT_MARKS];
+static int bt_nexp;
+static bt_path_t bt_bold[BT_MARKS];
+static int bt_nbold;
+static int bt_menu_x = -1, bt_menu_y;   /* the right press's pop-up */
+static unsigned bt_sig;
+static ui_btrow_t bt_row[BT_MAXROW];
+static bt_path_t bt_rpath[BT_MAXROW];
+static int bt_nrow;
+static bt_path_t bt_ren;                /* the block BLK名変更 is asking about */
+
+static int bt_same(const bt_path_t *a, const bt_path_t *b)
+{
+    int i;
+
+    if (a->n != b->n)
+        return 0;
+    for (i = 0; i < a->n; i++)
+        if (a->p[i] != b->p[i])
+            return 0;
+    return 1;
+}
+
+static int bt_find(const bt_path_t *list, int n, const bt_path_t *p)
+{
+    int i;
+
+    for (i = 0; i < n; i++)
+        if (bt_same(&list[i], p))
+            return i;
+    return -1;
+}
+
+/* What the tree depends on in the drawing: if any of it changes the paths
+   mean something else, and the tree is made again from the root. */
+static unsigned bt_signature(void)
+{
+    unsigned h = 2166136261u;
+    int i;
+
+    if (!have_drawing)
+        return 0;
+    h = (h ^ (unsigned)drawing.ndrawn) * 16777619u;
+    h = (h ^ (unsigned)drawing.nobj) * 16777619u;
+    for (i = 0; i < drawing.nobj; i++) {
+        const jw_obj *o = &drawing.obj[i];
+
+        if (o->cls != JW_BLOCK && o->cls != JW_LIST)
+            continue;
+        h = (h ^ (unsigned)i) * 16777619u;
+        h = (h ^ (unsigned)o->cls) * 16777619u;
+        h = (h ^ (unsigned)(o->cls == JW_BLOCK ? o->block : o->list[0]))
+            * 16777619u;
+        h = (h ^ (unsigned)(o->cls == JW_LIST ? o->text + o->n * 7 : 0))
+            * 16777619u;
+        h = (h ^ (unsigned)(o->flags & 1)) * 16777619u;
+    }
+    return h;
+}
+
+static void bt_reset(void)
+{
+    bt_sel.n = 0;
+    bt_nexp = 0;
+    bt_nbold = 0;
+    bt_found = -1;
+    bt_scroll = 0;
+    bt_menu_x = -1;
+}
+
+/* Rows from the node `p` down.  `line` has a bit set for each ancestor
+   that has siblings still to come. */
+static void bt_walk(const bt_path_t *p, int depth, unsigned line)
+{
+    int kids[BT_MAXROW > 400 ? 400 : BT_MAXROW], nk, k;
+
+    nk = jw_bt_kids(&drawing, p->n ? p->p[p->n - 1] : -1, kids,
+                    (int)(sizeof kids / sizeof kids[0]));
+    for (k = 0; k < nk && bt_nrow < BT_MAXROW; k++) {
+        bt_path_t c = *p;
+        ui_btrow_t *r = &bt_row[bt_nrow];
+        int kk, open;
+
+        if (c.n >= BT_MAXD)
+            break;
+        c.p[c.n++] = kids[k];
+        kk = jw_bt_has_kids(&drawing, kids[k]);
+        open = kk && bt_find(bt_exp, bt_nexp, &c) >= 0;
+        memset(r, 0, sizeof *r);
+        strncpy(r->text, jw_bt_name(&drawing, kids[k]), sizeof r->text - 1);
+        r->depth = (short)depth;
+        r->kids = (unsigned char)kk;
+        r->open = (unsigned char)open;
+        r->sel = (unsigned char)bt_same(&c, &bt_sel);
+        r->bold = bt_find(bt_bold, bt_nbold, &c) >= 0;
+        r->last = k == nk - 1;
+        r->line = line;
+        bt_rpath[bt_nrow++] = c;
+        if (open)
+            bt_walk(&c, depth + 1, line | (k < nk - 1 ? 1u << depth : 0u));
+    }
+}
+
+static void bt_build(void)
+{
+    bt_path_t root;
+    ui_btrow_t *r = &bt_row[0];
+    int one[1];
+
+    root.n = 0;
+    bt_nrow = 0;
+    memset(r, 0, sizeof *r);
+    r->text[0] = 0;                     /* the root has no name */
+    r->kids = jw_bt_kids(&drawing, -1, one, 1) > 0;
+    r->open = 1;
+    r->sel = bt_sel.n == 0;
+    r->last = 1;
+    bt_rpath[0] = root;
+    bt_nrow = 1;
+    bt_walk(&root, 1, 0);
+}
+
+/* what the window draws must be what the drawing holds */
+static void bt_refresh(void)
+{
+    unsigned sig;
+
+    if (!bt_open)
+        return;
+    sig = bt_signature();
+    if (sig != bt_sig) {
+        bt_reset();
+        bt_sig = sig;
+    }
+    bt_build();
+    if (bt_scroll > bt_nrow - 1)
+        bt_scroll = bt_nrow - 1;
+    if (bt_scroll < 0)
+        bt_scroll = 0;
+}
+
+/* the pick, drawn in the picked colour */
+static void bt_hl(void)
+{
+    if (bt_open && have_drawing && bt_sel.n > 0)
+        jw_draw_hl(&drawing, bt_sel.p, bt_sel.n);
+    else
+        jw_draw_hl(&drawing, 0, 0);
+}
+
+static void bt_close(void)
+{
+    if (!bt_open)
+        return;
+    bt_open = 0;
+    bt_menu_x = -1;
+    jw_draw_hl(&drawing, 0, 0);
+}
+
+int app_blktree_open(void)
+{
+    return bt_open;
+}
+
+/* the rows as the window shows them (tests/btree_test.c reads them), and
+   where the window is */
+int app_blktree_n(void)
+{
+    bt_refresh();
+    return bt_open ? bt_nrow : 0;
+}
+
+const ui_btrow_t *app_blktree_row(int i)
+{
+    bt_refresh();
+    return bt_open && i >= 0 && i < bt_nrow ? &bt_row[i] : 0;
+}
+
+void app_blktree_win(rect_t *r)
+{
+    *r = bt_win;
+}
+
+int app_blktree_found(void)
+{
+    return bt_found;
+}
+
+int app_blktree_all(void)
+{
+    return bt_all;
+}
+
+static unsigned int *bt_tmp;
+static size_t bt_tmpcap;
+
+/* The window and what it carries.  With 半透明化 on it is made in a picture
+   of its own first and laid over the drawing: at 透過率 0 the white of it is
+   the colour that is not painted (SetLayeredWindowAttributes with a colour
+   key, FUN_00416f00), and at 1..255 the whole of it is blended in. */
+static void bt_paint(void)
+{
+    char msg[64];
+    fb_t t;
+    rect_t w0;
+    int x, y;
+
+    msg[0] = 0;
+    if (bt_found > 0)
+        sprintf(msg, "%s%d", "\x93\xaf\x96\xbc\x83u\x83\x8d\x83" "b\x83N\x90\x94 = ", bt_found);
+    if (!bt_trans) {
+        ui_blktree(&fb, &bt_win, bt_row, bt_nrow, bt_scroll, bt_all,
+                   bt_sel.n > 0, msg, bt_menu_x, bt_menu_y);
+        return;
+    }
+    t.w = bt_win.w;
+    t.h = bt_win.h;
+    if ((size_t)t.w * t.h > bt_tmpcap) {
+        unsigned int *p = (unsigned int *)realloc(bt_tmp,
+                                (size_t)t.w * t.h * sizeof *p);
+
+        if (!p)
+            return;
+        bt_tmp = p;
+        bt_tmpcap = (size_t)t.w * t.h;
+    }
+    t.px = bt_tmp;
+    memset(bt_tmp, 0xff, (size_t)t.w * t.h * sizeof *bt_tmp);
+    w0.x = w0.y = 0;
+    w0.w = t.w;
+    w0.h = t.h;
+    ui_blktree(&t, &w0, bt_row, bt_nrow, bt_scroll, bt_all, bt_sel.n > 0, msg,
+               -1, -1);
+    for (y = 0; y < t.h; y++)
+        for (x = 0; x < t.w; x++) {
+            int fx = bt_win.x + x, fy = bt_win.y + y;
+            unsigned int c = bt_tmp[(size_t)y * t.w + x], *d;
+
+            if (fx < 0 || fy < 0 || fx >= fb.w || fy >= fb.h)
+                continue;
+            d = &fb.px[(size_t)fy * fb.w + fx];
+            if (bt_alpha == 0) {
+                if (c != 0xffffffu)
+                    *d = c;
+            } else {
+                unsigned int a = (unsigned int)bt_alpha, r, g, b;
+
+                r = (((c >> 16) & 255) * a + ((*d >> 16) & 255) * (255 - a)) / 255;
+                g = (((c >> 8) & 255) * a + ((*d >> 8) & 255) * (255 - a)) / 255;
+                b = ((c & 255) * a + (*d & 255) * (255 - a)) / 255;
+                *d = (r << 16) | (g << 8) | b;
+            }
+        }
+    if (bt_menu_x >= 0)
+        ui_blktree_menu(&fb, bt_menu_x, bt_menu_y);
+}
+
+static void bt_start(void)
+{
+    if (!have_drawing)
+        return;
+    /* the command first, which puts away a tree that is already up */
+    jw_cmd_flush(&drawing);
+    jw_cmd_set(JW_CMD_HANI);
+    bt_close();
+    bt_open = 1;
+    bt_reset();
+    bt_sig = bt_signature();
+    ui_blktree_default(fb.w, fb.h, &bt_win);
+    bt_all = 0;
+}
+
+/* Every block under `p`, depth first and in the order the data lies: the
+   order the original lists them in, which is what decides the one it ends
+   up on after 同名BLK全検索. */
+static void bt_all_walk(const bt_path_t *p, const char *name, bt_path_t *last,
+                        int *count, int depth)
+{
+    int from, to, i, at = -1;
+
+    if (depth > BT_MAXD)
+        return;
+    if (p->n == 0) {
+        from = 0;
+        to = drawing.ndrawn;
+    } else {
+        int ref = p->p[p->n - 1];
+
+        for (i = drawing.ndrawn; i < drawing.nobj; i++)
+            if (drawing.obj[i].cls == JW_LIST
+                && drawing.obj[i].list[0] == drawing.obj[ref].block) {
+                at = i;
+                break;
+            }
+        if (at < 0)
+            return;
+        from = at + 1;
+        to = at + 1 + drawing.obj[at].n;
+        if (to > drawing.nobj)
+            to = drawing.nobj;
+    }
+    for (i = from; i < to; i++) {
+        bt_path_t c = *p;
+
+        if (drawing.obj[i].cls == JW_LIST)
+            break;
+        if (drawing.obj[i].cls != JW_BLOCK || (drawing.obj[i].flags & 1))
+            continue;
+        if (c.n >= BT_MAXD)
+            continue;
+        c.p[c.n++] = i;
+        if (!strcmp(jw_bt_name(&drawing, i), name)) {
+            int a;
+
+            if (bt_nbold < BT_MARKS)
+                bt_bold[bt_nbold++] = c;
+            /* its ancestors open to show it */
+            for (a = 1; a < c.n; a++) {
+                bt_path_t anc = c;
+
+                anc.n = a;
+                if (bt_find(bt_exp, bt_nexp, &anc) < 0 && bt_nexp < BT_MARKS)
+                    bt_exp[bt_nexp++] = anc;
+            }
+            *last = c;
+            (*count)++;
+        }
+        bt_all_walk(&c, name, last, count, depth + 1);
+    }
+}
+
+/* 同名BLK全検索 for the name `name`; with nothing found nothing changes */
+static void bt_search(const char *name)
+{
+    bt_path_t last, root;
+    int count = 0;
+
+    root.n = 0;
+    last.n = 0;
+    bt_nbold = 0;
+    bt_all_walk(&root, name, &last, &count, 0);
+    bt_found = count;
+    if (count > 0)
+        bt_sel = last;
+}
+
+static void bt_scroll_to_sel(void)
+{
+    int i, page = ui_blktree_page(&bt_win);
+
+    for (i = 0; i < bt_nrow; i++)
+        if (bt_row[i].sel) {
+            if (i < bt_scroll)
+                bt_scroll = i;
+            else if (i >= bt_scroll + page)
+                bt_scroll = i - page + 1;
+            break;
+        }
+}
+
+static void bt_do(int what)
+{
+    if (!bt_open || !have_drawing || bt_sel.n == 0)
+        return;
+    switch (what) {
+    case 2545:                          /* 同名BLK全検索 */
+        bt_search(jw_bt_name(&drawing, bt_sel.p[bt_sel.n - 1]));
+        bt_refresh();
+        bt_scroll_to_sel();
+        break;
+    case 2546:                          /* 選択BLK編集 */
+        if (jw_cmd_block_edit_path(&drawing, bt_sel.p, bt_sel.n)) {
+            if (bt_all)
+                jw_cmd_block_split(&drawing);
+            bt_close();
+        }
+        break;
+    case 2548:                          /* BLK名変更 */
+        bt_ren = bt_sel;
+        blk_name[0] = 0;
+        blk_pref = 0;
+        blk_attr = 2;
+        blk_open = 1;
+        break;
+    }
+}
+
+/* ブロック名変更's OK: the name goes to the definition, and the tree comes
+   back made afresh with every block of the new name in bold */
+static void bt_rename_ok(void)
+{
+    char nm[64];
+
+    if (!have_drawing || !blk_name[0] || bt_ren.n == 0)
+        return;
+    strncpy(nm, blk_name, sizeof nm - 1);
+    nm[sizeof nm - 1] = 0;
+    if (jw_cmd_block_rename_path(&drawing, bt_ren.p, bt_ren.n, nm)) {
+        bt_reset();
+        bt_sig = bt_signature();
+        bt_build();
+        bt_search(nm);
+        bt_refresh();
+        bt_scroll_to_sel();
+    }
+}
+
+/* A press while the tree is up.  -1: not on it, the press goes on to
+   whatever is behind. */
+static int bt_press(int x, int y, int button)
+{
+    int row, box, hit;
+
+    if (bt_menu_x >= 0) {               /* its pop-up takes the press */
+        int k = ui_blktree_menu_hit(bt_menu_x, bt_menu_y, fb.w, fb.h, x, y);
+
+        bt_menu_x = -1;
+        if (k == 0)
+            bt_do(2545);
+        else if (k == 1)
+            bt_do(2546);
+        else if (k == 2)
+            bt_do(2548);
+        return 1;
+    }
+    bt_refresh();
+    hit = ui_blktree_hit(&bt_win, bt_row, bt_nrow, bt_scroll, x, y, &row, &box);
+    if (hit < 0)
+        return -1;
+    if (hit == 2) {
+        bt_close();
+        return 1;
+    }
+    if (hit == 2545 || hit == 2546 || hit == 2548) {
+        if (button == 0)
+            bt_do(hit);
+        return 1;
+    }
+    if (hit == 2547) {
+        if (button == 0)
+            bt_all = !bt_all;
+        return 1;
+    }
+    if (hit == 1775 && row >= 0) {
+        const bt_path_t *p = &bt_rpath[row];
+
+        if (box && button == 0) {       /* the little box opens or shuts */
+            int at = bt_find(bt_exp, bt_nexp, p);
+
+            if (at >= 0) {
+                bt_exp[at] = bt_exp[--bt_nexp];
+            } else if (bt_nexp < BT_MARKS) {
+                bt_exp[bt_nexp++] = *p;
+            }
+            return 1;
+        }
+        bt_sel = *p;
+        if (button == 1) {              /* a right press picks, then asks */
+            bt_menu_x = x;
+            bt_menu_y = y;
+        }
+        return 1;
+    }
+    if (hit >= 1776 && hit <= 1779) {   /* the bar down its right */
+        int page = ui_blktree_page(&bt_win);
+
+        if (button == 0) {
+            bt_scroll += hit == 1776 ? -1 : hit == 1777 ? 1
+                         : hit == 1778 ? -page : page;
+            if (bt_scroll > bt_nrow - page)
+                bt_scroll = bt_nrow - page;
+            if (bt_scroll < 0)
+                bt_scroll = 0;
+        }
+        return 1;
+    }
+    return 1;
 }
 
 /* 属性変更 (1070): the same window as 属性選択 with the other half up */
@@ -2342,6 +2897,7 @@ int app_command(int cmd)
         if (have_drawing)
             jw_cmd_flush(&drawing);
         jw_cmd_set(cmd);
+        bt_close();                     /* setting a command puts it away */
         /* 消去 with a settled range in hand empties it at once */
         if (cmd == JW_CMD_SHOUKYO && have_drawing)
             jw_cmd_sel_erase(&drawing);
@@ -2404,6 +2960,47 @@ int app_command(int cmd)
     case 32925:                         /* 寸法設定 */
         sd_start();
         return 1;
+    case 32988:                         /* 表示 > ブロックツリー */
+        bt_start();
+        return 1;
+    case 32995:                         /* 表示 > ブロックツリー半透明化 */
+        /* A switch.  Turning it on puts 透過率 (DIALOG 384) up; the flag is
+           already on when it does, so キャンセル leaves it on at the old
+           rate (FUN_005146a0 sets it and then calls DoModal). */
+        bt_trans = !bt_trans;
+        if (bt_trans && td_start(384)) {
+            int i = ui_tdlg_index(td_t, 1411);
+
+            if (i >= 0 && i < TD_MAX)
+                sprintf(td_txt[i], "%d", bt_alpha);
+            td_caret = 1411;
+        }
+        return 1;
+    case 33037:                         /* 表示 > Direct2D */
+        d2d_on = !d2d_on;
+        return 1;
+    case 33041:                         /* 表示 > ANTIALIAS */
+        if (!d2d_on)
+            return 0;                   /* greyed unless Direct2D is on */
+        aa_on = !aa_on;
+        return 1;
+    case 32953:                         /* 表示 > ダイアログボックス */
+        mb_open = 1;
+        return 1;
+    case 32967:                         /* ファイル > タグジャンプ */
+        /* the file a picked text names: the front end finds it, asks
+           about changes and opens it */
+        if (!have_drawing
+            || !jw_cmd_sel_text(&drawing, tag_name, (int)sizeof tag_name))
+            return 0;
+        action = JW_ACT_TAG;
+        return 1;
+    case 33032:                         /* 編集 > SPEED Data 入力 */
+        /* Enabled only when the original has the SPEED program's path
+           (DAT_00a08b70) and then it asks for a .spd file with a Windows
+           file dialog and hands the line to that program: nothing the
+           browser has.  The item is greyed (app_menu_state). */
+        return 0;
     case 59393:                         /* 表示 > ステータスバー */
         /* a tick: the status line goes away and the drawing area takes
            the room (tools/probe134.sh).  The view's clip is read from
@@ -2589,12 +3186,29 @@ int app_press(int x, int y, int button)
     int k = hit_button(x, y);
     int id, g, n;
 
+    if (mb_open) {                      /* modal over everything */
+        int h = ui_msgbox_hit(fb.w, fb.h, 1, x, y);
+
+        if (h == 1 || h == 2) {
+            mb_open = 0;
+            if (h == 1) {
+                /* every dialog back to where it first appears */
+                ui_blktree_default(fb.w, fb.h, &bt_win);
+            }
+        }
+        return 1;
+    }
+
     /* An open popup takes the press: on an item it runs it, anywhere else it
        just shuts -- the click that closes a menu does nothing else, which is
        what Windows does too. */
     if (ui_popup_up()) {
         int cmd = ui_popup_in(x, y) ? ui_popup_press(x, y) : 0;
 
+        if (cmd && (app_menu_state(cmd) & 2)) {     /* a greyed item */
+            ui_popup_open(-1);
+            return 1;
+        }
         if (cmd) {
             ui_popup_open(-1);
             return app_command(cmd) | 1;
@@ -2642,6 +3256,13 @@ int app_press(int x, int y, int button)
         return press_shakudo(x, y);
     if (ld_open)
         return press_layerdlg(x, y, button);
+
+    if (bt_open) {                      /* modeless: it hears, or passes on */
+        int r = bt_press(x, y, button);
+
+        if (r >= 0)
+            return r;
+    }
 
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
@@ -2762,6 +3383,7 @@ int app_press(int x, int y, int button)
     }
     if (view_ready && in_view(x, y)) {
         double mx, my;
+        bt_close();                     /* a press in the drawing */
         jw_cmd_box_click(0);            /* the caret leaves the bar */
         to_paper(x, y, &mx, &my);
         {   /* While ブロック編集 is on, whatever a click makes goes into
@@ -2817,9 +3439,51 @@ static int moji_key(int c)
  * shuts one, the way it shuts any dialog with a cancel button. */
 static int dialog_open(void)
 {
-    return zoku_open || moji_open || zsel_open || blk_open || be_open
+    return mb_open || zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
            || sk_open || ld_open || td_open || tgp_open || kj_open;
+}
+
+/* What the menu says about an item: bit 0 ticked, bit 1 greyed.  It is the
+ * original's ON_UPDATE_COMMAND_UI, one handler to an id:
+ *
+ *   59393 ステータスバー           ticked while the status line shows
+ *   32995 ブロックツリー半透明化   ticked while it is on        (FUN_00511e00)
+ *   33037 Direct2D                 ticked while it is on        (FUN_00511e50)
+ *   33041 ANTIALIAS                greyed unless Direct2D is on, ticked
+ *                                  while it is on               (FUN_00511db0)
+ *   32967 タグジャンプ             greyed unless a single text is picked
+ *                                                               (FUN_00511ca0)
+ *   33013 画像編集                 ticked while that is the command
+ *   33032 SPEED Data 入力          greyed: the SPEED program is not there
+ */
+int app_menu_state(int id)
+{
+    char t[8];
+
+    switch (id) {
+    case 59393:
+        return ui_status_shown() ? 1 : 0;
+    case 32995:
+        return bt_trans ? 1 : 0;
+    case 33037:
+        return d2d_on ? 1 : 0;
+    case 33041:
+        return (aa_on && d2d_on ? 1 : 0) | (d2d_on ? 0 : 2);
+    case 32967:
+        return have_drawing && jw_cmd_sel_text(&drawing, t, (int)sizeof t)
+               ? 0 : 2;
+    case 33013:
+        return jw_cmd() == 0x80f5 ? 1 : 0;
+    case 33032:
+        return 2;
+    }
+    return 0;
+}
+
+const char *app_tag_name(void)
+{
+    return tag_name;
 }
 
 /* whether any of them is up, for whoever is outside */
@@ -2841,6 +3505,15 @@ static void dialog_close(void)
 
 int app_key(int c)
 {
+    if (mb_open) {
+        if (c == 13 || c == 27) {
+            mb_open = 0;
+            if (c == 13)
+                ui_blktree_default(fb.w, fb.h, &bt_win);
+        }
+        app_paint();
+        return 1;
+    }
     if (tgp_open) {
         if (c == 27)
             tgp_open = 0;
@@ -3164,6 +3837,8 @@ void app_new(void)
 {
     jw_drawing d;
 
+    bt_close();
+
     if (!jw_parse(&d, jw_new_jww, jw_new_jww_len)) {
         last_error = d.error;   /* only reachable if the bake went wrong */
         jw_free(&d);
@@ -3192,6 +3867,8 @@ int app_new_count(void)
 int app_open(const unsigned char *b, long n)
 {
     jw_drawing d;
+
+    bt_close();
 
     if (!jw_parse(&d, b, n)) {
         last_error = d.error;
@@ -3356,6 +4033,13 @@ static void draw_drawing(void)
         h = mix(h, &fg, sizeof fg);
     }
     h = mix(h, &drawing, sizeof drawing);
+    {
+        int hn = jw_draw_hl_n();
+
+        h = mix(h, &hn, sizeof hn);
+        if (hn > 0)
+            h = mix(h, jw_draw_hl_path(), (size_t)hn * sizeof(int));
+    }
     if (drawing.obj && drawing.nobj > 0)
         h = mix(h, drawing.obj, (size_t)drawing.nobj * sizeof *drawing.obj);
     if (drawing.pool && drawing.npool > 0)
@@ -3413,6 +4097,8 @@ void app_paint(void)
         if (!view_ready)
             app_fit();
         ui_view_rect(fb.w, fb.h, &view.clip);
+        bt_refresh();
+        bt_hl();
         draw_drawing();
     }
     {
@@ -3491,7 +4177,7 @@ void app_paint(void)
     if (zhen_open)
         ui_zokuhen(&fb, zhen_on);
     if (blk_open)
-        ui_blkname(&fb, blk_name, blk_pref, !blk_attr, blk_attr);
+        ui_blkname(&fb, blk_name, blk_pref, blk_attr != 1, blk_attr);
     if (be_open)
         ui_blkedit(&fb, be_name, be_all);
     if (kh_open)
@@ -3521,6 +4207,10 @@ void app_paint(void)
         ui_tgp(&fb, tgp_kind, tgp_file, tgp_page, -1);
     if (kj_open)
         ui_kijun(&fb, kj_sel);
+    if (bt_open)
+        bt_paint();
+    if (mb_open)
+        ui_msgbox(&fb, "jw_win", MB_TEXT, 1);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

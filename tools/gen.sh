@@ -47,6 +47,8 @@ python tools/mkcp932.py                      # CP932 <-> UTF-16
 python tools/mkicon.py orig/Jw_win.exe src/gen
 python tools/mkmenu.py
 python tools/mkdlgtpl.py                     # every popup dialog, laid out from its template
+python tools/mkbtico.py                      # ブロックツリーの 16x15 の絵
+python tools/mkjwf.py                        # 環境設定ファイルの雛形
 python tools/mkaccel.py                      # the frame's keyboard shortcuts
 python tools/mkstr.py >/dev/null             # the prompts in the status line
 python tools/mktgdat.py

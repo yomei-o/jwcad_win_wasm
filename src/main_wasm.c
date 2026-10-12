@@ -200,6 +200,8 @@ static int finish(int redraw)
 {
     switch (app_take_action()) {
     case JW_ACT_OPEN:
+    case JW_ACT_TAG:        /* タグジャンプ: the page has no folder to look in, so it
+                               lets the user pick the file */
         return 2;
     case JW_ACT_SAVE:
     case JW_ACT_SAVE_AS:

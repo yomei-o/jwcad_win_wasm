@@ -648,7 +648,7 @@ static void pop_paint(fb_t *fb, int x0, int y0, int w, int h,
         const jw_menu_item_t *m = &jw_menu_tree[i];
         char lab[256];
         const char *acc;
-        int ty;
+        int ty, st;
 
         if (m->depth != depth)
             continue;
@@ -662,7 +662,17 @@ static void pop_paint(fb_t *fb, int x0, int y0, int w, int h,
             fb_fill(fb, x0 + 3, y, w - 6, JW_POPUP_ITEM_H, JW_POPUP_HOT);
         acc = pop_label(m->text, lab, sizeof lab);
         ty = y + (JW_POPUP_ITEM_H - th) / 2;
-        jw_text_px(fb, x0 + JW_POPUP_TEXT_X, ty, lab, C_BTNTEXT);
+        st = m->kind == 0 && m->id ? app_menu_state(m->id) : 0;
+        jw_text_px(fb, x0 + JW_POPUP_TEXT_X, ty, lab,
+                   st & 2 ? C_GRAYTEXT : C_BTNTEXT);
+        if (st & 1) {                   /* the tick of a switch that is on */
+            int k, tx = x0 + 14, tyy = y + JW_POPUP_ITEM_H / 2 - 3;
+
+            for (k = 0; k < 3; k++)
+                fb_fill(fb, tx + k, tyy + 3 + k, 1, 2, C_BTNTEXT);
+            for (k = 0; k < 5; k++)
+                fb_fill(fb, tx + 3 + k, tyy + 5 - k, 1, 2, C_BTNTEXT);
+        }
         if (acc)
             jw_text_px(fb, x0 + w - 16 - jw_text_px_w(acc), ty, acc,
                        C_GRAYTEXT);
@@ -2166,8 +2176,10 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr)
 
     ui_blkname_rect(fb->w, fb->h, &r);
     dlg_chrome(fb, &r, JW_BN_CW, JW_BN_CH);
-    jw_text_px(fb, r.x + 9, r.y + (JW_BN_CAPTION - th) / 2, JW_BN_TITLE,
-               C_BTNTEXT);
+    /* attr 2 is ブロックツリー's ブロック名変更: the same window under the
+       caption 編集後のブロック名を入力してください, its check box greyed */
+    jw_text_px(fb, r.x + 9, r.y + (JW_BN_CAPTION - th) / 2,
+               attr == 2 ? "\x95\xd2\x8fW\x8c\xe3\x82\xcc\x83u\x83\x8d\x83" "b\x83N\x96\xbc\x82\xf0\x93\xfc\x97\xcd\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2" : JW_BN_TITLE, C_BTNTEXT);
     dlg_cross(fb, &r, JW_BN_W);
     cx = r.x + JW_BN_BORDER;
     cy = r.y + JW_BN_CAPTION;
@@ -2199,13 +2211,14 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr)
                 fb_hline(fb, x, y + (z->h - CHECK_W) / 2 + CHECK_H, CHECK_W,
                          C_BTNHILIGHT);
             zs_text(fb, x + CHECK_W + 3, y + (z->h - th) / 2,
-                    z->w - CHECK_W - 3, z->text, C_BTNTEXT);
+                    z->w - CHECK_W - 3, z->text,
+                    attr == 2 ? C_GRAYTEXT : C_BTNTEXT);
             break;
         case JW_BN_EDIT: {
             int tw;
 
             mj_sunken(fb, x, y, z->w, z->h);
-            if (attr) {         /* greyed out: ブロック属性 cannot rename */
+            if (attr == 1) {    /* greyed out: ブロック属性 cannot rename */
                 fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
                 break;
             }
@@ -2220,7 +2233,8 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr)
         case JW_BN_STATIC:
             /* ブロック属性 says just ブロック名 */
             zs_text(fb, x, y + (z->h - th) / 2, z->w,
-                    attr ? "\x83u\x83\x8d\x83" "b\x83N\x96\xbc" : z->text,
+                    attr == 2 ? "\x95\xd2\x8fW\x8c\xe3\x82\xcc\x83u\x83\x8d\x83" "b\x83N\x96\xbc\x82\xf0\x93\xfc\x97\xcd\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2" : attr
+                    ? "\x83u\x83\x8d\x83" "b\x83N\x96\xbc" : z->text,
                     C_BTNTEXT);
             break;
         default:
@@ -5265,4 +5279,445 @@ int ui_kijun_hit(int cw, int ch, int px, int py)
             return i;
     }
     return -2;
+}
+
+/* ---------------------------------------------------- ブロックツリー ---
+ * DIALOG 355 (decomp/res/dialog.txt) -- a window of its own that stays
+ * up beside the drawing.  Its template has a tree, three buttons, a box
+ * and a line of text; the tree is 410 pixels wide in the window the
+ * original opens (1076,536 at 426x720 on the machine it was driven on), and
+ * the pieces sit where tools/jwdraw.ps1's `top` step found them:
+ *
+ *   同名BLK全検索 (5,6) 93x21      選択BLK編集 (98,6) 79x21
+ *   BLK名変更 (179,6) 67x21        選択したブロックのみに… (5,30) 245x21
+ *   the tree (0,54), as wide as the window and 620 high in 720
+ *   a line of text at the foot of it (同名ブロック数 = n)
+ *
+ * The tree's rows are 16 pixels apart, a level 19 in, with a 9x9 box for
+ * the ones that open, dotted lines between a parent and its children, a
+ * 16x15 folder (src/gen/btico.h -- the closed one, the open one when the
+ * row is picked) and a blue box round the picked row's name.  A name that
+ * a 同名ブロック全検索 found is in bold.
+ */
+#include "gen/btico.h"
+
+#define BT_BORDER   8
+#define BT_CAPTION  31
+#define BT_ROW      16
+#define BT_TREE_Y   54
+#define BT_INDENT   19
+#define BT_FOOT     22
+
+static const char BT_MENU0[] = "\x93\xaf\x96\xbc\x83u\x83\x8d\x83" "b\x83N\x91S\x8c\x9f\x8d\xf5";
+static const char BT_MENU1[] = "\x91I\x91\xf0\x83u\x83\x8d\x83" "b\x83N\x95\xd2\x8fW";
+static const char BT_MENU2[] = "\x83u\x83\x8d\x83" "b\x83N\x96\xbc\x95\xcf\x8dX";
+
+/* where it first appears: the right of the client, under the menu */
+void ui_blktree_default(int cw, int ch, rect_t *r)
+{
+    r->w = 426;
+    r->h = 720;
+    if (r->h > ch - 40)
+        r->h = ch - 40;
+    if (r->h < 200)
+        r->h = 200;
+    r->x = cw - r->w - 4;
+    if (r->x < 0)
+        r->x = 0;
+    r->y = 4;
+}
+
+static void bt_client(const rect_t *win, int *x, int *y, int *w, int *h)
+{
+    *x = win->x + BT_BORDER;
+    *y = win->y + BT_CAPTION;
+    *w = win->w - 2 * BT_BORDER;
+    *h = win->h - BT_CAPTION - BT_BORDER;
+}
+
+static void bt_tree_rect(const rect_t *win, rect_t *t)
+{
+    int x, y, w, h;
+
+    bt_client(win, &x, &y, &w, &h);
+    t->x = x;
+    t->y = y + BT_TREE_Y;
+    t->w = w;
+    t->h = h - BT_TREE_Y - BT_FOOT;
+}
+
+/* how many rows the tree shows at once */
+int ui_blktree_page(const rect_t *win)
+{
+    rect_t t;
+
+    bt_tree_rect(win, &t);
+    return (t.h - 4) / BT_ROW;
+}
+
+static void bt_btn_rect(const rect_t *win, int id, rect_t *r)
+{
+    int x, y, w, h;
+
+    bt_client(win, &x, &y, &w, &h);
+    r->h = 21;
+    r->y = y + 6;
+    switch (id) {
+    case 2545: r->x = x + 5;   r->w = 93; break;
+    case 2546: r->x = x + 98;  r->w = 79; break;
+    case 2548: r->x = x + 179; r->w = 67; break;
+    default:   r->x = x + 5;   r->w = 245; r->y = y + 30; break;
+    }
+}
+
+static void bt_dots_h(fb_t *fb, int x, int y, int w)
+{
+    int i;
+
+    for (i = 0; i < w; i += 2)
+        fb_fill(fb, x + i, y, 1, 1, 0x808080u);
+}
+
+static void bt_dots_v(fb_t *fb, int x, int y, int h)
+{
+    int i;
+
+    for (i = 0; i < h; i += 2)
+        fb_fill(fb, x, y + i, 1, 1, 0x808080u);
+}
+
+/* what the pop-up menu a right press raises looks like, and where */
+void ui_blktree_menu_rect(int x, int y, int cw, int ch, rect_t *r)
+{
+    r->w = 150;
+    r->h = 3 * JW_POPUP_ITEM_H + 2 * JW_POPUP_BORDER;
+    r->x = x + r->w > cw ? cw - r->w : x;
+    r->y = y + r->h > ch ? ch - r->h : y;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+/* the pop-up a right press raises: the three of MENU 326's BlockList */
+void ui_blktree_menu(fb_t *fb, int mx, int my)
+{
+    rect_t m;
+    static const char *const lab[3] = { BT_MENU0, BT_MENU1, BT_MENU2 };
+    int y, i, th = jw_text_height();
+
+    ui_blktree_menu_rect(mx, my, fb->w, fb->h, &m);
+    fb_fill(fb, m.x, m.y, m.w, m.h, JW_POPUP_FACE);
+    fb_edge(fb, m.x, m.y, m.w, m.h, JW_POPUP_EDGE, JW_POPUP_EDGE);
+    y = m.y + JW_POPUP_BORDER;
+    for (i = 0; i < 3; i++) {
+        jw_text_px(fb, m.x + JW_POPUP_TEXT_X, y + (JW_POPUP_ITEM_H - th) / 2,
+                   lab[i], C_BTNTEXT);
+        y += JW_POPUP_ITEM_H;
+    }
+}
+
+void ui_blktree(fb_t *fb, const rect_t *win, const ui_btrow_t *rows, int n,
+                int scroll, int all, int picked, const char *msg,
+                int menu_x, int menu_y)
+{
+    int cx, cy, cw, chh, th = jw_text_height(), i, page;
+    rect_t t;
+    static const int ids[3] = { 2545, 2546, 2548 };
+    const char *title = "\x83u\x83\x8d\x83" "b\x83N\x83" "c\x83\x8a\x81[";
+
+    bt_client(win, &cx, &cy, &cw, &chh);
+    dlg_chrome(fb, win, cw, chh);
+    {   /* the program's own icon, then the name */
+        int j, k;
+
+        for (j = 0; j < JW_ICON_H; j++)
+            for (k = 0; k < JW_ICON_W; k++)
+                if (jw_icon_mask[j * JW_ICON_W + k])
+                    fb_fill(fb, win->x + 16 + k, win->y + 8 + j, 1, 1,
+                            jw_icon[j * JW_ICON_W + k]);
+    }
+    jw_text_px(fb, win->x + 38, win->y + (BT_CAPTION - th) / 2, title,
+               C_BTNTEXT);
+    /* minimise, maximise and close, as the original's frame has all three */
+    fb_hline(fb, win->x + win->w - 115 + 0, win->y + 16, 10, C_BTNTEXT);
+    fb_edge(fb, win->x + win->w - 69, win->y + 11, 10, 10, C_BTNTEXT,
+            C_BTNTEXT);
+    dlg_cross(fb, win, win->w);
+    fb_fill(fb, cx, cy, cw, chh, C_BTNFACE);
+
+    for (i = 0; i < 3; i++) {
+        rect_t b;
+        /* the labels are the template's own: 同名BLK全検索 and the rest */
+        static const char L0[] = "\x93\xaf\x96\xbc" "BLK\x91S\x8c\x9f\x8d\xf5";
+        static const char L1[] = "\x91I\x91\xf0" "BLK\x95\xd2\x8fW";
+        static const char L2[] = "BLK\x96\xbc\x95\xcf\x8dX";
+        const char *lab = i == 0 ? L0 : i == 1 ? L1 : L2;
+
+        bt_btn_rect(win, ids[i], &b);
+        td_button(fb, b.x, b.y, b.w, b.h, 0);
+        zs_text(fb, b.x + (b.w - jw_text_px_w(lab)) / 2,
+                b.y + (b.h - th) / 2, b.w - 4, lab,
+                picked ? C_BTNTEXT : C_GRAYTEXT);
+    }
+    {
+        rect_t b;
+        static const char L3[] = "\x91I\x91\xf0\x82\xb5\x82\xbd\x83u\x83\x8d\x83" "b\x83N\x82\xcc\x82\xdd\x82\xc9\x8c\x8b\x89\xca\x82\xf0\x94\xbd\x89\x66\x82\xb3\x82\xb9\x82\xe9";
+
+        bt_btn_rect(win, 2547, &b);
+        paint_checkbox(fb, b.x, b.y + (b.h - CHECK_W) / 2, all);
+        zs_text(fb, b.x + CHECK_W + 3, b.y + (b.h - th) / 2,
+                b.w - CHECK_W - 3, L3, C_BTNTEXT);
+    }
+
+    /* the tree */
+    bt_tree_rect(win, &t);
+    mj_sunken(fb, t.x, t.y, t.w, t.h);
+    page = (t.h - 4) / BT_ROW;
+    for (i = 0; i < page && scroll + i < n; i++) {
+        const ui_btrow_t *r = &rows[scroll + i];
+        int ry = t.y + 2 + i * BT_ROW;
+        int ix = t.x + 2 + BT_INDENT * (r->depth + 1);
+        int tx = ix + JW_BTICO_W + 3;
+        int tw = jw_text_px_w(r->text) + (r->bold ? 1 : 0);
+        int j, k;
+        int ico = r->sel ? 2 : 1;
+
+        if (r->depth > 0) {
+            /* the dotted connectors: this row's own column (the half of
+               it above the middle when it is the last of its parent's),
+               the columns of the ancestors with more to come, and the
+               run across to the icon */
+            int dd = r->depth, vx = t.x + 2 + BT_INDENT * dd + 8, a;
+
+            for (a = 1; a < dd; a++)
+                if (r->line & (1 << a))
+                    bt_dots_v(fb, t.x + 2 + BT_INDENT * a + 8, ry, BT_ROW);
+            bt_dots_v(fb, vx, ry, r->last ? BT_ROW / 2 + 1 : BT_ROW);
+            bt_dots_h(fb, vx, ry + BT_ROW / 2, ix - 2 - vx);
+        }
+        if (r->kids) {
+            int bx = ix - 15, by = ry + (BT_ROW - 9) / 2;
+
+            fb_fill(fb, bx, by, 9, 9, 0xffffffu);
+            fb_edge(fb, bx, by, 9, 9, 0x808080u, 0x808080u);
+            fb_hline(fb, bx + 2, by + 4, 5, 0x000000u);
+            if (!r->open)
+                fb_vline(fb, bx + 4, by + 2, 5, 0x000000u);
+        }
+        for (j = 0; j < JW_BTICO_H; j++)
+            for (k = 0; k < JW_BTICO_W; k++) {
+                unsigned c = jw_btico[ico][j * JW_BTICO_W + k];
+
+                if (c != 0xffffffffu)
+                    fb_fill(fb, ix + k, ry + 1 + j, 1, 1, c);
+            }
+        if (r->sel) {
+            fb_fill(fb, tx - 2, ry, tw + 4, BT_ROW, 0x0078d7u);
+            zs_text(fb, tx, ry + (BT_ROW - th) / 2, t.w - (tx - t.x), r->text,
+                    0xffffffu);
+            if (r->bold)
+                zs_text(fb, tx + 1, ry + (BT_ROW - th) / 2, t.w - (tx - t.x),
+                        r->text, 0xffffffu);
+        } else {
+            zs_text(fb, tx, ry + (BT_ROW - th) / 2, t.w - (tx - t.x), r->text,
+                    C_BTNTEXT);
+            if (r->bold)
+                zs_text(fb, tx + 1, ry + (BT_ROW - th) / 2, t.w - (tx - t.x),
+                        r->text, C_BTNTEXT);
+        }
+    }
+    if (n > page) {     /* the bar down the right, when the rows do not fit */
+        int sx = t.x + t.w - 2 - 17, sy = t.y + 2, sh = t.h - 4, k;
+        int tr = sh - 2 * 17, th2 = tr * page / n, ty;
+
+        if (th2 < 8)
+            th2 = 8;
+        ty = sy + 17 + (tr - th2) * scroll / (n - page > 0 ? n - page : 1);
+        fb_fill(fb, sx, sy, 17, sh, 0xf0f0f0u);
+        td_button(fb, sx, sy, 17, 17, 0);
+        td_button(fb, sx, sy + sh - 17, 17, 17, 0);
+        for (k = 0; k < 3; k++) {
+            fb_fill(fb, sx + 8 - k, sy + 6 + k, 2 * k + 1, 1, C_BTNTEXT);
+            fb_fill(fb, sx + 8 - k, sy + sh - 17 + 10 - k, 2 * k + 1, 1,
+                    C_BTNTEXT);
+        }
+        td_button(fb, sx, ty, 17, th2, 0);
+    }
+    if (msg && *msg)
+        zs_text(fb, cx + 2, cy + chh - BT_FOOT + 4, cw - 4, msg, C_BTNTEXT);
+
+    if (menu_x >= 0)
+        ui_blktree_menu(fb, menu_x, menu_y);
+}
+
+/* What a press at (x, y) is on.  -1 outside the window, 0 on bare client,
+   1 on the caption (it is dragged by it), 2 on the x, 2545/2546/2548 and
+   2547 for the buttons and the box, 1775 on the tree -- then *row is the
+   row (counting from the first, scroll included) or -1 below the last, and
+   *box says it was on the little box. */
+int ui_blktree_hit(const rect_t *win, const ui_btrow_t *rows, int n,
+                   int scroll, int x, int y, int *row, int *box)
+{
+    static const int ids[4] = { 2545, 2546, 2548, 2547 };
+    rect_t t;
+    int i;
+
+    *row = -1;
+    *box = 0;
+    if (x < win->x || x >= win->x + win->w || y < win->y
+        || y >= win->y + win->h)
+        return -1;
+    if (dlg_close_hit(win, win->w, x, y))
+        return 2;
+    if (y < win->y + BT_CAPTION)
+        return 1;
+    for (i = 0; i < 4; i++) {
+        rect_t b;
+
+        bt_btn_rect(win, ids[i], &b);
+        if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)
+            return ids[i];
+    }
+    bt_tree_rect(win, &t);
+    if (x >= t.x && x < t.x + t.w && y >= t.y && y < t.y + t.h) {
+        int k = (y - t.y - 2) / BT_ROW + scroll;
+        int page = (t.h - 4) / BT_ROW;
+
+        if (n > page && x >= t.x + t.w - 2 - 17) {
+            int sh = t.h - 4, sy = t.y + 2;
+
+            if (y < sy + 17)
+                return 1776;            /* up */
+            if (y >= sy + sh - 17)
+                return 1777;            /* down */
+            return y < sy + sh / 2 ? 1778 : 1779;   /* the track */
+        }
+
+        if (y - t.y - 2 >= 0 && k >= 0 && k < n) {
+            int ix = t.x + 2 + BT_INDENT * (rows[k].depth + 1);
+
+            *row = k;
+            if (rows[k].kids && x >= ix - 17 && x < ix - 4)
+                *box = 1;
+        }
+        return 1775;
+    }
+    return 0;
+}
+
+/* which of the pop-up menu's three items a press at (x, y) is on, or -1 */
+int ui_blktree_menu_hit(int mx, int my, int cw, int ch, int x, int y)
+{
+    rect_t m;
+    int k;
+
+    ui_blktree_menu_rect(mx, my, cw, ch, &m);
+    if (x < m.x || x >= m.x + m.w || y < m.y || y >= m.y + m.h)
+        return -1;
+    k = (y - m.y - JW_POPUP_BORDER) / JW_POPUP_ITEM_H;
+    return k >= 0 && k < 3 ? k : -1;
+}
+
+/* ------------------------------------------------------ MessageBox ---
+ * What AfxMessageBox puts up, as the original's looks on this Windows
+ * (tools/jwdraw.ps1 `top` + `tshot:` over 表示 > ダイアログボックス, docs/
+ * ref_msgbox.png): a window 277x153 whose frame is 8 pixels on each side
+ * and 6 at the foot, a 32-row caption with the program's name in it, a white
+ * body 72 rows high with the text in it, and under that the light grey strip
+ * the buttons stand in -- OK at (89,81) and キャンセル at (171,81), each 75x23
+ * in the client (which starts at 8,31), the first of them the default.
+ */
+#define MB_W 277
+#define MB_H 153
+
+void ui_msgbox_rect(int cw, int ch, rect_t *r)
+{
+    r->w = MB_W;
+    r->h = MB_H;
+    r->x = (cw - MB_W) / 2;
+    r->y = (ch - 42 - MB_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+static void mb_button(fb_t *fb, int x, int y, int w, int h, int def,
+                      const char *s)
+{
+    int th = jw_text_height();
+
+    fb_fill(fb, x, y, w, h, 0xe1e1e1u);
+    fb_edge(fb, x, y, w, h, def ? 0x0078d7u : 0xadadadu,
+            def ? 0x0078d7u : 0xadadadu);
+    if (def)
+        fb_edge(fb, x + 1, y + 1, w - 2, h - 2, 0x0078d7u, 0x0078d7u);
+    jw_text_px(fb, x + (w - jw_text_px_w(s)) / 2, y + (h - th) / 2, s,
+               0x000000u);
+}
+
+/* `text` has lines divided by \n.  ncancel: 0 for OK alone, 1 for OK and
+   キャンセル */
+void ui_msgbox(fb_t *fb, const char *title, const char *text, int ncancel)
+{
+    rect_t r;
+    int th = jw_text_height(), y, k = 0;
+    char line[160];
+    const char *p = text;
+
+    ui_msgbox_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x + 8, r.y, MB_W - 16, 32, 0xf3f3f3u);
+    fb_fill(fb, r.x + 8, r.y + 32, MB_W - 16, 72, 0xffffffu);
+    fb_fill(fb, r.x + 8, r.y + 104, MB_W - 16, 43, 0xf0f0f0u);
+    fb_edge(fb, r.x + 7, r.y, MB_W - 14, MB_H - 6, 0x888888u, 0x888888u);
+    jw_text_px(fb, r.x + 17, r.y + (32 - th) / 2, title, 0x000000u);
+    dlg_cross(fb, &r, MB_W);
+    y = r.y + 54;
+    while (*p) {
+        k = 0;
+        /* a line that will not fit is broken between two characters */
+        while (*p && *p != '\n' && k < (int)sizeof line - 3) {
+            int w = jw_is_lead((unsigned char)*p) && p[1] ? 2 : 1;
+
+            memcpy(line + k, p, (size_t)w);
+            line[k + w] = 0;
+            if (k && jw_text_px_w(line) > 232) {
+                line[k] = 0;
+                break;
+            }
+            k += w;
+            p += w;
+        }
+        line[k] = 0;
+        if (*p == '\n')
+            p++;
+        jw_text_px(fb, r.x + 19, y, line, 0x000000u);
+        y += th + 2;
+    }
+    mb_button(fb, r.x + 8 + 89, r.y + 31 + 81, 75, 23, 1, "OK");
+    if (ncancel)
+        mb_button(fb, r.x + 8 + 171, r.y + 31 + 81, 75, 23, 0,
+                  "\x83L\x83\x83\x83\x93\x83Z\x83\x8b");
+}
+
+/* 1 for OK, 2 for キャンセル or the x, 0 on the box, -1 outside it */
+int ui_msgbox_hit(int cw, int ch, int ncancel, int x, int y)
+{
+    rect_t r;
+
+    ui_msgbox_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;
+    if (dlg_close_hit(&r, MB_W, x, y))
+        return 2;
+    x -= r.x + 8;
+    y -= r.y + 31;
+    if (y >= 81 && y < 104) {
+        if (x >= 89 && x < 164)
+            return 1;
+        if (ncancel && x >= 171 && x < 246)
+            return 2;
+    }
+    return 0;
 }

@@ -347,4 +347,30 @@ int  ui_tgp_per_page(int cw, int ch, int kind);
 void ui_kijun(fb_t *fb, int sel);                    /* 基準点選択 (DIALOG 297) */
 int  ui_kijun_hit(int cw, int ch, int px, int py);
 
+/* ブロックツリー (DIALOG 355): a window that stays up beside the drawing */
+typedef struct {
+    char text[128];
+    short depth;
+    unsigned char kids, open, sel, bold, last;
+    unsigned int line;          /* bit d: the ancestor at depth d has more
+                                   siblings after it */
+} ui_btrow_t;
+const ui_btrow_t *app_blktree_row(int i);
+void ui_blktree_default(int cw, int ch, rect_t *r);
+int  ui_blktree_page(const rect_t *win);
+void ui_blktree(fb_t *fb, const rect_t *win, const ui_btrow_t *rows, int n,
+                int scroll, int all, int picked, const char *msg,
+                int menu_x, int menu_y);
+int  ui_blktree_hit(const rect_t *win, const ui_btrow_t *rows, int n,
+                    int scroll, int x, int y, int *row, int *box);
+void ui_blktree_menu_rect(int x, int y, int cw, int ch, rect_t *r);
+void ui_blktree_menu(fb_t *fb, int mx, int my);
+int  ui_blktree_menu_hit(int mx, int my, int cw, int ch, int x, int y);
+
+/* AfxMessageBox: its text (lines divided by 
+), OK and perhaps キャンセル */
+void ui_msgbox_rect(int cw, int ch, rect_t *r);
+void ui_msgbox(fb_t *fb, const char *title, const char *text, int ncancel);
+int  ui_msgbox_hit(int cw, int ch, int ncancel, int x, int y);
+
 #endif

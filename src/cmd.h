@@ -440,7 +440,18 @@ int  jw_cmd_block_attr(jw_drawing *d, int prefer_layer);
  * reference that is picked (0 if none is), jw_cmd_block_done ends it, and
  * jw_cmd_block_take moves anything added since `from` into the definition.
  */
+int  jw_cmd_sel_text(const jw_drawing *d, char *out, int cap);
 int  jw_cmd_block_edit(jw_drawing *d);
+/* ブロックツリー: a node is the place of a reference in d->obj; -1 is the
+   root.  Names are the definition's, without the @@SfigorgFlag@@n. */
+const char *jw_bt_name(const jw_drawing *d, int ref);
+int  jw_bt_kids(const jw_drawing *d, int parent, int *out, int max);
+int  jw_bt_has_kids(const jw_drawing *d, int ref);
+/* the same on the reference at the end of a path of places in d->obj,
+   outermost first (ブロックツリー) */
+int  jw_cmd_block_edit_path(jw_drawing *d, const int *path, int n);
+int  jw_cmd_block_rename_path(jw_drawing *d, const int *path, int n,
+                              const char *name);
 void jw_cmd_block_done(void);
 int  jw_cmd_block_editing(void);
 /* The name of the block being edited, for the dialog. */
@@ -471,5 +482,12 @@ int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
    2 書込み【レイヤ】, 3 書込みレイヤグループ */
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
+
+/* 設定 > 環境設定ファイル: 書出し (the original's file with what the drawing
+   holds put in) and 読込み (what it holds taken back).  The caller frees
+   *out. */
+int  jw_env_write(const jw_drawing *d, const char *name, unsigned char **out,
+                  long *n);
+int  jw_env_read(jw_drawing *d, const unsigned char *b, long n);
 
 #endif

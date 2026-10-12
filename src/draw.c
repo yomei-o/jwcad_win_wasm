@@ -2574,8 +2574,39 @@ static void solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
    reference's own place, size and turn.  A definition that holds a further
    reference is followed too, but only so deep: one that somehow held itself
    would never finish. */
+/* ブロックツリー: the reference the tree has picked, drawn in the picked
+   colour like anything else that is picked -- but it is not a pick in the
+   drawing's sense (the toolbar stays as it is and ブロック解除 does nothing
+   with it).  The path is the references' places in d->obj, outermost first:
+   a drawn one, then a member of its definition, then a member of that
+   one's definition. */
+static const jw_drawing *hl_d;
+static int hl_path[9], hl_n;
+
+void jw_draw_hl(const jw_drawing *d, const int *path, int n)
+{
+    int i;
+
+    hl_d = d;
+    hl_n = n > 9 ? 9 : n < 0 ? 0 : n;
+    for (i = 0; i < hl_n; i++)
+        hl_path[i] = path[i];
+}
+
+int jw_draw_hl_n(void)
+{
+    return hl_n;
+}
+
+const int *jw_draw_hl_path(void)
+{
+    return hl_path;
+}
+
+/* `sel` draws everything in the reference picked; `hlk` is how far down
+   the tree's path this reference is (-1: not on it) */
 static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
-                  const jw_obj *ref, int depth)
+                  const jw_obj *ref, int depth, int sel, int hlk)
 {
     jw_drawing one;
     jw_obj o;
@@ -2599,13 +2630,21 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
         if (o.cls == JW_LIST)
             break;              /* a definition of its own, not a member */
         if (o.cls == JW_BLOCK) {
+            int nsel = sel, nhl = -1;
+
             /* the inner reference, carried by the outer one */
             o.d[0] = o.d[0] * ref->d[2] + ref->d[0];
             o.d[1] = o.d[1] * ref->d[3] + ref->d[1];
             o.d[2] *= ref->d[2];
             o.d[3] *= ref->d[3];
             o.d[4] += ref->d[4];
-            block(fb, v, d, &o, depth + 1);
+            if (hlk >= 0 && hlk < hl_n && hl_path[hlk] == i) {
+                if (hlk == hl_n - 1)
+                    nsel = 1;
+                else
+                    nhl = hlk + 1;
+            }
+            block(fb, v, d, &o, depth + 1, nsel, nhl);
             continue;
         }
         /* One scale, not two: an element can be turned and made bigger,
@@ -2614,6 +2653,8 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
            the first of them. */
         jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4],
                      ref->d[0], ref->d[1]);
+        if (sel)
+            o.sel = 1;
         jw_draw(fb, v, &one);
     }
 }
@@ -2833,9 +2874,18 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                                  (o->n / 10000) & 3);
             }
             break;
-        case JW_BLOCK:
-            block(fb, v, d, o, 0);
+        case JW_BLOCK: {
+            int at = (int)(o - d->obj), sel = o->sel, hlk = -1;
+
+            if (d == hl_d && hl_n > 0 && hl_path[0] == at) {
+                if (hl_n == 1)
+                    sel = 1;
+                else
+                    hlk = 1;
+            }
+            block(fb, v, d, o, 0, sel, hlk);
             break;
+        }
         default:
             break;
         }
