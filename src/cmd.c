@@ -4792,6 +4792,10 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     default:
         t = dist;
     }
+    /* a cut longer than the line that is left does nothing (fuzz case 67) */
+    if (t > (cp < tp ? tp : 1.0 - tp) * plen + 1e-9
+        || t > (cq < tq ? tq : 1.0 - tq) * qlen + 1e-9)
+        return;
     px = ix + pux * t;
     py = iy + puy * t;
     qx = ix + qux * t;
@@ -5019,7 +5023,16 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
             ip = ((bx0 - ax0) * bdy - (by0 - ay0) * bdx) / den;
             iq = ((bx0 - ax0) * ady - (by0 - ay0) * adx) / den;
         }
-        if ((ta >= ip) != (tb >= iq)) {
+        int flipb = (ta >= ip) != (tb >= iq);
+
+        if (den == 0.0 || fabs(den) <= 1e-9 * (adx * adx + ady * ady + 1e-30)) {
+            /* parallel: the pairing that does not cross (fuzz case 68) */
+            double same = hypot(bx0 - ax0, by0 - ay0) + hypot(bx1 - ax1, by1 - ay1);
+            double flip = hypot(bx1 - ax0, by1 - ay0) + hypot(bx0 - ax1, by0 - ay1);
+
+            flipb = flip < same - 1e-9;
+        }
+        if (flipb) {
             tx = bx0; ty = by0;
             bx0 = bx1; by0 = by1;
             bx1 = tx; by1 = ty;
@@ -14032,12 +14045,17 @@ placed:
             op_keep(op_new(), d, i, 0);
             /* a point inside the line keeps the side that was clicked and
                moves the far end; one past an end extends that end */
-            if (t >= 0.0 && t <= 1.0 ? stretch_t0 > 0.5 : t < 0.0) {
-                o->d[0] = nx;
-                o->d[1] = ny;
-            } else {
-                o->d[2] = nx;
-                o->d[3] = ny;
+            {
+                double eps = 0.6 / sqrt(len2);    /* about a pixel: on the end counts as past it */
+                int past = t <= eps || t >= 1.0 - eps;
+
+                if (past ? t < 0.5 : stretch_t0 > 0.5) {
+                    o->d[0] = nx;
+                    o->d[1] = ny;
+                } else {
+                    o->d[2] = nx;
+                    o->d[3] = ny;
+                }
             }
         }
         return;
