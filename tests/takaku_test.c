@@ -163,8 +163,17 @@ static void run_pick(const char *name, int kind, int opt, int btn, int px, int p
     app_command(32894);
     jw_cmd_bar((jw_drawing *)app_drawing(), 1070);
     jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
-    if ((jw_cmd_bar_check(1326) > 0) != (opt == 1326))
-        jw_cmd_bar((jw_drawing *)app_drawing(), 1326);
+    /* opt: 0 なら素のまま、さもなくば 線形・円周 (1326)・曲線属性化 (1325)・
+       弓形 (1327)・円外側 (1328) のうち一つだけを立てる。トグルはバーの状態が
+       次の呼び出しへ持ち越るので、四つとも望む状態に揃え直す */
+    {
+        static const int TG[4] = { 1325, 1326, 1327, 1328 };
+        int t;
+
+        for (t = 0; t < 4; t++)
+            if ((jw_cmd_bar_check(TG[t]) > 0) != (opt == TG[t]))
+                jw_cmd_bar((jw_drawing *)app_drawing(), TG[t]);
+    }
     jw_cmd_bar((jw_drawing *)app_drawing(), 1083);
     app_press(r.x + px, r.y + py, btn);
     d = app_drawing();
@@ -352,16 +361,25 @@ int main(void)
         static const int C6[6][2] = { {600,200}, {427,300}, {427,500}, {600,600}, {773,500}, {773,300} };
 
         run_pick("p173_c1", 0, 0, 0, 800, 400);
+        run_pick("p173_c4", 0, 1325, 0, 800, 400);
         run_pick("p173_c5", 0, 1326, 0, 800, 400);
+        run_pick("p173_c6", 0, 1327, 0, 800, 400);
+        run_pick("p173_c7", 0, 1328, 0, 800, 400);
         run_pick("p174_k5", 0, 0, 1, 800, 400);
         run_pick("p174_p1", 1, 0, 0, 450, 275);
+        run_pick("p174_p2", 1, 1325, 0, 450, 275);
         run_pick("p174_p3", 1, 1326, 0, 450, 275);
+        run_pick("p174_p4", 1, 1327, 0, 450, 275);
+        run_pick("p174_p5", 1, 1328, 0, 450, 275);
         run_pick("p174_p6", 1, 0, 1, 450, 275);
         run_pick("p174_a1", 2, 0, 0, 800, 400);
+        run_pick("p174_a2", 2, 1327, 0, 800, 400);
+        run_pick("p174_a3", 2, 1328, 0, 800, 400);
         run_pick("p174_a4", 2, 1326, 0, 800, 400);
         run_pick("p174_a5", 2, 0, 1, 800, 400);
         run_pick("p174_q1", 3, 0, 0, 450, 275);
         run_pick("p174_q3", 3, 1326, 0, 450, 275);
+        run_pick("p174_q4", 3, 1325, 0, 450, 275);
         run_pick("p174_q2", 4, 0, 0, 450, 275);
         run_any("p170_p3", 0, T3, 3, 1, 0, 0);
         run_any("p170_p4", 0, T4, 4, 1, 0, 0);
