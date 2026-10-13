@@ -871,6 +871,12 @@ int jw_cmd_sunpo_decimals(void)
 /* 寸法 の 半径 (1065): one click on a circle instead of two points on a
  * line.  0 is the ordinary two-point dimension. */
 static int sun_radius;          /* 1 = 半径, 2 = 直径 */
+/* Esc-only: whether 半径／直径 has drawn one yet this activation.  Kept
+   apart from sun_made, which the prompt (jw_cmd_prompt) also reads for the
+   base/角度/円周 "次へ" tail -- 半径／直径 has no such tail (its own
+   prompt is a pre-existing gap, not this one's to fix), so sharing the
+   flag would change what the bar says instead of only how Esc behaves. */
+static int sun_radius_made;
 
 /* 寸法 の 寸法値 (1069): the value on its own, with no dimension line and
  * no extension lines.  The original was asked and, given two left clicks,
@@ -2612,8 +2618,7 @@ void jw_cmd_esc_key(jw_drawing *d)
         }
     }
     /* 寸法: one dimension in -> its 終点 -> 始点 -> ■寸法線の位置 -> start
-       (probed on the original, tools/stagecmp.sh).  角度・円周・半径・寸法値
-       have walks of their own and are let go of at once as before. */
+       (probed on the original, tools/stagecmp.sh). */
     if (current == JW_CMD_SUNPO && !sun_chi && !sun_kaku && !sun_enshu
         && !sun_radius && !ika_step) {
         if (sun_made && sun_step == 2) {
@@ -2629,6 +2634,59 @@ void jw_cmd_esc_key(jw_drawing *d)
             tracking = 0;
             return;
         }
+    }
+    /* 寸法の 角度・円周 (RESUME.md 2026-10-13 の節, tools/jwdraw.ps1 の
+       raw:f,256/257,27,0 で実測): 一度も作図していない歩みの途中（原点・
+       円の指示待ちも、その先の四手のどこでも）で Esc を押すと、原典は
+       一段ずつ戻らず**まるごと手放して平の二点寸法に戻る**（バーの
+       角度／円周が外れ、歩みは 0 -- 底の「寸法値」tail が消えるかどうかで
+       見分けた）。ただし「作図済みで次に備えている」状態（sun_made かつ
+       step==2）だけは別で、そこから一段戻ると角度／円周のまま
+       寸法の終点を取り直す（底の block と同じ式）。そこからもう一度 Esc を
+       押すと（もう sun_made ではないので）やはりまるごと手放す。 */
+    if (current == JW_CMD_SUNPO && (sun_kaku || sun_enshu) && !ika_step) {
+        if (sun_made && sun_step == 2) {
+            sun_made = 0;
+            sun_step = 3;
+            tracking = 0;
+            return;
+        }
+        sun_kaku = sun_enshu = 0;
+        sun_step = 0;
+        sun_made = 0;
+        tracking = 0;
+        return;
+    }
+    /* 寸法値 (1069): 同じ形。作図済みで次に備えている状態だけが一段戻って
+       二点目を取り直し、それ以外（まだ一つも作っていない、一点目だけ
+       打った途中を含む）は寸法値をまるごと手放して平の二点寸法に戻る
+       （実測は上と同じ、tools/jwdraw.ps1 で cmd:32847;pb:1069;...）。 */
+    if (current == JW_CMD_SUNPO && sun_chi && !ika_step) {
+        if (sun_chi_done && sun_step == 5) {
+            sun_chi_done = 0;
+            sun_step = 6;
+            tracking = 0;
+            return;
+        }
+        sun_chi = 0;
+        sun_step = 0;
+        tracking = 0;
+        return;
+    }
+    /* 半径・直径 (1065/1066): 一手で描き切るので、そのあいだに戻る段が
+       ない。一度も描いていなければ Esc は半径／直径をまるごと手放して
+       平の二点寸法に戻り、一つでも描いたあとは原典は何もしない
+       （sun_step は 2 のままで、jw_cmd_escape の sun_step リセットも
+       2 のままなので黙って下に落としてよい）。sunpo_radius が描いたとき
+       sun_radius_made を立てるのはこの区別のためだけ（sun_made を使うと
+       base/角度/円周 の「次へ」の案内まで出てしまう）。 */
+    if (current == JW_CMD_SUNPO && sun_radius && !sun_radius_made
+        && !ika_step) {
+        sun_radius = 0;
+        sun_radius_made = 0;
+        sun_step = 0;
+        tracking = 0;
+        return;
     }
     /* 複線: the direction -> the interval -> the line to offset */
     if (current == JW_CMD_FUKUSEN && para_step > 0) {
@@ -10254,11 +10312,13 @@ static int bar_press(jw_drawing *d, int id)
         }
         if (id == 1065) {       /* 半径 */
             sun_radius = 1;
+            sun_radius_made = 0;
             sun_step = 2;
             return 1;
         }
         if (id == 1066) {       /* 直径 */
             sun_radius = 2;
+            sun_radius_made = 0;
             sun_step = 2;
             return 1;
         }
@@ -11784,6 +11844,13 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         o->n = 0;
     }
     op_push(4);
+    /* so jw_cmd_esc_key can tell "never drawn one yet" (Esc drops 半径／
+       直径 back to the plain two-point kind) from "already have" (Esc then
+       does nothing, same as the original -- RESUME.md 2026-10-13).  Not
+       sun_made: that one also feeds the base/角度/円周 "次へ" prompt, which
+       半径／直径 does not show (a pre-existing gap, not this one's to
+       fix). sun_step itself stays 2 throughout, made or not. */
+    sun_radius_made = 1;
 }
 
 /* 寸法値 (1069): the value on its own, between the two points given. */

@@ -31,6 +31,14 @@
 #                       (some handlers read GetCursorPos, not lParam)
 #   w<x>,<y>[,r]        click in the FRAME's client coordinates -- for the
 #                       layer grid, whose buttons are frame children
+#   tbfind:<id>         list each docking toolbar (class ToolbarWindow32)
+#                       that carries command <id>, its enabled state and the
+#                       button's own rect (TB_COMMANDTOINDEX/TB_GETITEMRECT,
+#                       read back cross-process the way TreeWalk does)
+#   tbclick:<id>[,r]    a real click on that toolbar button's own rect --
+#                       distinct from cmd:<id>'s direct WM_COMMAND, so a
+#                       button the menu/UI update would grey out can be
+#                       told apart from a handler that just no-ops
 #   cmd:<id>            WM_COMMAND to the frame, mid-way
 #   LL<x>,<y>       a **double** left click, which is what the original
 #                   calls (LL).  Windows delivers one as down, up,
@@ -197,6 +205,52 @@ public static class Jw {
         List<IntPtr> l = new List<IntPtr>();
         EnumChildWindows(parent, delegate(IntPtr h, IntPtr p) { l.Add(h); return true; }, IntPtr.Zero);
         return l.ToArray();
+    }
+
+    const uint TB_ISBUTTONENABLED = 0x400 + 9;
+    const uint TB_COMMANDTOINDEX  = 0x400 + 25;
+    const uint TB_GETITEMRECT     = 0x400 + 29;
+
+    /// A 32-bit LRESULT from a message to a window in a 32-bit process (the
+    /// original is PE32) can come back as e.g. 0xFFFFFFFF -- a perfectly
+    /// good -1, but too big to fit the range IntPtr's own (int) conversion
+    /// insists on, which throws OverflowException instead of truncating.
+    static int I32(IntPtr v) { return unchecked((int)v.ToInt64()); }
+
+    /// Whether a docking toolbar (class ToolbarWindow32) carries the given
+    /// command id at all -- TB_COMMANDTOINDEX takes the id in wParam and
+    /// needs no cross-process memory, so this is always safe to call.
+    public static bool ToolbarHasButton(IntPtr tb, int cmdId) {
+        return I32(SendMessageW(tb, TB_COMMANDTOINDEX, (IntPtr)cmdId, IntPtr.Zero)) >= 0;
+    }
+
+    public static bool ToolbarButtonEnabled(IntPtr tb, int cmdId) {
+        return I32(SendMessageW(tb, TB_ISBUTTONENABLED, (IntPtr)cmdId, IntPtr.Zero)) != 0;
+    }
+
+    /// TB_GETITEMRECT writes into a RECT the toolbar's own process has to be
+    /// able to see, so this borrows the TreeWalk trick below: a page in the
+    /// target process, read back with ReadProcessMemory.  The rect comes
+    /// back in the toolbar's own client coordinates.
+    public static bool ToolbarItemRect(IntPtr tb, int cmdId, out RECT r) {
+        r = new RECT();
+        int idx = I32(SendMessageW(tb, TB_COMMANDTOINDEX, (IntPtr)cmdId, IntPtr.Zero));
+        if (idx < 0) return false;
+        uint pid; GetWindowThreadProcessId(tb, out pid);
+        IntPtr hp = OpenProcess(0x1F0FFF, false, pid);
+        if (hp == IntPtr.Zero) return false;
+        IntPtr rem = VirtualAllocEx(hp, IntPtr.Zero, 16, 0x3000, 4);
+        try {
+            SendMessageW(tb, TB_GETITEMRECT, (IntPtr)idx, rem);
+            byte[] b = new byte[16];
+            int n;
+            if (!ReadProcessMemory(hp, rem, b, 16, out n) || n != 16) return false;
+            r.Left = BitConverter.ToInt32(b, 0); r.Top = BitConverter.ToInt32(b, 4);
+            r.Right = BitConverter.ToInt32(b, 8); r.Bottom = BitConverter.ToInt32(b, 12);
+            return true;
+        } finally {
+            VirtualFreeEx(hp, rem, 0, 0x8000);
+        }
     }
 
 
@@ -2101,6 +2155,51 @@ try {
                 } else {
                     Tops2; foreach ($k in [Jw]::Kids($dlg)) { Write-Host ("   kid {0} {1} [{2}]" -f $k, [Jw]::Cls($k), [Jw]::Txt($k)) }; throw "saveas: $name was not written"
                 }
+                break
+            }
+
+            '^tbfind:(\d+)$' {
+                # Which docking toolbar(s) carry this command, enabled or not,
+                # and where -- a look before tbclick actually presses it.
+                $id = [int]$Matches[1]
+                $any = $false
+                foreach ($h in [Jw]::Kids($frame)) {
+                    if ([Jw]::Cls($h) -ne 'ToolbarWindow32') { continue }
+                    if (-not [Jw]::ToolbarHasButton($h, $id)) { continue }
+                    $any = $true
+                    $en = [Jw]::ToolbarButtonEnabled($h, $id)
+                    $vis = [Jw]::IsWindowVisible($h)
+                    $wr = [Jw]::RectIn($h, $frame)
+                    $rect = New-Object Jw+RECT
+                    $ok = [Jw]::ToolbarItemRect($h, $id, [ref]$rect)
+                    Emit ('toolbar {0} bar=({1},{2},{3},{4}) visible={5} enabled={6} item={7}' -f `
+                        $h, $wr.Left, $wr.Top, $wr.Right, $wr.Bottom, [int]$vis, [int]$en,
+                        $(if ($ok) { '{0},{1},{2},{3}' -f $rect.Left, $rect.Top, $rect.Right, $rect.Bottom } else { '?' }))
+                }
+                if (-not $any) { Emit "no toolbar carries $id" }
+                break
+            }
+
+            '^tbclick:(\d+)(,r)?$' {
+                # A real click on the docking toolbar's own button -- not the
+                # WM_COMMAND shortcut cmd: -- so a handler that behaves
+                # differently when the UI itself would have greyed the
+                # button out of the way can be told apart from one that
+                # just no-ops when invoked directly.
+                $id = [int]$Matches[1]
+                $right = $Matches[2] -ne ''
+                $done = $false
+                foreach ($h in [Jw]::Kids($frame)) {
+                    if ([Jw]::Cls($h) -ne 'ToolbarWindow32') { continue }
+                    $rect = New-Object Jw+RECT
+                    if (-not [Jw]::ToolbarItemRect($h, $id, [ref]$rect)) { continue }
+                    $cx = [int](($rect.Left + $rect.Right) / 2)
+                    $cy = [int](($rect.Top + $rect.Bottom) / 2)
+                    Click $h $cx $cy $right $false
+                    $done = $true
+                    break
+                }
+                if (-not $done) { throw "no toolbar has button $id" }
                 break
             }
 
