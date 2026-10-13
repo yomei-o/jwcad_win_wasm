@@ -40,6 +40,7 @@
 #                       button the menu/UI update would grey out can be
 #                       told apart from a handler that just no-ops
 #   cmd:<id>            WM_COMMAND to the frame, mid-way
+#   RR<x>,<y>       the same with the right button
 #   LL<x>,<y>       a **double** left click, which is what the original
 #                   calls (LL).  Windows delivers one as down, up,
 #                   WM_LBUTTONDBLCLK, up, and the view takes all four
@@ -429,6 +430,7 @@ public static class Jw {
 $WM_MOUSEMOVE   = 0x0200
 $WM_LBUTTONDOWN = 0x0201
 $WM_LBUTTONDBLCLK = 0x0203
+$WM_RBUTTONDBLCLK = 0x0206
 $WM_LBUTTONUP   = 0x0202
 $WM_RBUTTONDOWN = 0x0204
 $WM_RBUTTONUP   = 0x0205
@@ -2272,6 +2274,23 @@ try {
                 Start-Sleep -Milliseconds 30
                 [void][Jw]::PostMessage($view, $WM_LBUTTONDBLCLK, [IntPtr]1, $l)
                 [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^RR(\d+),(\d+)$' {
+                # the same for the right button: down, up, WM_RBUTTONDBLCLK,
+                # up.  分割's 連続点分割 (RR) on a run of joined lines
+                # (CZukeiBunkatsu slot 13 -> FUN_00765710 with DAT_00a0cc70)
+                $x = [int]$Matches[1]; $y = [int]$Matches[2]
+                $l = LParam $x $y
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0, $l)
+                Start-Sleep -Milliseconds 60
+                [void][Jw]::PostMessage($view, $WM_RBUTTONDOWN, [IntPtr]2, $l)
+                [void][Jw]::PostMessage($view, $WM_RBUTTONUP, [IntPtr]0, $l)
+                Start-Sleep -Milliseconds 30
+                [void][Jw]::PostMessage($view, $WM_RBUTTONDBLCLK, [IntPtr]2, $l)
+                [void][Jw]::PostMessage($view, $WM_RBUTTONUP, [IntPtr]0, $l)
                 Start-Sleep -Milliseconds $StepMs
                 break
             }

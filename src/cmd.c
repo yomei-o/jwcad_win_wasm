@@ -562,8 +562,17 @@ static int bk_mode = 1689;      /* 分割のラジオ: 1689 等距離・1690 等
  *                  corner_obj<0  なら 始点 Ｐ を (R) で指示済み（bk_px,bk_py、mode 2・ac=1）
  *   corner_step 2: 始点 Ｐ・第二点 Ｐ2 を (R)(R) で指示済み（mode 3）
  * 原典 tools/jwdraw.ps1 を直接叩いた実測（2026-10-13、RESUME.md 参照）で
- * 確かめた式を使う。連続点分割 (RR、string 5819/5820) はまだ手を付けていない。 */
+ * 確かめた式を使う。
+ *   bk_rr_n>0（corner_step は 0）: 連続点分割 (RR) の途中。始点 Ｐ と同じ点を
+ *                  もう一度 (R) で読むと入る（原典 FUN_00765710 の state 2 の枝、
+ *                  FUN_00436970 で +0x100 と同じ点なら +0x138=1・state 0）。 */
 static double bk_px, bk_py;     /* corner_step>=1 かつ corner_obj<0: 始点 P */
+/* 連続点分割の点列。原典 CZukeiBunkatsu の +0x138（個数、1 始まり）と
+   +0x140+i*0x10（点 i、配列は 0x7d4 個）。個数は < 0x7d1 の間だけ増える
+   （FUN_00764910・FUN_00765710）ので最大 2001。 */
+#define BK_RR_MAX 2001
+static double bk_rr_x[BK_RR_MAX + 1], bk_rr_y[BK_RR_MAX + 1];
+static int bk_rr_n;
 static double bk_p2x, bk_p2y;   /* corner_step==2: 第二点 P2 */
 static int bk_a_enko;           /* corner_step==1 かつ corner_obj>=0: 指示した
                                     のが円なら 1、線なら 0（jw_cmd_prompt は
@@ -2405,6 +2414,7 @@ void jw_cmd_set(int id)
     esc_3pt = 0;
     if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU)
         box_put(1411, "");      /* asking for it again empties the box (s4_10) */
+    bk_rr_n = 0;                /* FUN_0075b070: +0x138 = 0 */
     step = 0;
     en_step = 0;
     hou_step = 0;
@@ -2563,6 +2573,7 @@ void jw_cmd_escape(void)
     hou_step = 0;
     cut_step = 0;
     corner_step = 0;
+    bk_rr_n = 0;
     stretch_step = 0;
     para_step = 0;
     tracking = 0;
@@ -2708,7 +2719,14 @@ void jw_cmd_esc_key(jw_drawing *d)
     /* 分割: 状態 3（第二点まで）-> 状態 2（始点のみ）-> 状態 0。原典の実測
        （RESUME.md 2026-10-12 午後〜夜の節）どおり一段ずつ戻る。第一案内
        （corner_step==0）での Esc は原典では直前の作図を消すはずだが、まだ
-       ここには書いていない（訊いただけで確かめていないため、nokori.md）。 */
+       ここには書いていない（訊いただけで確かめていないため、nokori.md）。
+       連続点分割の途中は点を一つずつ外す（原典 FUN_007619c0: +0x138>=1 なら
+       +0x138 を 1 減らすだけ。0 になれば第一案内 5357 に戻る ── tools/bkprobe.sh
+       で 3 点から Esc を三回、5820→5819→5357 と実測、2026-10-13）。 */
+    if (current == JW_CMD_BUNKATSU && bk_rr_n > 0) {
+        bk_rr_n--;
+        return;
+    }
     if (current == JW_CMD_BUNKATSU && corner_step > 0) {
         corner_step--;
         if (corner_step == 0)
@@ -2804,7 +2822,7 @@ int jw_cmd_midway(void)
     case JW_CMD_SHOUKYO:   return cut_step != 0;
     case JW_CMD_CORNER:
     case JW_CMD_MENTORI:
-    case JW_CMD_BUNKATSU:  return corner_step != 0;
+    case JW_CMD_BUNKATSU:  return corner_step != 0 || bk_rr_n > 0;
     case JW_CMD_SHINSHUKU: return stretch_step != 0;
     case JW_CMD_FUKUSEN:   return para_step != 0;
     case JW_CMD_NISEN:     return nisen_step != 0;
@@ -3595,8 +3613,13 @@ const char *jw_cmd_prompt(void)
            「○　円【B】指示…」 when it is a CDataEnko, and 0x14f1 when what
            was picked instead is a point (corner_obj<0, 分割始点指示 の(R)).
            State 3 (two points, corner_step==2) shows 0x14f0 ── ２点間分割.
-           連続点分割 (0x16bb/0x16bc) is not reached: the port does not keep
-           a chain past two points (2026-10-13 の RESUME.md 参照、未確認のまま)。*/
+           連続点分割の途中（+0x4e = +0x138 が 0 でない）は FUN_007614c0 の
+           else 枝: 1 点なら 0x16bb (5819)、2 点以上なら 0x16bc (5820)。
+           原典は点を足した (L)(R) のあとの再描画で案内を出し直すので、
+           (R)(R) で入った直後だけは次にマウスが動くまで 5361 のまま見える
+           （tools/bkprobe.sh の読み出し）── ここはマウスが動いた後の姿。 */
+        if (corner_step == 0 && bk_rr_n > 0)
+            return bk_rr_n < 2 ? JW_STR_5819 : JW_STR_5820;
         if (corner_step == 0)
             return JW_STR_5357;
         if (corner_step == 2)
@@ -5533,26 +5556,180 @@ static void bk_circle_fan(jw_drawing *d, int a_idx, int b_idx)
  * 原典実測（2026-10-13）: P1=(-155.51,26.3265)・P2=(89.3878,26.3265)、
  * 分割数 4 で (-94.2857,26.3265)・(-33.0612,26.3265)・(28.1633,26.3265) ──
  * P1+(P2-P1)*k/4、k=1..3 とぴったり合う。 */
+/* 分割で置く点一つ。原典 FUN_007603a0 は +0x7e80（バーの 仮点 1323 を写した
+   +0x964）が立っていれば FUN_00455c40(1) で種別を仮点にしてから置く
+   （CZukeiTen の 仮点 と同じ呼び出し）。 */
+static int bk_put_point(jw_drawing *d, double x, double y)
+{
+    jw_obj *o = jw_add(d, JW_TEN);
+
+    if (!o)
+        return 0;
+    o->d[0] = x;
+    o->d[1] = y;
+    o->n = jw_cmd_bar_check(1323) > 0;      /* 1 が仮点、0 が実点 */
+    return 1;
+}
+
+/* 原典 FUN_00767660: 連続点分割の仮想の直線（下の bk_rr_finish）の上の距離 s を
+ * 折れ線 bk_rr の上の点に写す。*seg（1 始まりの辺の番号）と *acc（その辺の
+ * 手前までの長さ）は呼び出しを跨いで進む（s は増える一方なので戻らない）。
+ * 辺の終わりを越えれば次の辺へ（`acc+len < s` の間、厳密な <）、最後の辺も
+ * 越えれば 0 を返して置かない。 */
+static int bk_rr_map(double s, int *seg, double *acc, double *ox, double *oy)
+{
+    double len, tot;
+    int i = *seg;
+
+    if (i >= bk_rr_n)
+        return 0;
+    len = hypot(bk_rr_x[i + 1] - bk_rr_x[i], bk_rr_y[i + 1] - bk_rr_y[i]);
+    tot = *acc + len;
+    while (tot < s) {
+        i = ++*seg;
+        *acc = tot;
+        if (i >= bk_rr_n)
+            return 0;
+        len = hypot(bk_rr_x[i + 1] - bk_rr_x[i], bk_rr_y[i + 1] - bk_rr_y[i]);
+        tot = *acc + len;
+    }
+    *ox = (s - *acc) * ((bk_rr_x[i + 1] - bk_rr_x[i]) / len) + bk_rr_x[i];
+    *oy = (s - *acc) * ((bk_rr_y[i + 1] - bk_rr_y[i]) / len) + bk_rr_y[i];
+    return 1;
+}
+
+/* ２点間分割と連続点分割の本体、原典 FUN_007603a0（_unassigned.c 312717）を
+ * 写したもの。P1 から P2 へ一歩ずつ足していき（k/n を掛けるのではなく
+ * 「+=」で積む、0x7603a0 の local_24/local_1c）、その位置に点を置く。rr なら
+ * その位置の x − P1.x を折れ線の上の距離として bk_rr_map で写す。
+ *
+ *   分割数（+0x7e84==0）: 一歩は (P2−P1)/n、floor(n)−1 歩（端数があれば +1、
+ *       FUN_007674b0）。逆分割（負の n、+0x7e98）は bunkatsu() と同じく未対応。
+ *   割付 1324（+0x7e84）: 一歩は距離 1412 の向き (P2−P1)·d/L。振分 1325
+ *       （+0x7e88）なら余り rem（L から d を引けるだけ引いたもの）が
+ *       1e-7 < rem < d−1e-7 のとき出発を ((d−rem)/2)/d 歩ぶん手前へずらす。
+ *       割付距離以下 1326（+0x7e8c）なら歩数 m=ceil(L/d)（端数 1e-7 まで）で
+ *       一歩は (P2−P1)/m。歩くたびに P1 からの距離を見て、L−1e-7 に届けば
+ *       止め、1e-7 を超えていれば置く（10000 歩まで）。FUN_00766460 の
+ *       とおり 1326 のときは 振分 を見ず、等角度 (1690、+0xb8≠0) のときは
+ *       割付 を見ない。距離が 1e-5 以下なら FUN_007668f0 が何もしない。
+ *   P1 と P2 が厳密に同じなら何もしない（FUN_00498960）。
+ *   rr なら分割点より先に 折れ線の始点・終点 に点を置く（設定 +0x974 が
+ *       立っているとき。どこの釦かは見つけていないが、原典の既定では
+ *       立っていた ── tools/bkprobe.sh の答えで両端に点が出た）。
+ *
+ * 原典実測（tools/bkprobe.sh、2026-10-13。答えは decomp/res/bk_rr*.jww）:
+ *   割付 4000（1/100、40mm）の２点間 (R)(R)(R): L=244.898 に 40mm おきの 6 点、
+ *   両端には置かない。連続点分割の 分割数 4・割付・割付＋振分 は
+ *   tests/bunkatsu_test.c の数とぴったり。戻り値は置いた数。 */
+static int bk_points_between(jw_drawing *d, double p1x, double p1y,
+                             double p2x, double p2y, int rr)
+{
+    int waritsuke_on = jw_cmd_bar_check(1324) > 0 && bk_mode != 1690;
+    int count = 0, k, made = 0, seg = 1;
+    double n = 0.0, dist = 0.0, acc = 0.0, L, x = p1x, y = p1y, sx, sy, ox, oy;
+
+    if (waritsuke_on) {
+        dist = box_mm(d, 1412);
+        if (dist <= 1e-5)
+            return 0;
+    } else {
+        n = bk_read_n(&count);
+        if (n <= 0.0)
+            return 0;
+    }
+    if (p1x == p2x && p1y == p2y)
+        return 0;
+    L = hypot(p2x - p1x, p2y - p1y);
+    if (rr) {
+        made += bk_put_point(d, bk_rr_x[1], bk_rr_y[1]);
+        made += bk_put_point(d, bk_rr_x[bk_rr_n], bk_rr_y[bk_rr_n]);
+    }
+    if (!waritsuke_on) {
+        sx = (p2x - p1x) / n;
+        sy = (p2y - p1y) / n;
+        for (k = 1; k <= count; k++) {
+            x += sx;
+            y += sy;
+            if (!rr) {
+                made += bk_put_point(d, x, y);
+            } else if (bk_rr_map(x - p1x, &seg, &acc, &ox, &oy)) {
+                made += bk_put_point(d, ox, oy);
+            }
+        }
+        return made;
+    }
+    sx = (p2x - p1x) * dist / L;
+    sy = (p2y - p1y) * dist / L;
+    if (jw_cmd_bar_check(1326) <= 0 && jw_cmd_bar_check(1325) > 0) {
+        double rem = L;
+
+        while (dist <= rem + 1e-7)
+            rem -= dist;
+        if (1e-7 < rem && rem < dist - 1e-7) {
+            double f = ((dist - rem) / 2.0) / dist;
+
+            x -= sx * f;
+            y -= sy * f;
+        }
+    }
+    if (jw_cmd_bar_check(1326) > 0) {
+        double r = L / dist;
+        int m = (int)r;
+
+        if (fabs(r - (double)m) > 1e-7)
+            m++;
+        sx = (p2x - p1x) / (double)m;
+        sy = (p2y - p1y) / (double)m;
+    }
+    for (k = 1; k < 10001; k++) {
+        double dd;
+
+        x += sx;
+        y += sy;
+        dd = hypot(x - p1x, y - p1y);
+        if (L - 1e-7 <= dd)
+            break;
+        if (dd > 1e-7) {
+            if (!rr)
+                made += bk_put_point(d, x, y);
+            else if (bk_rr_map(x - p1x, &seg, &acc, &ox, &oy))
+                made += bk_put_point(d, ox, oy);
+        }
+    }
+    return made;
+}
+
 static void bk_two_point_plain(jw_drawing *d, double p1x, double p1y,
                                 double p2x, double p2y)
 {
-    int count, k, made = 0;
-    double n = bk_read_n(&count);
+    op_push(bk_points_between(d, p1x, p1y, p2x, p2y, 0));
+}
 
-    if (n <= 0.0)
+/* 連続点分割を閉じる（原典 FUN_007668f0 の +0x138!=0 の枝）。2 点に満たなければ
+ * 何もせず点列を捨てる。折れ線の長さ L を辺ごとに足し（+0x110 に積む）、
+ * P1=点 1・P2=(P1.x+L, P1.y) の**仮想の水平な直線**を FUN_007603a0 に渡す
+ * ── FUN_00767660 は x − P1.x だけを折れ線の上の距離として読むので、
+ * 仮想の直線の上の歩みがそのまま折れ線の上の弧長になる。閉じたあとは
+ * 第一案内（+0x138=0・state 0）。
+ *
+ * 原典実測（tools/bkprobe.sh、2026-10-13、答えは decomp/res/bk_rrA.jww・
+ * bk_rr2.jww）: 点 (300,300)→(450,200)→(400,350)→(500,250)（画面）を
+ * 分割数 4 で閉じると、両端の 2 点のあとに弧長 L/4 おきの 3 点。 */
+static void bk_rr_finish(jw_drawing *d)
+{
+    double L = 0.0;
+    int i;
+
+    if (bk_rr_n < 2) {
+        bk_rr_n = 0;
         return;
-    for (k = 1; k <= count; k++) {
-        double t = (double)k / n;
-        jw_obj *o = jw_add(d, JW_TEN);
-
-        if (!o)
-            break;
-        o->d[0] = p1x + (p2x - p1x) * t;
-        o->d[1] = p1y + (p2y - p1y) * t;
-        o->n = 0;                  /* 実点 */
-        made++;
     }
-    op_push(made);
+    for (i = 1; i < bk_rr_n; i++)
+        L += hypot(bk_rr_x[i + 1] - bk_rr_x[i], bk_rr_y[i + 1] - bk_rr_y[i]);
+    op_push(bk_points_between(d, bk_rr_x[1], bk_rr_y[1],
+                              bk_rr_x[1] + L, bk_rr_y[1], 1));
+    bk_rr_n = 0;
 }
 
 /* 状態 3 で 分割する線 を (L) 指示したとき: P1・P2 を線の方向へ射影した
@@ -15975,6 +16152,39 @@ placed:
 
         if (!d)
             return;
+        if (corner_step == 0 && bk_rr_n > 0) {
+            /* 連続点分割の途中（string 5819/5820「次点指示 (L)free (R)Read
+               同一点指示で終了」）。(L) はその位置そのもの（原典 FUN_00764910）、
+               (R) は読めた点（FUN_00765710、読めなければ何もしない）。2 点
+               以上あって直前の点と同じ点（FUN_00436970、1e-7）なら閉じて
+               分割する。でなければ点を足す（個数 < 2001 の間だけ増え、
+               それ以上は最後の点を置き換える）。同じ点でも 1 点目のときは
+               閉じずに足す（原典の枝のとおり）。
+               (RR) の右ダブルクリックで連続線を拾う枝（DAT_00a0cc70==1、
+               FUN_00410380）もあるが、10.03.6 の機械語にはこの旗を 1 にする
+               書き込みが一つも無く（0 を書く 5 か所だけ）、tools/jwdraw.ps1 の
+               RR でも何も起きなかったので写さない。 */
+            double px = x, py = y;
+
+            if (button == 1) {
+                if (!jw_read(d, v, x, y, &rx, &ry))
+                    return;
+                px = rx;
+                py = ry;
+            } else if (button != 0) {
+                return;
+            }
+            if (bk_rr_n > 1 && fabs(py - bk_rr_y[bk_rr_n]) < 1e-7
+                && fabs(px - bk_rr_x[bk_rr_n]) < 1e-7) {
+                bk_rr_finish(d);
+                return;
+            }
+            if (bk_rr_n < BK_RR_MAX)
+                bk_rr_n++;
+            bk_rr_x[bk_rr_n] = px;
+            bk_rr_y[bk_rr_n] = py;
+            return;
+        }
         if (corner_step == 0) {
             if (button == 0) {
                 /* 線・円（Ａ）指示 ﾏｳｽ(L)（string 5357。線だけだったのを
@@ -16055,6 +16265,17 @@ placed:
                    点を踏むと ２点間分割 の方へ進んだ）。何も読めなければ
                    円そのものかどうかを見て 円全周分割。 */
                 if (jw_read(d, v, x, y, &rx, &ry)) {
+                    if (fabs(ry - bk_py) < 1e-7 && fabs(rx - bk_px) < 1e-7) {
+                        /* 始点と同じ点をもう一度 (R) ── 連続点分割 (RR) に入る
+                           （原典 FUN_00765710 state 2: FUN_00436970(+0x100, 点) が
+                           真なら +0x138=1・点 1 に控えて state 0。tools/bkprobe.sh
+                           で (R)(R) のあと (L) を足すと 5820 が出るのを実測） */
+                        bk_rr_n = 1;
+                        bk_rr_x[1] = rx;
+                        bk_rr_y[1] = ry;
+                        corner_step = 0;
+                        return;
+                    }
                     bk_p2x = rx;
                     bk_p2y = ry;
                     corner_step = 2;

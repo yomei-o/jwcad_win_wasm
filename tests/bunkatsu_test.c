@@ -17,6 +17,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/gen/prompts.h"
 
 static int fails;
 
@@ -396,6 +397,131 @@ int main(int argc, char **argv)
            "円全周分割 (R)円指示: 外積の符号が逆なら反時計回り");
         while (d->ndrawn > g && jw_cmd_can_undo())
             jw_cmd_undo(d);
+
+        /* 連続点分割 (RR)。tools/bkprobe.sh で原典を叩いた答え
+         * （decomp/res/bk_rrA.jww・bk_rrD.jww・bk_rr2.jww、2026-10-13）。
+         * 画面 (sx,sy) は紙の (-155.510204+(sx-300)*30/49, 26.326531-(sy-300)*30/49)。
+         * (L) の自由点はその式で置き直す。src/cmd.c の bk_points_between・
+         * bk_rr_finish に番地。 */
+        {
+            static const struct { double x, y; } A[] = {
+                { -155.510204, 26.326531 }, { -33.061224, 56.938776 },
+                { -94.403819, 67.064121 }, { -75.218139, 52.917011 },
+                { -84.991666, 5.008334 },
+            }, D[] = {
+                { 28.163265, 26.326531 }, { 89.387755, 26.326531 },
+                { 46.051809, 62.103618 }, { 63.940353, 77.221335 },
+                { 81.828897, 41.444247 },
+            }, D2[] = {
+                { 28.163265, 26.326531 }, { 84.489796, 26.326531 },
+                { 40.429518, 50.859037 }, { 58.318062, 86.636124 },
+                { 73.868715, 51.614818 },
+            };
+            char box[32];
+            int wg = 0, j, okk;
+            jw_obj *pe;
+
+            for (j = 0; j < 16; j++)
+                if (d->group[j].state == 3)
+                    wg = j;
+            /* 原典は 1/100 に 4000（= 40mm）。ここの縮尺で同じ 40mm にする */
+            snprintf(box, sizeof box, "%.6g", 40.0 * d->group[wg].scale);
+
+            /* 分割数 4: 始点を (R)(R)、(L) 自由点、(R) 線の端、(L) 自由点、(L) 同じ点で閉じる */
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            type_box(1411, "4");
+            jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+            ck(!strcmp(jw_cmd_prompt(), JW_STR_5361), "連続点分割: (R) 一回目は 5361");
+            jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+            ck(!strcmp(jw_cmd_prompt(), JW_STR_5819) && jw_cmd_midway(),
+               "連続点分割: 同じ点をもう一度 (R) で 5819（1 点）");
+            jw_cmd_point(d, v, -63.673469, 87.551020, 0);
+            ck(!strcmp(jw_cmd_prompt(), JW_STR_5820), "連続点分割: (L) で足して 5820");
+            jw_cmd_point(d, v, l2->d[2], l2->d[3], 1);
+            jw_cmd_point(d, v, -33.061224, 56.938776, 0);
+            ck(d->ndrawn == g, "連続点分割: 閉じるまでは何も置かない");
+            jw_cmd_point(d, v, -33.061224, 56.938776, 0);
+            okk = d->ndrawn == g + 5;
+            for (j = 0; okk && j < 5; j++)
+                okk = d->obj[g + j].cls == JW_TEN
+                      && near3(d->obj[g + j].d[0], A[j].x) && near3(d->obj[g + j].d[1], A[j].y);
+            ck(okk && !jw_cmd_midway() && !strcmp(jw_cmd_prompt(), JW_STR_5357),
+               "連続点分割 分割数 4: 両端の 2 点のあとに弧長 L/4 おきの 3 点（bk_rrA）");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+
+            /* Esc は点を一つずつ外す（3 点 → 5820 → 5819 → 5357） */
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            jw_cmd_point(d, v, l2->d[0], l2->d[1], 1);
+            jw_cmd_point(d, v, l2->d[0], l2->d[1], 1);
+            jw_cmd_point(d, v, -63.673469, -34.897959, 0);
+            jw_cmd_point(d, v, -2.448980, -34.897959, 0);
+            jw_cmd_esc_key(d);
+            okk = !strcmp(jw_cmd_prompt(), JW_STR_5820);
+            jw_cmd_esc_key(d);
+            okk = okk && !strcmp(jw_cmd_prompt(), JW_STR_5819);
+            jw_cmd_esc_key(d);
+            ck(okk && !strcmp(jw_cmd_prompt(), JW_STR_5357) && !jw_cmd_midway()
+               && d->ndrawn == g, "連続点分割の Esc: 一点ずつ外して第一案内へ（bk_rr2）");
+
+            /* 割付 40mm（振分なし）: (R)(R) 線の端、(L) 自由点、(R)(R) もう一方の端 */
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            if (jw_cmd_bar_check(1324) <= 0)
+                jw_cmd_bar(d, 1324);
+            if (jw_cmd_bar_check(1325) > 0)
+                jw_cmd_bar(d, 1325);
+            type_box(1412, box);
+            jw_cmd_point(d, v, l3->d[0], l3->d[1], 1);
+            jw_cmd_point(d, v, l3->d[0], l3->d[1], 1);
+            jw_cmd_point(d, v, 58.775510, 87.551020, 0);
+            jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);
+            jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);
+            okk = d->ndrawn == g + 5;
+            for (j = 0; okk && j < 5; j++)
+                okk = near3(d->obj[g + j].d[0], D[j].x) && near3(d->obj[g + j].d[1], D[j].y);
+            ck(okk, "連続点分割 割付 40mm: 両端と弧長 40mm おきの 3 点（bk_rrD）");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+
+            /* 割付 40mm の２点間 (R)(R)(R): 両端なしで 40mm おきに 6 点 */
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            type_box(1412, box);
+            jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+            jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);
+            jw_cmd_point(d, v, 900.0, 900.0, 1);
+            okk = d->ndrawn == g + 6;
+            for (j = 0; okk && j < 6; j++)
+                okk = near3(d->obj[g + j].d[0], -115.510204 + 40.0 * j)
+                      && near3(d->obj[g + j].d[1], 26.326531);
+            ck(okk, "２点間分割 割付 40mm: 40mm おきに 6 点、両端は置かない（bk_rr2）");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+
+            /* 割付＋振分: 終点は原典では先の答えの点 (84.49,26.33) を読んでいた */
+            pe = jw_add(d, JW_TEN);
+            pe->d[0] = 84.489796; pe->d[1] = 26.326531; pe->n = 0;
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            jw_cmd_bar(d, 1325);
+            type_box(1412, box);
+            jw_cmd_point(d, v, l3->d[0], l3->d[1], 1);
+            jw_cmd_point(d, v, l3->d[0], l3->d[1], 1);
+            jw_cmd_point(d, v, 58.775510, 87.551020, 0);
+            jw_cmd_point(d, v, 84.489796, 26.326531, 1);
+            jw_cmd_point(d, v, 84.489796, 26.326531, 1);
+            okk = d->ndrawn == g + 5;
+            for (j = 0; okk && j < 5; j++)
+                okk = near3(d->obj[g + j].d[0], D2[j].x) && near3(d->obj[g + j].d[1], D2[j].y);
+            ck(okk, "連続点分割 割付＋振分: 余りを半分ずつ（bk_rr2）");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+            jw_cmd_bar(d, 1325);
+            jw_cmd_bar(d, 1324);
+        }
 
 #undef MKSEN
 #undef MKENKO
