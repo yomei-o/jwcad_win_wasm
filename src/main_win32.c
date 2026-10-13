@@ -910,7 +910,24 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
      * one piece as the IME's result string, in the same code page. */
     case WM_CHAR:
         /* 0x1b as well: Esc lets go of the points the command has taken, and
-           it was being dropped here along with the other control codes. */
+           it was being dropped here along with the other control codes.
+           13 (Enter) used to be dropped the same way -- the 文字 box takes
+           it as nothing (app_key already declines it in text mode), but a
+           settled 複写・移動 range takes it as 範囲確定 (jw_cmd_enter_key),
+           so it has to reach app_key too.  Shift held at the same time is
+           ShiftEnter-基点変更 instead (RESUME.md 2026-10-13); WM_CHAR does
+           not carry that in wp, so GetKeyState reads it here, while the key
+           is actually down. */
+        if (wp == 13) {
+            int done = (GetKeyState(VK_SHIFT) & 0x8000) ? app_shift_enter() : 0;
+            if (!done)
+                done = app_key(13);
+            if (done) {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+            return 0;
+        }
         if (wp >= 0x20 || wp == 8 || wp == 27) {
             if (app_key((int)wp)) {
                 app_paint();

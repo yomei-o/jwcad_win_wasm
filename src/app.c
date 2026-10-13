@@ -3822,6 +3822,14 @@ int app_key(int c)
     return 1;
 }
 
+int app_shift_enter(void)
+{
+    if (!have_drawing || !jw_cmd_shift_enter_key(&drawing))
+        return 0;
+    app_paint();
+    return 1;
+}
+
 int app_compose(int c)
 {
     if (!jw_cmd_text_mode())

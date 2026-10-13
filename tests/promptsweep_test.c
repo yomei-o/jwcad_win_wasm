@@ -177,6 +177,28 @@ static void stage_prompts(void)
             ck(jw_cmd_enter_key(d) && jw_cmd_sel_stage() == 3, "stage: Enter confirms the range");
         }
         jw_cmd_escape();
+        if (RANGE[k] != JW_CMD_HANI) {
+            /* ShiftEnter: the same 範囲確定, but the click right after it is
+               spent on 基点変更's new 基準点 instead of placing anything --
+               jw_win's own hint (JW_STR_5829) said as much, and this is the
+               one way left to tell it apart from plain Enter at the C level
+               until a front end actually sends it (RESUME.md 2026-10-13).
+               Escaped before a real placement click, so the two lines this
+               whole sweep shares are never actually moved or copied. */
+            int before;
+
+            jw_cmd_set(RANGE[k]);
+            jw_cmd_point(d, app_view(), 0, 0, 0);
+            jw_cmd_point(d, app_view(), 100, 50, 0);
+            jw_cmd_track(30, 5);
+            ck(jw_cmd_shift_enter_key(d) && jw_cmd_sel_stage() == 3,
+               "stage: ShiftEnter confirms the range too");
+            before = d->ndrawn;
+            jw_cmd_point(d, app_view(), 70, 30, 0);
+            ck(jw_cmd_sel_stage() == 3 && d->ndrawn == before,
+               "stage: ...and the click right after is the new 基準点, not a placement");
+            jw_cmd_escape();
+        }
         /* a box that catches nothing stays in the stage */
         jw_cmd_set(RANGE[k]);
         jw_cmd_point(d, app_view(), 200, 200, 0);

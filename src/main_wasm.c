@@ -131,6 +131,14 @@ EMSCRIPTEN_KEEPALIVE int jw_key(int c)
     return app_key(c);
 }
 
+/* Shift+Enter: see app_shift_enter.  A DOM keydown carries shiftKey itself,
+   so the page checks that before calling this instead of jw_key(13)
+   (RESUME.md 2026-10-13). */
+EMSCRIPTEN_KEEPALIVE int jw_shift_enter(void)
+{
+    return app_shift_enter();
+}
+
 /* One UTF-16 unit from the page, converted here.  This is the way the page
    sends what an IME gives it: it needs no memory of its own on the wasm
    side, so there is nothing to get wrong about heap views or malloc. */

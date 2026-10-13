@@ -167,6 +167,53 @@ sunpoesc）が ok。
 で「途中かどうか」を見る形）。`sh tools/qtest.sh enko` ok、全体の
 `sh tools/qtest.sh` も変化なし（`diff 18`）。
 
+## 2026-10-13 —— Shift+Enter（基点変更）: 論理は入れた、配線は native だけ（0b）
+
+`src/cmd.c` の既存のコメント（`sel_prompt_add`、文字列 5828「Enter-範囲確定」・
+5829「ShiftEnter-基点変更」）がすでに複写・移動の 追加・除外 段で両方の
+ヒントを出すよう書いてあり、データ整理だけ 5828 のみ（5831「Enter-基点変更」
+という別の文字列が別にある——今回はそちらには触れていない）。この表示は
+2026-10-12 にすでに入っていたので、今回はその**キー操作そのもの**を足した。
+
+* `jw_cmd_shift_enter_key(d)`（`src/cmd.c`）: `current` が 複写・移動
+  （`JW_CMD_FUKUSHA`/`JW_CMD_IDOU`）で `sel_step==2` のときだけ、
+  `sel_confirm(d)`（Enter と同じ）に続けて `sel_base_wait=1` を立てる
+  （バーの 1066「基点変更」が `sel_step==3` で立てるのと同じ旗）。
+  データ整理・範囲選択は対象外（ヒント文字列どおり）。
+* `app_shift_enter()`（`src/app.c`・`src/app.h`）がこれを呼ぶ、
+  `app_key(13)` の隣。
+* **配線**: `app_key(int c)` は一つの整数しか運べず、WM_CHAR も DOM の
+  keydown も Enter と Shift+Enter を**同じ文字**として寄越す
+  （Shift の有無は別に訊く必要がある）。
+  - **ネイティブ**（`src/main_win32.c`）: WM_CHAR の 13 を**このままでは
+    一度も app_key に届いていなかった**のも直した（既存のフィルタ
+    `wp >= 0x20 || wp == 8 || wp == 27` が 13 を素通しせず、複写・移動の
+    Enter-範囲確定 が未配線のまま死んでいた——`tests/` は `app_key()` を
+    直接呼ぶので気づかれていなかった）。13 が来たら
+    `GetKeyState(VK_SHIFT) & 0x8000` を見て `app_shift_enter()` を先に
+    試し、効かなければ `app_key(13)` に回す。`sh tools/build_native.sh`
+    で `jw_port.exe` のビルドまで確認（警告は既存のもののみ）。
+  - **ブラウザ**（`src/main_wasm.c`・`index.html`・`tools/build_wasm.sh`）:
+    `jw_shift_enter()` を書き出し（`EXPORTS` に追加）、`index.html` の
+    Enter 処理で `e.shiftKey` を見て `shiftEnter()` を呼ぶよう分岐。
+    **wasm は作り直していない**（emcc がこの機械に無い、従来どおり）ので
+    ブラウザでの実地確認はまだ。
+
+**原典には直接確かめていない**（Shift を物理的に押した状態は
+`tools/jwdraw.ps1` の posted メッセージでは GetKeyState に乗らず、A-0
+「SendInput の土台」が無いと試せない——中間消去や端点移動と同じ壁）。
+今回の実装は、すでに表示側で確認済みのヒント文字列（どのコマンドで
+出るか）と、バーの 1066「基点変更」の既存の受け手（`sel_step==3` で
+`sel_base_wait=1`）という**すでに原典で確かめてある形**を組み合わせた
+もので、思いつきではないが、**キー自体を原典で叩いた実測ではない**。
+A-0 が入ったら実測で裏取りすること。
+
+`tests/promptsweep_test.c` の `stage_prompts()` に、複写・移動それぞれで
+ShiftEnter が 範囲確定 まで進め、直後の一押しが基点変更に回って
+（新しい基準点を取るだけで何も配置しない）ことを確かめる段を足した
+（実際の配置クリックまではしない——2 本の線を次の k の段で使い回すため）。
+`sh tools/qtest.sh` 全部 ok（`diff 18`）。
+
 ## 2026-10-13 —— 分割の (R) 分割始点
 
 `sh tools/qtest.sh` 全部 ok（`diff 37` は変わらず）。wasm は emcc がこの機械に

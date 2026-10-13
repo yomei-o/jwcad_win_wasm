@@ -9711,6 +9711,28 @@ int jw_cmd_enter_key(jw_drawing *d)
     return sel_confirm(d);
 }
 
+/* Shift+Enter in the same 追加・除外 stage is 範囲確定 followed at once by
+ * 基点変更 (the bar's 1066, once the range is settled, takes the next click
+ * as the 基準点 instead of placing from the tracked point): 複写・移動 show
+ * both hints together there (JW_STR_5828 "Enter-範囲確定" and JW_STR_5829
+ * "ShiftEnter-基点変更" in sel_prompt_add), データ整理 only the first
+ * (string 5828 alone -- its own 基点変更 would be JW_STR_5831's plain
+ * "Enter-基点変更", a different stage this has not been asked to touch).
+ * **Not reached from either front end yet**: WM_CHAR carries no Shift bit,
+ * so the native build would need GetKeyState(VK_SHIFT) read alongside it,
+ * and the browser side its event's shiftKey -- src/main_win32.c and
+ * index.html call this once that plumbing is added (RESUME.md 2026-10-13). */
+int jw_cmd_shift_enter_key(jw_drawing *d)
+{
+    if (!d || sel_step != 2
+        || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU))
+        return 0;
+    if (!sel_confirm(d))
+        return 0;
+    sel_base_wait = 1;
+    return 1;
+}
+
 /* 消去 entered with a settled selection takes it out at once.  The original
  * does exactly that: 範囲選択 over Test5, 選択確定, then 消去, and the file
  * it saved had 25 of its 46 lines gone and nothing left picked.

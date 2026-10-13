@@ -158,6 +158,7 @@
   const newDrawing = mod.cwrap('jw_new', null, []);
   const newCount = mod.cwrap('jw_new_count', 'number', []);
   const key = mod.cwrap('jw_key', 'number', ['number']);
+  const shiftEnter = mod.cwrap('jw_shift_enter', 'number', []);
   const textin = mod.cwrap('jw_text_in', 'number', ['number', 'number']);
   const cmdid = mod.cwrap('jw_cmd_id', 'number', []);
   const chromeh = mod.cwrap('jw_chrome_h', 'number', []);
@@ -348,7 +349,13 @@
        Enter leaves a number box on the command bar).  The port takes them
        whatever is up and ignores them when there is nothing to take them. */
     if (e.key === 'Enter' || e.key === 'Tab') {
-      if (key(e.key === 'Enter' ? 13 : 9)) { present(); e.preventDefault(); }
+      /* Shift+Enter is 複写・移動's 基点変更 (ShiftEnter-基点変更, the bar's
+         own hint once a range is settled) instead of plain Enter's
+         範囲確定 -- a DOM keydown carries shiftKey itself, unlike WM_CHAR,
+         so there is no GetKeyState to read here. */
+      const took = e.key === 'Enter' && e.shiftKey ? shiftEnter()
+                 : key(e.key === 'Enter' ? 13 : 9);
+      if (took) { present(); e.preventDefault(); }
       return;
     }
     if (cmdid() !== 0x8026 && !boxfocus()) {

@@ -213,6 +213,11 @@ void jw_cmd_escape(void);
 void jw_cmd_esc_key(jw_drawing *d);
 /* Enter: 範囲確定 in the 追加・除外 stage of 複写・移動・整理.  1 if it took it. */
 int jw_cmd_enter_key(jw_drawing *d);
+/* Shift+Enter: the same stage's 範囲確定 + 基点変更 together, 複写・移動
+   only.  Neither front end calls this yet (see the note on the
+   definition) -- it exists so the logic can be tested ahead of the
+   keyboard plumbing. */
+int jw_cmd_shift_enter_key(jw_drawing *d);
 
 /* Space: turn 水平・垂直 over, which is what the original does with it. */
 void jw_cmd_space(void);

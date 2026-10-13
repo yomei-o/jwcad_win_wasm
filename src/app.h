@@ -25,6 +25,14 @@ const jw_drawing *app_drawing(void);
    Returns 1 when the screen has to be repainted. */
 int app_key(int c);
 
+/* Shift+Enter: 複写・移動's 範囲確定 + 基点変更 together (see
+   jw_cmd_shift_enter_key).  A front end calls this instead of
+   app_key(13) when Shift is down for the Enter it would otherwise send --
+   WM_CHAR and a DOM keydown both carry the key but not that state, so
+   each front end has to read it its own way.  Returns 1 when the screen
+   has to be repainted. */
+int app_shift_enter(void);
+
 /* What an IME is still converting: -1 clears it, otherwise a CP932 byte. */
 int app_compose(int c);
 
