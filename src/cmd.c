@@ -10460,6 +10460,19 @@ const char *jw_cmd_box(int id)
 /* what a dialog hands back to a box, as if it had been typed in */
 int jw_cmd_box_put(int id, const char *v)
 {
+    /* 複線 (JW_CMD_FUKUSEN)'s first bar -- before a line or circle is
+       picked -- is 「複線にする図形を選択してください ﾏｳｽ(L)　前回値
+       ﾏｳｽ(R)」 with no 間隔 box in it at all (jw_cmd_prompt's
+       JW_CMD_FUKUSEN case); the box only appears once para_step reaches
+       1.  Typing into 1411 before that pick therefore lands on nothing in
+       the original -- tools/difffuzz.py's op_fukusen found this ("typed
+       before the first pick the original ignores the value"), and
+       tools/fzcheck.py cases 7, 8, 22, 25, 29, 34, 38, 40, 44, 45, 49, 50,
+       52, 54, 57, 58, 60, 63, 64, 65, 66 (a typed box before any pick)
+       bear it out: the line comes back unchanged, with no offset copy at
+       all. */
+    if (current == JW_CMD_FUKUSEN && id == 1411 && para_step == 0)
+        return 0;
     if (!jw_cmd_box(id))
         return 0;
     box_put(id, v);
