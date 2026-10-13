@@ -9,7 +9,7 @@
 #include "../src/jww.h"
 #include "../src/hikage.h"
 #include "../src/tenku.h"
-#include "../tmp/spec_hikage/tenku_sample_data.h"
+#include "tenku_sample_data.h"
 
 static unsigned char *slurp(const char *path, long *n)
 {
