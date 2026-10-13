@@ -16,7 +16,7 @@
 
 typedef struct {
     double plane_m;     /* 測定高 (bar 1492), metres; default 0 */
-    double R;           /* 天空図の半径 mm (bar 1493 is the diameter); default 25 */
+    double R;           /* 天空図の半径 mm (bar 1493 is the radius -- 原典 hk_s11); default 25 */
     int equidist;       /* 0 正射影 (1064), 1 等距離射影 (1065) */
     int mirror;         /* 南方向補正 (1326) */
     double mirror_off;  /* its offset, radians; 0 */

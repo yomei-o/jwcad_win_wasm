@@ -728,6 +728,9 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_HIKAGE, 1492, "4" },       /* 測定高 */
     { JW_CMD_HIKAGE, 1493, "36" },      /* 緯度 */
     { JW_CMD_TENKU, 1491, "10" },
+    { JW_CMD_TENKU, 1492, "" },         /* 測定高（ｍ）、空は 0 */
+    { JW_CMD_TENKU, 1493, "" },         /* 天空図半径（図寸mm）、空は 25 */
+    { JW_CMD_TENKU, 2216, "" },         /* 測定点表示 の番号、空は表示なし */
     { JW_CMD_SEN, 1411, "" },           /* 線の傾き */
     { JW_CMD_SEN, 1412, "" },           /* 線の寸法（長さ） */
     { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
@@ -2725,6 +2728,12 @@ void jw_cmd_esc_key(jw_drawing *d)
        で 3 点から Esc を三回、5820→5819→5357 と実測、2026-10-13）。 */
     if (current == JW_CMD_BUNKATSU && bk_rr_n > 0) {
         bk_rr_n--;
+        return;
+    }
+    /* 天空図: 中心待ち → 測定点待ち → 初めのバー と一段ずつ（tools/tnprobe.sh
+       で Esc を二回、バーが 9006 系 → 9005 → 32971 と戻るのを読んだ） */
+    if (current == JW_CMD_TENKU && tn_mode > 0) {
+        tn_mode--;
         return;
     }
     if (current == JW_CMD_BUNKATSU && corner_step > 0) {
@@ -10173,6 +10182,30 @@ int jw_cmd_bar_check(int id)
         return hk_pts;
     if (id == 9004 && current == JW_CMD_HIKAGE)
         return hk_iso_on;
+    /* 天空図 (32971) のバーは歩みで替わる（tools/tnprobe.sh で原典のバーを
+       読んだ、decomp/res/bars3.txt の 232971_90xx）: 正射影 (1064)／等距離
+       射影 (1065)／三斜 (1068) を押して 測定点待ち（9005・9013・9010）、
+       測定点を置いて 中心待ち（9006・9014・9011）。中心待ちのバーは 天空率
+       計算 (1323) で 高精度計算・射影面積表示 が、太陽軌跡 (1325) で
+       南方向補正・10分間隔点表示・四季 が出る（9007・9008・9009。等距離は
+       1323 の字が「[天空比計算]」の 9015 だが、1325 を入れたものは録って
+       いないので 正射影 の 9008・9009 で代える）。 */
+    if (id >= 9005 && id <= 9015 && current == JW_CMD_TENKU) {
+        int c = jw_cmd_bar_check(1323) > 0, s = jw_cmd_bar_check(1325) > 0;
+
+        if (tn_mode == 1)
+            return id == (tn_sansha ? 9010 : tn_equi ? 9013 : 9005);
+        if (tn_mode == 2) {
+            if (tn_sansha)
+                return id == 9011;
+            if (s)
+                return id == (c ? 9009 : 9008);
+            if (tn_equi)
+                return id == (c ? 9015 : 9014);
+            return id == (c ? 9007 : 9006);
+        }
+        return 0;
+    }
     if (id == 9001 && current == JW_CMD_KIGOU)
         return sk_step == 4;        /* 文字入力のあいだの バー */
     if (id == 1146 && TG_IS(current))
@@ -10468,6 +10501,10 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_HIKAGE && id == 1068) {
         hk_north = 1;               /* 真北を設定する線端部を指示 */
+        return 1;
+    }
+    if (current == JW_CMD_TENKU && id == 1121 && tn_mode > 0) {
+        tn_mode--;                  /* ≪: Esc と同じく一段戻る（原典、tools/hkprobe.sh s12） */
         return 1;
     }
     if (current == JW_CMD_TENKU && id == 1068) {
@@ -14951,14 +14988,31 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             bs = jw_cmd_box(1492);
             if (bs && *bs)
                 o.plane_m = atof(bs);
+            /* 1493 は 半径（バーの字は「天空図半径（図寸mm）」。原典 hk_s11 で
+               40 を入れると 円の半径が 40 だった） */
             bs = jw_cmd_box(1493);
             if (bs && *bs && atof(bs) > 0.0)
-                o.R = atof(bs) / 2.0;
+                o.R = atof(bs);
+            /* 測定点表示: 2216 に番号があれば 点・「No.n」・「測定点 No.n」を出す
+               （原典 hk_s9、3 を入れて No.3） */
+            bs = jw_cmd_box(2216);
+            if (bs && *bs && atoi(bs) > 0) {
+                o.show_point = 1;
+            }
             o.equidist = tn_equi;
-            o.mirror = jw_cmd_bar_check(1326) > 0;
+            /* 南方向補正 (1326) は 太陽軌跡 (1325) を入れたときだけバーに出て
+               効く（初めから点いている。tools/tnbatch.sh の hk_s1 は 1326 が
+               点いたまま 1325 なしで、補正は掛かっていない） */
+            o.mirror = jw_cmd_bar_check(1325) > 0 && jw_cmd_bar_check(1326) > 0;
             o.calc = jw_cmd_bar_check(1323) > 0;
             o.precise = jw_cmd_bar_check(1327) > 0;
-            o.number = tn_count + 1;
+            /* 射影面積表示 (1324) はまだ出さない。原典は「【水平円射影面積 πR² , 隠れる
+               面積】」を %.6lg に丸めて出すが、隠れる面積は 一本ずつの稜線を
+               射影した折れ線と 36000 本の光線との交わりから足し上げる
+               （FUN_00748da0、_unassigned.c 306899〜307117）もので、移植の
+               hk_sky_ratio（仰角の標本）では 333.801 と 333.835（hk_s4）のように
+               三桁目がずれる。nokori.md */
+            o.number = o.show_point ? atoi(jw_cmd_box(2216)) : tn_count + 1;
             if (tn_sansha) {
                 hk_sansha_opts so;
                 const char *md = jw_cmd_box(2210);
@@ -14973,6 +15027,13 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
             if (r >= 0) {
                 tn_count++;
+                if (o.show_point) {
+                    /* 描いたあと 測定点表示 の番号は一つ進む（原典: 3 → 4、hk_s12） */
+                    char nb[16];
+
+                    snprintf(nb, sizeof nb, "%d", o.number + 1);
+                    box_put(2216, nb);
+                }
                 if (rec)
                     rec->n = d->ndrawn - n0;
             }

@@ -344,6 +344,21 @@ verticals:
     return added;
 }
 
+/* 測定点表示: 測定点に 点 と「No.n」 */
+static void point_mark(jw_drawing *d, const hk_tenku_opts *o, double px, double py,
+                       double size)
+{
+    char buf[32];
+    jw_obj *t = jw_add(d, JW_TEN);
+
+    if (t) {
+        t->d[0] = px;
+        t->d[1] = py;
+    }
+    snprintf(buf, sizeof buf, "No.%d", o->number);
+    add_text(d, buf, px, py, 0, size, 1, 1);
+}
+
 int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
                         const hk_edge3 *e, int n,
                         double px, double py, double cx, double cy, double *pct)
@@ -377,16 +392,8 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
             add_line(d, cx, cy, cx + o->R * cos(rad), cy + o->R * sin(rad), 1, major ? 1 : 4, 0);
         }
     }
-    if (o->show_point) {
-        jw_obj *t = jw_add(d, JW_TEN);
-
-        if (t) {
-            t->d[0] = px;
-            t->d[1] = py;
-        }
-        snprintf(buf, sizeof buf, "No.%d", o->number);
-        add_text(d, buf, px, py, 0, size, 1, 1);
-    }
+    if (o->show_point && o->calc)
+        point_mark(d, o, px, py, size);
     if (o->calc) {
         /* [sample] texts, then the hatch, then the 天空率 text, then the skyline */
         if (o->show_point) {
@@ -400,7 +407,7 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
         }
         if (o->show_plane) {
             snprintf(buf, sizeof buf, "%s " S_ZEN S_SOKUTEIMEN " = %.3f m",
-                     o->equidist ? S_TOUKYORI : S_SHASHAEI, o->plane_m);
+                     o->equidist ? "[" S_TOUKYORI "]" : S_SHASHAEI, o->plane_m);
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
             slot++;
         }
@@ -419,10 +426,13 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
         if (r < 0)
             return -1;
     } else {
-        /* [hk_s1] circle, skyline, then the texts */
+        /* [hk_s1] circle, skyline, then the texts.  測定点表示 の点と「No.n」は
+           skyline のあと、文字の前（原典 hk_s9） */
         r = skyline(d, o, e, n, px, py, cx, cy);
         if (r < 0)
             return -1;
+        if (o->show_point)
+            point_mark(d, o, px, py, size);
         if (o->show_point) {
             if (o->interval > 0.0)
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,
@@ -434,7 +444,7 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
         }
         if (o->show_plane) {
             snprintf(buf, sizeof buf, "%s " S_ZEN S_SOKUTEIMEN " = %.3f m",
-                     o->equidist ? S_TOUKYORI : S_SHASHAEI, o->plane_m);
+                     o->equidist ? "[" S_TOUKYORI "]" : S_SHASHAEI, o->plane_m);
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
             slot++;
         }
