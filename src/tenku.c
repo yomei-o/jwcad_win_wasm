@@ -395,24 +395,51 @@ static jw_obj *add_ten(jw_drawing *d, double x, double y, int col)
     return t;
 }
 
+/* 文字を (x,y) から 角度 deg の向きに置き直す（add_text は水平に置く） */
+static void turn_text(jw_obj *t, double x, double y, double deg)
+{
+    double w, a = deg * PI / 180.0, c = cos(a), s = sin(a);
+
+    if (!t)
+        return;
+    w = hypot(t->d[2] - t->d[0], t->d[3] - t->d[1]);
+    if (fabs(c) < 1e-12)
+        c = 0.0;
+    if (fabs(s) < 1e-12)
+        s = 0.0;
+    while (deg > 180.0)
+        deg -= 360.0;
+    while (deg <= -180.0)
+        deg += 360.0;
+    t->d[0] = x;
+    t->d[1] = y;
+    t->d[2] = x + c * w;
+    t->d[3] = y + s * w;
+    t->d[7] = deg;
+}
+
 /* 時刻の字（"8"／"16"、9～15時 なら "9"／"15"、0x95bd2c・0x95bd30・0x97b23c・0x97b244）は
    点の上 1.0（FUN_00479c40 の 1.0）に、時刻の数字の真ん中が点に来るように置く。
    季節の字は 南方向補正 なしなら 初めの字、ありなら 終わりの字に付く（+0x190 を見る、
-   0x73f805・0x73faa9）。原典 hk_s5・s6 */
+   0x73f805・0x73faa9）。南方向補正 なしでは字も 真北 の角度に回る（local_3b4 = +0x198、
+   原典 hk_s21 で −90°）。原典 hk_s5・s6・s21 */
 static void sun_label(jw_drawing *d, const char *num, const char *season, double x, double y,
-                      double size)
+                      double size, double deg)
 {
     char buf[96];
-    double half = strlen(num) * size / 4.0;
+    double half = strlen(num) * size / 4.0, a = deg * PI / 180.0;
+    jw_obj *t;
 
     snprintf(buf, sizeof buf, "%s%s", num, season ? season : "");
-    add_text(d, buf, x - half, y + 1.0, 0, size, 1, 1);
+    t = add_text(d, buf, x, y, 0, size, 1, 1);
+    turn_text(t, x - cos(a) * half - sin(a) * 1.0, y - sin(a) * half + cos(a) * 1.0, deg);
 }
 
 static void sun_path(jw_drawing *d, const hk_tenku_opts *o, double px, double py,
                      double cx, double cy, double size)
 {
-    double phi = o->lat * PI / 180.0, dec, L = o->north_off;
+    double phi = o->lat * PI / 180.0, dec, L = (o->north - 90.0) * PI / 180.0;
+    double turn = o->mirror ? 0.0 : o->north;   /* local_3b4: 南方向補正 なしなら 真北 で回す */
     int span = o->sun_n15 ? 180 : 240, k;
     static const char *const nsew[4] = { "E", "N", "W", "S" };   /* 0x95bd50・bd7c・bd74・955184 */
 
@@ -464,7 +491,7 @@ static void sun_path(jw_drawing *d, const hk_tenku_opts *o, double px, double py
                 y = cy;
             }
             if (step == 0)
-                sun_label(d, o->sun_n15 ? "9" : "8", o->mirror ? NULL : season, x, y, size);
+                sun_label(d, o->sun_n15 ? "9" : "8", o->mirror ? NULL : season, x, y, size, turn);
             else
                 add_line(d, lx, ly, x, y, 5, 1, 0);
             if (step % 60 == 0)
@@ -475,34 +502,23 @@ static void sun_path(jw_drawing *d, const hk_tenku_opts *o, double px, double py
             ly = y;
             step += 10;
         }
-        sun_label(d, o->sun_n15 ? "15" : "16", o->mirror ? season : NULL, lx, ly, size);
+        sun_label(d, o->sun_n15 ? "15" : "16", o->mirror ? season : NULL, lx, ly, size, turn);
         if (!o->shiki || dec > 1.0)
             break;
         dec += 23.45;
     }
-    /* 方位: 円から 2 の線と E/N/W/S（南方向補正 で E と W を入れ替え、0x73ff30〜）。
-       南方向補正 なしのときの回り +0x198 は 0 と見た（hk_s6。原典に確認が要る） */
+    /* 方位: 円から 2 の線と E/N/W/S（0x73ff30〜）。南方向補正 では E と W を入れ替え、
+       なしでは 真北 の角度だけ回す（原典 hk_s5・s6・s18・s21） */
     for (k = 0; k < 4; k++) {
-        double a = k * PI / 2.0, ux = cos(a - PI / 2.0), uy = sin(a - PI / 2.0);
+        double a = k * PI / 2.0 + turn * PI / 180.0, ux = cos(a - PI / 2.0), uy = sin(a - PI / 2.0);
         double tx = cx + cos(a) * (o->R + 2.0), ty = cy + sin(a) * (o->R + 2.0), w = size / 2.0;
         int m = k;
-        jw_obj *t;
 
-        if (fabs(ux) < 1e-12)
-            ux = 0.0;
-        if (fabs(uy) < 1e-12)
-            uy = 0.0;
-        add_line(d, cx + cos(a) * o->R, cy + sin(a) * o->R, tx, ty, 0, 0, 0);
         if (o->mirror && (k == 0 || k == 2))
             m = 2 - k;
-        t = add_text(d, nsew[m], tx - ux * w / 2.0, ty - uy * w / 2.0, 0, size, 1, 2);
-        if (t) {
-            t->d[2] = t->d[0] + ux * w;
-            t->d[3] = t->d[1] + uy * w;
-            t->d[7] = k * 90.0 - 90.0;
-            if (t->d[7] > 180.0)
-                t->d[7] -= 360.0;
-        }
+        add_line(d, cx + cos(a) * o->R, cy + sin(a) * o->R, tx, ty, 0, 0, 0);
+        turn_text(add_text(d, nsew[m], tx, ty, 0, size, 1, 2), tx - ux * w / 2.0, ty - uy * w / 2.0,
+                  k * 90.0 + turn - 90.0);
     }
 }
 
@@ -990,10 +1006,6 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
         point_mark(d, o, px, py, size);
     if (o->calc) {
         /* [sample] texts, then the hatch, then the 天空率 text, then the skyline */
-        if (o->sun) {               /* 「緯度 = 36°」が字の一段目（ここでの並びは原典に確認が要る） */
-            sun_lat_text(d, o, cx, ty, size);
-            slot++;
-        }
         if (o->show_point) {
             if (o->interval > 0.0)
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,
@@ -1001,6 +1013,12 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
             else
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d", o->number);
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
+            slot++;
+        }
+        if (o->sun) {
+            /* 「緯度 = 36°」は 測定点 No.n の字のあと、測定面の字の前（原典 hk_s15・s16。
+               天空率計算 と 測定点表示 を両方入れたときは 原典に確認が要る） */
+            sun_lat_text(d, o, cx, ty - 3.75 * (slot - 1), size);
             slot++;
         }
         if (o->show_plane) {
@@ -1052,10 +1070,6 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
         }
         if (o->show_point)
             point_mark(d, o, px, py, size);
-        if (o->sun) {               /* 「緯度 = 36°」は建物の線のあと、測定面の字の前（hk_s5） */
-            sun_lat_text(d, o, cx, ty, size);
-            slot++;
-        }
         if (o->show_point) {
             if (o->interval > 0.0)
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,
@@ -1063,6 +1077,12 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
             else
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d", o->number);
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
+            slot++;
+        }
+        if (o->sun) {
+            /* 「緯度 = 36°」は 測定点 No.n の字のあと、測定面の字の前（原典 hk_s15・s16。
+               天空率計算 と 測定点表示 を両方入れたときは 原典に確認が要る） */
+            sun_lat_text(d, o, cx, ty - 3.75 * (slot - 1), size);
             slot++;
         }
         if (o->show_plane) {

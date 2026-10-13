@@ -1026,6 +1026,21 @@ static char *box_slot(unsigned cmd, int id)
     return xbox[nxbox++].t;
 }
 
+/* 別のコマンドの箱の中身（box_slot は いまのコマンドの表を先に見るので）。無ければ NULL。
+   天空図の 太陽軌跡 が 日影図の 緯度・季節 を読むのに使う */
+static const char *box_of(unsigned cmd, int id)
+{
+    int i;
+
+    for (i = 0; i < (int)(sizeof box / sizeof box[0]); i++)
+        if (box[i].id == (unsigned short)id && box[i].cmd == cmd)
+            return box[i].t;
+    for (i = 0; i < nxbox; i++)
+        if (xbox[i].cmd == cmd && xbox[i].id == (unsigned short)id)
+            return xbox[i].t;
+    return NULL;
+}
+
 /* 多角形 (CZukeiTakakukei).  The bar's 中心→頂点指定 is the mode it starts
  * in, and with a 寸法 in the box one click on the centre draws the whole
  * thing -- which is what the original does: a click left a regular pentagon
@@ -15012,16 +15027,20 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             o.show_area = o.calc && jw_cmd_bar_check(1324) > 0;
             o.number = o.show_point ? atoi(jw_cmd_box(2216)) : tn_count + 1;
             /* 太陽軌跡 (1325)・10分間隔点表示 (2113)・四季 (2115)、FUN_0073ea50（src/tenku.c の
-               sun_path）。原典 hk_s5〜s8。緯度 doc+0x83c0・日赤緯 doc+0x83c8 は 日影図 の
-               緯度 (1493)・季節 (2436) の箱から取る（36°・冬至 の初めの値でだけ確かめた。
-               日影図で変えた値が天空図に効くかは原典に確認が要る）。9～15時 doc+0x83d0 は
-               入れていない（日影図の 1323 が入るのか 原典に確認が要る） */
+               sun_path）。原典 hk_s5〜s8・s15〜s23。緯度 doc+0x83c0・日赤緯 doc+0x83c8 は
+               日影図 の 緯度 (1493)・季節 (2436) の箱から取る（日影図で 45・夏至 にすると
+               天空図に効く、hk_s19・s22。任意時期 の 日赤緯 は確かめていない） */
             o.sun = jw_cmd_bar_check(1325) > 0;
             if (o.sun) {
-                const char *lb = box_slot(JW_CMD_HIKAGE, 1493), *sb = box_slot(JW_CMD_HIKAGE, 2436);
+                const char *lb = box_of(JW_CMD_HIKAGE, 1493), *sb = box_of(JW_CMD_HIKAGE, 2436);
                 double north = 0.0;
                 int k;
 
+                const unsigned char *n15 = chk_slot(JW_CMD_HIKAGE, 1323);
+
+                /* 9～15時 (doc+0x83d0) も 日影図 の 1323 が効く（原典 hk_s23: 字が 9 と 15）。
+                   緯度 46° 超えで 9～15時 が強制されるのが 天空図 にも及ぶかは 原典に確認が要る */
+                o.sun_n15 = n15 && *n15;
                 o.sun10 = jw_cmd_bar_check(2113) > 0;
                 o.shiki = jw_cmd_bar_check(2115) > 0;
                 o.lat = lb && *lb ? atof(lb) : 36.0;
@@ -15046,7 +15065,12 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                         if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
                             north = atof(t);
                     }
-                o.north_off = (north - 90.0) * 3.14159265358979323846 / 180.0;
+                o.north = north;
+                /* 南方向補正 のときは 建物も 真北 で回る（FUN_00733e40、原典 hk_s18: 真北 −90 で
+                   箱が右へ）。補正なしでは建物は回らず、太陽軌跡と方位の字が回る（hk_s21）。
+                   太陽軌跡 なしでは 真北 は効かない（hk_s20） */
+                if (o.mirror)
+                    o.mirror_off = north * 3.14159265358979323846 / 180.0;
             }
             if (tn_sansha) {
                 hk_sansha_opts so;

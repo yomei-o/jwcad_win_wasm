@@ -36,7 +36,7 @@ typedef struct {
     int sun_n15;        /* 9～15時（doc+0x83d0）: ±180 分、字は 9 と 15 */
     double lat;         /* 緯度（doc+0x83c0）、度 */
     double dec;         /* 日赤緯（doc+0x83c8）、度。±23.45 に切る */
-    double north_off;   /* (真北 doc+0x1b80 − 90°) をラジアンで。真北が無い（上向き扱い）なら −π/2 */
+    double north;       /* 真北（doc+0x1b80、旗 0x40 の数の字）、度。無ければ 0（上向き扱い） */
 } hk_tenku_opts;
 
 /* 稜線ごとの 壁の下端（原典 FUN_0073dc40 / FUN_0073c0c0）。jw_tenku_collect2 が
