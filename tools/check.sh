@@ -185,6 +185,9 @@ echo "=== 円周 —— 原典が引いた円周寸法との突き合わせ"
 echo
 echo "=== 寸法の 角度・円周・半径・直径・寸法値 —— Esc の歩み"
 ./tests/sunpoesc_test.exe | sed 's/^/    /'
+echo
+echo "=== 円ソリッドの閉じ方と 線種 111（原典の絵 decomp/res/rs_kinds.png）"
+./tests/rsolid_test.exe | sed 's/^/    /'
 
 echo
 echo "=== 寸法の一括処理 —— 原典が二度揃えた寸法との突き合わせ"

@@ -10697,7 +10697,13 @@ static void bar_exclude(int id)
          * 3点指示 (1321) の受け手 FUN_004ac010 は 半円 (+0xaf0) を 0 に
          * します（`decomp/byclass/_unassigned.c`） */
         { JW_CMD_ENKO, 1320, { 1321, 0, 0 } },
-        { JW_CMD_ENKO, 1321, { 1320, 0, 0 } }
+        { JW_CMD_ENKO, 1321, { 1320, 0, 0 } },
+        /* 多角形 任意: 線形・円周 (1326)・弓形 (1327)・円外側 (1328) は
+         * 一つだけ。受け手 FUN_005ec1d0・FUN_005ec230・FUN_005ec280
+         * （_unassigned.c 213700 台）が点いたとき残り二つを 0 にする */
+        { JW_CMD_TAKAKU, 1326, { 1327, 1328, 0 } },
+        { JW_CMD_TAKAKU, 1327, { 1326, 1328, 0 } },
+        { JW_CMD_TAKAKU, 1328, { 1326, 1327, 0 } }
     };
     int i, k;
 
@@ -11580,6 +11586,31 @@ static int tk_solids(jw_drawing *d, const double *x, const double *y, int n)
     return nout;
 }
 
+/* 曲線属性化 (1325)。原典 FUN_007254e0: 箱が立っていて、いま作った図形が
+ * 二つ以上あれば、まだ誰も使っていない曲線属性の番号（FUN_00479d80: 図面と
+ * ブロックの全要素の +4 を印に付け、1 から数えて最初に空いている番号）を
+ * 全部の +4 に書く。一つだけなら何もしない。tools/tkprobe.sh の答え
+ * tk_s6c（任意の六点、ソリッド三枚）・tk_j5（連続線、二枚）で、何も
+ * 無い図面に 1 が付いた。 */
+static void tk_curve_attr(jw_drawing *d, int made)
+{
+    int k, id;
+
+    if (made < 2 || jw_cmd_bar_check(1325) <= 0 || made > d->ndrawn)
+        return;
+    for (id = 1; id <= 240000; id++) {
+        for (k = 0; k < d->nobj; k++)
+            if (d->obj[k].id == id && (k < d->ndrawn - made || k >= d->ndrawn))
+                break;
+        if (k == d->nobj)
+            break;
+    }
+    if (id > 240000)
+        return;
+    for (k = d->ndrawn - made; k < d->ndrawn; k++)
+        d->obj[k].id = id;
+}
+
 /* 任意の 円・連続線指示 (1083)。原典の答え decomp/res/p173_*.jww・p174_*.jww:
    円は ソリッド（線種 101、線形・円周 を入れると 111）に、連続線は つながっている線の頂点
    を ソリッドに。(L) は元図形を残し (R) は消す */
@@ -11594,21 +11625,53 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
         return;
     rec = op_new();
     if (d->obj[i].cls == JW_ENKO) {
-        const jw_obj *e = &d->obj[i];
-        jw_obj *o = jw_add(d, JW_SOLID);
+        /* 原典 FUN_007249c0（_unassigned.c 295642）。円外側 (1328、+0x10a4) で
+         * なければ 1 枚: 全円なら末尾 100、弓形 (1327、+0x10a0) なら 5、それ
+         * 以外は 0（扇形）。円外側なら末尾 -1 で、開きが 1.5707964267948966
+         * 以上の円弧は 1〜4 の最小の m で開き/m がそれ未満になるよう m 等分、
+         * 全円は 0・90・180・270° からの 90° 四枚に分ける（それ未満の円弧は
+         * そのまま 1 枚）。tools/tkprobe2.sh の答え tk_b2〜b7・j2・j3
+         * （decomp/res/）で、弓形・円外側 は 円・連続線指示 (1083) を押した
+         * あとでないと enabled にならないことも確かめた。 */
+        const jw_obj e = d->obj[i];
+        int full = e.d[4] >= 6.283, pieces = 1, outside = !ring
+                   && jw_cmd_bar_check(1328) > 0;
+        double sw = e.d[4], a0 = e.d[3];
 
-        if (!o)
-            return;
-        o->ltype = ring ? 111 : 101;
-        o->d[0] = e->d[0];
-        o->d[1] = e->d[1];
-        o->d[2] = e->d[2];
-        o->d[3] = e->d[6] > 0.0 ? e->d[6] : 1.0;
-        o->d[4] = e->d[5];
-        o->d[5] = e->d[3];
-        o->d[6] = e->d[4];
-        o->d[7] = e->d[4] >= 6.283 ? 100.0 : 0.0;
-        made = 1;
+        if (outside && fabs(sw) >= 1.5707964267948966) {
+            if (!full && fabs(sw) < 6.283185207179586) {
+                for (pieces = 1; pieces < 5; pieces++)
+                    if (fabs(sw) / pieces < 1.5707964267948966)
+                        break;
+                sw /= pieces;
+            } else {
+                pieces = 4;
+                sw = 1.5707963267948966;
+                a0 = 0.0;
+                full = 2;           /* 始まりは (k-1)·π/2 そのもの */
+            }
+        }
+        for (k = 0; k < pieces; k++) {
+            jw_obj *o = jw_add(d, JW_SOLID);
+
+            if (!o)
+                break;
+            o->ltype = ring ? 111 : 101;
+            o->d[0] = e.d[0];
+            o->d[1] = e.d[1];
+            o->d[2] = e.d[2];
+            o->d[3] = e.d[6] > 0.0 ? e.d[6] : 1.0;
+            o->d[4] = e.d[5];
+            o->d[5] = full == 2 ? k * 1.5707963267948966 : a0 + k * sw;
+            o->d[6] = sw;
+            o->d[7] = outside ? -1.0 : full ? 100.0
+                    : jw_cmd_bar_check(1327) > 0 ? 5.0 : 0.0;
+            made++;
+        }
+        /* 曲線属性化 は (R) の受け手（CZukeiTakakukei.c 1447、FUN_007249c0 の
+           第 4 引数 1 = 元の円を消す方）のあとでだけ FUN_007254e0 を呼ぶ */
+        if (button == 1)
+            tk_curve_attr(d, made);
         if (button == 1)
             erase(d, i, rec), made++;
     } else if (d->obj[i].cls == JW_SEN) {
@@ -11707,6 +11770,10 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
                 } else
                     made = tk_solids(d, vx, vy, m);
             }
+            /* 曲線属性化 (1325): 原典 p174_q4・tk_j5（五点の連続線、(L)）で
+               二枚のソリッドに、tk_j9（線形 1326 と一緒）で四本の線形
+               ソリッドに曲線属性 1 が付いた。連続線は (L) でも付く */
+            tk_curve_attr(d, made);
         }
         if (button == 1) {
             /* 大きい番号から 消す */
@@ -11734,6 +11801,7 @@ static void takaku_any(jw_drawing *d)
 
     if (jw_cmd_bar_check(1323) > 0) {
         made = tk_solids(d, tk_ax2, tk_ay2, tk_an);
+        tk_curve_attr(d, made);     /* FUN_007255f0 → FUN_007254e0(DAT_00a0cac0) */
     } else {
         for (i = 0; i < tk_an; i++) {
             int j = (i + 1) % tk_an;

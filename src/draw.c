@@ -2467,6 +2467,33 @@ static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
     unsigned int col;
 
     (void)flat;
+    /* 線種 110 以上（111 線形・円周）は塗らずに**円周だけ**を引く。原典
+     * FUN_00437050（円ソリッドを円弧にする）は線種 > 0x6d で種別に 10 を
+     * 足し、円弧の線種を 1（実線）、色を「10 未満ならそのまま、でなければ
+     * 1」にする。tools/jwdraw.ps1 の shot で原典に 111 を描かせると、扇・
+     * 弓形・円外側のどの値でも半径も弦も無い弧だけだった（2026-10-13、
+     * RESUME.md）。 */
+    if (o->ltype >= 110) {
+        jw_obj a = *o;
+
+        a.cls = JW_ENKO;
+        a.ltype = 1;
+        a.color = o->color < 10 ? o->color : 1;
+        a.d[0] = o->d[0];
+        a.d[1] = o->d[1];
+        a.d[2] = o->d[2];
+        if (o->d[7] >= 10.0 || fabs(o->d[6]) > 6.283185207179586) {
+            a.d[3] = 0.0;               /* FUN_0042f620(0)・FUN_0042f5a0(2π) */
+            a.d[4] = 2.0 * PI;
+        } else {
+            a.d[3] = o->d[5];
+            a.d[4] = o->d[6];
+        }
+        a.d[5] = o->d[4];
+        a.d[6] = o->d[3];
+        arc(fb, v, d, &a);
+        return;
+    }
     if (rp < 1)
         return;
     if (ratio <= 0.0)
@@ -2494,6 +2521,43 @@ static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
 
         pts[2 * n] = (short)jw_sx(v, o->d[0] + x * ct - y * st);
         pts[2 * n + 1] = (short)jw_sy(v, o->d[1] + x * st + y * ct);
+        n++;
+    }
+    /* 部分円の閉じ方は 末尾の数（d[7]）で決まる。原典 FUN_00437050 の種別:
+     *   d[7] >= 10 か |開き| > 6.283185207179586 なら全円（上で 2π にした）、
+     *   4 < d[7] < 6 なら 弓形（弦で閉じる、上の輪のまま）、
+     *   d[7] < -0.5 かつ 0.001744 < |開き| < 1.5707964267948966 なら 円外側
+     *   （両端の接線の交点で閉じる、FUN_0043a8d0 = FUN_0045a7f0 の接線二本を
+     *   FUN_004619b0 で交わらせる）、
+     *   それ以外は 扇形（中心で閉じる）。
+     * tools/jwdraw.ps1 の shot で原典に 240°・90° の扇／弓形／円外側を描かせて
+     * 確かめた（2026-10-13、RESUME.md）。 */
+    if (sw < 2.0 * PI && o->d[7] < 10.0 && n < ARC_MAX + 2) {
+        double ct = cos(tilt), st = sin(tilt), cx = o->d[0], cy = o->d[1];
+        double ex = cx, ey = cy;                /* 扇形: 中心 */
+
+        if (o->d[7] > 4.0 && o->d[7] < 6.0) {
+            fill_ring(fb, v, pts, n, col);      /* 弓形 */
+            return;
+        }
+        if (o->d[7] < -0.5 && sw > 0.001744 && sw < 1.5707964267948966) {
+            double t0 = a0, t1 = a0 + sw;
+            double x0 = r * cos(t0), y0 = r * ratio * sin(t0);
+            double x1 = r * cos(t1), y1 = r * ratio * sin(t1);
+            double dx0 = -r * sin(t0), dy0 = r * ratio * cos(t0);
+            double dx1 = -r * sin(t1), dy1 = r * ratio * cos(t1);
+            double den = dx0 * dy1 - dy0 * dx1;
+
+            if (den != 0.0) {
+                double s = ((x1 - x0) * dy1 - (y1 - y0) * dx1) / den;
+                double qx = x0 + s * dx0, qy = y0 + s * dy0;
+
+                ex = cx + qx * ct - qy * st;
+                ey = cy + qx * st + qy * ct;
+            }
+        }
+        pts[2 * n] = (short)jw_sx(v, ex);
+        pts[2 * n + 1] = (short)jw_sy(v, ey);
         n++;
     }
     fill_ring(fb, v, pts, n, col);

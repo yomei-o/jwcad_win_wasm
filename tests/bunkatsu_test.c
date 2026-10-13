@@ -501,6 +501,25 @@ int main(int argc, char **argv)
             while (d->ndrawn > g && jw_cmd_can_undo())
                 jw_cmd_undo(d);
 
+            /* 仮点 (1323) を入れた２点間分割（分割数 3）: 点が仮点 (kind=1) になる
+               （decomp/res/bk_kari.jww） */
+            jw_cmd_bar(d, 1324);                        /* 割付 を外す */
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            if (jw_cmd_bar_check(1323) <= 0)
+                jw_cmd_bar(d, 1323);
+            type_box(1411, "3");
+            jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+            jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);
+            jw_cmd_point(d, v, 900.0, 900.0, 1);
+            ck(d->ndrawn == g + 2 && d->obj[g].n == 1 && d->obj[g + 1].n == 1
+               && near3(d->obj[g].d[0], -73.877551) && near3(d->obj[g + 1].d[0], 7.755102),
+               "２点間分割 仮点 (1323): 点が仮点になる（bk_kari）");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+            jw_cmd_bar(d, 1323);
+            jw_cmd_bar(d, 1324);                        /* 割付 に戻す */
+
             /* 割付＋振分: 終点は原典では先の答えの点 (84.49,26.33) を読んでいた */
             pe = jw_add(d, JW_TEN);
             pe->d[0] = 84.489796; pe->d[1] = 26.326531; pe->n = 0;

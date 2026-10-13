@@ -108,6 +108,17 @@ static void run(const char *name, int mode, const char *box, int pos,
 /* 任意 (1070): 頂点を積んで 作図 (1069)。線かソリッドか */
 /* 円・連続線指示 (1083): 下絵（円か連続線）を描き、多角形の任意で 指す。
    probe173.sh・probe174.sh の答え p173_c*.jww・p174_*.jww */
+/* pick_after: 0 ならつまみを 1083 の前に（原典の probe173/174 の並び。弓形・
+   円外側 はそのときまだ enabled でなく効かない）、1 なら 1083 のあとに
+   （tkprobe2.sh の並び） */
+static int pick_after;
+/* 円弧の三点目（probe174 の ARC は (600,200)、tkprobe2.sh の ARC2・ARC3 は別） */
+static int arc_end[2] = { 600, 200 };
+/* run_any で 曲線属性化 (1325) を立てるか */
+static int any_curve;
+/* run_pick で 1325 を opt と関係なく立てたままにする */
+static int keep_1325;
+
 static void run_pick(const char *name, int kind, int opt, int btn, int px, int py)
 {
     char path[96];
@@ -141,7 +152,20 @@ static void run_pick(const char *name, int kind, int opt, int btn, int px, int p
         app_press(r.x + 600, r.y + 400, 0);
         app_press(r.x + 800, r.y + 400, 0);
         if (kind == 2)
-            app_press(r.x + 600, r.y + 200, 0);
+            app_press(r.x + arc_end[0], r.y + arc_end[1], 0);
+    } else if (kind == 5) {
+        /* 原典の答えにある円弧をそのまま写す。円弧 (1318) の三点目をどちら
+           回りにするかは原典が途中のマウスの道筋で決めていて、送ったクリック
+           だけの移植の歩き（短いほう）と合わないことがある（240° の弧） */
+        for (i = 0; i < ref.ndrawn; i++)
+            if (ref.obj[i].cls == JW_ENKO) {
+                jw_obj *o = jw_add((jw_drawing *)app_drawing(), JW_ENKO);
+                int keep_cls = o->cls;
+
+                *o = ref.obj[i];
+                o->cls = (unsigned char)keep_cls;
+                break;
+            }
     } else if (kind == 4) {
         static const int PC[6][2] = { {300, 300}, {500, 300}, {500, 450}, {400, 350}, {300, 450}, {300, 300} };
 
@@ -162,7 +186,8 @@ static void run_pick(const char *name, int kind, int opt, int btn, int px, int p
     }
     app_command(32894);
     jw_cmd_bar((jw_drawing *)app_drawing(), 1070);
-    jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
+    if (jw_cmd_bar_check(1323) <= 0)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
     /* opt: 0 なら素のまま、さもなくば 線形・円周 (1326)・曲線属性化 (1325)・
        弓形 (1327)・円外側 (1328) のうち一つだけを立てる。トグルはバーの状態が
        次の呼び出しへ持ち越るので、四つとも望む状態に揃え直す */
@@ -171,10 +196,20 @@ static void run_pick(const char *name, int kind, int opt, int btn, int px, int p
         int t;
 
         for (t = 0; t < 4; t++)
-            if ((jw_cmd_bar_check(TG[t]) > 0) != (opt == TG[t]))
+            if ((jw_cmd_bar_check(TG[t]) > 0) && opt != TG[t]
+                && !(keep_1325 && TG[t] == 1325))
+                jw_cmd_bar((jw_drawing *)app_drawing(), TG[t]);
+        if (pick_after)
+            jw_cmd_bar((jw_drawing *)app_drawing(), 1083);
+        /* 原典と同じく、enabled でないつまみは押しても効かない */
+        for (t = 0; t < 4; t++)
+            if ((opt == TG[t] || (keep_1325 && TG[t] == 1325))
+                && jw_cmd_bar_check(TG[t]) <= 0
+                && jw_cmd_bar_enabled(app_drawing(), TG[t]))
                 jw_cmd_bar((jw_drawing *)app_drawing(), TG[t]);
     }
-    jw_cmd_bar((jw_drawing *)app_drawing(), 1083);
+    if (!pick_after)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1083);
     app_press(r.x + px, r.y + py, btn);
     d = app_drawing();
     for (i = 0; i < ref.ndrawn; i++)
@@ -200,7 +235,7 @@ static void run_pick(const char *name, int kind, int opt, int btn, int px, int p
         while (j < d->ndrawn && d->obj[j].cls == JW_MOJI)
             j++;
         m = &d->obj[j++];
-        if (m->cls != a->cls || m->ltype != a->ltype)
+        if (m->cls != a->cls || m->ltype != a->ltype || m->id != a->id)
             ok = 0;
         for (k = 0; k < 8 && ok; k++)
             if (fabs(m->d[k] - a->d[k]) > 2e-3)
@@ -241,6 +276,8 @@ static void run_any(const char *name, int solid, const int (*pt)[2], int npt,
     jw_cmd_bar((jw_drawing *)app_drawing(), 1070);
     if ((jw_cmd_bar_check(1323) > 0) != (solid != 0))
         jw_cmd_bar((jw_drawing *)app_drawing(), 1323);
+    if ((jw_cmd_bar_check(1325) > 0) != (any_curve != 0))
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1325);
     ui_view_rect(app_fb()->w, app_fb()->h, &r);
     for (i = 0; i < npt; i++)
         app_press(r.x + pt[i][0], r.y + pt[i][1], 0);
@@ -387,11 +424,50 @@ int main(void)
         run_any("p170_p3r", 0, T3, 3, 0, 1, 0);
         run_any("p170_p2", 0, T3, 2, 1, 0, 0);
         run_any("p171_s4", 1, T4, 4, 1, 0, 0);
-        run_any("p171_s5", 1, T5, 5, 1, 0, 1);
-        run_any("p171_s6", 1, T6, 6, 1, 0, 1);
+        run_any("p171_s5", 1, T5, 5, 1, 0, 0);
+        run_any("p171_s6", 1, T6, 6, 1, 0, 0);
         run_any("p172_c5", 1, C5, 5, 1, 0, 0);
         run_any("p172_c5cw", 1, C5W, 5, 1, 0, 0);
         run_any("p172_c6", 1, C6, 6, 1, 0, 0);
+
+        /* tools/tkprobe.sh・tkprobe2.sh（2026-10-13）。凹み・自己交差の
+           出す順（並びまで突き合わせ）、曲線属性化 (1325) で付く曲線属性、
+           1083 のあとに押した 弓形 (1327)・円外側 (1328)。 */
+        {
+            static const int T5C[5][2] = { {400,350}, {600,450}, {500,300}, {300,300}, {350,200} };
+            static const int X5[5][2] = { {300,300}, {600,300}, {350,450}, {450,200}, {550,450} };
+            static const int C7[7][2] = { {300,300}, {500,250}, {600,400}, {450,350}, {400,500}, {250,450}, {350,380} };
+
+            run_any("tk_s5c", 1, T5C, 5, 1, 0, 0);
+            run_any("tk_x5", 1, X5, 5, 1, 0, 0);
+            run_any("tk_c7", 1, C7, 7, 1, 0, 0);
+            any_curve = 1;
+            run_any("tk_s6c", 1, T6, 6, 1, 0, 0);
+            any_curve = 0;
+            pick_after = 1;
+            run_pick("tk_b2", 2, 1327, 0, 800, 400);
+            run_pick("tk_b3", 2, 1328, 0, 800, 400);
+            run_pick("tk_j2", 0, 1327, 0, 800, 400);
+            run_pick("tk_j3", 0, 1328, 0, 800, 400);
+            run_pick("tk_j5", 3, 1325, 0, 450, 275);
+            run_pick("tk_j6", 0, 1325, 0, 800, 400);
+            /* 曲線属性化 と 円外側 の両方: 円の四枚に曲線属性が付くのは (R) だけ。
+               線形 (1326) の連続線には (L) でも付く。run_pick は opt を一つしか
+               立てないので、ここでは 1325 を先に立てておく */
+            jw_cmd_bar((jw_drawing *)app_drawing(), 1325);
+            keep_1325 = 1;
+            run_pick("tk_j7", 0, 1328, 1, 800, 400);
+            run_pick("tk_j8", 0, 1328, 0, 800, 400);
+            run_pick("tk_j9", 3, 1326, 0, 450, 275);
+            keep_1325 = 0;
+            arc_end[0] = 400; arc_end[1] = 400;
+            run_pick("tk_b4", 2, 1327, 0, 800, 400);
+            run_pick("tk_b5", 2, 1328, 0, 800, 400);
+            arc_end[0] = 600; arc_end[1] = 200;
+            run_pick("tk_b6", 5, 1328, 0, 800, 400);     /* 240° を 80° 三枚 */
+            run_pick("tk_b7", 5, 1327, 0, 800, 400);
+            pick_after = 0;
+        }
     }
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
