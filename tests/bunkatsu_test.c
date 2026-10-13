@@ -32,6 +32,13 @@ static int near(double a, double b)
     return fabs(a - b) < 1e-9;
 }
 
+/* 原典を tools/jwdraw.ps1 で直接叩いて読み出した数との突き合わせ用
+   （2026-10-13、RESUME.md 参照）。.jww のテキスト往復ぶんのゆるさを見る。 */
+static int near3(double a, double b)
+{
+    return fabs(a - b) < 5e-3;
+}
+
 static int same_line(const jw_obj *a, const jw_obj *b)
 {
     return (near(a->d[0], b->d[0]) && near(a->d[1], b->d[1])
@@ -230,6 +237,168 @@ int main(int argc, char **argv)
             while (d->ndrawn > was && jw_cmd_can_undo())
                 jw_cmd_undo(d);
         }
+    }
+
+    /* 分割始点 (R): 点＋線・点＋円・円Ａ＋円Ｂ・２点間（直線・線上・円周）・
+     * 円全周分割。tools/jwdraw.ps1 で原典を直接叩いた実測（2026-10-13、
+     * RESUME.md 同日の節、各 bk_* 関数のコメントに番地と式）との突き合わせ。
+     * 幾何はその実測と同じものをここに作り直す。 */
+    {
+        jw_obj *l1, *l2, *l3, *l4, *ca, *cb, *pt_top, *pt_right;
+        const jw_view *v = app_view();
+        int g;
+
+#define MKSEN(o, x0, y0, x1, y1) \
+        do { (o) = jw_add(d, JW_SEN); (o)->d[0] = (x0); (o)->d[1] = (y0); \
+             (o)->d[2] = (x1); (o)->d[3] = (y1); } while (0)
+#define MKENKO(o, cx, cy, rr) \
+        do { (o) = jw_add(d, JW_ENKO); (o)->d[0] = (cx); (o)->d[1] = (cy); \
+             (o)->d[2] = (rr); (o)->d[3] = 0.0; \
+             (o)->d[4] = 6.283185307179586; (o)->d[5] = 0.0; \
+             (o)->d[6] = 1.0; (o)->n = 1; } while (0)
+
+        MKSEN(l1, -155.51, 26.3265, -94.2857, 26.3265);
+        MKSEN(l2, -155.51, -4.28571, -94.2857, -4.28571);
+        MKSEN(l3, 28.1633, 26.3265, 89.3878, 26.3265);
+        MKSEN(l4, -106.531, 56.9388, -106.531, -47.1429);
+        MKENKO(ca, -33.0612, -96.1224, 36.7347);
+        MKENKO(cb, 58.7755, -96.1224, 24.4898);
+        pt_top = jw_add(d, JW_TEN);
+        pt_top->d[0] = -33.0612; pt_top->d[1] = -59.3878; pt_top->n = 0;
+        pt_right = jw_add(d, JW_TEN);
+        pt_right->d[0] = 3.67347; pt_right->d[1] = -96.1224; pt_right->n = 0;
+
+        /* 始点＋線 Ｂ (L): 点 P=l1 の始点、線 B=l2、n=3 */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "3");
+        jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);          /* (R) 始点 */
+        jw_cmd_point(d, v, (l2->d[0] + l2->d[2]) / 2, l2->d[1], 0); /* (L) 線B */
+        ck(d->ndrawn == g + 2
+           && near3(d->obj[g].d[0], -155.51) && near3(d->obj[g].d[1], 16.1224)
+           && near3(d->obj[g].d[2], -135.102) && near3(d->obj[g].d[3], 16.1224)
+           && near3(d->obj[g + 1].d[0], -155.51) && near3(d->obj[g + 1].d[1], 5.91837)
+           && near3(d->obj[g + 1].d[2], -114.694) && near3(d->obj[g + 1].d[3], 5.91837),
+           "分割始点 (R) ＋ 線【B】(L): 点 P から扇");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 始点＋円 Ｂ (L): 点 P=l4 の上端、円 B=cb、n=3 */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "3");
+        jw_cmd_point(d, v, l4->d[0], l4->d[1], 1);
+        jw_cmd_point(d, v, cb->d[0] + cb->d[2], cb->d[1], 0); /* 円周の右端 */
+        ck(d->ndrawn == g + 2
+           && near3(d->obj[g].d[0], -51.4286) && near3(d->obj[g].d[1], 5.91837)
+           && near3(d->obj[g].d[2], 8.16327)
+           && near3(d->obj[g + 1].d[0], 3.67347) && near3(d->obj[g + 1].d[1], -45.102)
+           && near3(d->obj[g + 1].d[2], 16.3265),
+           "分割始点 (R) ＋ 円【B】(L): 中心 P+(C-P)k/n・半径 r・k/n");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 円Ａ (L) ＋ 円Ｂ (L)（classic、円どうし）、n=3 */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "3");
+        jw_cmd_point(d, v, ca->d[0] + ca->d[2], ca->d[1], 0);
+        jw_cmd_point(d, v, cb->d[0] + cb->d[2], cb->d[1], 0);
+        ck(d->ndrawn == g + 2
+           && near3(d->obj[g].d[0], -2.44898) && near3(d->obj[g].d[1], -96.1224)
+           && near3(d->obj[g].d[2], 32.6531)
+           && near3(d->obj[g + 1].d[0], 28.1633) && near3(d->obj[g + 1].d[1], -96.1224)
+           && near3(d->obj[g + 1].d[2], 28.5714),
+           "円Ａ(L)＋円Ｂ(L): 中心・半径の線形補間（点＋円と同じ式）");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 線 A (L) ＋ 点 E (R)（逆向き）: formula の対称性だけの確認
+           （「E から A への同じ扇」、原典でこの組み合わせ自体は未確認） */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "3");
+        jw_cmd_point(d, v, (l1->d[0] + l1->d[2]) / 2, l1->d[1], 0); /* (L) 線A */
+        jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);                  /* (R) 点E */
+        ck(d->ndrawn == g + 2, "線Ａ(L)＋点Ｅ(R) も扇を 2 本引く（対称性のみ）");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 始点＋第二点 (R)(R)、(R) で確定する２点間分割（線・円を介さない） */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "4");
+        jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+        jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);
+        jw_cmd_point(d, v, 900.0, 900.0, 1);         /* 線・円にかからない(R) */
+        ck(d->ndrawn == g + 3
+           && near3(d->obj[g].d[0], -94.2857) && near3(d->obj[g].d[1], 26.3265)
+           && near3(d->obj[g + 1].d[0], -33.0612) && near3(d->obj[g + 1].d[1], 26.3265)
+           && near3(d->obj[g + 2].d[0], 28.1633) && near3(d->obj[g + 2].d[1], 26.3265),
+           "始点＋第二点(R)(R)、(R)確定: P1-P2 をそのまま線形補間");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 同じ二点のあと、(L) で線を指示: 線の方向へ射影した媒介変数を補間 */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "3");
+        jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+        jw_cmd_point(d, v, l3->d[2], l3->d[3], 1);
+        jw_cmd_point(d, v, (l2->d[0] + l2->d[2]) / 2, l2->d[1], 0);
+        ck(d->ndrawn == g + 2
+           && near3(d->obj[g].d[0], -73.8776) && near3(d->obj[g].d[1], -4.28571)
+           && near3(d->obj[g + 1].d[0], 7.7551) && near3(d->obj[g + 1].d[1], -4.28571),
+           "始点＋第二点(R)(R)、線(L): 射影した媒介変数を補間");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 円の上の二点 (R)(R) のあと、(L) でその円を指示: 円の２点間分割 */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "4");
+        jw_cmd_point(d, v, pt_top->d[0], pt_top->d[1], 1);
+        jw_cmd_point(d, v, pt_right->d[0], pt_right->d[1], 1);
+        jw_cmd_point(d, v, ca->d[0] - ca->d[2], ca->d[1], 0);   /* 円周の左端 */
+        ck(d->ndrawn == g + 3
+           && near3(d->obj[g].d[0], -19.0035) && near3(d->obj[g].d[1], -62.184)
+           && near3(d->obj[g + 1].d[0], -7.08587) && near3(d->obj[g + 1].d[1], -70.1471)
+           && near3(d->obj[g + 2].d[0], 0.877207) && near3(d->obj[g + 2].d[1], -82.0647),
+           "始点＋第二点(R)(R)、円(L): 円の２点間分割（短いほうの弧を等分）");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 円全周分割 (R)円指示。原典実測 2 通り（θP はいずれも円の中心から
+           点 P への向き、外積の符号で回る向きが決まる） */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "5");
+        jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);           /* P, θP=135° */
+        jw_cmd_point(d, v, -7.3465, -70.408, 1);             /* 円周上、時計回り側 */
+        ck(d->ndrawn == g + 4
+           && near3(d->obj[g].d[0], -16.384) && near3(d->obj[g].d[1], -63.3916)
+           && near3(d->obj[g + 1].d[0], 3.2212) && near3(d->obj[g + 1].d[1], -101.869)
+           && near3(d->obj[g + 2].d[0], -27.3147) && near3(d->obj[g + 2].d[1], -132.405)
+           && near3(d->obj[g + 3].d[0], -65.7921) && near3(d->obj[g + 3].d[1], -112.8),
+           "円全周分割 (R)円指示: θP から時計回りに 360/n");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "4");
+        jw_cmd_point(d, v, l4->d[0], l4->d[1], 1);           /* P, θP=115.7° */
+        jw_cmd_point(d, v, -33.061, -132.857, 1);            /* 円周上、反時計回り側 */
+        ck(d->ndrawn == g + 3
+           && near3(d->obj[g].d[0], -66.1784) && near3(d->obj[g].d[1], -112.019)
+           && near3(d->obj[g + 1].d[0], -17.165) && near3(d->obj[g + 1].d[1], -129.24)
+           && near3(d->obj[g + 2].d[0], 0.055949) && near3(d->obj[g + 2].d[1], -80.2262),
+           "円全周分割 (R)円指示: 外積の符号が逆なら反時計回り");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+#undef MKSEN
+#undef MKENKO
     }
 
     jw_free(&ref);

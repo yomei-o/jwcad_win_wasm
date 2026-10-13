@@ -546,6 +546,20 @@ static int tg_wall(double x0, double y0, double x1, double y1)
 static int tk_mode = 1690;
 static int mt_mode = 1689;      /* 面取のラジオ 1689〜1693 */
 static int bk_mode = 1689;      /* 分割のラジオ: 1689 等距離・1690 等角度 */
+/* 分割始点 (R)。corner_step/corner_obj は 線【A】【B】(L)(L) の既存の歩き
+ * （0→1→0、corner_obj が指した線・円）とこれを共用する（CORNER・MENTORI と
+ * 同じく、current が BUNKATSU のときしか使わないので衝突しない）。
+ *   corner_step 0: 何も指示していない（原典の mode 0/1）
+ *   corner_step 1: corner_obj>=0 なら 線・円（Ａ）を (L) で指示済み（mode 2・ac=0）、
+ *                  corner_obj<0  なら 始点 Ｐ を (R) で指示済み（bk_px,bk_py、mode 2・ac=1）
+ *   corner_step 2: 始点 Ｐ・第二点 Ｐ2 を (R)(R) で指示済み（mode 3）
+ * 原典 tools/jwdraw.ps1 を直接叩いた実測（2026-10-13、RESUME.md 参照）で
+ * 確かめた式を使う。連続点分割 (RR、string 5819/5820) はまだ手を付けていない。 */
+static double bk_px, bk_py;     /* corner_step>=1 かつ corner_obj<0: 始点 P */
+static double bk_p2x, bk_p2y;   /* corner_step==2: 第二点 P2 */
+static int bk_a_enko;           /* corner_step==1 かつ corner_obj>=0: 指示した
+                                    のが円なら 1、線なら 0（jw_cmd_prompt は
+                                    jw_drawing を持たないのでここに控える） */
 static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
 static int tk2_n;               /* ２辺: 取った点の数 */
 static int tk_pickmode;          /* 任意: 円・連続線指示 (1083) の間 */
@@ -2624,6 +2638,16 @@ void jw_cmd_esc_key(jw_drawing *d)
         tracking = 0;
         return;
     }
+    /* 分割: 状態 3（第二点まで）-> 状態 2（始点のみ）-> 状態 0。原典の実測
+       （RESUME.md 2026-10-12 午後〜夜の節）どおり一段ずつ戻る。第一案内
+       （corner_step==0）での Esc は原典では直前の作図を消すはずだが、まだ
+       ここには書いていない（訊いただけで確かめていないため、nokori.md）。 */
+    if (current == JW_CMD_BUNKATSU && corner_step > 0) {
+        corner_step--;
+        if (corner_step == 0)
+            corner_obj = -1;
+        return;
+    }
     /* 円弧 (the 円 bar's 1318, not 3点指示): 終点 -> 始点 -> 中心点, and right
        after a finished arc the first press is back at its 終点 */
     if (current == JW_CMD_ENKO && jw_cmd_bar_check(1318) > 0
@@ -3316,7 +3340,7 @@ static const char *sel_prompt_corner(void)
 {
     static char b[300];
 
-    snprintf(b, sizeof b, "%s �@%s", JW_STR_5326, JW_STR_5762);
+    snprintf(b, sizeof b, "%s �@%s", JW_STR_5326, JW_STR_5762);
     return b;
 }
 
@@ -3479,10 +3503,18 @@ const char *jw_cmd_prompt(void)
            （Ａ）指示　ﾏｳｽ(L)　分割始点指示　ﾏｳｽ(R)　連続点分割 (RR)」 --
            and once one is picked (state 2) it asks for the second: 0x14ee
            「□　線【B】指示…」 when what was picked is a CDataSen, 0x14ef
-           「○　円【B】指示…」 when it is a CDataEnko.  (Its state 3 is
-           ２点間分割 and shows 0x14f0, and 連続点分割 shows 0x16bb and
-           0x16bc; the port's 分割 takes two lines and reaches neither.) */
-        return corner_step == 0 ? JW_STR_5357 : JW_STR_5358;
+           「○　円【B】指示…」 when it is a CDataEnko, and 0x14f1 when what
+           was picked instead is a point (corner_obj<0, 分割始点指示 の(R)).
+           State 3 (two points, corner_step==2) shows 0x14f0 ── ２点間分割.
+           連続点分割 (0x16bb/0x16bc) is not reached: the port does not keep
+           a chain past two points (2026-10-13 の RESUME.md 参照、未確認のまま)。*/
+        if (corner_step == 0)
+            return JW_STR_5357;
+        if (corner_step == 2)
+            return JW_STR_5360;
+        if (corner_obj < 0)
+            return JW_STR_5361;
+        return bk_a_enko ? JW_STR_5359 : JW_STR_5358;
     case JW_CMD_SESSEN:
         /* CZukeiSessen shows 0x14f7 「円を指示してください。」 while its
            state is 0 or 1 and 0x14f8 「●　　次の円を指示してください。」
@@ -5135,21 +5167,21 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
  * (This used to take the box through atoi and refuse anything outside
  * 2..1000, so 2.5 drew one line at the half and 5000 drew nothing.)
  */
-static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
-                     double bx, double by)
+/* 分割数 (1411) を読む。空欄は 2、1.01 以下は 1.01 に戻して箱へ書き戻す
+ * （原典 FUN_007668f0）、10000 を超えれば箱に "10000" を書いて 0 件にする。
+ * *count に floor(n)-1（端数があれば +1、FUN_007674b0）を書き、戻り値は n
+ * そのもの（0 件で終わるときは 0.0）。bunkatsu() のコメントに原典の番地。 */
+static double bk_read_n(int *count)
 {
-    const jw_obj *p = &d->obj[a], *q = &d->obj[b];
     const char *ns = jw_cmd_box(1411);
     double n = box_num(ns, 0.0);
-    int k, count, made = 0;
-    double ax0, ay0, ax1, ay1, bx0, by0, bx1, by1;
 
-    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
-        return;
     if (!ns || !*ns)
         n = 2.0;                /* the original divides in two when the box is blank */
-    if (n <= 0.0)
-        return;
+    if (n <= 0.0) {
+        *count = 0;
+        return 0.0;
+    }
     if (n <= 1.01) {
         char t[16];
 
@@ -5159,11 +5191,28 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
     }
     if (n > 10000.0) {
         box_put(1411, "10000");
-        return;
+        *count = 0;
+        return 0.0;
     }
-    count = (int)n - 1;
+    *count = (int)n - 1;
     if (n - (int)n > 1e-07)
-        count++;
+        (*count)++;
+    return n;
+}
+
+static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
+                     double bx, double by)
+{
+    const jw_obj *p = &d->obj[a], *q = &d->obj[b];
+    int k, count, made = 0;
+    double n;
+    double ax0, ay0, ax1, ay1, bx0, by0, bx1, by1;
+
+    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
+        return;
+    n = bk_read_n(&count);
+    if (n <= 0.0)
+        return;
     if (bk_mode == 1690) {
         /* 等角度分割 (1690): 二本が交わっていれば、交点から保つ側の二本の
          * あいだの角を n 等分する線を引く。長さは k 本目を
@@ -5267,6 +5316,243 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
         o->d[1] = ay0 + (by0 - ay0) * t;
         o->d[2] = ax1 + (bx1 - ax1) * t;
         o->d[3] = ay1 + (by1 - ay1) * t;
+        made++;
+    }
+    op_push(made);
+}
+
+/* 分割始点 (R) で指示した点 Ｐ から、線 Ｂ (または先に (L) で指示した線 Ａ) へ
+ * 扇に引く。新しい線は P+(B0-P)k/n 〜 P+(B1-P)k/n（k=1..n-1、n は 1411）。
+ * 線 A を先に (L) で指示し点 E をあとから (R) で指示したときも「E から A への
+ * 同じ扇」（原典の案内文どおり、式はどちらが先でも同じ）。
+ *
+ * 原典 tools/jwdraw.ps1 を直接叩いた実測（2026-10-13）: 点 P=(-155.51,26.3265)
+ * （線の端）・線 B=(-155.51,-4.28571)-(-94.2857,-4.28571)、分割数 3 で
+ * 新しい線 2 本 (-155.51,16.1224)-(-135.102,16.1224)・
+ * (-155.51,5.91837)-(-114.694,5.91837) ── 上の式とぴったり合う。 */
+static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
+{
+    const jw_obj *b = &d->obj[line_idx];
+    int count, k, made = 0;
+    double n = bk_read_n(&count);
+
+    if (n <= 0.0)
+        return;
+    for (k = 1; k <= count; k++) {
+        double t = (double)k / n;
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        if (!o)
+            break;
+        o->d[0] = px + (b->d[0] - px) * t;
+        o->d[1] = py + (b->d[1] - py) * t;
+        o->d[2] = px + (b->d[2] - px) * t;
+        o->d[3] = py + (b->d[3] - py) * t;
+        made++;
+    }
+    op_push(made);
+}
+
+/* 分割始点 (R)＋円 Ｂ (L)、円 Ａ (L)＋円 Ｂ (L)、円 Ａ (L)＋点 Ｅ (R) に共通の
+ * 円の扇。中心・半径を (ax,ay,ar) から (bx,by,br) へ k/n だけ進めた円を
+ * n-1 個つくる。点は半径 0 の円として渡す ── 原典の実測で 点＋円 と 円Ａ＋円Ｂ
+ * が同じ式（中心の線形補間・半径の線形補間）になることを確かめた（下の
+ * bk_fan_circle_pt・bk_circle_fan のコメント）。 */
+static void bk_circle_lerp(jw_drawing *d, double ax, double ay, double ar,
+                            double bx, double by, double br)
+{
+    int count, k, made = 0;
+    double n = bk_read_n(&count);
+
+    if (n <= 0.0)
+        return;
+    for (k = 1; k <= count; k++) {
+        double t = (double)k / n;
+        jw_obj *o = jw_add(d, JW_ENKO);
+
+        if (!o)
+            break;
+        o->d[0] = ax + (bx - ax) * t;
+        o->d[1] = ay + (by - ay) * t;
+        o->d[2] = ar + (br - ar) * t;
+        o->d[3] = 0.0;
+        o->d[4] = 6.283185307179586;        /* the whole way round */
+        o->d[5] = 0.0;
+        o->d[6] = 1.0;                      /* round, not squashed */
+        o->n = 1;                           /* a whole circle */
+        made++;
+    }
+    op_push(made);
+}
+
+/* 始点＋円 Ｂ (L): 中心 P+(C-P)k/n・半径 r・k/n の円（点は半径 0 の円）。
+ * 円 Ａ (L)＋点 Ｅ (R) も同じ式（E が P の役）。
+ *
+ * 原典実測（2026-10-13）: P=(-106.531,56.9388)（線の端）・
+ * 円 B 中心(58.7755,-96.1224) 半径24.4898、分割数 3 で
+ * 中心(-51.4286,5.91837) 半径8.16327・中心(3.67347,-45.102) 半径16.3265 ──
+ * 上の式とぴったり合う。 */
+static void bk_fan_circle_pt(jw_drawing *d, double px, double py, int circ_idx)
+{
+    const jw_obj *c = &d->obj[circ_idx];
+
+    bk_circle_lerp(d, px, py, 0.0, c->d[0], c->d[1], c->d[2]);
+}
+
+/* 円 Ａ (L)＋円 Ｂ (L)（分割の classic な (L)(L) を円どうしにも広げたもの）。
+ * 原典実測（2026-10-13）: 円Ａ 中心(-33.0612,-96.1224) 半径36.7347・
+ * 円Ｂ 中心(58.7755,-96.1224) 半径24.4898、分割数 3 で
+ * 中心(-2.44898,-96.1224) 半径32.6531・中心(28.1633,-96.1224) 半径28.5714 ──
+ * bk_circle_lerp と同じ式（中心・半径の線形補間）で合う。 */
+static void bk_circle_fan(jw_drawing *d, int a_idx, int b_idx)
+{
+    const jw_obj *a = &d->obj[a_idx], *b = &d->obj[b_idx];
+
+    bk_circle_lerp(d, a->d[0], a->d[1], a->d[2], b->d[0], b->d[1], b->d[2]);
+}
+
+/* 始点＋第二点 (R)(R) の状態 3（string 5360）。(R) で確定する「２点間分割」:
+ * 線・円を介さず、P1 と P2 のあいだをそのまま線形補間した点を n-1 個つくる。
+ *
+ * 原典実測（2026-10-13）: P1=(-155.51,26.3265)・P2=(89.3878,26.3265)、
+ * 分割数 4 で (-94.2857,26.3265)・(-33.0612,26.3265)・(28.1633,26.3265) ──
+ * P1+(P2-P1)*k/4、k=1..3 とぴったり合う。 */
+static void bk_two_point_plain(jw_drawing *d, double p1x, double p1y,
+                                double p2x, double p2y)
+{
+    int count, k, made = 0;
+    double n = bk_read_n(&count);
+
+    if (n <= 0.0)
+        return;
+    for (k = 1; k <= count; k++) {
+        double t = (double)k / n;
+        jw_obj *o = jw_add(d, JW_TEN);
+
+        if (!o)
+            break;
+        o->d[0] = p1x + (p2x - p1x) * t;
+        o->d[1] = p1y + (p2y - p1y) * t;
+        o->n = 0;                  /* 実点 */
+        made++;
+    }
+    op_push(made);
+}
+
+/* 状態 3 で 分割する線 を (L) 指示したとき: P1・P2 を線の方向へ射影した
+ * 媒介変数 s1・s2（無限直線として、区間の外も可）を n-1 等分し、その
+ * 直線上の点を置く。
+ *
+ * 原典実測（2026-10-13）: P1=(-155.51,26.3265)・P2=(89.3878,26.3265)、
+ * 線 L0=(-155.51,-4.28571)-(-94.2857,-4.28571)、分割数 3 で
+ * (-73.8776,-4.28571)・(7.7551,-4.28571) ── s1=0・s2=4.0（P2 は線分の外）を
+ * k/3 だけ進めた s で L0+s*(L1-L0) を計算するとぴったり合う。 */
+static void bk_two_point_line(jw_drawing *d, double p1x, double p1y,
+                               double p2x, double p2y, int line_idx)
+{
+    const jw_obj *l = &d->obj[line_idx];
+    double lx0 = l->d[0], ly0 = l->d[1];
+    double dx = l->d[2] - l->d[0], dy = l->d[3] - l->d[1];
+    double len2 = dx * dx + dy * dy;
+    double s1, s2;
+    int count, k, made = 0;
+    double n;
+
+    if (len2 <= 0.0)
+        return;
+    s1 = ((p1x - lx0) * dx + (p1y - ly0) * dy) / len2;
+    s2 = ((p2x - lx0) * dx + (p2y - ly0) * dy) / len2;
+    n = bk_read_n(&count);
+    if (n <= 0.0)
+        return;
+    for (k = 1; k <= count; k++) {
+        double t = (double)k / n, s = s1 + (s2 - s1) * t;
+        jw_obj *o = jw_add(d, JW_TEN);
+
+        if (!o)
+            break;
+        o->d[0] = lx0 + s * dx;
+        o->d[1] = ly0 + s * dy;
+        o->n = 0;
+        made++;
+    }
+    op_push(made);
+}
+
+/* 状態 3 で 分割する円 を (L) 指示したとき（円の２点間分割）: P1・P2 を
+ * 円の中心からの向き θ1・θ2 に直し、短いほうの回り方で n-1 等分した円周上に
+ * 点を置く（符号つきの角度差を ±π に正規化するのは bunkatsu() の 等角度分割
+ * と同じ流儀 ── 180°をまたぐ側の符号は原典で未確認）。
+ *
+ * 原典実測（2026-10-13）: 円 中心(-33.0612,-96.1224) 半径36.7347・
+ * P1 を円周の 90°・P2 を 0°に置いて分割数 4 で 67.5°・45°・22.5° の 3 点
+ * （短いほう、90→0 をそのまま 4 等分）。 */
+static void bk_two_point_circle(jw_drawing *d, double p1x, double p1y,
+                                 double p2x, double p2y, int circ_idx)
+{
+    const jw_obj *c = &d->obj[circ_idx];
+    double cx = c->d[0], cy = c->d[1], r = c->d[2];
+    double a1 = atan2(p1y - cy, p1x - cx), a2 = atan2(p2y - cy, p2x - cx);
+    double da = a2 - a1;
+    int count, k, made = 0;
+    double n;
+
+    while (da > PI) da -= 2.0 * PI;
+    while (da <= -PI) da += 2.0 * PI;
+    n = bk_read_n(&count);
+    if (n <= 0.0)
+        return;
+    for (k = 1; k <= count; k++) {
+        double t = (double)k / n, ang = a1 + da * t;
+        jw_obj *o = jw_add(d, JW_TEN);
+
+        if (!o)
+            break;
+        o->d[0] = cx + r * cos(ang);
+        o->d[1] = cy + r * sin(ang);
+        o->n = 0;
+        made++;
+    }
+    op_push(made);
+}
+
+/* 円全周分割 ── 始点 Ｐ を (R) で指示したあと、円を (R) で指示する（点では
+ * なく円そのものを拾えば全周分割になる、string 5361 の「円全周分割 (R)円指示」）。
+ * 円の中心から Ｐ への向き θP を 0 番目（描かない）として、クリックした側
+ * （Ｐ→中心→クリック の外積の符号）へ 360°/n ずつ回した円周上の点を
+ * n-1 個つくる。Ｐ 自体が円の上にあるかどうかは関係ない。
+ *
+ * 原典実測（2026-10-13、tools/jwdraw.ps1 を直接叩いた。bkprobe.sh ではない）:
+ *   円 中心(-33.0612,-96.1224) 半径36.7347。
+ *   P=(-155.51,26.3265)（θP=135°）に対しクリック(-7.3465,-70.408)
+ *   （外積<0、時計回り）・分割数 5 → 63°・-9°・-81°・-153° の 4 点。
+ *   P=(-106.531,56.9388)（θP=115.7°）に対しクリック(-33.061,-132.857)
+ *   （外積>0、反時計回り）・分割数 4 → -154.4°・-63.0°・25.6° の 3 点。
+ * どちらも θP − 0 番目の位置から 360/n の等間隔で、Ｐ の向きだけが基準に
+ * なり、クリック位置そのものの角度は（どちら側かを決めるだけで）点として
+ * 現れない。 */
+static void bk_full_circle(jw_drawing *d, double px, double py, int circ_idx,
+                            double cx, double cy)
+{
+    const jw_obj *c = &d->obj[circ_idx];
+    double ox = c->d[0], oy = c->d[1], r = c->d[2];
+    double thp = atan2(py - oy, px - ox);
+    double cross = (px - ox) * (cy - oy) - (py - oy) * (cx - ox);
+    double s = cross < 0.0 ? -1.0 : 1.0;
+    int count, k, made = 0;
+    double n = bk_read_n(&count);
+
+    if (n <= 0.0)
+        return;
+    for (k = 1; k <= count; k++) {
+        double ang = thp + s * (2.0 * PI / n) * (double)k;
+        jw_obj *o = jw_add(d, JW_TEN);
+
+        if (!o)
+            break;
+        o->d[0] = ox + r * cos(ang);
+        o->d[1] = oy + r * sin(ang);
+        o->n = 0;
         made++;
     }
     op_push(made);
@@ -15521,26 +15807,124 @@ placed:
     }
     if (current == JW_CMD_BUNKATSU) {
         int i;
-        if (button != 0 || !d)
+        double rx, ry;
+
+        if (!d)
             return;
         if (corner_step == 0) {
-            i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (button == 0) {
+                /* 線・円（Ａ）指示 ﾏｳｽ(L)（string 5357。線だけだったのを
+                   円にも広げる） */
+                i = jw_pick(d, v, x, y, 3);
+                if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
+                    return;
+                corner_obj = i;
+                corner_x = x;
+                corner_y = y;
+                bk_a_enko = d->obj[i].cls == JW_ENKO;
+                corner_step = 1;
                 return;
-            corner_obj = i;
-            corner_x = x;
-            corner_y = y;
-            corner_step = 2;
+            }
+            if (button == 1) {
+                /* 分割始点指示 ﾏｳｽ(R)（string 5357。点だけに効く ── 線の端・
+                   CDataTen・交点の jw_read、円周 1/4 点は原典で試して拾わな
+                   かった） */
+                if (!jw_read(d, v, x, y, &rx, &ry))
+                    return;
+                bk_px = rx;
+                bk_py = ry;
+                corner_obj = -1;
+                corner_step = 1;
+            }
             return;
         }
-        i = jw_pick_tie(d, v, x, y, 3, 1);
-        if (i >= 0 && i != corner_obj) {
-            if (jw_cmd_bar_check(1324) > 0)     /* 割付 */
-                waritsuke(d, corner_obj, i);
-            else
-                bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
+        if (corner_step == 1) {
+            if (corner_obj >= 0) {
+                /* 線・円（Ａ）済み: 線【B】／円【B】指示 ﾏｳｽ(L)（同じ種類、
+                   string 5358/5359）か 分割終点指示 ﾏｳｽ(R)（点 E、
+                   「E から A への同じ扇」） */
+                if (button == 0) {
+                    i = jw_pick_tie(d, v, x, y, 3, 1);
+                    if (i >= 0 && i != corner_obj
+                        && d->obj[i].cls == d->obj[corner_obj].cls) {
+                        if (d->obj[corner_obj].cls == JW_SEN) {
+                            if (jw_cmd_bar_check(1324) > 0)     /* 割付 */
+                                waritsuke(d, corner_obj, i);
+                            else
+                                bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
+                        } else {
+                            bk_circle_fan(d, corner_obj, i);
+                        }
+                    }
+                    corner_step = 0;
+                    return;
+                }
+                if (button == 1) {
+                    if (!jw_read(d, v, x, y, &rx, &ry))
+                        return;
+                    if (d->obj[corner_obj].cls == JW_SEN)
+                        bk_fan_line(d, rx, ry, corner_obj);
+                    else
+                        bk_fan_circle_pt(d, rx, ry, corner_obj);
+                    corner_step = 0;
+                }
+                return;
+            }
+            /* 始点 Ｐ 済み: 線・円【B】指示 ﾏｳｽ(L)、分割終点指示 ﾏｳｽ(R)（点）、
+               円全周分割 ﾏｳｽ(R)（円そのものを指示、string 5361） */
+            if (button == 0) {
+                i = jw_pick(d, v, x, y, 3);
+                if (i < 0)
+                    return;
+                if (d->obj[i].cls == JW_SEN)
+                    bk_fan_line(d, bk_px, bk_py, i);
+                else if (d->obj[i].cls == JW_ENKO)
+                    bk_fan_circle_pt(d, bk_px, bk_py, i);
+                else
+                    return;
+                corner_step = 0;
+                return;
+            }
+            if (button == 1) {
+                /* 点が拾えればそれを第二点に（円の上の CDataTen も、こちら
+                   が勝つ ── tools/jwdraw.ps1 実測、2026-10-13: 円の上に置いた
+                   点を踏むと ２点間分割 の方へ進んだ）。何も読めなければ
+                   円そのものかどうかを見て 円全周分割。 */
+                if (jw_read(d, v, x, y, &rx, &ry)) {
+                    bk_p2x = rx;
+                    bk_p2y = ry;
+                    corner_step = 2;
+                    return;
+                }
+                i = jw_pick(d, v, x, y, 3);
+                if (i >= 0 && d->obj[i].cls == JW_ENKO)
+                    bk_full_circle(d, bk_px, bk_py, i, x, y);
+                corner_step = 0;
+            }
+            return;
         }
-        corner_step = 0;
+        if (corner_step == 2) {
+            /* 始点＋第二点 済み（状態 3、string 5360）: 分割する線・円を
+               指示 ﾏｳｽ(L) か ２点間分割 ﾏｳｽ(R) */
+            if (button == 0) {
+                i = jw_pick(d, v, x, y, 3);
+                if (i < 0)
+                    return;
+                if (d->obj[i].cls == JW_SEN)
+                    bk_two_point_line(d, bk_px, bk_py, bk_p2x, bk_p2y, i);
+                else if (d->obj[i].cls == JW_ENKO)
+                    bk_two_point_circle(d, bk_px, bk_py, bk_p2x, bk_p2y, i);
+                else
+                    return;
+                corner_step = 0;
+                return;
+            }
+            if (button == 1) {
+                bk_two_point_plain(d, bk_px, bk_py, bk_p2x, bk_p2y);
+                corner_step = 0;
+            }
+            return;
+        }
         return;
     }
     if (current == JW_CMD_KIGOU) {
