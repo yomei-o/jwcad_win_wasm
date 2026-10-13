@@ -51,6 +51,14 @@ static double sx, sy;           /* the first point, in paper millimetres */
  * original with tools/escprobe.sh (tmp/esc_report.md). */
 static int esc_rearm, esc_cmd;
 static int esc_arc;             /* an 円弧 was just finished: Esc takes its 終点 back */
+/* 円の ３点指示 (1321): a circle/arc through three points was just finished
+   -- Esc takes its 3点目 back, reusing sx,sy (1点目) and en_r,en_a0
+   (2点目, never cleared).  Kept apart from esc_arc, which is 1318's own
+   and uses sx,sy/en_r,en_a0 in a different convention (radius/angle, not
+   a raw second point) -- sharing it would misread a stale 1318 finish as
+   a 3点指示 one if the bar was flipped between the two (RESUME.md
+   2026-10-13). */
+static int esc_3pt;
 static double esc_x, esc_y;
 /* 連続線 keeps one segment back.  Clicking n times in Jw_cad and saving
  * leaves n-2 lines in the file -- two clicks leave none, four leave two,
@@ -2394,6 +2402,7 @@ void jw_cmd_set(int id)
     current = id;
     esc_rearm = 0;
     esc_arc = 0;
+    esc_3pt = 0;
     if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU)
         box_put(1411, "");      /* asking for it again empties the box (s4_10) */
     step = 0;
@@ -2720,6 +2729,28 @@ void jw_cmd_esc_key(jw_drawing *d)
         }
         if (en_step > 0) {
             en_step--;
+            tracking = 0;
+            return;
+        }
+    }
+    /* 円の ３点指示 (1321): unlike 1318, a point part way through is not
+       let go one at a time -- any Esc before the circle is finished drops
+       the whole attempt back to its own first point (原典実測、
+       tools/jwdraw.ps1 raw:f,256/257,27,0: ２点目待ちでの Esc も３点目
+       待ちでの Esc も同じ「１点目の位置を指示してください」に戻った).
+       Right after one is finished, the first press takes its 3点目 back,
+       the same idea as esc_arc but its own flag (RESUME.md 2026-10-13). */
+    if (current == JW_CMD_ENKO && jw_cmd_bar_check(1321) > 0) {
+        if (en_step == 0 && esc_3pt) {
+            esc_3pt = 0;
+            en_step = 2;
+            tx = sx;
+            ty = sy;
+            tracking = 0;
+            return;
+        }
+        if (en_step > 0) {
+            en_step = 0;
             tracking = 0;
             return;
         }
@@ -16551,6 +16582,7 @@ placed:
             tx = x;
             ty = y;
             en_step = 1;
+            esc_3pt = 0;
             return;
         }
         if (en_step == 1) {
@@ -16604,6 +16636,7 @@ placed:
                         o->n = 0;       /* 弧は n=0 で出ていました */
                     }
                     op_push(1);
+                    esc_3pt = 1;
                 }
             }
         }

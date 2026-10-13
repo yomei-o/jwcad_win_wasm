@@ -335,6 +335,60 @@ int main(void)
         }
     }
 
+    /* ３点指示 (1321) の Esc -- 原典実測（RESUME.md 2026-10-13,
+       tools/jwdraw.ps1 の raw:f,256/257,27,0）: 円弧 (1318) と違って
+       一段ずつではなく、まだ三点目を打っていなければ何段目でも
+       まるごと「１点目の位置」まで戻り、三点目まで打ったあとの最初の
+       一押しだけは三点目を取り直す（同じ一・二点目のまま）。 */
+    {
+        jw_drawing *d;
+        rect_t r;
+        const fb_t *fb;
+        int base, nbefore;
+
+        app_new();
+        app_resize(1264, 741);
+        d = (jw_drawing *)app_drawing();
+        fb = app_fb();
+        ui_view_rect(fb->w, fb->h, &r);
+        app_command(32773);
+        if (jw_cmd_bar_check(1318) > 0)
+            jw_cmd_bar(d, 1318);
+        if (jw_cmd_bar_check(1320) > 0)
+            jw_cmd_bar(d, 1320);
+        if (jw_cmd_bar_check(1321) <= 0)
+            jw_cmd_bar(d, 1321);
+
+        /* 一点目だけ打った Esc はまるごと戻す */
+        app_press(r.x + 400, r.y + 350, 0);
+        app_key(27);
+        ck(!jw_cmd_midway(), "３点指示: 一点目だけの Esc で歩みが空に戻る");
+
+        /* 二点とも打った Esc も同じところへ（一段ではなく丸ごと） */
+        app_press(r.x + 400, r.y + 350, 0);
+        app_press(r.x + 600, r.y + 450, 0);
+        app_key(27);
+        ck(!jw_cmd_midway(),
+           "３点指示: 二点目までの Esc も歩みが空に戻る（一段戻りではない）");
+
+        /* 三点とも打って一つ出来たら、次の Esc はその三点目を取り直す
+           （まだ歩みの途中として数えられる）だけで、もう一度押すと今度は
+           手放す */
+        base = d->ndrawn;
+        app_press(r.x + 400, r.y + 350, 0);
+        app_press(r.x + 600, r.y + 450, 0);
+        app_press(r.x + 500, r.y + 420, 0);
+        ck(d->ndrawn == base + 1, "３点指示: 一つ描けた");
+        nbefore = d->ndrawn;
+        app_key(27);
+        ck(jw_cmd_midway(),
+           "３点指示: 描いた直後の Esc は三点目の取り直しに戻る（途中扱い）");
+        ck(d->ndrawn == nbefore, "  図形は消えない（取り直すだけ）");
+        app_key(27);
+        ck(!jw_cmd_midway(),
+           "３点指示: そのまた次の Esc は（もう未完成なので）歩みを手放す");
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
