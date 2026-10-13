@@ -370,6 +370,152 @@ static void point_mark(jw_drawing *d, const hk_tenku_opts *o, double px, double 
 }
 
 /* ------------------------------------------------------------------ */
+/* 太陽軌跡 (1325) —— 原典 FUN_0073ea50（_unassigned.c 302825〜303172、
+   機械語 0x73ea50〜0x7400b0）。答えは decomp/res/hk_s5（南方向補正 点いたまま）・
+   s6（南方向補正 切）・s7（10分間隔点表示）・s8（四季）                     */
+/* ------------------------------------------------------------------ */
+#define S_SUN_SP     " \x81\x40"                             /* 0x14b4 " 　" */
+#define S_TOUJI      "\x93\x7e\x8e\x8a"                      /* 0x15cf 冬至 */
+#define S_SHUNSHU    "\x8f\x74\x8f\x48\x95\xaa"              /* 0x15d0 春秋分 */
+#define S_GESHI      "\x89\xc4\x8e\x8a"                      /* 0x15d1 夏至 */
+#define S_TAIYOU     " \x91\xbe\x97\x7a\x88\xca\x92\x75"     /* 0x1658 " 太陽位置" */
+#define S_HANDEG     "\xdf"                                  /* 0x1833 ﾟ */
+#define S_IDO        "\x88\xdc\x93\x78"                      /* 0x15d4 緯度 */
+
+static jw_obj *add_ten(jw_drawing *d, double x, double y, int col)
+{
+    jw_obj *t = jw_add(d, JW_TEN);
+
+    if (t) {
+        t->d[0] = x;
+        t->d[1] = y;
+        t->color = (unsigned short)col;
+        t->ltype = 1;
+    }
+    return t;
+}
+
+/* 時刻の字（"8"／"16"、9～15時 なら "9"／"15"、0x95bd2c・0x95bd30・0x97b23c・0x97b244）は
+   点の上 1.0（FUN_00479c40 の 1.0）に、時刻の数字の真ん中が点に来るように置く。
+   季節の字は 南方向補正 なしなら 初めの字、ありなら 終わりの字に付く（+0x190 を見る、
+   0x73f805・0x73faa9）。原典 hk_s5・s6 */
+static void sun_label(jw_drawing *d, const char *num, const char *season, double x, double y,
+                      double size)
+{
+    char buf[96];
+    double half = strlen(num) * size / 4.0;
+
+    snprintf(buf, sizeof buf, "%s%s", num, season ? season : "");
+    add_text(d, buf, x - half, y + 1.0, 0, size, 1, 1);
+}
+
+static void sun_path(jw_drawing *d, const hk_tenku_opts *o, double px, double py,
+                     double cx, double cy, double size)
+{
+    double phi = o->lat * PI / 180.0, dec, L = o->north_off;
+    int span = o->sun_n15 ? 180 : 240, k;
+    static const char *const nsew[4] = { "E", "N", "W", "S" };   /* 0x95bd50・bd7c・bd74・955184 */
+
+    while (L > PI)
+        L -= 2 * PI;
+    while (L <= -PI)
+        L += 2 * PI;
+    if (o->shiki)
+        dec = -23.45;
+    else {
+        dec = o->dec;
+        if (dec > 23.45)
+            dec = 23.45;
+        if (dec < -23.45)
+            dec = -23.45;
+    }
+    for (;;) {
+        char season[64];
+        double ad = fabs(dec), dr = dec * PI / 180.0, lx = 0, ly = 0;
+        int t, step = 0;
+
+        /* 季節の字: " 　" + 冬至／春秋分／夏至（任意の日赤緯は【%lgﾟ】） + " 太陽位置" */
+        if (ad <= 1e-7)
+            snprintf(season, sizeof season, S_SUN_SP S_SHUNSHU S_TAIYOU);
+        else if (ad < 23.449999899999998) {
+            /* 任意の日赤緯: 【 %lg ﾟ 】（0x1b5e・0x95590c・0x1833・0x1b58）。原典の答えはまだ無い */
+            char nb[32];
+
+            snprintf(nb, sizeof nb, "%g", dec);
+            snprintf(season, sizeof season, S_SUN_SP S_KAKKO0 "%s" S_HANDEG S_KAKKO1 S_TAIYOU, nb);
+        } else
+            snprintf(season, sizeof season, S_SUN_SP "%s" S_TAIYOU, dec >= 0.0 ? S_GESHI : S_TOUJI);
+        for (t = -span; t <= span; t += 10) {
+            double h = -(t * 0.25 * PI / 180.0);
+            double sa = sin(phi) * sin(dr) + cos(phi) * cos(dr) * cos(h), c2 = 1.0 - sa * sa;
+            double x, y;
+
+            if (fabs(c2) >= 1e-7) {
+                double ca = sqrt(c2), al = atan2(sa, ca);
+                double az = atan2(cos(dr) * sin(h) / ca, (sin(phi) * sa - sin(dr)) / (cos(phi) * ca)) + L;
+
+                /* 測定点から 100 の所・高さ tanα·100 の点を FUN_00733e40 で射影。
+                   地平線の下（α < 0）の点も 原典は描く（FUN_0073cb20 は常に 1）が、
+                   その射影がどうなるかは原典に確認が要る（移植は高さ 0 に切る） */
+                proj(o, px, py, cx, cy, px + cos(az) * 100.0, py + sin(az) * 100.0,
+                     tan(al) * 100.0, &x, &y);
+            } else {
+                x = cx;             /* 天頂（原典は前の点を写すだけ。確認が要る） */
+                y = cy;
+            }
+            if (step == 0)
+                sun_label(d, o->sun_n15 ? "9" : "8", o->mirror ? NULL : season, x, y, size);
+            else
+                add_line(d, lx, ly, x, y, 5, 1, 0);
+            if (step % 60 == 0)
+                add_ten(d, x, y, 5);
+            else if (o->sun10)
+                add_ten(d, x, y, 1);
+            lx = x;
+            ly = y;
+            step += 10;
+        }
+        sun_label(d, o->sun_n15 ? "15" : "16", o->mirror ? season : NULL, lx, ly, size);
+        if (!o->shiki || dec > 1.0)
+            break;
+        dec += 23.45;
+    }
+    /* 方位: 円から 2 の線と E/N/W/S（南方向補正 で E と W を入れ替え、0x73ff30〜）。
+       南方向補正 なしのときの回り +0x198 は 0 と見た（hk_s6。原典に確認が要る） */
+    for (k = 0; k < 4; k++) {
+        double a = k * PI / 2.0, ux = cos(a - PI / 2.0), uy = sin(a - PI / 2.0);
+        double tx = cx + cos(a) * (o->R + 2.0), ty = cy + sin(a) * (o->R + 2.0), w = size / 2.0;
+        int m = k;
+        jw_obj *t;
+
+        if (fabs(ux) < 1e-12)
+            ux = 0.0;
+        if (fabs(uy) < 1e-12)
+            uy = 0.0;
+        add_line(d, cx + cos(a) * o->R, cy + sin(a) * o->R, tx, ty, 0, 0, 0);
+        if (o->mirror && (k == 0 || k == 2))
+            m = 2 - k;
+        t = add_text(d, nsew[m], tx - ux * w / 2.0, ty - uy * w / 2.0, 0, size, 1, 2);
+        if (t) {
+            t->d[2] = t->d[0] + ux * w;
+            t->d[3] = t->d[1] + uy * w;
+            t->d[7] = k * 90.0 - 90.0;
+            if (t->d[7] > 180.0)
+                t->d[7] -= 360.0;
+        }
+    }
+}
+
+/* 「緯度 = 36°」（FUN_00748da0 の 0x74af0b〜: 0x15d4 + " = %lg"（0x979128）+ 0x1834「°」） */
+static void sun_lat_text(jw_drawing *d, const hk_tenku_opts *o, double cx, double y, double size)
+{
+    char buf[64];
+
+    snprintf(buf, sizeof buf, S_IDO " = %g" S_DEG, o->lat);
+    add_text(d, buf, cx, y, 1, size, 1, 2);
+}
+
+/* ------------------------------------------------------------------ */
 /* 天空率の計算 —— 原典 FUN_00748da0 の写し                              */
 /* ------------------------------------------------------------------ */
 /* 三次元の線（原典の CData3DSen、doc の +0x1e4 の並び）。FUN_0073c0c0 が 一本の
@@ -833,10 +979,21 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
             add_line(d, cx, cy, cx + o->R * cos(rad), cy + o->R * sin(rad), 1, major ? 1 : 4, 0);
         }
     }
+    if (o->sun) {
+        /* 太陽軌跡 は円のすぐあと、建物の線の前（原典 hk_s5）。字の段は (2.5 + 2) 下がり
+           （FUN_0073ea50 の +0x1b90 −= 字の高さ + 2）、一段目に「緯度 = 36°」。
+           目盛・天空率計算・測定点表示 と一緒のときの並びは 原典に確認が要る */
+        sun_path(d, o, px, py, cx, cy, size);
+        ty -= size + 2.0;
+    }
     if (o->show_point && o->calc)
         point_mark(d, o, px, py, size);
     if (o->calc) {
         /* [sample] texts, then the hatch, then the 天空率 text, then the skyline */
+        if (o->sun) {               /* 「緯度 = 36°」が字の一段目（ここでの並びは原典に確認が要る） */
+            sun_lat_text(d, o, cx, ty, size);
+            slot++;
+        }
         if (o->show_point) {
             if (o->interval > 0.0)
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,
@@ -895,6 +1052,10 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
         }
         if (o->show_point)
             point_mark(d, o, px, py, size);
+        if (o->sun) {               /* 「緯度 = 36°」は建物の線のあと、測定面の字の前（hk_s5） */
+            sun_lat_text(d, o, cx, ty, size);
+            slot++;
+        }
         if (o->show_point) {
             if (o->interval > 0.0)
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,

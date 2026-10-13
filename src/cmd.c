@@ -15011,6 +15011,43 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                （src/tenku.c の jw_tenku_ratio、FUN_00748da0） */
             o.show_area = o.calc && jw_cmd_bar_check(1324) > 0;
             o.number = o.show_point ? atoi(jw_cmd_box(2216)) : tn_count + 1;
+            /* 太陽軌跡 (1325)・10分間隔点表示 (2113)・四季 (2115)、FUN_0073ea50（src/tenku.c の
+               sun_path）。原典 hk_s5〜s8。緯度 doc+0x83c0・日赤緯 doc+0x83c8 は 日影図 の
+               緯度 (1493)・季節 (2436) の箱から取る（36°・冬至 の初めの値でだけ確かめた。
+               日影図で変えた値が天空図に効くかは原典に確認が要る）。9～15時 doc+0x83d0 は
+               入れていない（日影図の 1323 が入るのか 原典に確認が要る） */
+            o.sun = jw_cmd_bar_check(1325) > 0;
+            if (o.sun) {
+                const char *lb = box_slot(JW_CMD_HIKAGE, 1493), *sb = box_slot(JW_CMD_HIKAGE, 2436);
+                double north = 0.0;
+                int k;
+
+                o.sun10 = jw_cmd_bar_check(2113) > 0;
+                o.shiki = jw_cmd_bar_check(2115) > 0;
+                o.lat = lb && *lb ? atof(lb) : 36.0;
+                if (o.lat < -1e-6)
+                    o.lat = 0.0;
+                if (o.lat > 55.0)
+                    o.lat = 55.0;
+                o.dec = -23.45;
+                if (sb && (!strcmp(sb, "1") || !strcmp(sb, "\x8f\x74\x8f\x48\x95\xaa")))
+                    o.dec = 0.0;
+                else if (sb && (!strcmp(sb, "2") || !strcmp(sb, "\x89\xc4\x8e\x8a")))
+                    o.dec = 23.45;
+                else if (sb && (!strcmp(sb, "3") || !strcmp(sb, "\x94\x43\x88\xd3\x8e\x9e\x8a\xfa")))
+                    o.dec = hk_dec_user;
+                /* 真北（旗 0x40・色 5 の数の字）。無ければ 原典は「真北が設定されていません。」に
+                   OK で 上向き（0°）扱い（hk_s5）。移植は問いを出さずに上向きにする */
+                for (k = 0; k < d->ndrawn; k++)
+                    if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+                        d->obj[k].color == 5) {
+                        const char *t = jw_str(d, d->obj[k].text);
+
+                        if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
+                            north = atof(t);
+                    }
+                o.north_off = (north - 90.0) * 3.14159265358979323846 / 180.0;
+            }
             if (tn_sansha) {
                 hk_sansha_opts so;
                 const char *md = jw_cmd_box(2210);

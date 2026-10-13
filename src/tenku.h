@@ -29,6 +29,14 @@ typedef struct {
     int size_class;     /* text size class (doc+0x83ac); 2 = 2.5 mm */
     int base_group;     /* unused, reserved */
     int show_area;      /* 射影面積表示 (1324): 「【水平円射影面積 A , H】」 (calc のときだけ) */
+    /* 太陽軌跡 (1325)、FUN_0073ea50。原典 hk_s5〜s8 */
+    int sun;            /* 太陽軌跡を描く */
+    int sun10;          /* 10分間隔点表示 (2113): 10 分ごとに点（色 1） */
+    int shiki;          /* 四季 (2115): 冬至・春秋分・夏至 の三本 */
+    int sun_n15;        /* 9～15時（doc+0x83d0）: ±180 分、字は 9 と 15 */
+    double lat;         /* 緯度（doc+0x83c0）、度 */
+    double dec;         /* 日赤緯（doc+0x83c8）、度。±23.45 に切る */
+    double north_off;   /* (真北 doc+0x1b80 − 90°) をラジアンで。真北が無い（上向き扱い）なら −π/2 */
 } hk_tenku_opts;
 
 /* 稜線ごとの 壁の下端（原典 FUN_0073dc40 / FUN_0073c0c0）。jw_tenku_collect2 が
