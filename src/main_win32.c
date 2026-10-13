@@ -712,7 +712,7 @@ static HMENU build_menu(void)
     wchar_t text[256];
     int i;
 
-    HMENU file_popup = NULL;
+
 
     stack[0] = CreateMenu();
     if (!stack[0])
@@ -729,27 +729,33 @@ static HMENU build_menu(void)
             wide(m->text, text, 256);
             AppendMenuW(stack[d], MF_POPUP | MF_STRING, (UINT_PTR)sub, text);
             stack[d + 1] = sub;
-            if (d == 0 && !file_popup)
-                file_popup = sub;
             break;
         }
         case 2:
             AppendMenuW(stack[d], MF_SEPARATOR, 0, NULL);
             break;
         default:
+            if (m->id == 57616) {
+                /* 最新のﾌｧｲﾙ: the placeholder is where the files opened last
+                   go; with none it stays, grayed */
+                if (recent[0][0]) {
+                    int r;
+
+                    for (r = 0; r < NRECENT && recent[r][0]; r++) {
+                        wchar_t t[MAX_PATH + 8];
+
+                        swprintf(t, MAX_PATH + 8, L"&%d %s", r + 1, recent[r]);
+                        AppendMenuW(stack[d], MF_STRING, RECENT_ID + r, t);
+                    }
+                    break;
+                }
+                wide(m->text, text, 256);
+                AppendMenuW(stack[d], MF_STRING | MF_GRAYED, m->id, text);
+                break;
+            }
             wide(m->text, text, 256);
             AppendMenuW(stack[d], MF_STRING, m->id, text);
             break;
-        }
-    }
-    if (file_popup && recent[0][0]) {
-        /* the files opened last, under the file menu */
-        AppendMenuW(file_popup, MF_SEPARATOR, 0, NULL);
-        for (i = 0; i < NRECENT && recent[i][0]; i++) {
-            wchar_t t[MAX_PATH + 8];
-
-            swprintf(t, MAX_PATH + 8, L"&%d %s", i + 1, recent[i]);
-            AppendMenuW(file_popup, MF_STRING, RECENT_ID + i, t);
         }
     }
     return stack[0];

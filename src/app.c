@@ -3780,6 +3780,8 @@ int app_menu_state(int id)
     switch (id) {
     case 59393:
         return ui_status_shown() ? 1 : 0;
+    case 57616:                         /* 最新のﾌｧｲﾙ, when there are none */
+        return 2;
     case 57643:                         /* 戻る: nothing to take back */
         return jw_cmd_can_undo() ? 0 : 2;
     case 57644:                         /* 進む */
@@ -4525,6 +4527,16 @@ void app_paint(void)
         jw_drawing one;
 
         if (view_ready && have_drawing && jw_cmd_tategu_preview(&drawing, &one)) {
+            ui_view_rect(fb.w, fb.h, &view.clip);
+            jw_draw_kari = 1;
+            jw_draw(&fb, &view, &one);
+            jw_draw_kari = 0;
+        }
+    }
+    {
+        jw_drawing one;
+
+        if (view_ready && have_drawing && jw_cmd_gaibu_preview(&drawing, &one)) {
             ui_view_rect(fb.w, fb.h, &view.clip);
             jw_draw_kari = 1;
             jw_draw(&fb, &view, &one);

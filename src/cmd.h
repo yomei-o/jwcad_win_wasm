@@ -562,4 +562,9 @@ int  jw_cmd_gaibu_want_bat(void);
 
 int  jw_cmd_gaibu_tags(const jw_drawing *d, int *num, char *kind, int max);
 
+int  jw_cmd_gaibu_preview(const jw_drawing *d, jw_drawing *out);   /* the rubber line */
+
+int  jw_cmd_clip_get(const unsigned char **b, long *n);
+int  jw_cmd_clip_set(const unsigned char *b, long n);
+
 #endif

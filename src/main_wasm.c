@@ -487,6 +487,30 @@ EMSCRIPTEN_KEEPALIVE void jw_moji_sjis_put(int on)
 {
     jw_moji_sjis_set(on);
 }
+
+/* The 図形 clipboard as bytes, to and from the system clipboard. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_clip_get(void)
+{
+    const unsigned char *b;
+    long n;
+
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!jw_cmd_clip_get(&b, &n))
+        return 0;
+    saved = (unsigned char *)malloc((size_t)n);
+    if (!saved)
+        return 0;
+    memcpy(saved, b, (size_t)n);
+    saved_n = n;
+    return saved;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_clip_set(unsigned char *b, int n)
+{
+    return jw_cmd_clip_set(b, n);
+}
 /* 「SFCファイルを開く」, the same way. */
 EMSCRIPTEN_KEEPALIVE int jw_open_sfc(unsigned char *b, int n)
 {
@@ -615,4 +639,10 @@ int main(void)
     app_new();
     jw_resize(1264, 741 + JW_CHROME_H);
     return 0;
+}
+
+/* for the headless-Chrome sweep (tmp/features_wasm/cdp_sweep.js): is a dialog up? */
+EMSCRIPTEN_KEEPALIVE int jw_modal(void)
+{
+    return app_modal();
 }

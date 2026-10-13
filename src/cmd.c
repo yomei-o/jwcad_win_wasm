@@ -30,6 +30,7 @@ static int prev;
    nothing picked and goes on once the range is settled (ms_after, ms_go) */
 static int ms_back, ms_text, ms_after, ms_go;
 /* 外部変形 (0x8091), the steps of a BAT (end of this file) */
+static const char *u8cp(const char *u);
 static int gb_keep, gb_back, gb_state;
 static void gb_free(void);
 static void gb_step(jw_drawing *d);
@@ -3635,6 +3636,8 @@ const char *jw_cmd_prompt(void)
         if (ren_step)
             return ren_step == 1 ? JW_STR_5473
                    : ren_step == 3 ? JW_STR_5311 : JW_STR_5474;
+        if (txt_n > 0)          /* 文読 has lines waiting for a 基準点 (5395, B 3.7) */
+            return u8cp("《文字読込》の基準点を指示してください  (L)free  (R)Read");
         /* 「文字を入力するか…」 until something is typed, then
            「文字の位置を指示して下さい」 */
         return line_n ? JW_STR_5318 : JW_STR_5316;
@@ -3813,6 +3816,12 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_ZUKEIREG:
         /* 5383 while the box has no first corner, 5326 while it is being
            dragged, then 5314 基準点 and 5307/5311 for where it goes. */
+        if (ms_back && current == JW_CMD_HANI && sel_step <= 1) {
+            /* the 文字 command's own range (5429 and 5430, B 3.1) */
+            if (sel_step == 0)
+                return u8cp("【文字】　範囲選択の始点をﾏｳｽで指示してください。");
+            return u8cp("［文字］　　　　選択範囲の終点を指示して下さい。");
+        }
         if (sel_step == 1)
             return sel_prompt_corner();
         /* 整理 places nothing, so 「複写先の点」 was never its line.
@@ -19246,4 +19255,93 @@ int jw_cmd_gaibu_tags(const jw_drawing *d, int *num, char *kind, int max)
         n++;
     }
     return n;
+}
+
+/* 外部変形: the rubber line from the last point to the cursor, for a point
+   whose "-" or "/" asked for one (the next point of a "/" one is held to 15
+   degrees, and the line shows it).  Nought when there is none to show. */
+int jw_cmd_gaibu_preview(const jw_drawing *d, jw_drawing *out)
+{
+    static jw_drawing pv;
+    static int inited;
+    int pk;
+    double x, y, px, py;
+    jw_obj *o;
+
+    if (!d || !out || current != 0x8091 || gb_state != 2 || !gb_sc || !tracking)
+        return 0;
+    if (gb_sc->step[gb_i].type != JW_GS_POINT)
+        return 0;
+    for (pk = gb_i - 1; pk >= 0; pk--)
+        if (gb_sc->step[pk].type == JW_GS_POINT)
+            break;
+    if (pk < 0 || !gb_sc->step[pk].mode)
+        return 0;
+    px = gb_xy[pk][0];
+    py = gb_xy[pk][1];
+    x = tx;
+    y = ty;
+    if (gb_sc->step[pk].mode == 2) {
+        double dx = x - px, dy = y - py, len = sqrt(dx * dx + dy * dy);
+        double a = floor(atan2(dy, dx) * 180.0 / PI / 15.0 + 0.5) * 15.0;
+
+        if (len > 0.0) {
+            x = px + len * cos(a * PI / 180.0);
+            y = py + len * sin(a * PI / 180.0);
+        }
+    }
+    if (!inited) {
+        memset(&pv, 0, sizeof pv);
+        inited = 1;
+    }
+    {
+        jw_obj *ob = pv.obj;
+        int c = pv.cobj;
+        char *pl = pv.pool;
+        int cp = pv.cpool;
+
+        pv = *d;
+        pv.obj = ob;
+        pv.cobj = c;
+        pv.pool = pl;
+        pv.cpool = cp;
+        pv.nobj = pv.ndrawn = 0;
+        pv.npool = 0;
+    }
+    o = jw_add(&pv, JW_SEN);
+    if (!o)
+        return 0;
+    o->d[0] = px;
+    o->d[1] = py;
+    o->d[2] = x;
+    o->d[3] = y;
+    *out = pv;
+    return 1;
+}
+
+/* The clipboard's 図形 as bytes, for a front end that puts it on the system
+   clipboard (so a copy can be pasted in another window) and takes one back. */
+int jw_cmd_clip_get(const unsigned char **b, long *n)
+{
+    if (!clip || clip_n <= 0)
+        return 0;
+    *b = clip;
+    *n = clip_n;
+    return 1;
+}
+
+int jw_cmd_clip_set(const unsigned char *b, long n)
+{
+    unsigned char *c;
+
+    if (!b || n <= 0)
+        return 0;
+    c = (unsigned char *)malloc((size_t)n);
+    if (!c)
+        return 0;
+    memcpy(c, b, (size_t)n);
+    free(clip);
+    clip = c;
+    clip_n = n;
+    return 1;
 }

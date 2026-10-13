@@ -15,6 +15,7 @@
   #wrap { flex: 1; overflow: auto; }
   canvas { display: block; image-rendering: pixelated; touch-action: none; }
   #note { padding: 4px 10px; color: #999; }
+  @media (max-width: 600px) { #note > span:last-of-type { display: none; } }
 </style>
 </head>
 <body>
@@ -94,7 +95,16 @@
 
   function fit() {
     const wrap = document.getElementById('wrap');
-    resize(Math.max(320, wrap.clientWidth), Math.max(240, wrap.clientHeight));
+    // The frame is laid out for a desktop window: narrower than MINW its
+    // status line and toolbars run into each other.  On a phone the picture
+    // is made MINW wide and shown scaled down to the screen (touch points
+    // are scaled back up by `k` in the handlers below).
+    const MINW = 800;
+    const cw = Math.max(1, wrap.clientWidth), chh = Math.max(1, wrap.clientHeight);
+    const k = cw < MINW ? MINW / cw : 1;
+    resize(Math.round(cw * k), Math.max(240, Math.round(chh * k)));
+    canvas.style.width = k > 1 ? cw + 'px' : '';
+    canvas.style.height = k > 1 ? chh + 'px' : '';
     present();
   }
 
@@ -212,6 +222,7 @@
                     + 'background:#eef;color:#446;font:11px monospace;'
                     + 'padding:1px 5px';
   if (debug) document.body.appendChild(ver);
+  if (debug) window.__jw = mod;       /* for the headless sweeps */
   const VERSION = 9;
   let lastnote = '';
   const note = t => {
@@ -247,9 +258,18 @@
       ime.style.width = (438 * s) + 'px';
       ime.style.height = (20 * s) + 'px';
       ime.style.display = 'block';
+    } else if (boxfocus()) {
+      /* a number box on the command bar has the caret: a phone needs a real
+         input under it to bring up its keyboard, the digit one */
+      ime.style.left = (r.left + 4) + 'px';
+      ime.style.top = (Math.min(r.bottom, innerHeight) - 24) + 'px';
+      ime.style.width = '120px';
+      ime.style.height = '20px';
+      ime.style.display = 'block';
     } else {
       ime.style.display = 'none';   /* out of the way of the drawing */
     }
+    ime.inputMode = cmdid() !== 0x8026 && boxfocus() ? "decimal" : "text";
     ime.focus({ preventScroll: true });
     note(cmdid() === 0x8026
          ? 'text box ready, focus=' + (document.activeElement === ime)
@@ -323,10 +343,44 @@
         else if (!typing && k === 'c') id = 57634;
         else if (!typing && k === 'x') id = 57635;
         else if (!typing && k === 'v') id = 57637;
+        else if (k === 'Insert') id = 57634;               /* Ctrl+Insert: コピー */
+      } else if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !typing
+                 && k === 'Insert') {
+        id = 57637;                                        /* Shift+Insert: 貼り付け */
       } else if (e.altKey && !e.ctrlKey && e.key === 'Backspace') id = 57643;
       else if (!e.ctrlKey && !e.altKey && !e.metaKey && !typing && k === 'Delete')
         id = e.shiftKey ? 57635 : 32794;
-      if (id) { react(command(id)); e.preventDefault(); return; }
+      if (id === 57637 && navigator.clipboard && navigator.clipboard.readText && mod._jw_clip_set) {
+        /* a copy made in another window comes by way of the system clipboard */
+        e.preventDefault();
+        navigator.clipboard.readText().then(t => {
+          if (t && t.startsWith('JWCLIP:')) {
+            const bytes = Uint8Array.from(atob(t.slice(7)), c => c.charCodeAt(0));
+            const p = mod._malloc(bytes.length);
+            mod.HEAPU8.set(bytes, p);
+            mod._jw_clip_set(p, bytes.length);
+            mod._free(p);
+          }
+        }).catch(() => {}).then(() => react(command(id)));
+        return;
+      }
+      if (id) {
+        const r = command(id);
+        react(r);
+        if ((id === 57634 || id === 57635) && r && mod._jw_clip_get && navigator.clipboard) {
+          const p = mod._jw_clip_get();
+          if (p) {
+            const bytes = mod.HEAPU8.slice(p, p + savedLen());
+            savedFree();
+            let s = '';
+            for (let i = 0; i < bytes.length; i += 4096)
+              s += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+            navigator.clipboard.writeText('JWCLIP:' + btoa(s)).catch(() => {});
+          }
+        }
+        e.preventDefault();
+        return;
+      }
     }
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     /* Esc and Space belong to the command whatever is in force -- Esc lets
@@ -364,6 +418,9 @@
           && e.key.charCodeAt(0) < 0x80) {
         if (key(e.key.charCodeAt(0))) present();
         e.preventDefault();
+        /* the letter may have been a (a, the 文字 command), and a conversion
+           needs the input box focused before the first key of it */
+        setTimeout(aim, 0);
       }
       return;
     }
@@ -765,12 +822,13 @@
     // A wheel click is a step of 100 (or 3 lines); a trackpad sends dozens of
     // small ones, a pinch sends them with ctrlKey.  Scale by how far it
     // moved so a trackpad does not go 1.25x for every little event.
+    const k = canvas.width / r.width;
     let dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
     if (e.ctrlKey) dy *= 4;
     dy = Math.max(-300, Math.min(300, dy));
     if (!dy) return;
     zoom(Math.pow(1.25, -dy / 100),
-         Math.round(e.clientX - r.left), Math.round(e.clientY - r.top));
+         Math.round((e.clientX - r.left) * k), Math.round((e.clientY - r.top) * k));
   }, { passive: false });
 
   // The left button belongs to the command in force -- a toolbar button
@@ -779,7 +837,8 @@
   // buttons at once for that, which a browser cannot see reliably.
   const at = e => {
     const r = canvas.getBoundingClientRect();
-    return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
+    const k = canvas.width / r.width;
+    return [Math.round((e.clientX - r.left) * k), Math.round((e.clientY - r.top) * k)];
   };
   let drag = null;
   // A left click: keep the hidden input focused so typing goes to the 文字
@@ -807,7 +866,8 @@
   canvas.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch') {
       const r = canvas.getBoundingClientRect();
-      touches.set(e.pointerId, { x: e.clientX - r.left, y: e.clientY - r.top,
+      const k = canvas.width / r.width;
+      touches.set(e.pointerId, { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k,
                                  cx: e.clientX, cy: e.clientY });
       canvas.setPointerCapture(e.pointerId);
       if (touches.size === 2) {
@@ -832,7 +892,8 @@
       const t = touches.get(e.pointerId);
       if (!t) return;
       const r = canvas.getBoundingClientRect();
-      t.x = e.clientX - r.left; t.y = e.clientY - r.top;
+      const k = canvas.width / r.width;
+      t.x = (e.clientX - r.left) * k; t.y = (e.clientY - r.top) * k;
       t.cx = e.clientX; t.cy = e.clientY;
       if (gesture && touches.size >= 2) {
         const g = touchPair();
@@ -857,7 +918,8 @@
     }
     if (Math.abs(e.clientX - drag.x0) > 3 || Math.abs(e.clientY - drag.y0) > 3)
       drag.moved = true;
-    pan(e.clientX - drag.x, e.clientY - drag.y);
+    { const k = canvas.width / canvas.getBoundingClientRect().width;
+      pan(Math.round((e.clientX - drag.x) * k), Math.round((e.clientY - drag.y) * k)); }
     drag.x = e.clientX;
     drag.y = e.clientY;
   });

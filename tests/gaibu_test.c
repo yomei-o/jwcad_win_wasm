@@ -271,6 +271,13 @@ int main(void)
         app_press(rc.x + rc.w - 4, rc.y + rc.h - 4, 1);
         app_key(13);
         app_press(rc.x + 200, rc.y + 200, 0);
+        app_move(rc.x + 300, rc.y + 210);
+        {
+            jw_drawing one;
+
+            ck(jw_cmd_gaibu_preview(app_drawing(), &one) && one.ndrawn == 1
+               && fabs(one.obj[0].d[1] - one.obj[0].d[3]) < 1e-9, "  the rubber line to the cursor is level too");
+        }
         app_press(rc.x + 300, rc.y + 210, 0);
         ck(app_take_action() == JW_ACT_GAIBU_RUN, "  both points in");
         ck(app_gaibu_run_begin(&t5, &n5, args5, sizeof args5) == 1, "  written");

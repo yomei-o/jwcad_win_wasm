@@ -161,6 +161,7 @@ int main(void)
         jw_cmd_set(JW_CMD_MOJI);
         ck(jw_cmd_bar_enabled(d, 1070) <= 0, "nothing picked: æ–‡æ›¸ is not there");
         ck(jw_cmd_bar(d, 2407) && jw_cmd() == JW_CMD_HANI, "2407 enters the range selection");
+        ck(strstr(jw_cmd_prompt(), "y•¶Žšz") != 0, "  with the ã€æ–‡å­—ã€‘ prompt (5429)");
         app_press(rc.x + 100, rc.y + 100, 0);
         app_press(rc.x + rc.w - 4, rc.y + rc.h - 4, 1);
         ck(app_key(13) && jw_cmd() == JW_CMD_MOJI, "Enter settles it and goes back to æ–‡å­—");

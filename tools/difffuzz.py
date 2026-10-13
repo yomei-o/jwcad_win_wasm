@@ -202,6 +202,51 @@ class Gen:
         a, b = self.lines[pr[0]], self.lines[pr[1]]
         return ('bunkatsu', ['cmd:32867'] + (['ch:1411,%d' % self.r.choice((2, 3, 4))] if self.r.random() < .6 else []) + [self.S(self.pick(('L', a))), self.S(self.pick(('L', b)))])
 
+    def op_bk2(self):
+        """分割 の いろいろ: 線線・円円の扇、点(R)＋線/円(L)、２点(R)(R)＋線/円(L)。
+        分割数 か 割付(振分・割付距離以下)。"""
+        r = self.r
+        es = self.elems()
+        if not es:
+            return None
+        toks = ['cmd:32867']
+        mode = r.choice(['n', 'n', 'wari', 'furi', 'ika'])
+        if mode == 'n':
+            toks.append('chr:1411,%d' % r.choice((2, 3, 4, 5)))
+        else:
+            toks.append('pb:1324')
+            if mode == 'furi':
+                toks.append('pb:1325')
+            if mode == 'ika':
+                toks.append('pb:1326')
+            toks.append('chr:1412,%d' % r.choice((1000, 1500, 2500, 4000)))
+        ends = []
+        for g in self.lines:
+            ends += [(g[0], g[1]), (g[2], g[3])]
+        kind = r.choice(['ee', 'pe', 'p2'])
+        if kind == 'ee':
+            Ls = [e for e in es if e[0] == 'L']
+            Cs = [e for e in es if e[0] == 'C']
+            pool = Ls if len(Ls) >= 2 and (len(Cs) < 2 or r.random() < .5) else Cs
+            if len(pool) < 2:
+                return None
+            a, b = r.sample(pool, 2)
+            toks += [self.S(self.pick(a)), self.S(self.pick(b))]
+        elif kind == 'pe':
+            if not ends:
+                return None
+            pnt = r.choice(ends)
+            e = r.choice(es)
+            toks += ['r' + self.S((clampi(pnt[0], 0, 1100), clampi(pnt[1], 0, 680))), self.S(self.pick(e))]
+        else:
+            if len(ends) < 2:
+                return None
+            p1, p2 = r.sample(ends, 2)
+            e = r.choice(es)
+            toks += ['r' + self.S((clampi(p1[0], 0, 1100), clampi(p1[1], 0, 680))),
+                     'r' + self.S((clampi(p2[0], 0, 1100), clampi(p2[1], 0, 680))), self.S(self.pick(e))]
+        return ('bk2', toks)
+
     def rng_box(self):
         es = self.elems()
         if not es:
@@ -238,7 +283,7 @@ class Gen:
 
 
 DRAW = ['line', 'line', 'line', 'rect', 'circle', 'poly', 'arc']
-EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori',
+EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2',
         'range_erase', 'move', 'copy']
 
 
