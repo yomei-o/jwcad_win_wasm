@@ -4956,8 +4956,10 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     double pdx, pdy, qdx, qdy, den, tp, tq, ix, iy, cp, cq;
     double plen, qlen, dist, pux, puy, qux, quy, px, py, qx, qy;
     double psi, sinpsi, t, ex[2], ey[2];
+    double kpx, kpy, kqx, kqy;
+    jw_obj was_p, was_q;
     const char *sz = jw_cmd_box(1411);
-    int wg = 0, i, extra = 0;
+    int wg = 0, i, extra = 0, lo, hi;
     op_t *rec;
     jw_obj *n;
 
@@ -5037,17 +5039,41 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     qy = iy + quy * t;
     (void)ex; (void)ey;
 
+    /* cut end first, then the end that stays */
+    kpx = cp < tp ? p->d[0] : p->d[2];
+    kpy = cp < tp ? p->d[1] : p->d[3];
+    kqx = cq < tq ? q->d[0] : q->d[2];
+    kqy = cq < tq ? q->d[1] : q->d[3];
+    was_p = *p;
+    was_q = *q;
+
+    /* The two cut lines do not stay where they were: driving 面取 on a
+       rectangle's corner in the original put them at the **end** of the
+       drawing, after the untouched sides, in the order they were picked --
+       the same 消して末尾に足す the decompilation notes for コーナー and
+       伸縮 elsewhere turned out not to hold for コーナー処理 (which keeps
+       its two lines in place, tools/probe-corner.sh) but does for 面取
+       (tools/fzcheck.py cases 2, 16, 55, 61, 70: a rectangle's sides come
+       back top, the untouched one, the two cut ones, the chamfer). */
     rec = op_new();
-    op_keep(rec, d, a, 0);
-    op_keep(rec, d, b, 0);
-    {   /* cut end first, then the end that stays */
-        double kpx = cp < tp ? p->d[0] : p->d[2];
-        double kpy = cp < tp ? p->d[1] : p->d[3];
-        double kqx = cq < tq ? q->d[0] : q->d[2];
-        double kqy = cq < tq ? q->d[1] : q->d[3];
-        p->d[0] = px; p->d[1] = py; p->d[2] = kpx; p->d[3] = kpy;
-        q->d[0] = qx; q->d[1] = qy; q->d[2] = kqx; q->d[3] = kqy;
+    lo = a < b ? a : b;
+    hi = a < b ? b : a;
+    op_keep(rec, d, hi, 1);
+    jw_remove(d, hi);
+    op_keep(rec, d, lo, 1);
+    jw_remove(d, lo);
+
+    n = jw_add(d, JW_SEN);
+    if (n) {
+        *n = was_p;
+        n->d[0] = px; n->d[1] = py; n->d[2] = kpx; n->d[3] = kpy;
     }
+    n = jw_add(d, JW_SEN);
+    if (n) {
+        *n = was_q;
+        n->d[0] = qx; n->d[1] = qy; n->d[2] = kqx; n->d[3] = kqy;
+    }
+
     if (mt_mode == 1691 || mt_mode == 1693) {
         double cx, cy, a0, sw;
 
@@ -5105,7 +5131,7 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
                 n->d[6] = bb / aa;
             }
             if (rec)
-                rec->n = 1;
+                rec->n = 3;         /* the two re-added lines, and the arc */
         }
         return;
     }
@@ -5132,9 +5158,10 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
             }
         }
         /* the new line belongs to the same step as the two that were cut,
-           so one press of 元に戻る takes the whole chamfer back */
+           so one press of 元に戻る takes the whole chamfer back -- along
+           with the two re-added lines themselves */
         if (rec)
-            rec->n = 1 + extra;
+            rec->n = 3 + extra;
     }
 }
 
@@ -10719,6 +10746,19 @@ const char *jw_cmd_box(int id)
 /* what a dialog hands back to a box, as if it had been typed in */
 int jw_cmd_box_put(int id, const char *v)
 {
+    /* 複線 (JW_CMD_FUKUSEN)'s first bar -- before a line or circle is
+       picked -- is 「複線にする図形を選択してください ﾏｳｽ(L)　前回値
+       ﾏｳｽ(R)」 with no 間隔 box in it at all (jw_cmd_prompt's
+       JW_CMD_FUKUSEN case); the box only appears once para_step reaches
+       1.  Typing into 1411 before that pick therefore lands on nothing in
+       the original -- tools/difffuzz.py's op_fukusen found this ("typed
+       before the first pick the original ignores the value"), and
+       tools/fzcheck.py cases 7, 8, 22, 25, 29, 34, 38, 40, 44, 45, 49, 50,
+       52, 54, 57, 58, 60, 63, 64, 65, 66 (a typed box before any pick)
+       bear it out: the line comes back unchanged, with no offset copy at
+       all. */
+    if (current == JW_CMD_FUKUSEN && id == 1411 && para_step == 0)
+        return 0;
     if (!jw_cmd_box(id))
         return 0;
     box_put(id, v);
