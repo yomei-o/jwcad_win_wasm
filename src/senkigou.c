@@ -79,7 +79,7 @@ static int parse_row(const char *line, jw_sk_row *r, double *fac, int *turn,
         if (!letter[0] && nn >= 3 && !after_letter &&
             (((tk[0] == 'e' || tk[0] == 'E' || tk[0] == 'c' || tk[0] == 'f') && !tk[1]) ||
              (tk[0] == 'a' && tk[1] >= '1' && tk[1] <= '7' && !tk[2]))) {
-            snprintf(letter, sizeof letter, "%s", tk);
+            snprintf(letter, sizeof letter, "%.3s", tk);   /* two characters at most, by the test above */
             after_letter = 1;
             continue;
         }

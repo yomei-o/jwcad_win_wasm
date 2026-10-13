@@ -85,7 +85,7 @@ int main(int argc, char **argv)
     unsigned char *b;
     long n;
     jw_drawing ref, *d;
-    const jw_obj *r[4];
+    const jw_obj *r[4] = { 0, 0, 0, 0 };
     int i, k = 0, before, ok;
 
     b = slurp(path, &n);
@@ -360,12 +360,28 @@ int main(int argc, char **argv)
         type_box(1411, "4");
         jw_cmd_point(d, v, pt_top->d[0], pt_top->d[1], 1);
         jw_cmd_point(d, v, pt_right->d[0], pt_right->d[1], 1);
-        jw_cmd_point(d, v, ca->d[0] - ca->d[2], ca->d[1], 0);   /* 円周の左端 */
+        jw_cmd_point(d, v, ca->d[0] + ca->d[2] * 0.70710678, ca->d[1] + ca->d[2] * 0.70710678, 0);
+                                                                /* 円周の 45°（短い弧の上） */
         ck(d->ndrawn == g + 3
            && near3(d->obj[g].d[0], -19.0035) && near3(d->obj[g].d[1], -62.184)
            && near3(d->obj[g + 1].d[0], -7.08587) && near3(d->obj[g + 1].d[1], -70.1471)
            && near3(d->obj[g + 2].d[0], 0.877207) && near3(d->obj[g + 2].d[1], -82.0647),
-           "始点＋第二点(R)(R)、円(L): 円の２点間分割（短いほうの弧を等分）");
+           "始点＋第二点(R)(R)、円(L): 円の２点間分割（指示した側が短い弧ならそれを等分、bk_w10）");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 指示が 180° のほうなら 長い弧 270°（反時計回り）を等分する（bk_w3） */
+        g = d->ndrawn;
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "4");
+        jw_cmd_point(d, v, pt_top->d[0], pt_top->d[1], 1);
+        jw_cmd_point(d, v, pt_right->d[0], pt_right->d[1], 1);
+        jw_cmd_point(d, v, ca->d[0] - ca->d[2], ca->d[1], 0);   /* 円周の左端 */
+        ck(d->ndrawn == g + 3
+           && near3(d->obj[g].d[0], -66.9997) && near3(d->obj[g].d[1], -82.0647)
+           && near3(d->obj[g + 1].d[0], -59.0366) && near3(d->obj[g + 1].d[1], -122.098)
+           && near3(d->obj[g + 2].d[0], -19.0035) && near3(d->obj[g + 2].d[1], -130.061),
+           "円の２点間分割: 指示した側の長い弧を等分（bk_w3）");
         while (d->ndrawn > g && jw_cmd_can_undo())
             jw_cmd_undo(d);
 
@@ -439,6 +455,20 @@ int main(int argc, char **argv)
             jw_cmd_point(d, v, -63.673469, 87.551020, 0);
             ck(!strcmp(jw_cmd_prompt(), JW_STR_5820), "連続点分割: (L) で足して 5820");
             jw_cmd_point(d, v, l2->d[2], l2->d[3], 1);
+            {
+                /* 途中の仮表示（原典 FUN_007614c0）: 点を順に結ぶ線と、最後の点からカーソルまで */
+                jw_obj tmp[8];
+                int np;
+
+                jw_cmd_track(10.0, 20.0);
+                np = jw_cmd_pending(d, tmp, 8);
+                ck(np == 3 && tmp[0].cls == JW_SEN
+                   && near3(tmp[0].d[0], l1->d[0]) && near3(tmp[0].d[2], -63.673469)
+                   && near3(tmp[1].d[2], l2->d[2]) && near3(tmp[1].d[3], l2->d[3])
+                   && near3(tmp[2].d[0], l2->d[2]) && near3(tmp[2].d[2], 10.0)
+                   && near3(tmp[2].d[3], 20.0),
+                   "連続点分割: 途中は点を結ぶ線と、最後の点からカーソルまでの線を仮に出す");
+            }
             jw_cmd_point(d, v, -33.061224, 56.938776, 0);
             ck(d->ndrawn == g, "連続点分割: 閉じるまでは何も置かない");
             jw_cmd_point(d, v, -33.061224, 56.938776, 0);
@@ -542,6 +572,120 @@ int main(int argc, char **argv)
             jw_cmd_bar(d, 1324);
         }
 
+        /* 円の 割付（原典実測 2026-10-14、decomp/res/bk_w1〜w9.jww）。
+         * 割付 30mm（箱 3000）で 円の２点間（指示 180°）・円全周・円 A→円 B の扇 */
+        {
+            static const struct { double x, y; } T2[] = {
+                { -59.8360, -70.9719 }, { -69.7241, -98.4182 }, { -56.4893, -124.417 },
+                { -28.4786, -132.570 }, { -3.3582, -117.736 } },
+            T2V[] = {
+                { -57.3624, -68.5745 }, { -69.7780, -94.9740 }, { -59.0366, -122.098 },
+                { -31.9128, -132.839 }, { -5.5133, -120.424 } },
+            T2K[] = {
+                { -59.0366, -70.1471 }, { -69.7959, -96.1224 }, { -59.0366, -122.098 },
+                { -33.0612, -132.857 }, { -7.0859, -122.098 } },
+            TF[] = {
+                { -59.8360, -70.9719 }, { -69.7241, -98.4182 }, { -56.4893, -124.417 },
+                { -28.4786, -132.570 }, { -3.3582, -117.736 }, { 3.0289, -89.2710 },
+                { -13.3458, -65.1267 } },
+            TFV[] = {
+                { -9.6331, -67.8282 }, { 3.6017, -93.8267 }, { -6.2865, -121.273 },
+                { -33.0612, -132.857 }, { -59.8360, -121.273 }, { -69.7241, -93.8267 },
+                { -56.4893, -67.8282 } },
+            TFK[] = {
+                { -59.0366, -70.1471 }, { -69.7959, -96.1224 }, { -59.0366, -122.098 },
+                { -33.0612, -132.857 }, { -7.0859, -122.098 }, { 3.6735, -96.1224 },
+                { -7.0859, -70.1471 } };
+            static const struct { double x, y, r; } FAN[] = {
+                { -3.06122, -96.1224, 32.2347 }, { 26.9388, -96.1224, 27.7347 },
+                { 56.9388, -96.1224, 23.2347 }, { 86.9388, -96.1224, 18.7347 } };
+            int j, okk, wg = 0;
+            char box30[32];
+            jw_obj *cc;
+
+            for (j = 0; j < 16; j++)
+                if (d->group[j].state == 3)
+                    wg = j;
+            snprintf(box30, sizeof box30, "%.6g", 30.0 * d->group[wg].scale);
+
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            if (jw_cmd_bar_check(1324) <= 0)
+                jw_cmd_bar(d, 1324);
+            if (jw_cmd_bar_check(1325) > 0)
+                jw_cmd_bar(d, 1325);
+#define ARCRUN(label, cnt, TAB, click_x, click_y, rr) \
+            g = d->ndrawn; \
+            jw_cmd_set(JW_CMD_BUNKATSU); \
+            jw_cmd_point(d, v, pt_top->d[0], pt_top->d[1], 1); \
+            if (rr) jw_cmd_point(d, v, (click_x), (click_y), 1); \
+            else { jw_cmd_point(d, v, pt_right->d[0], pt_right->d[1], 1); \
+                   jw_cmd_point(d, v, (click_x), (click_y), 0); } \
+            okk = d->ndrawn == g + (cnt); \
+            for (j = 0; okk && j < (cnt); j++) \
+                okk = near3(d->obj[g + j].d[0], TAB[j].x) && near3(d->obj[g + j].d[1], TAB[j].y); \
+            ck(okk, label); \
+            while (d->ndrawn > g && jw_cmd_can_undo()) \
+                jw_cmd_undo(d);
+
+            type_box(1412, box30);
+            ARCRUN("円の２点間分割 割付 30mm: 30mm おきに 5 点（長い弧、bk_w2）", 5, T2,
+                   ca->d[0] - ca->d[2], ca->d[1], 0)
+            jw_cmd_bar(d, 1325);
+            ARCRUN("円の２点間分割 割付＋振分: 余りを半分ずつ（bk_w4）", 5, T2V,
+                   ca->d[0] - ca->d[2], ca->d[1], 0)
+            jw_cmd_bar(d, 1325);
+            jw_cmd_bar(d, 1326);
+            ARCRUN("円の２点間分割 割付距離以下: 6 等分（bk_w5）", 5, T2K,
+                   ca->d[0] - ca->d[2], ca->d[1], 0)
+            ARCRUN("円全周分割 割付距離以下: 8 等分、反時計回り（bk_w9）", 7, TFK,
+                   ca->d[0] - ca->d[2], ca->d[1], 1)
+            jw_cmd_bar(d, 1326);
+            ARCRUN("円全周分割 割付 30mm: 7 点、反時計回り（bk_w7）", 7, TF,
+                   ca->d[0] - ca->d[2], ca->d[1], 1)
+            jw_cmd_bar(d, 1325);
+            ARCRUN("円全周分割 割付＋振分: 時計回り（bk_w8）", 7, TFV,
+                   ca->d[0] + ca->d[2] * 0.70710678, ca->d[1] - ca->d[2] * 0.70710678, 1)
+            jw_cmd_bar(d, 1325);
+#undef ARCRUN
+            /* 円 A（ca）→ 円 B（中心(89.3878,-96.1224) 半径 18.3673）の扇 */
+            MKENKO(cc, 89.3878, -96.1224, 18.3673);
+            g = d->ndrawn;
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            jw_cmd_point(d, v, ca->d[0] - ca->d[2], ca->d[1], 0);
+            jw_cmd_point(d, v, cc->d[0] + cc->d[2], cc->d[1], 0);
+            okk = d->ndrawn == g + 4;
+            for (j = 0; okk && j < 4; j++)
+                okk = d->obj[g + j].cls == JW_ENKO && d->obj[g + j].n == 1
+                      && near3(d->obj[g + j].d[0], FAN[j].x) && near3(d->obj[g + j].d[1], FAN[j].y)
+                      && near3(d->obj[g + j].d[2], FAN[j].r);
+            ck(okk, "円 A＋円 B の扇 割付 30mm: 中心 30 ずつ・半径 4.5 ずつ（bk_w1）");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+            /* 点 P（線 l1 の始点）→ 線 l4 の扇 割付 15mm: P から線までの垂直距離
+               48.98 を 15 ずつ。x=-140.51・-125.51・-110.51 の 3 本（bk_w12） */
+            {
+                static const double W12[3][4] = {
+                    { -140.51, 35.7015, -140.51, 3.82653 },
+                    { -125.51, 45.0765, -125.51, -18.6735 },
+                    { -110.51, 54.4515, -110.51, -41.1735 } };
+                char b15[32];
+
+                snprintf(b15, sizeof b15, "%.6g", 15.0 * d->group[wg].scale);
+                type_box(1412, b15);
+                g = d->ndrawn;
+                jw_cmd_set(JW_CMD_BUNKATSU);
+                jw_cmd_point(d, v, l1->d[0], l1->d[1], 1);
+                jw_cmd_point(d, v, l4->d[0], -30.0, 0);
+                okk = d->ndrawn == g + 3;
+                for (j = 0; okk && j < 3; j++)
+                    okk = near3(d->obj[g + j].d[0], W12[j][0]) && near3(d->obj[g + j].d[1], W12[j][1])
+                          && near3(d->obj[g + j].d[2], W12[j][2]) && near3(d->obj[g + j].d[3], W12[j][3]);
+                ck(okk, "点＋線の扇 割付 15mm: 垂直距離 48.98 を 15 ずつ（bk_w12）");
+                while (d->ndrawn > g && jw_cmd_can_undo())
+                    jw_cmd_undo(d);
+            }
+            jw_cmd_bar(d, 1324);                        /* 割付 を外す */
+        }
 #undef MKSEN
 #undef MKENKO
     }

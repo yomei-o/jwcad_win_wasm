@@ -58,6 +58,7 @@ static int kind_of(const char *p)
     if (!strcmp(e, "dxf")) return 2;
     if (!strcmp(e, "sfc")) return 3;
     if (!strcmp(e, "jwc")) return 4;
+    if (!strcmp(e, "jwf")) return 5;       /* 環境設定ファイル, through the app */
     return 0;
 }
 
@@ -93,6 +94,19 @@ static int one(const unsigned char *b, long n, int kind)
     clock_t t0 = clock();
 
     memset(&d, 0, sizeof d);
+    if (kind == 5) {
+        /* the settings file changes the app, not a drawing of ours */
+        if (!app_drawing())
+            app_new();
+        ok = app_open_env(b, n);
+        if (ok && ++written % 8 == 0) {
+            unsigned char *o;
+            long m;
+            if (app_save_env("x", &o, &m))
+                free(o);
+        }
+        return ok;
+    }
     switch (kind) {
     case 1:  ok = jw_parse_jws(&d, b, n, 0, 0); break;
     case 2:  ok = jw_dxf_read(&d, b, n);        break;

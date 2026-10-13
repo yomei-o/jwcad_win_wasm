@@ -91,7 +91,7 @@ def main():
     f.write('static const jw_jk_t jw_jikkaku[] = {\n')
     for x, y, ww, hh, cid, k, chk, text in rows:
         f.write('    { %4d, %4d, %4d, %3d, %5d, JW_JK_%-6s, %d, "%s" },\n'
-                % (x, y, ww, hh, cid, k, chk, esc(text)))
+                % (x, y, ww, hh, (cid - 65536 if cid >= 32768 else cid), k, chk, esc(text)))
     f.write('};\n#define JW_NJIKKAKU %d\n\n' % len(rows))
     f.write('#endif\n')
     f.close()

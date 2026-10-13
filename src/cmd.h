@@ -527,4 +527,25 @@ void jw_cmd_gazou_doc(const char *dir, const char *name);
 int  jw_cmd_gazou_out(int i, const char **name, const unsigned char **b, long *n);
 int  jw_cmd_gazou_out_ready(void);          /* 1 once after a 画像分離 left files */
 
+
+/* 外部変形 (32913): put what the program wrote to JWC_TEMP.TXT into the
+   drawing (see jw_gaibu_read in jww.h).  Returns the elements made, -2 if the
+   program did not run, -1 if the text is not readable. */
+int  jw_cmd_gaibu_commit(jw_drawing *d, const unsigned char *b, long n,
+                         double ox, double oy, jw_gaibu_out *out);
+
+/* 文字の 範囲選択 (2407): the picked texts as a file (文書, 外部エディタ's TEMP.TXT),
+   the lines of a file put back onto them (外部エディタ, 貼付), and the 1092
+   switch between SJIS and UTF8 (1 = SJIS).  See src/cmd.c. */
+int  jw_moji_sjis(void);
+void jw_moji_sjis_set(int on);
+int  jw_moji_sjis_toggle(void);
+int  jw_cmd_moji_count(const jw_drawing *d);
+int  jw_cmd_moji_edit_text(const jw_drawing *d, unsigned char **out, long *n);
+int  jw_cmd_moji_doc(jw_drawing *d, unsigned char **out, long *n);
+int  jw_cmd_moji_apply(jw_drawing *d, const unsigned char *b, long n);
+
+int  jw_cmd_moji_ready(void);               /* texts picked (2407 done) */
+int  jw_cmd_moji_go(void);                  /* 外部エディタ was waiting for the range */
+
 #endif

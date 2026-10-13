@@ -30,6 +30,76 @@ static const wchar_t CLASS_NAME[] = L"JwWinWasmPort";
 static wchar_t current_path[MAX_PATH];
 static void sync_doc(void);
 
+/* Recent files and the one setting the .jwf does not carry, in
+   %APPDATA%\jw_port\jw_port.ini ([moji] OutSJIS, [recent] 1..5) */
+#define NRECENT 5
+#define RECENT_ID 60001
+static wchar_t recent[NRECENT][MAX_PATH];
+static HWND main_wnd;
+
+static int ini_path(wchar_t *p)
+{
+    wchar_t dir[MAX_PATH];
+
+    if (!GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH))
+        return 0;
+    swprintf(p, MAX_PATH, L"%s%cjw_port", dir, (wchar_t)92);
+    CreateDirectoryW(p, NULL);
+    swprintf(p, MAX_PATH, L"%s%cjw_port%cjw_port.ini", dir, (wchar_t)92, (wchar_t)92);
+    return 1;
+}
+
+static void ini_load(void)
+{
+    wchar_t p[MAX_PATH], k[8];
+    int i;
+
+    if (!ini_path(p))
+        return;
+    jw_moji_sjis_set(GetPrivateProfileIntW(L"moji", L"OutSJIS", 1, p));
+    for (i = 0; i < NRECENT; i++) {
+        swprintf(k, 8, L"%d", i + 1);
+        GetPrivateProfileStringW(L"recent", k, L"", recent[i], MAX_PATH, p);
+    }
+}
+
+static void ini_save(void)
+{
+    wchar_t p[MAX_PATH], k[8];
+    int i;
+
+    if (!ini_path(p))
+        return;
+    WritePrivateProfileStringW(L"moji", L"OutSJIS", jw_moji_sjis() ? L"1" : L"0", p);
+    for (i = 0; i < NRECENT; i++) {
+        swprintf(k, 8, L"%d", i + 1);
+        WritePrivateProfileStringW(L"recent", k, recent[i][0] ? recent[i] : NULL, p);
+    }
+}
+
+static HMENU build_menu(void);
+
+static void recent_add(const wchar_t *path)
+{
+    int i, at = NRECENT - 1;
+
+    for (i = 0; i < NRECENT; i++)
+        if (!_wcsicmp(recent[i], path)) {
+            at = i;
+            break;
+        }
+    for (i = at; i > 0; i--)
+        wcscpy(recent[i], recent[i - 1]);
+    lstrcpynW(recent[0], path, MAX_PATH);
+    if (main_wnd) {
+        HMENU old = GetMenu(main_wnd);
+
+        SetMenu(main_wnd, build_menu());
+        if (old)
+            DestroyMenu(old);
+    }
+}
+
 static int load_file(const wchar_t *path)
 {
     FILE *f = _wfopen(path, L"rb");
@@ -49,6 +119,7 @@ static int load_file(const wchar_t *path)
     free(b);
     if (ok) {
         lstrcpynW(current_path, path, MAX_PATH);
+        recent_add(path);
         sync_doc();
     }
     return ok;
@@ -73,6 +144,7 @@ static int save_file(const wchar_t *path)
     free(b);
     if (ok) {
         lstrcpynW(current_path, path, MAX_PATH);
+        recent_add(path);
         sync_doc();
     }
     return ok;
@@ -422,7 +494,7 @@ static int edit_env(void)
 static int save_plot(HWND wnd)
 {
     static const wchar_t filter[] =
-        L"PDF (*.pdf) *.pdf PNG (*.png) *.png  ";
+        L"PDF (*.pdf)\0*.pdf\0PNG (*.png)\0*.png\0\0";
     OPENFILENAMEW o;
     wchar_t path[MAX_PATH];
     unsigned char *b;
@@ -640,6 +712,8 @@ static HMENU build_menu(void)
     wchar_t text[256];
     int i;
 
+    HMENU file_popup = NULL;
+
     stack[0] = CreateMenu();
     if (!stack[0])
         return NULL;
@@ -655,6 +729,8 @@ static HMENU build_menu(void)
             wide(m->text, text, 256);
             AppendMenuW(stack[d], MF_POPUP | MF_STRING, (UINT_PTR)sub, text);
             stack[d + 1] = sub;
+            if (d == 0 && !file_popup)
+                file_popup = sub;
             break;
         }
         case 2:
@@ -664,6 +740,16 @@ static HMENU build_menu(void)
             wide(m->text, text, 256);
             AppendMenuW(stack[d], MF_STRING, m->id, text);
             break;
+        }
+    }
+    if (file_popup && recent[0][0]) {
+        /* the files opened last, under the file menu */
+        AppendMenuW(file_popup, MF_SEPARATOR, 0, NULL);
+        for (i = 0; i < NRECENT && recent[i][0]; i++) {
+            wchar_t t[MAX_PATH + 8];
+
+            swprintf(t, MAX_PATH + 8, L"&%d %s", i + 1, recent[i]);
+            AppendMenuW(file_popup, MF_STRING, RECENT_ID + i, t);
         }
     }
     return stack[0];
@@ -742,10 +828,196 @@ static int tag_jump(HWND wnd)
     return load_file(path);
 }
 
+/* 外部変形: pick a BAT, write JWC_TEMP.TXT next to it (or in the current folder),
+   run the BAT and wait, and read the file back (tmp/spec_gaibu/A_gaibu_henkei.md) */
+static int run_gaibu(HWND wnd)
+{
+    static const wchar_t filter[] = L"BAT (*.bat)\0*.bat\0\0";
+    OPENFILENAMEW o;
+    wchar_t path[MAX_PATH], dir[MAX_PATH], cmd[MAX_PATH + 8], *sl;
+    unsigned char *bat = 0, *t = 0, *back = 0;
+    long bn = 0, tn = 0, kn = 0;
+    FILE *f;
+    int r;
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    char msg[160];
+
+    path[0] = 0;
+    ZeroMemory(&o, sizeof o);
+    o.lStructSize = sizeof o;
+    o.hwndOwner = wnd;
+    o.lpstrFilter = filter;
+    o.lpstrFile = path;
+    o.nMaxFile = MAX_PATH;
+    o.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&o))
+        return 0;
+    f = _wfopen(path, L"rb");
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    bn = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    bat = (unsigned char *)malloc((size_t)bn + 1);
+    if (!bat || fread(bat, 1, (size_t)bn, f) != (size_t)bn) {
+        fclose(f);
+        free(bat);
+        return 0;
+    }
+    fclose(f);
+    bat[bn] = 0;
+    r = app_gaibu_begin((const char *)bat, bn, &t, &tn);
+    free(bat);
+    if (r != 1) {
+        MessageBoxW(wnd, r == 0 ? L"Not a batch file for Jw_cad (no #jw line)."
+                                : L"Pick the data first.", L"jw_win", MB_OK);
+        return 0;
+    }
+    wcscpy(dir, path);
+    sl = wcsrchr(dir, (wchar_t)92);
+    if (sl)
+        *sl = 0;
+    SetCurrentDirectoryW(dir);
+    f = _wfopen(L"JWC_TEMP.TXT", L"wb");
+    if (!f) {
+        free(t);
+        return 0;
+    }
+    fwrite(t, 1, (size_t)tn, f);
+    fclose(f);
+    free(t);
+    swprintf(cmd, MAX_PATH + 8, L"\"%s\"", path);
+    ZeroMemory(&si, sizeof si);
+    si.cb = sizeof si;
+    if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    f = _wfopen(L"JWC_TEMP.TXT", L"rb");
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    kn = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    back = (unsigned char *)malloc((size_t)kn + 1);
+    if (back && fread(back, 1, (size_t)kn, f) == (size_t)kn)
+        r = app_gaibu_end(back, kn, msg, (int)sizeof msg);
+    else
+        r = -1;
+    fclose(f);
+    free(back);
+    return r >= 0;
+}
+
+/* Moji range selection: 'Document' writes the picked texts to a .TXT,
+   'External editor' round-trips them through TEMP.TXT in NOTEPAD, 'Paste'
+   puts the clipboard's lines onto them (tmp/spec_gaibu/B_moji_hani.md) */
+static int moji_file(HWND wnd, int what)
+{
+    unsigned char *b = 0, *back = 0;
+    long n = 0, kn = 0;
+    wchar_t path[MAX_PATH], tmp[MAX_PATH];
+    FILE *f;
+    int ok = 0;
+
+    if (what == 2) {                    /* paste */
+        HGLOBAL h;
+        const wchar_t *w;
+        size_t wl;
+
+        if (!OpenClipboard(wnd))
+            return 0;
+        h = GetClipboardData(CF_UNICODETEXT);
+        w = h ? (const wchar_t *)GlobalLock(h) : NULL;
+        if (w) {
+            wl = wcslen(w);
+            back = (unsigned char *)malloc(wl * 2 + 4);
+            if (back) {
+                back[0] = 0xff;
+                back[1] = 0xfe;
+                memcpy(back + 2, w, wl * 2);
+                kn = (long)(wl * 2 + 2);
+            }
+            GlobalUnlock(h);
+        }
+        CloseClipboard();
+        if (back)
+            ok = app_moji_apply(back, kn);
+        free(back);
+        return ok;
+    }
+    if (what == 0) {                    /* document */
+        OPENFILENAMEW o;
+
+        if (!app_moji_doc(&b, &n))
+            return 0;
+        path[0] = 0;
+        ZeroMemory(&o, sizeof o);
+        o.lStructSize = sizeof o;
+        o.hwndOwner = wnd;
+        o.lpstrFilter = L"TXT File (*.TXT)\0*.TXT\0\0";
+        o.lpstrFile = path;
+        o.nMaxFile = MAX_PATH;
+        o.lpstrDefExt = L"txt";
+        o.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+        if (GetSaveFileNameW(&o) && (f = _wfopen(path, L"wb")) != NULL) {
+            ok = fwrite(b, 1, (size_t)n, f) == (size_t)n;
+            fclose(f);
+        }
+        free(b);
+        return ok;
+    }
+    /* external editor */
+    if (!app_moji_edit_text(&b, &n))
+        return 0;
+    GetTempPathW(MAX_PATH, tmp);
+    wcscat(tmp, L"jw_TEMP.TXT");
+    f = _wfopen(tmp, L"wb");
+    if (!f) {
+        free(b);
+        return 0;
+    }
+    fwrite(b, 1, (size_t)n, f);
+    fclose(f);
+    free(b);
+    {
+        wchar_t win[MAX_PATH], cmd[2 * MAX_PATH + 16];
+        STARTUPINFOW si;
+        PROCESS_INFORMATION pi;
+
+        GetWindowsDirectoryW(win, MAX_PATH);
+        swprintf(cmd, 2 * MAX_PATH + 16, L"\"%s%cNOTEPAD.EXE\" \"%s\"", win, (wchar_t)92, tmp);
+        ZeroMemory(&si, sizeof si);
+        si.cb = sizeof si;
+        if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+            return 0;
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    f = _wfopen(tmp, L"rb");
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    kn = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    back = (unsigned char *)malloc((size_t)kn + 1);
+    if (back && fread(back, 1, (size_t)kn, f) == (size_t)kn)
+        ok = app_moji_apply(back, kn);
+    fclose(f);
+    free(back);
+    DeleteFileW(tmp);
+    return ok;
+}
+
 /* A command from a menu item is taken the same way a toolbar press is: what
    needs a file or a dialog comes back through app_take_action().
    Whatever app_command() or app_press() asked for that needs a file or a
    dialog.  Only 開く changes what is on screen. */
+static void settings_save(void);
+
 static int do_action(HWND wnd)
 {
     switch (app_take_action()) {
@@ -800,6 +1072,14 @@ static int do_action(HWND wnd)
         return tag_jump(wnd);
     case JW_ACT_OPEN_IMAGE:
         return ask_image(wnd);
+    case JW_ACT_MOJI_DOC:
+        return moji_file(wnd, 0);
+    case JW_ACT_MOJI_EDIT:
+        return moji_file(wnd, 1);
+    case JW_ACT_MOJI_PASTE:
+        return moji_file(wnd, 2);
+    case JW_ACT_GAIBU:
+        return run_gaibu(wnd);
     case JW_ACT_SAVE_IMAGES:
         save_images(wnd);
         break;
@@ -979,6 +1259,17 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_COMMAND:
+        if ((HIWORD(wp) == 0 || HIWORD(wp) == 1)
+            && LOWORD(wp) >= RECENT_ID && LOWORD(wp) < RECENT_ID + NRECENT) {
+            wchar_t path[MAX_PATH];
+
+            lstrcpynW(path, recent[LOWORD(wp) - RECENT_ID], MAX_PATH);
+            if (load_file(path)) {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+            return 0;
+        }
         if (HIWORD(wp) == 0 || HIWORD(wp) == 1) {       /* menu or accelerator */
             do_command(wnd, LOWORD(wp));
             return 0;
@@ -1019,10 +1310,62 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_DESTROY:
+        ini_save();
+        settings_save();
         PostQuitMessage(0);
         return 0;
     }
     return DefWindowProcW(wnd, msg, wp, lp);
+}
+
+/* The configuration (app_save_env, a .jwf) is kept in %APPDATA%\jw_port between
+   runs: read at start, written when the window is closed. */
+static int settings_path(wchar_t *p)
+{
+    wchar_t dir[MAX_PATH];
+
+    if (!GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH))
+        return 0;
+    swprintf(p, MAX_PATH, L"%s%cjw_port", dir, (wchar_t)92);
+    CreateDirectoryW(p, NULL);
+    swprintf(p, MAX_PATH, L"%s%cjw_port%csettings.jwf", dir, (wchar_t)92, (wchar_t)92);
+    return 1;
+}
+
+static void settings_load(void)
+{
+    wchar_t p[MAX_PATH];
+    FILE *f;
+    long n;
+    unsigned char *b;
+
+    if (!settings_path(p) || !(f = _wfopen(p, L"rb")))
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)(n > 0 ? n : 1));
+    if (b && n > 0 && fread(b, 1, (size_t)n, f) == (size_t)n)
+        app_open_env(b, n);
+    fclose(f);
+    free(b);
+}
+
+static void settings_save(void)
+{
+    wchar_t p[MAX_PATH];
+    unsigned char *b = 0;
+    long n = 0;
+    FILE *f;
+
+    if (!settings_path(p) || !app_save_env("settings.jwf", &b, &n))
+        return;
+    f = _wfopen(p, L"wb");
+    if (f) {
+        fwrite(b, 1, (size_t)n, f);
+        fclose(f);
+    }
+    free(b);
 }
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
@@ -1050,6 +1393,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     }
     jw_outfont_enable(1);               /* IPAex for every face */
     app_new();
+    ini_load();
+    settings_load();
     open_arg(cmd);
     ZeroMemory(&wc, sizeof wc);
     wc.cbSize = sizeof wc;
@@ -1067,12 +1412,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     /* TRUE: with a menu bar on it, which is one row taller */
     AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, TRUE, 0);
 
+    main_wnd = NULL;
     wnd = CreateWindowExW(0, CLASS_NAME, L"jw_win (port)", WS_OVERLAPPEDWINDOW,
                           CW_USEDEFAULT, CW_USEDEFAULT,
                           r.right - r.left, r.bottom - r.top,
                           NULL, NULL, inst, NULL);
     if (!wnd)
         return 1;
+    main_wnd = wnd;
     SetMenu(wnd, build_menu());
     accel = build_accel();
     ShowWindow(wnd, show);

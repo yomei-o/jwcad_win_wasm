@@ -940,6 +940,117 @@ int app_coord_save(unsigned char **out, long *n)
     return jw_write_coord(&drawing, x, y, out, n);
 }
 
+
+/* 外部変形 (32913).  begin() reads a BAT's header and writes what goes in
+   JWC_TEMP.TXT from what is picked; end() takes what the program left there.
+   Running the program in between is the front end's job.  Returns 1, or 0 if
+   the BAT is not one for Jw_cad (「JW外部変形用バッチファイルではありません」),
+   or -1 if nothing is picked. */
+static double gaibu_ox, gaibu_oy;
+static jw_gaibu gaibu_info;
+
+int app_gaibu_begin(const char *bat, long bn, unsigned char **out, long *n)
+{
+    double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
+    int i, k;
+
+    if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
+        return -1;
+    if (!jw_gaibu_header(bat, bn, &gaibu_info))
+        return 0;
+    if (!jw_cmd_block_point(&drawing, &gaibu_ox, &gaibu_oy))
+        return -1;
+    for (i = 0; i < drawing.ndrawn; i++)
+        if (drawing.obj[i].sel)
+            for (k = 0; k < 4; k += 2) {
+                double *q = drawing.obj[i].d;
+
+                if (q[k] < x0) x0 = q[k];
+                if (q[k] > x1) x1 = q[k];
+                if (q[k + 1] < y0) y0 = q[k + 1];
+                if (q[k + 1] > y1) y1 = q[k + 1];
+            }
+    return jw_gaibu_write(&drawing, &gaibu_info, gaibu_ox, gaibu_oy,
+                          x0, y0, x1, y1, out, n) ? 1 : -1;
+}
+
+/* 外部変形 with its steps answered: the points (xy[i], for the steps that ask
+   for one) go into the header as hp lines, and the typed values and chosen
+   items become the argument string the BAT is started with. */
+int app_gaibu_begin2(const char *bat, long bn, int item, const double (*xy)[2],
+                     char val[][128], unsigned char **out, long *n,
+                     char *args, int acap)
+{
+    jw_gscript *sc;
+    unsigned char *t = 0, *o;
+    long tn = 0, at, i;
+    char pts[4096];
+    int r, pl;
+
+    r = app_gaibu_begin(bat, bn, &t, &tn);
+    if (r != 1)
+        return r;
+    sc = (jw_gscript *)calloc(1, sizeof *sc);
+    if (!sc) {
+        free(t);
+        return -1;
+    }
+    jw_gaibu_script(bat, bn, item, sc);
+    pl = jw_gaibu_points(sc, xy, pts, (int)sizeof pts);
+    jw_gaibu_args(sc, val, args, acap);
+    free(sc);
+    /* after the hn line */
+    for (at = 0, i = 0; i + 3 < tn; i++)
+        if (t[i] == '\n' && t[i + 1] == 'h' && t[i + 2] == 'n') {
+            for (at = i + 1; at < tn && t[at] != '\n'; at++)
+                ;
+            at++;
+            break;
+        }
+    o = (unsigned char *)malloc((size_t)(tn + pl + 1));
+    if (!o) {
+        free(t);
+        return -1;
+    }
+    memcpy(o, t, (size_t)at);
+    memcpy(o + at, pts, (size_t)pl);
+    memcpy(o + at + pl, t + at, (size_t)(tn - at));
+    free(t);
+    *out = o;
+    *n = tn + pl;
+    return 1;
+}
+
+int app_gaibu_end(const unsigned char *b, long n, char *msg, int cap)
+{
+    jw_gaibu_out o;
+    int r;
+
+    if (msg && cap > 0)
+        msg[0] = 0;
+    if (!have_drawing)
+        return -1;
+    r = jw_cmd_gaibu_commit(&drawing, b, n, gaibu_ox, gaibu_oy, &o);
+    if (msg && cap > 0)
+        snprintf(msg, (size_t)cap, "%s", o.msg[0] ? o.msg : o.note);
+    return r;
+}
+
+/* 文字の 範囲選択: the files 文書 and 外部エディタ trade in (src/cmd.c) */
+int app_moji_doc(unsigned char **out, long *n)
+{
+    return have_drawing && jw_cmd_moji_doc(&drawing, out, n);
+}
+
+int app_moji_edit_text(unsigned char **out, long *n)
+{
+    return have_drawing && jw_cmd_moji_edit_text(&drawing, out, n);
+}
+
+int app_moji_apply(const unsigned char *b, long n)
+{
+    return have_drawing && jw_cmd_moji_apply(&drawing, b, n) > 0;
+}
 /* 図形登録's 基準点, kept from the press that gave it. */
 static double fig_bx, fig_by;
 
@@ -3005,6 +3116,8 @@ int app_command(int cmd)
            the front end is handed JW_ACT_SAVE_COORD to ask for a name. */
         if (cmd == 32895 && have_drawing && jw_cmd_sel_count(&drawing) > 0)
             action = JW_ACT_SAVE_COORD;
+        if (cmd == 32913 && have_drawing && jw_cmd_sel_count(&drawing) > 0)
+            action = JW_ACT_GAIBU;
         return 1;
     }
     /* a dialog put up from the original's own template (td_start) */
@@ -3439,6 +3552,16 @@ int app_press(int x, int y, int button)
         return 1;
     }
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        /* 文字 with texts picked: 文書, 外部エディタ and 貼付 are the front end's */
+        if (jw_cmd_moji_ready() && id == 1069) {
+            jw_moji_sjis_toggle();          /* 1092, drawn where 文読 is */
+            return 1;
+        }
+        if (jw_cmd_moji_ready() && (id == 1070 || id == 1067 || id == 1065)) {
+            action = id == 1070 ? JW_ACT_MOJI_DOC
+                   : id == 1067 ? JW_ACT_MOJI_EDIT : JW_ACT_MOJI_PASTE;
+            return 1;
+        }
         /* 複写・移動 once the range is settled: their second bar has its
            own 1070, 作図属性, and that one puts up 作図属性設定 (template
            342) -- CZukeiFukusha's slot 31 builds it (tools/cmddlg.py's
@@ -3805,6 +3928,8 @@ int app_key(int c)
         return 1;
     }
     if (c == 13 && have_drawing && jw_cmd_enter_key(&drawing)) {
+        if (jw_cmd_moji_go())
+            action = JW_ACT_MOJI_EDIT;      /* 外部エディタ, once the range is in */
         app_paint();
         return 1;
     }

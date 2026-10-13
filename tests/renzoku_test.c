@@ -46,7 +46,7 @@ static void run(const char *name, const char *box, int jitsu,
     long n;
     const jw_drawing *d;
     rect_t r;
-    int i, nb, ok = 1;
+    int i, ok = 1;
 
     b = slurp("decomp/res/new.jww", &n);
     memset(&base, 0, sizeof base);
@@ -84,7 +84,6 @@ static void run(const char *name, const char *box, int jitsu,
     if (after)
         app_command(after);
     d = app_drawing();
-    nb = 0;
     {
         const jw_obj *ra[64], *ma[64];
         int rn = 0, mn = 0;

@@ -54,8 +54,11 @@ JWS=$(ls decomp/res/*.jws 2>/dev/null)
 # need: without a small quarantine the run fills memory and stops with
 # "allocator is trying to allocate", which is not a fault in the port
 ASAN_OPTIONS=quarantine_size_mb=16:malloc_context_size=6 \
-JW_FUZZ_TRACE=1 "$NODE" tmp/fuzz_asan.js orig/*.jww decomp/res/*.jww $JWS \
-    decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc > tmp/asan.out 2>&1
+# the list is long enough that one command line is too long for Windows, so
+# it goes in as several runs (xargs)
+ls orig/*.jww decomp/res/*.jww $JWS decomp/res/*.dxf decomp/res/*.sfc \
+    decomp/res/*.jwc decomp/res/*.jwf orig/*.jwf > tmp/asan_files.txt
+JW_FUZZ_TRACE=1 xargs -n 60 "$NODE" tmp/fuzz_asan.js < tmp/asan_files.txt > tmp/asan.out 2>&1
 st=$?
 if grep -q "out of memory" tmp/asan.out; then
     echo "BAD  the sanitizer ran out of room, not a fault in the port --"
@@ -117,8 +120,7 @@ done
 echo "built tmp/fuzz_ub.js and tmp/cmdfuzz_ub.js"
 
 UBSAN_OPTIONS=print_stacktrace=1 \
-    "$NODE" tmp/fuzz_ub.js orig/*.jww decomp/res/*.jww $JWS \
-        decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc > tmp/ub.out 2>&1
+    xargs -n 60 "$NODE" tmp/fuzz_ub.js < tmp/asan_files.txt > tmp/ub.out 2>&1
 for s in 1 2 3; do
     for args in "orig/Test1.jww orig/Test5.jww orig/Test7.jww" ""; do
         UBSAN_OPTIONS=print_stacktrace=1 JW_CMDFUZZ_SEED=$s \

@@ -139,7 +139,7 @@ def main():
         for x, y, ww, hh, cid, k, chk, en, vis, dft, lft, text in rows:
             f.write('    { %4d, %4d, %4d, %3d, %5d, JW_KH_%-6s, %d, %d, %d,'
                     ' %d, %d, "%s" },\n'
-                    % (x, y, ww, hh, cid, k, chk, en, vis, dft, lft,
+                    % (x, y, ww, hh, (cid - 65536 if cid >= 32768 else cid), k, chk, en, vis, dft, lft,
                        esc(text)))
         f.write('};\n\n')
     f.write('typedef struct {\n'

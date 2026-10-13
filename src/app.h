@@ -71,7 +71,11 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        JW_ACT_OPEN_IMAGE,
        /* 同梱画像分離 made files (app_image_out) for the front end to put in
           the folder named <drawing>～分離画像 */
-       JW_ACT_SAVE_IMAGES };
+       JW_ACT_SAVE_IMAGES,
+       /* 外部変形 with something picked: app_gaibu_begin, run, app_gaibu_end */
+       JW_ACT_GAIBU,
+       /* 文字の 範囲選択: 文書 (a .TXT to write), 外部エディタ, 貼付 */
+       JW_ACT_MOJI_DOC, JW_ACT_MOJI_EDIT, JW_ACT_MOJI_PASTE };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
@@ -173,6 +177,14 @@ int  app_figure_save(unsigned char **out, long *n);
    original's text file.  The command leaves JW_ACT_SAVE_COORD behind for
    the front end to ask for a name with.  The caller frees *out. */
 int  app_coord_save(unsigned char **out, long *n);
+int  app_gaibu_begin(const char *bat, long bn, unsigned char **out, long *n);
+int  app_gaibu_end(const unsigned char *b, long n, char *msg, int cap);
+int  app_gaibu_begin2(const char *bat, long bn, int item, const double (*xy)[2],
+                      char val[][128], unsigned char **out, long *n,
+                      char *args, int acap);
+int  app_moji_doc(unsigned char **out, long *n);
+int  app_moji_edit_text(unsigned char **out, long *n);
+int  app_moji_apply(const unsigned char *b, long n);
 
 /* And the other way: 座標ファイル's ファイル読込, which the original makes a
    図形 of.  The next press puts it down. */

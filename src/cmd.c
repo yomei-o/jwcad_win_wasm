@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "cmd.h"
+#include "cp932.h"
 #include "tategu.h"
 #include "senkigou.h"
 #include "takaku.h"
@@ -24,6 +25,10 @@
    from itself. */
 static int current = JW_CMD_SEN;
 static int prev;
+/* 文字の 範囲選択 (2407): a range is being taken for the 文字 command (ms_back),
+   texts are picked and shown pink (ms_text), 外部エディタ was pressed with
+   nothing picked and goes on once the range is settled (ms_after, ms_go) */
+static int ms_back, ms_text, ms_after, ms_go;
 
 /* 水平・垂直, the first checkbox on 線's command bar after 矩形.
  *
@@ -2427,7 +2432,17 @@ void jw_cmd_flush(jw_drawing *d)
 
 void jw_cmd_set(int id)
 {
+    /* 消去 の (L) で線を一本拾ったまま 複線 に替えると、原典は拾った線をそのまま
+       複線の元にする（最初のクリックは複写する位置になる。fuzz s7_63、
+       tmp/dc6 ga/gb。部分消しの拾いは command をまたいで残る） */
+    int carry_para = current == JW_CMD_SHOUKYO && id == JW_CMD_FUKUSEN
+                     && cut_step == 1 && cut_obj >= 0;
+    int carry_obj = cut_obj;
+
     prev = current;
+    ms_text = 0;
+    if (id != JW_CMD_HANI)
+        ms_back = ms_after = 0;
     if (id == JW_CMD_SEN && prev == JW_CMD_SEN)
         hv = !hv;
     /* FUN_004fdc40: the new command's state starts empty. */
@@ -2435,8 +2450,8 @@ void jw_cmd_set(int id)
     esc_rearm = 0;
     esc_arc = 0;
     esc_3pt = 0;
-    if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU)
-        box_put(1411, "");      /* asking for it again empties the box (s4_10) */
+    if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU || id == JW_CMD_FUKUSEN)
+        box_put(1411, "");      /* asking for it again empties the box (s4_10; 複線 s7_66、tmp/dc7 h2) */
     bk_rr_n = 0;                /* FUN_0075b070: +0x138 = 0 */
     step = 0;
     en_step = 0;
@@ -2449,6 +2464,10 @@ void jw_cmd_set(int id)
     corner_step = 0;
     stretch_step = 0;
     para_step = 0;
+    if (carry_para) {
+        para_obj = carry_obj;
+        para_step = 1;
+    }
     tracking = 0;
     /* The range starts over, the way FUN_004fdc40 leaves the command's own
        state -- but what is picked belongs to the elements, not to the
@@ -3975,7 +3994,6 @@ static int ren_arc_add(jw_drawing *d, double cx, double cy,
     double a0 = atan2(sy2 - cy, sx2 - cx);
     double a1 = atan2(ey - cy, ex - cx);
     double sw = turn_pos(a1 - a0);
-    jw_obj *o;
 
     if (r < 1e-9)
         return 0;
@@ -4548,6 +4566,32 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
         n = jw_cmd_pending(d, o, max);
         current = JW_CMD_AUTO;
         return n;
+    }
+
+    /* 分割の 連続点分割 (RR): 原典 FUN_007614c0 の else 枝が、積んだ点を順に結ぶ線と
+       最後の点からカーソルまでの線を仮に描く（添え字 1 から +0x4e 個目まで）。
+       画素は未確認（仮表示色の実線で出す） */
+    if (current == JW_CMD_BUNKATSU && bk_rr_n > 0) {
+        int i, m = 0;
+
+        for (i = 1; i < bk_rr_n && m < max; i++, m++) {
+            blank(&o[m]);
+            o[m].cls = JW_SEN;
+            o[m].d[0] = bk_rr_x[i];
+            o[m].d[1] = bk_rr_y[i];
+            o[m].d[2] = bk_rr_x[i + 1];
+            o[m].d[3] = bk_rr_y[i + 1];
+        }
+        if (tracking && m < max) {
+            blank(&o[m]);
+            o[m].cls = JW_SEN;
+            o[m].d[0] = bk_rr_x[bk_rr_n];
+            o[m].d[1] = bk_rr_y[bk_rr_n];
+            o[m].d[2] = tx;
+            o[m].d[3] = ty;
+            m++;
+        }
+        return m;
     }
 
     /* 多角形の 任意: 積んだ頂点を線で結び、最後からカーソルまで。
@@ -5373,6 +5417,147 @@ static double bk_read_n(int *count)
     return n;
 }
 
+/* 二本の線 p・q の端の組み方。二本が交わるところ（平行なら中点）を境に
+ * クリック (ax,ay)・(bx,by) の落ちた側どうしを組み、長い横木を先にする
+ * （tools/fzcheck.py の fuzz ケース 5, 9, 11-13, 18-21, 23, 26, 68）。
+ * a[0..3]・b[0..3] に 始点x・始点y・終点x・終点y を返す。 */
+static void bk_pair_ends(const jw_obj *p, const jw_obj *q, double ax, double ay,
+                         double bx, double by, double *a, double *b)
+{
+    double ax0 = p->d[0], ay0 = p->d[1], ax1 = p->d[2], ay1 = p->d[3];
+    double bx0 = q->d[0], by0 = q->d[1], bx1 = q->d[2], by1 = q->d[3];
+    double adx = ax1 - ax0, ady = ay1 - ay0, bdx = bx1 - bx0, bdy = by1 - by0;
+    double den = adx * bdy - ady * bdx;
+    double ta = ((ax - ax0) * adx + (ay - ay0) * ady) / (adx * adx + ady * ady + 1e-30);
+    double tb = ((bx - bx0) * bdx + (by - by0) * bdy) / (bdx * bdx + bdy * bdy + 1e-30);
+    double ip = 0.5, iq = 0.5, tx, ty;
+    int flipb;
+
+    if (fabs(den) > 1e-9 * (adx * adx + ady * ady + 1e-30)) {
+        ip = ((bx0 - ax0) * bdy - (by0 - ay0) * bdx) / den;
+        iq = ((bx0 - ax0) * ady - (by0 - ay0) * adx) / den;
+    }
+    flipb = (ta >= ip) != (tb >= iq);
+    if (den == 0.0 || fabs(den) <= 1e-9 * (adx * adx + ady * ady + 1e-30)) {
+        /* parallel: the pairing that does not cross (fuzz case 68) */
+        double same = hypot(bx0 - ax0, by0 - ay0) + hypot(bx1 - ax1, by1 - ay1);
+        double flip = hypot(bx1 - ax0, by1 - ay0) + hypot(bx0 - ax1, by0 - ay1);
+
+        flipb = flip < same - 1e-9;
+    }
+    if (flipb) {
+        tx = bx0; ty = by0;
+        bx0 = bx1; by0 = by1;
+        bx1 = tx; by1 = ty;
+    }
+    if (hypot(bx0 - ax0, by0 - ay0) < hypot(bx1 - ax1, by1 - ay1) - 1e-6) {
+        tx = ax0; ty = ay0;
+        ax0 = ax1; ay0 = ay1;
+        ax1 = tx; ay1 = ty;
+        tx = bx0; ty = by0;
+        bx0 = bx1; by0 = by1;
+        bx1 = tx; by1 = ty;
+    }
+    a[0] = ax0; a[1] = ay0; a[2] = ax1; a[3] = ay1;
+    b[0] = bx0; b[1] = by0; b[2] = bx1; b[3] = by1;
+}
+
+/* 割付 が効くか（等角度分割 は 0xb8 が立って 割付 を切る。FUN_00766460）。 */
+static int bk_waritsuke_on(void)
+{
+    return jw_cmd_bar_check(1324) > 0 && bk_mode != 1690;
+}
+
+/* 線と線（点は両端が同じ点の線）の 割付 の歩き。原典 FUN_0075d660 の 0x7e84 枝
+ * （_unassigned.c 312176〜312300）。A の端 A0・A1 を B の端 B0・B1 へ向けて、
+ * 割付距離 dist ずつ進めた線を置く。
+ *   L    = |A0B0|。A が B に平行（点も）なら 進める歩幅は dist*L/垂直距離
+ *          （＝ B の線からの垂直距離で dist ずつ）。A が B の線の上なら 何もしない。
+ *   振分 = 最初の一歩を (余り+歩幅)/2/歩幅 倍（余りは L を歩幅で割ったあまり）。
+ *   割付距離以下 = L'（平行なら垂直距離、でなければ L）を ceil(L'/dist) 等分。
+ *   A0 が L に届いたら止める（端の線は置かない）。
+ * 実測（2026-10-14）: 点 P=(-155.51,26.33)→線 B=(-106.53,56.94)-(-106.53,-47.14)、
+ * dist 15 で x=-140.51・-125.51・-110.51 の 3 本（P+(B-P)*k*15/48.98、
+ * 48.98 は P から B の線までの垂直距離。decomp/res/bk_w12.jww）。 */
+static int bk_fan_walk(jw_drawing *d, const double *A, const double *B)
+{
+    double dist = box_mm(d, 1412);
+    double bdx = B[2] - B[0], bdy = B[3] - B[1], bl = hypot(bdx, bdy);
+    double ya0, ya1, perp, L, step, dl[4], m[4];
+    int parallel, made = 0, k, i;
+
+    if (dist < 1e-7)
+        return 0;
+    if (bl >= 1e-9) {
+        ya0 = ((A[0] - B[0]) * bdy - (A[1] - B[1]) * bdx) / bl;
+        ya1 = ((A[2] - B[0]) * bdy - (A[3] - B[1]) * bdx) / bl;
+    } else {
+        /* B が点（線 A ＋ 点 E の扇）: 線 A を枠にして E までの垂直距離を測る */
+        double adx = A[2] - A[0], ady = A[3] - A[1], al = hypot(adx, ady);
+
+        if (al < 1e-9)
+            return 0;
+        ya0 = ((B[0] - A[0]) * ady - (B[1] - A[1]) * adx) / al;
+        ya1 = ya0;
+    }
+    if (fabs(ya0) < 1e-7 && fabs(ya1) < 1e-7)
+        return 0;
+    parallel = fabs(ya0 - ya1) < 1e-7;
+    perp = fabs(ya0);
+    L = hypot(B[0] - A[0], B[1] - A[1]);
+    if (L < 1e-9)
+        return 0;
+    step = parallel ? dist * L / perp : dist;
+    if (!(step + 1e-7 < L))
+        return 0;
+    for (i = 0; i < 4; i++) {
+        dl[i] = (B[i] - A[i]) * step / L;
+        m[i] = A[i];
+    }
+    if (jw_cmd_bar_check(1326) > 0) {
+        double lp = parallel ? perp : L, q = lp / dist;
+        int cnt = (int)q;
+
+        if (fabs(q - (double)cnt) > 1e-7)
+            cnt++;
+        if (cnt < 1)
+            cnt = 1;
+        for (i = 0; i < 4; i++)
+            dl[i] = (B[i] - A[i]) / (double)cnt;
+    } else if (jw_cmd_bar_check(1325) > 0) {
+        double rem = L, fr;
+
+        while (step <= rem + 1e-7)
+            rem -= step;
+        if (1e-7 < rem && rem < step - 1e-7) {
+            fr = ((step - rem) / 2.0) / step;
+            for (i = 0; i < 4; i++)
+                m[i] -= dl[i] * fr;
+        }
+    }
+    for (k = 1; k < 10001; k++) {
+        double dd;
+
+        for (i = 0; i < 4; i++)
+            m[i] += dl[i];
+        dd = hypot(m[0] - A[0], m[1] - A[1]);
+        if (L - 1e-7 <= dd)
+            break;
+        if (dd > 1e-7) {
+            jw_obj *o = jw_add(d, JW_SEN);
+
+            if (!o)
+                break;
+            o->d[0] = m[0];
+            o->d[1] = m[1];
+            o->d[2] = m[2];
+            o->d[3] = m[3];
+            made++;
+        }
+    }
+    return made;
+}
+
 static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
                      double bx, double by)
 {
@@ -5439,46 +5624,12 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
             return;
         }
     }
-    ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
-    bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
     {
-        /* Which ends go together is settled by the two clicks: where the
-           lines cross (or, parallel, at their middles) each click falls on
-           one side, and the ends on those sides are paired, the other two
-           with each other.  The longer rung is written first
-           (tools/fzcheck.py over fuzz cases 5, 9, 11-13, 18-21, 23, 26). */
-        double adx = ax1 - ax0, ady = ay1 - ay0, bdx = bx1 - bx0, bdy = by1 - by0;
-        double den = adx * bdy - ady * bdx;
-        double ta = ((ax - ax0) * adx + (ay - ay0) * ady) / (adx * adx + ady * ady + 1e-30);
-        double tb = ((bx - bx0) * bdx + (by - by0) * bdy) / (bdx * bdx + bdy * bdy + 1e-30);
-        double ip = 0.5, iq = 0.5, tx, ty;
+        double aa[4], bb[4];
 
-        if (fabs(den) > 1e-9 * (adx * adx + ady * ady + 1e-30)) {
-            ip = ((bx0 - ax0) * bdy - (by0 - ay0) * bdx) / den;
-            iq = ((bx0 - ax0) * ady - (by0 - ay0) * adx) / den;
-        }
-        int flipb = (ta >= ip) != (tb >= iq);
-
-        if (den == 0.0 || fabs(den) <= 1e-9 * (adx * adx + ady * ady + 1e-30)) {
-            /* parallel: the pairing that does not cross (fuzz case 68) */
-            double same = hypot(bx0 - ax0, by0 - ay0) + hypot(bx1 - ax1, by1 - ay1);
-            double flip = hypot(bx1 - ax0, by1 - ay0) + hypot(bx0 - ax1, by0 - ay1);
-
-            flipb = flip < same - 1e-9;
-        }
-        if (flipb) {
-            tx = bx0; ty = by0;
-            bx0 = bx1; by0 = by1;
-            bx1 = tx; by1 = ty;
-        }
-        if (hypot(bx0 - ax0, by0 - ay0) < hypot(bx1 - ax1, by1 - ay1) - 1e-6) {
-            tx = ax0; ty = ay0;
-            ax0 = ax1; ay0 = ay1;
-            ax1 = tx; ay1 = ty;
-            tx = bx0; ty = by0;
-            bx0 = bx1; by0 = by1;
-            bx1 = tx; by1 = ty;
-        }
+        bk_pair_ends(p, q, ax, ay, bx, by, aa, bb);
+        ax0 = aa[0]; ay0 = aa[1]; ax1 = aa[2]; ay1 = aa[3];
+        bx0 = bb[0]; by0 = bb[1]; bx1 = bb[2]; by1 = bb[3];
     }
     for (k = 1; k <= count; k++) {
         double t = (double)k / n;
@@ -5507,8 +5658,19 @@ static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
 {
     const jw_obj *b = &d->obj[line_idx];
     int count, k, made = 0;
-    double n = bk_read_n(&count);
+    double n;
 
+    if (bk_waritsuke_on()) {
+        /* 割付: 点を 両端が同じ点の線として 線 B へ向けて歩く（bk_fan_walk） */
+        double aa[4], bb[4];
+
+        aa[0] = aa[2] = px;
+        aa[1] = aa[3] = py;
+        bb[0] = b->d[0]; bb[1] = b->d[1]; bb[2] = b->d[2]; bb[3] = b->d[3];
+        op_push(bk_fan_walk(d, aa, bb));
+        return;
+    }
+    n = bk_read_n(&count);
     if (n <= 0.0)
         return;
     for (k = 1; k <= count; k++) {
@@ -5526,36 +5688,221 @@ static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
     op_push(made);
 }
 
-/* 分割始点 (R)＋円 Ｂ (L)、円 Ａ (L)＋円 Ｂ (L)、円 Ａ (L)＋点 Ｅ (R) に共通の
- * 円の扇。中心・半径を (ax,ay,ar) から (bx,by,br) へ k/n だけ進めた円を
- * n-1 個つくる。点は半径 0 の円として渡す ── 原典の実測で 点＋円 と 円Ａ＋円Ｂ
- * が同じ式（中心の線形補間・半径の線形補間）になることを確かめた（下の
- * bk_fan_circle_pt・bk_circle_fan のコメント）。 */
-static void bk_circle_lerp(jw_drawing *d, double ax, double ay, double ar,
-                            double bx, double by, double br)
+/* 線 A (L)＋点 E (R): 原典は A を始め、E（両端が同じ点の線）を終わりとして歩く
+ * （円 A ＋ 点 E の 割付 の実測、decomp/res/bk_cptE.jww、と同じ向き。分割数 のときは
+ * 点 P＋線 B と集合は同じで、並びだけが逆）。 */
+static void bk_fan_from_line(jw_drawing *d, int line_idx, double ex, double ey)
 {
+    const jw_obj *a = &d->obj[line_idx];
     int count, k, made = 0;
-    double n = bk_read_n(&count);
+    double n;
 
+    if (bk_waritsuke_on()) {
+        double aa[4], bb[4];
+
+        aa[0] = a->d[0]; aa[1] = a->d[1]; aa[2] = a->d[2]; aa[3] = a->d[3];
+        bb[0] = bb[2] = ex;
+        bb[1] = bb[3] = ey;
+        op_push(bk_fan_walk(d, aa, bb));
+        return;
+    }
+    n = bk_read_n(&count);
     if (n <= 0.0)
         return;
     for (k = 1; k <= count; k++) {
         double t = (double)k / n;
-        jw_obj *o = jw_add(d, JW_ENKO);
+        jw_obj *o = jw_add(d, JW_SEN);
 
         if (!o)
             break;
-        o->d[0] = ax + (bx - ax) * t;
-        o->d[1] = ay + (by - ay) * t;
-        o->d[2] = ar + (br - ar) * t;
-        o->d[3] = 0.0;
-        o->d[4] = 6.283185307179586;        /* the whole way round */
-        o->d[5] = 0.0;
-        o->d[6] = 1.0;                      /* round, not squashed */
-        o->n = 1;                           /* a whole circle */
+        o->d[0] = a->d[0] + (ex - a->d[0]) * t;
+        o->d[1] = a->d[1] + (ey - a->d[1]) * t;
+        o->d[2] = a->d[2] + (ex - a->d[2]) * t;
+        o->d[3] = a->d[3] + (ey - a->d[3]) * t;
         made++;
     }
     op_push(made);
+}
+
+/* 円の扇の端の一つ。原典 FUN_0075b6c0 は 円の五つの値（半径・扁平・開き・傾き・
+ * 始め）を読み、開きが負なら 開き=-開き・始め=始め-開き に直し、始めを
+ * (π, 3π] に畳んでから k/n（または割付の歩み）で補間する。点は半径 0 で、
+ * 角度の値は相手の円のものを借りる。 */
+typedef struct { double x, y, r, start, sweep, tilt, flat; } bk_circ;
+
+static void bk_circ_of(bk_circ *c, const jw_obj *o)
+{
+    c->x = o->d[0];
+    c->y = o->d[1];
+    c->r = o->d[2];
+    c->start = o->d[3];
+    c->sweep = o->d[4];
+    c->tilt = o->d[5];
+    c->flat = o->d[6];
+    if (c->sweep <= 0.0) {
+        c->sweep = -c->sweep;
+        c->start -= c->sweep;
+    }
+    while (c->start > PI)
+        c->start -= 2.0 * PI;
+    while (c->start <= PI)
+        c->start += 2.0 * PI;
+}
+
+static double bk_wrap_pi(double a)
+{
+    while (a > PI)
+        a -= 2.0 * PI;
+    while (a <= -PI)
+        a += 2.0 * PI;
+    return a;
+}
+
+/* 補間の途中の円を一つ置く（原典の 0x42f5e0〜0x430200 の並び）。 */
+static int bk_circ_put(jw_drawing *d, const bk_circ *c)
+{
+    jw_obj *o;
+
+    if (c->r < 1e-7 || c->flat < 0.01 || c->flat > 100.0)
+        return 0;
+    o = jw_add(d, JW_ENKO);
+    if (!o)
+        return 0;
+    o->d[0] = c->x;
+    o->d[1] = c->y;
+    o->d[2] = c->r;
+    o->d[3] = bk_wrap_pi(c->start);
+    o->d[4] = c->sweep;
+    o->d[5] = bk_wrap_pi(c->tilt);
+    o->d[6] = c->flat;
+    o->n = fabs(c->sweep - 2.0 * PI) >= 1e-7 ? 0 : 1;
+    return 1;
+}
+
+/* 分割始点 (R)＋円 Ｂ (L)、円 Ａ (L)＋円 Ｂ (L)、円 Ａ (L)＋点 Ｅ (R) に共通の
+ * 円の扇。Ａ（円 または 点）から Ｂ へ、中心・半径・扁平・開き・傾き・始めを
+ * 線形に進めた円をつくる。点は半径 0 の円として渡す（a==NULL なら (ax,ay)）。
+ *
+ * 分割数 のとき: n-1 個、k/n ずつ。
+ * 割付 のとき（原典 FUN_0075b6c0 の 0x7e84 枝、2026-10-14 実測 decomp/res/bk_w1.jww）:
+ *   中心どうしの隔たり L を 割付距離 dist ずつ歩き（L の外には出ない）、半径ほかは
+ *   L/dist 歩みで B に着く割合で進める。例: 円A 中心(-33.06,-96.12) 半径36.73・
+ *   円B 中心(89.39,-96.12) 半径18.37、dist 30 で 中心 -3.06・26.94・56.94・86.94、
+ *   半径 32.23・27.73・23.23・18.73。中心が重なるときは 半径の差 |ΔR| を L に使う。
+ *   振分 は最初の一歩だけ (rem+dist)/2/dist 倍（rem = L を dist で割った余り）、
+ *   割付距離以下 は dist = L/ceil(L/dist)。歩みが 1.001 に満たなければ 5617 の
+ *   「間隔が…」ではなく 0x15f1 で何も置かない。 */
+static void bk_circle_lerp(jw_drawing *d, const jw_obj *a, double ax, double ay,
+                            const jw_obj *b, double bx, double by)
+{
+    bk_circ A = { 0 }, B = { 0 }, C = { 0 };
+    int made = 0, k;
+
+    if (b)
+        bk_circ_of(&B, b);
+    else {
+        B.x = bx; B.y = by; B.r = 0.0;
+    }
+    if (a)
+        bk_circ_of(&A, a);
+    else {
+        A.x = ax; A.y = ay; A.r = 0.0;
+    }
+    if (!a) {
+        A.start = B.start; A.sweep = B.sweep; A.tilt = B.tilt; A.flat = B.flat;
+    }
+    if (!b) {
+        B.start = A.start; B.sweep = A.sweep; B.tilt = A.tilt; B.flat = A.flat;
+    }
+    if (bk_waritsuke_on()) {
+        double dist = box_mm(d, 1412);
+        double dx = B.x - A.x, dy = B.y - A.y, L = hypot(dx, dy);
+        int conc = L < 1e-6;
+        double cc, sx, sy, first = 1.0, rem;
+
+        if (dist < 1e-7)
+            return;
+        if (conc)
+            L = fabs(B.r - A.r);
+        if (L < 1e-6 && conc)
+            return;
+        if (jw_cmd_bar_check(1326) > 0) {
+            double q = L / dist;
+            int m = (int)q;
+
+            if (fabs(q - (double)m) > 1e-7)
+                m++;
+            if (m < 1)
+                m = 1;
+            dist = L / (double)m;
+        }
+        cc = L / dist;
+        if (cc < 1.001)
+            return;
+        sx = conc ? 0.0 : dx * dist / L;
+        sy = conc ? 0.0 : dy * dist / L;
+        if (jw_cmd_bar_check(1325) > 0 && jw_cmd_bar_check(1326) <= 0) {
+            rem = L;
+            while (dist <= rem + 1e-7)
+                rem -= dist;
+            if (1e-7 < rem && rem < dist - 1e-7) {
+                rem += dist;
+                first = (rem / 2.0) / dist;
+                if (first < 1e-7 || fabs(first - 1.0) < 1e-7)
+                    first = 1.0;
+            }
+        }
+        C = A;
+        for (k = 1; k < 10001; k++) {
+            double w = k == 1 ? first : 1.0;
+            double dr = (B.r - A.r) / cc;
+
+            C.x += sx * w;
+            C.y += sy * w;
+            C.r += dr * w;
+            if (C.r < 1e-7 && dr < 0.0)
+                break;
+            if (C.r >= 1e-7) {
+                C.tilt += (B.tilt - A.tilt) / cc * w;
+                C.start += (B.start - A.start) / cc * w;
+                C.sweep += (B.sweep - A.sweep) / cc * w;
+                C.flat += (B.flat - A.flat) / cc * w;
+                if (C.flat >= 0.01 && C.flat <= 100.0) {
+                    if (!conc) {
+                        if (L - 1e-7 <= hypot(C.x - A.x, C.y - A.y))
+                            break;
+                    } else if (B.r <= A.r) {
+                        if (A.r <= C.r || C.r <= B.r)
+                            break;
+                    } else if (C.r <= A.r || B.r <= C.r) {
+                        break;
+                    }
+                    made += bk_circ_put(d, &C);
+                }
+            }
+        }
+        op_push(made);
+        return;
+    } else {
+        int count;
+        double n = bk_read_n(&count);
+
+        if (n <= 0.0)
+            return;
+        for (k = 1; k <= count; k++) {
+            double t = (double)k / n;
+
+            C.x = A.x + (B.x - A.x) * t;
+            C.y = A.y + (B.y - A.y) * t;
+            C.r = A.r + (B.r - A.r) * t;
+            C.tilt = A.tilt + (B.tilt - A.tilt) * t;
+            C.start = A.start + (B.start - A.start) * t;
+            C.sweep = A.sweep + (B.sweep - A.sweep) * t;
+            C.flat = A.flat + (B.flat - A.flat) * t;
+            made += bk_circ_put(d, &C);
+        }
+        op_push(made);
+    }
 }
 
 /* 始点＋円 Ｂ (L): 中心 P+(C-P)k/n・半径 r・k/n の円（点は半径 0 の円）。
@@ -5569,7 +5916,7 @@ static void bk_fan_circle_pt(jw_drawing *d, double px, double py, int circ_idx)
 {
     const jw_obj *c = &d->obj[circ_idx];
 
-    bk_circle_lerp(d, px, py, 0.0, c->d[0], c->d[1], c->d[2]);
+    bk_circle_lerp(d, 0, px, py, c, 0.0, 0.0);
 }
 
 /* 円 Ａ (L)＋円 Ｂ (L)（分割の classic な (L)(L) を円どうしにも広げたもの）。
@@ -5581,7 +5928,7 @@ static void bk_circle_fan(jw_drawing *d, int a_idx, int b_idx)
 {
     const jw_obj *a = &d->obj[a_idx], *b = &d->obj[b_idx];
 
-    bk_circle_lerp(d, a->d[0], a->d[1], a->d[2], b->d[0], b->d[1], b->d[2]);
+    bk_circle_lerp(d, a, 0.0, 0.0, b, 0.0, 0.0);
 }
 
 /* 始点＋第二点 (R)(R) の状態 3（string 5360）。(R) で確定する「２点間分割」:
@@ -5782,65 +6129,121 @@ static void bk_two_point_line(jw_drawing *d, double p1x, double p1y,
     double dx = l->d[2] - l->d[0], dy = l->d[3] - l->d[1];
     double len2 = dx * dx + dy * dy;
     double s1, s2;
-    int count, k, made = 0;
-    double n;
 
     if (len2 <= 0.0)
         return;
     s1 = ((p1x - lx0) * dx + (p1y - ly0) * dy) / len2;
     s2 = ((p2x - lx0) * dx + (p2y - ly0) * dy) / len2;
-    n = bk_read_n(&count);
-    if (n <= 0.0)
-        return;
-    for (k = 1; k <= count; k++) {
-        double t = (double)k / n, s = s1 + (s2 - s1) * t;
-        jw_obj *o = jw_add(d, JW_TEN);
+    /* 原典 FUN_00761370 は P1・P2 を線の上に射影してから ２点間分割と同じ
+       FUN_007603a0 に渡す（割付・振分・割付距離以下 も同じ歩き） */
+    op_push(bk_points_between(d, lx0 + s1 * dx, ly0 + s1 * dy,
+                              lx0 + s2 * dx, ly0 + s2 * dy, 0));
+}
 
-        if (!o)
-            break;
-        o->d[0] = lx0 + s * dx;
-        o->d[1] = ly0 + s * dy;
-        o->n = 0;
-        made++;
+/* 円周の上を 始めの角 a1 から 向き dir（+1 反時計回り・-1 時計回り）に 長さ len だけ
+ * 歩いて点を置く。原典 FUN_00762870（等距離）・FUN_00761c60（等角度）の歩き。
+ *
+ * 分割数: len を n 等分した n-1 点（端数があれば一点多い）。
+ * 割付（2026-10-14 実測 decomp/res/bk_w2・w4・w5.jww）: dist ごとに置き、len の
+ * 手前で止める。振分 は 最初の点を -(dist-余り)/2 ずらし、割付距離以下 は
+ * dist を len/ceil(len/dist) にする。端の点は置かない。 */
+static int bk_arc_walk(jw_drawing *d, double cx, double cy, double r, double a1,
+                       double dir, double len)
+{
+    int made = 0, k;
+
+    if (len < 1e-7 || r < 1e-7)
+        return 0;
+    if (bk_waritsuke_on()) {
+        double dist = box_mm(d, 1412), step, p0 = 0.0, p;
+
+        if (dist < 1e-5)
+            return 0;
+        step = dist;
+        if (jw_cmd_bar_check(1326) > 0) {
+            double q = len / dist;
+            int m = (int)q;
+
+            if (fabs(q - (double)m) > 1e-7)
+                m++;
+            if (m < 1)
+                m = 1;
+            step = len / (double)m;
+        } else if (jw_cmd_bar_check(1325) > 0) {
+            double rem = len;
+
+            while (dist <= rem + 1e-7)
+                rem -= dist;
+            if (1e-7 < rem && rem < dist - 1e-7)
+                p0 = -(dist - rem) / 2.0;
+        }
+        if (dir < 0.0) {
+            p0 = -p0;
+            step = -step;
+        }
+        p = p0;
+        for (k = 1; k < 10001; k++) {
+            double ang;
+
+            p += step;
+            if (fabs(p) >= len - 1e-7)
+                break;
+            if (fabs(p) > 1e-7) {
+                ang = a1 + p / r;
+                made += bk_put_point(d, cx + r * cos(ang), cy + r * sin(ang));
+            }
+        }
+    } else {
+        int count;
+        double n = bk_read_n(&count);
+
+        if (n <= 0.0)
+            return 0;
+        for (k = 1; k <= count; k++) {
+            double ang = a1 + dir * (len / r) * (double)k / n;
+
+            made += bk_put_point(d, cx + r * cos(ang), cy + r * sin(ang));
+        }
     }
-    op_push(made);
+    return made;
 }
 
 /* 状態 3 で 分割する円 を (L) 指示したとき（円の２点間分割）: P1・P2 を
- * 円の中心からの向き θ1・θ2 に直し、短いほうの回り方で n-1 等分した円周上に
- * 点を置く（符号つきの角度差を ±π に正規化するのは bunkatsu() の 等角度分割
- * と同じ流儀 ── 180°をまたぐ側の符号は原典で未確認）。
+ * 円の中心からの向き θ1・θ2 に直し、**指示した位置（qx,qy）を通るほうの弧**を
+ * 分割する（原典は FUN_00462d70 に 三点 P1・指示点・P2 を渡して弧の長さと向きを
+ * 得る）。P1 から反時計回りで指示点に先に着けば反時計回り、そうでなければ時計回り。
  *
- * 原典実測（2026-10-13）: 円 中心(-33.0612,-96.1224) 半径36.7347・
- * P1 を円周の 90°・P2 を 0°に置いて分割数 4 で 67.5°・45°・22.5° の 3 点
- * （短いほう、90→0 をそのまま 4 等分）。 */
+ * 原典実測（2026-10-13、2026-10-14）: 円 中心(-33.0612,-96.1224) 半径36.7347・
+ * P1 を 90°・P2 を 0°に置き、指示を 180°にすると 分割数 4 で 157.5°・225°・292.5° の
+ * 3 点（反時計回り 270° を 4 等分。短いほう 90° ではない）。指示が 45° なら
+ * 90°→0° の短いほう（2026-10-13 の実測）。点は 仮点 (1323) で仮点になる。 */
 static void bk_two_point_circle(jw_drawing *d, double p1x, double p1y,
-                                 double p2x, double p2y, int circ_idx)
+                                 double p2x, double p2y, int circ_idx,
+                                 double qx, double qy)
 {
     const jw_obj *c = &d->obj[circ_idx];
     double cx = c->d[0], cy = c->d[1], r = c->d[2];
-    double a1 = atan2(p1y - cy, p1x - cx), a2 = atan2(p2y - cy, p2x - cx);
-    double da = a2 - a1;
-    int count, k, made = 0;
-    double n;
+    double a1, a2, aq, s, sq, dir, len;
 
-    while (da > PI) da -= 2.0 * PI;
-    while (da <= -PI) da += 2.0 * PI;
-    n = bk_read_n(&count);
-    if (n <= 0.0)
+    if (hypot(p1x - cx, p1y - cy) < 1e-7 || hypot(p2x - cx, p2y - cy) < 1e-7)
         return;
-    for (k = 1; k <= count; k++) {
-        double t = (double)k / n, ang = a1 + da * t;
-        jw_obj *o = jw_add(d, JW_TEN);
-
-        if (!o)
-            break;
-        o->d[0] = cx + r * cos(ang);
-        o->d[1] = cy + r * sin(ang);
-        o->n = 0;
-        made++;
+    a1 = atan2(p1y - cy, p1x - cx);
+    a2 = atan2(p2y - cy, p2x - cx);
+    aq = atan2(qy - cy, qx - cx);
+    s = a2 - a1;
+    while (s < 0.0) s += 2.0 * PI;
+    while (s >= 2.0 * PI) s -= 2.0 * PI;
+    sq = aq - a1;
+    while (sq < 0.0) sq += 2.0 * PI;
+    while (sq >= 2.0 * PI) sq -= 2.0 * PI;
+    if (sq <= s) {
+        dir = 1.0;
+        len = r * s;
+    } else {
+        dir = -1.0;
+        len = r * (2.0 * PI - s);
     }
-    op_push(made);
+    op_push(bk_arc_walk(d, cx, cy, r, a1, dir, len));
 }
 
 /* 円全周分割 ── 始点 Ｐ を (R) で指示したあと、円を (R) で指示する（点では
@@ -5866,23 +6269,8 @@ static void bk_full_circle(jw_drawing *d, double px, double py, int circ_idx,
     double thp = atan2(py - oy, px - ox);
     double cross = (px - ox) * (cy - oy) - (py - oy) * (cx - ox);
     double s = cross < 0.0 ? -1.0 : 1.0;
-    int count, k, made = 0;
-    double n = bk_read_n(&count);
 
-    if (n <= 0.0)
-        return;
-    for (k = 1; k <= count; k++) {
-        double ang = thp + s * (2.0 * PI / n) * (double)k;
-        jw_obj *o = jw_add(d, JW_TEN);
-
-        if (!o)
-            break;
-        o->d[0] = ox + r * cos(ang);
-        o->d[1] = oy + r * sin(ang);
-        o->n = 0;
-        made++;
-    }
-    op_push(made);
+    op_push(bk_arc_walk(d, ox, oy, r, thp, s, 2.0 * PI * r));
 }
 
 /* 分割の 割付 (1324).
@@ -5912,54 +6300,18 @@ static void bk_full_circle(jw_drawing *d, double px, double py, int circ_idx,
  * 間がちょうど距離で割り切れるとき、距離が間より大きいとき、円を指した
  * ときは訊いていません。
  */
-static void waritsuke(jw_drawing *d, int a, int b)
+static void waritsuke(jw_drawing *d, int a, int b, double cax, double cay,
+                      double cbx, double cby)
 {
     const jw_obj *p = &d->obj[a], *q = &d->obj[b];
-    double dist = box_mm(d, 1412);
-    double d0, d1, len, step, first;
-    int k, n, made = 0;
-    double ax0, ay0, ax1, ay1, bx0, by0, bx1, by1;
+    double aa[4], bb[4];
 
-    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN || dist <= 0.0)
+    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
         return;
-    ax0 = p->d[0]; ay0 = p->d[1]; ax1 = p->d[2]; ay1 = p->d[3];
-    bx0 = q->d[0]; by0 = q->d[1]; bx1 = q->d[2]; by1 = q->d[3];
-    d0 = sqrt((bx0 - ax0) * (bx0 - ax0) + (by0 - ay0) * (by0 - ay0));
-    d1 = sqrt((bx1 - ax1) * (bx1 - ax1) + (by1 - ay1) * (by1 - ay1));
-    len = d0 > d1 ? d0 : d1;
-    if (len <= 0.0)
-        return;
-    if (jw_cmd_bar_check(1326) > 0) {
-        /* 割付距離以下: the fewest equal gaps that stay inside the
-           distance, and no remainder */
-        n = (int)ceil(len / dist - 1e-9);
-        if (n < 1)
-            n = 1;
-        step = 1.0 / n;
-        first = step;
-        n--;                            /* that many lines between them */
-    } else {
-        n = (int)floor(len / dist + 1e-9);
-        step = dist / len;
-        first = step;
-        if (jw_cmd_bar_check(1325) > 0)         /* 振分 */
-            first = (len - (n - 1) * dist) / 2.0 / len;
-    }
-    if (n > 10000)
-        n = 10000;
-    for (k = 0; k < n; k++) {
-        double t = first + k * step;
-        jw_obj *o = jw_add(d, JW_SEN);
-
-        if (!o)
-            break;
-        o->d[0] = ax0 + (bx0 - ax0) * t;
-        o->d[1] = ay0 + (by0 - ay0) * t;
-        o->d[2] = ax1 + (bx1 - ax1) * t;
-        o->d[3] = ay1 + (by1 - ay1) * t;
-        made++;
-    }
-    op_push(made);
+    /* 歩きは 原典 FUN_0075d660 の 0x7e84 枝（bk_fan_walk に番地と式）。
+       端の組み方は 分割数 のときと同じ（bk_pair_ends） */
+    bk_pair_ends(p, q, cax, cay, cbx, cby, aa, bb);
+    op_push(bk_fan_walk(d, aa, bb));
 }
 
 /* ２線.
@@ -9693,6 +10045,69 @@ static int figure_place(jw_drawing *d, double x, double y)
     return made;
 }
 
+
+/* 外部変形 (32913): what the program left in JWC_TEMP.TXT goes into the
+   drawing.  Without hd the picked data stays and is let go of; with hd it is
+   taken out first.  Both and the new elements are one step of 元に戻る.  The
+   text is read as a 座標ファイル whose (0, 0) is (ox, oy) -- the point the
+   file was written from.  Returns the elements made, -2 if the program did not
+   run (msg says why), -1 if the file is not readable. */
+int jw_cmd_gaibu_commit(jw_drawing *d, const unsigned char *b, long n,
+                        double ox, double oy, jw_gaibu_out *out)
+{
+    jw_drawing next;
+    jw_gaibu_out dummy;
+    op_t *op;
+    int st, i, wg, wl, made = 0;
+
+    if (!d)
+        return -1;
+    if (!out)
+        out = &dummy;
+    memset(&next, 0, sizeof next);
+    st = jw_gaibu_read(&next, d, b, n, out);
+    if (st < 0) {
+        jw_free(&next);
+        return st;
+    }
+    op = op_new();
+    if (st == 10)
+        for (i = d->nobj - 1; i >= 0; i--)
+            if (d->obj[i].sel) {
+                op_keep(op, d, i, 1);
+                jw_remove(d, i);
+            }
+    sel_clear(d);
+    sel_step = 0;
+    if (fig_have)
+        jw_free(&fig);
+    fig = next;
+    fig_have = 1;
+    fig_coord = 1;
+    fig_bx = 0.0;
+    fig_by = 0.0;
+    fig_mag = 1.0;
+    fig_deg = 0.0;
+    fig_where(d, &wg, &wl);
+    for (i = 0; i < fig.ndrawn; i++) {
+        const jw_obj *p = &fig.obj[i];
+        jw_obj *o = jw_add(d, p->cls);
+
+        if (!o)
+            break;
+        *o = *p;
+        o->text = p->text >= 0 ? jw_add_str(d, jw_str(&fig, p->text)) : -1;
+        o->face = p->face >= 0 ? jw_add_str(d, jw_str(&fig, p->face)) : -1;
+        fig_one(d, d, o, p, wg, wl, ox, oy);
+        made++;
+    }
+    if (op)
+        op->n = made;
+    jw_free(&fig);
+    fig_have = 0;
+    fig_coord = 0;
+    return made;
+}
 /* The figure as it hangs off the cursor, waiting for the point that puts
  * it down.  The original shows it the whole time, in 仮表示 -- a 95 KB
  * figure read in and the cursor moved twice put the same 141 ff0000
@@ -9915,6 +10330,21 @@ static int sel_confirm(jw_drawing *d)
 /* Enter in the 追加・除外 stage is 範囲確定, the same as 選択確定. */
 int jw_cmd_enter_key(jw_drawing *d)
 {
+    if (d && ms_back && current == JW_CMD_HANI && sel_step == 2) {
+        /* 範囲選択 for the 文字 command: what is not a text is let go, and the
+           bar goes back to the 文字 one with the texts picked */
+        int i, go = ms_after;
+
+        for (i = 0; i < d->nobj; i++)
+            if (d->obj[i].sel && d->obj[i].cls != JW_MOJI) {
+                d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+                d->obj[i].sel = 0;
+            }
+        jw_cmd_set(JW_CMD_MOJI);
+        ms_text = jw_cmd_moji_count(d) > 0;
+        ms_go = go && ms_text;
+        return 1;
+    }
     if (!d || sel_step != 2
         || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU
             && current != JW_CMD_SEIRI))
@@ -10285,6 +10715,13 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
     if (current == JW_CMD_GAZOU)
         return jw_cmd_gazou_enabled(id);
+    if (current == JW_CMD_MOJI && ms_text) {
+        /* texts picked: 貼付 and 文書 appear, 文読 gives way */
+        if (id == 1065 || id == 1070)
+            return 1;
+        if (id == 1069)             /* its place goes to 1092, the SJIS/UTF8 switch */
+            return 1;
+    }
     /* 測定's bar shares its ids with 範囲選択's, and the cases below are
        written for that one -- so they would have greyed 距離測定 and
        面積測定 out.  On 測定's bar everything is alive except
@@ -10795,9 +11232,38 @@ static void bar_exclude(int id)
     }
 }
 
+int jw_cmd_moji_ready(void)
+{
+    return current == JW_CMD_MOJI && ms_text;
+}
+
+/* 1 once, when 外部エディタ was pressed first and the range is now settled */
+int jw_cmd_moji_go(void)
+{
+    int g = ms_go;
+
+    ms_go = 0;
+    return g;
+}
+
 int jw_cmd_bar(jw_drawing *d, int id)
 {
     unsigned char *on;
+
+    if (current == JW_CMD_MOJI && !ren_step) {
+        if (id == 2407 || (id == 1067 && !ms_text)) {
+            int after = id == 1067;
+
+            jw_cmd_set(JW_CMD_HANI);
+            ms_back = 1;
+            ms_after = after;
+            return 1;
+        }
+        if (id == 1092) {
+            jw_moji_sjis_toggle();
+            return 1;
+        }
+    }
 
     if (current == JW_CMD_GAZOU && gz_bar(d, id))
         return 1;
@@ -11222,6 +11688,8 @@ const char *jw_cmd_bar_label(int id)
 
         return sg ? jw_sk_prompt(sg, &sk_run) : 0;
     }
+    if (id == 1069 && current == JW_CMD_MOJI && ms_text)
+        return jw_moji_sjis() ? "SJIS" : "UTF8";     /* 1092 sits where 文読 was */
     static const char *const h[3] = { "\x8d\xb6\x93\xe0\x96\x40", "\x92\x86", "\x89\x45\x93\xe0\x96\x40" };
     static const char *const v[3] = { "\x89\xba\x93\xe0\x96\x40", "\x92\x86", "\x8f\xe3\x93\xe0\x96\x40" };
 
@@ -12117,7 +12585,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     int i = jw_pick(d, v, x, y, 6), wg = 0, k, si;
     double cx, cy, r, dx, dy, len, ux, uy, ex, ey;
     double cw, ch, sp, tw = 0.0;
-    char txt[64], val[64];
+    char txt[72], val[64];
     const char *p;
     jw_obj *o;
     int nch = 0;
@@ -14122,8 +14590,8 @@ static int hk_outlines(jw_drawing *d, int half)
                         in = !in;
                 }
                 if (!in) {
-                    if (cs[j] || (w2 > 0 && 0))
-                        ;
+                    if (cs[j] || (w2 > 0 && 0)) {
+                    }
                     seg[w2] = seg[j];
                     cs[w2] = cs[j];
                     w2++;
@@ -14822,8 +15290,8 @@ static void hk_height_text(char *out, size_t cap, const char *box, int d25)
             snprintf(out, cap, "%.15g , %.15g%c", a, b, letter);
         else
             snprintf(out, cap, "%.15g%c", a, letter);
-        if (!letter && out[strlen(out) - 1] == 0)
-            ;
+        if (!letter && out[strlen(out) - 1] == 0) {
+        }
     } else if (two)
         snprintf(out, cap, "%0.3f , %0.3f", a, b);
     else
@@ -14848,6 +15316,12 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
+    if (d && ms_text && current == JW_CMD_MOJI) {
+        /* a click on the drawing lets the picked texts go (slot 9) */
+        sel_clear(d);
+        ms_text = 0;
+        return;
+    }
     if (current == JW_CMD_GAZOU) {
         gz_point(d, v, x, y, button);
         return;
@@ -16122,6 +16596,20 @@ placed:
             }
             /* and with one, this click was the direction: fall through */
         }
+        else if (para_step == 2 && d->obj[para_obj].cls == JW_SEN) {
+            /* 「作図する方向を指示」で数が箱に入っていれば その大きさで、向きはこの
+               クリックの側（fuzz s7_63: 位置を指したあとに 500 を打って方向を指した） */
+            const jw_obj *o = &d->obj[para_obj];
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+            double len = sqrt(dx * dx + dy * dy);
+            double typed = box_mm(d, 1411);
+
+            if (len > 1e-09 && typed > 0.0) {
+                double side = ((x - o->d[0]) * -dy + (y - o->d[1]) * dx) / len;
+
+                para_off = side < 0.0 ? -typed : typed;
+            }
+        }
         para_step = 0;
         if (para_obj >= 0 && para_obj < d->ndrawn
             && d->obj[para_obj].cls == JW_ENKO) {
@@ -16495,8 +16983,8 @@ placed:
                     if (i >= 0 && i != corner_obj
                         && d->obj[i].cls == d->obj[corner_obj].cls) {
                         if (d->obj[corner_obj].cls == JW_SEN) {
-                            if (jw_cmd_bar_check(1324) > 0)     /* 割付 */
-                                waritsuke(d, corner_obj, i);
+                            if (bk_waritsuke_on())      /* 割付 */
+                                waritsuke(d, corner_obj, i, corner_x, corner_y, x, y);
                             else
                                 bunkatsu(d, corner_obj, i, corner_x, corner_y, x, y);
                         } else {
@@ -16510,9 +16998,9 @@ placed:
                     if (!jw_read(d, v, x, y, &rx, &ry))
                         return;
                     if (d->obj[corner_obj].cls == JW_SEN)
-                        bk_fan_line(d, rx, ry, corner_obj);
+                        bk_fan_from_line(d, corner_obj, rx, ry);
                     else
-                        bk_fan_circle_pt(d, rx, ry, corner_obj);
+                        bk_circle_lerp(d, &d->obj[corner_obj], 0.0, 0.0, 0, rx, ry);
                     corner_step = 0;
                 }
                 return;
@@ -16571,7 +17059,7 @@ placed:
                 if (d->obj[i].cls == JW_SEN)
                     bk_two_point_line(d, bk_px, bk_py, bk_p2x, bk_p2y, i);
                 else if (d->obj[i].cls == JW_ENKO)
-                    bk_two_point_circle(d, bk_px, bk_py, bk_p2x, bk_p2y, i);
+                    bk_two_point_circle(d, bk_px, bk_py, bk_p2x, bk_p2y, i, x, y);
                 else
                     return;
                 corner_step = 0;
@@ -17347,9 +17835,21 @@ static char gz_ins_name[260];
 static int gz_ins_w, gz_ins_h;
 static int gz_ask_kind;                 /* a message box wanted: 1 OK/キャンセル, 2 OK */
 static int gz_ask_what;                 /* 1 同梱 2 分離 */
-static char gz_ask_text[400];
+static char gz_ask_text[560];
 static int gz_tp_ask, gz_tp_at = -1, gz_tp_c[3];
 static char gz_doc_dir[260], gz_doc_name[160];
+
+/* a name copied into a field of `cap` bytes, cut if it is longer and the rest
+   of the field cleared (what strncpy did, without its warning) */
+static void gz_cpy(char *dst, size_t cap, const char *src)
+{
+    size_t n = strlen(src);
+
+    if (n > cap - 1)
+        n = cap - 1;
+    memcpy(dst, src, n);
+    memset(dst + n, 0, cap - n);
+}
 static struct { char name[300]; unsigned char *b; long n; } gz_out[64];
 static int gz_nout;
 static int gz_out_ready;               /* a 画像分離 left files for the front end */
@@ -17576,7 +18076,7 @@ static int gz_embed(jw_drawing *d)
             rec = op_new();
         op_keep(rec, d, i, 0);
         base = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
-        strncpy(p.name, key, sizeof p.name - 1);
+        gz_cpy(p.name, sizeof p.name, key);
         if (p.nfield < 9)
             p.nfield = 9;
         jw_pic_write(d, o, &p, o->d[0], o->d[1], base);
@@ -17588,7 +18088,7 @@ static int gz_embed(jw_drawing *d)
 static int gz_separate(jw_drawing *d)
 {
     int i, count = 0, k;
-    char folder[400], rel[200];
+    char folder[480], rel[200];
 
     for (k = 0; k < gz_nout; k++) {
         free(gz_out[k].b);
@@ -17606,7 +18106,7 @@ static int gz_separate(jw_drawing *d)
         const unsigned char *b;
         long n;
         double base;
-        char path[500];
+        char path[820];
         op_t *rec = 0;
 
         if (!jw_pic_parse(d, o, &p) || strncmp(p.name, "%temp%", 6))
@@ -17618,7 +18118,7 @@ static int gz_separate(jw_drawing *d)
             if (!strcmp(gz_out[k].name, p.name + 6))
                 break;
         if (k == gz_nout && gz_nout < 64) {
-            strncpy(gz_out[k].name, p.name + 6, sizeof gz_out[k].name - 1);
+            gz_cpy(gz_out[k].name, sizeof gz_out[k].name, p.name + 6);
             gz_out[k].b = (unsigned char *)malloc((size_t)n);
             if (gz_out[k].b)
                 memcpy(gz_out[k].b, b, (size_t)n);
@@ -17631,7 +18131,7 @@ static int gz_separate(jw_drawing *d)
             snprintf(path, sizeof path, "%s\\%s", rel, p.name + 6);
         else
             snprintf(path, sizeof path, "%s\\%s", folder, p.name + 6);
-        strncpy(p.name, path, sizeof p.name - 1);
+        gz_cpy(p.name, sizeof p.name, path);
         if (p.nfield < 9)
             p.nfield = 9;
         base = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
@@ -17727,7 +18227,7 @@ static int gz_bar(jw_drawing *d, int id)
         gz_ask_kind = 1;
         gz_ask_what = 2;
         {
-            char f[400];
+            char f[480];
 
             if (gz_doc_dir[0])
                 snprintf(f, sizeof f, "%s\\%s\x81\x60\x95\xaa\x97\xa3\x89\xe6\x91\x9c", gz_doc_dir, gz_doc_name);
@@ -17942,4 +18442,376 @@ static void gz_point(jw_drawing *d, const jw_view *v, double x, double y, int bu
         }
         return;
     }
+}
+
+/* ---- 文字の 範囲選択 (2407): 文書・外部エディタ・貼付・SJIS/UTF8 -------------
+   tmp/spec_gaibu/B_moji_hani.md.  What the original does with the picked
+   texts is read here as functions of the drawing and the text; the front end
+   brings the file names, the editor and the clipboard. */
+
+/* 1 = SJIS (CP932), 0 = UTF8: the 1092 button, DAT_00a0b458, MOJI\OutSJIS */
+static int moji_sjis = 1;
+
+int jw_moji_sjis(void)
+{
+    return moji_sjis;
+}
+
+void jw_moji_sjis_set(int on)
+{
+    moji_sjis = on != 0;
+}
+
+int jw_moji_sjis_toggle(void)
+{
+    return moji_sjis = !moji_sjis;
+}
+
+/* the picked texts, in the order the original writes them: layer group,
+   layer, then the upper row first and the left one first in a row */
+static const jw_drawing *ms_d;
+
+static int ms_cmp(const void *pa, const void *pb)
+{
+    const jw_obj *a = &ms_d->obj[*(const int *)pa];
+    const jw_obj *b = &ms_d->obj[*(const int *)pb];
+
+    if (a->lgroup != b->lgroup)
+        return a->lgroup < b->lgroup ? -1 : 1;
+    if (a->layer != b->layer)
+        return a->layer < b->layer ? -1 : 1;
+    if (a->d[1] > b->d[1] + 1e-7)
+        return -1;
+    if (a->d[1] < b->d[1] - 1e-7)
+        return 1;
+    if (a->d[0] != b->d[0])
+        return a->d[0] < b->d[0] ? -1 : 1;
+    return *(const int *)pa < *(const int *)pb ? -1 : 1;
+}
+
+/* indices of the picked texts, sorted; the caller frees */
+static int *ms_list(const jw_drawing *d, int *n)
+{
+    int i, k = 0, *l;
+
+    *n = 0;
+    if (!d || d->ndrawn <= 0)
+        return 0;
+    l = (int *)malloc((size_t)d->ndrawn * sizeof *l);
+    if (!l)
+        return 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel && d->obj[i].cls == JW_MOJI)
+            l[k++] = i;
+    ms_d = d;
+    qsort(l, (size_t)k, sizeof *l, ms_cmp);
+    *n = k;
+    return l;
+}
+
+int jw_cmd_moji_count(const jw_drawing *d)
+{
+    int n, *l = ms_list(d, &n);
+
+    free(l);
+    return n;
+}
+
+/* UTF-16 units out as UTF-8 */
+static long ms_put8(unsigned char *b, const unsigned short *w, long wn)
+{
+    long j, len = 0;
+
+    for (j = 0; j < wn; j++) {
+        unsigned c = w[j];
+
+        if (c >= 0xd800 && c < 0xdc00 && j + 1 < wn)
+            c = 0x10000 + ((c - 0xd800) << 10) + (w[++j] - 0xdc00u);
+        if (c < 0x80)
+            b[len++] = (unsigned char)c;
+        else if (c < 0x800) {
+            b[len++] = (unsigned char)(0xc0 | (c >> 6));
+            b[len++] = (unsigned char)(0x80 | (c & 63));
+        } else if (c < 0x10000) {
+            b[len++] = (unsigned char)(0xe0 | (c >> 12));
+            b[len++] = (unsigned char)(0x80 | ((c >> 6) & 63));
+            b[len++] = (unsigned char)(0x80 | (c & 63));
+        } else {
+            b[len++] = (unsigned char)(0xf0 | (c >> 18));
+            b[len++] = (unsigned char)(0x80 | ((c >> 12) & 63));
+            b[len++] = (unsigned char)(0x80 | ((c >> 6) & 63));
+            b[len++] = (unsigned char)(0x80 | (c & 63));
+        }
+    }
+    return len;
+}
+
+/* A text out as a file: one text a line, CRLF.  UTF8 gets a BOM, SJIS stays
+   as the drawing holds it.  `doc` is 文書込, which also drops a trailing ^m. */
+static int ms_out(const jw_drawing *d, int doc, unsigned char **out, long *n)
+{
+    int k, i, *l = ms_list(d, &k);
+    long cap, len = 0;
+    unsigned char *b;
+
+    *out = 0;
+    *n = 0;
+    if (!l || k <= 0) {
+        free(l);
+        return 0;
+    }
+    cap = 3;
+    for (i = 0; i < k; i++)
+        cap += (long)strlen(jw_str(d, d->obj[l[i]].text)) * 3 + 4;
+    b = (unsigned char *)malloc((size_t)cap + 1);
+    if (!b) {
+        free(l);
+        return 0;
+    }
+    if (!moji_sjis) {
+        b[len++] = 0xef;
+        b[len++] = 0xbb;
+        b[len++] = 0xbf;
+    }
+    for (i = 0; i < k; i++) {
+        const char *s = jw_str(d, d->obj[l[i]].text);
+        long sl = (long)strlen(s);
+
+        if (doc && sl > 2 && s[sl - 2] == '^' && s[sl - 1] == 'm')
+            sl -= 2;
+        if (moji_sjis) {
+            memcpy(b + len, s, (size_t)sl);
+            len += sl;
+        } else {
+            unsigned short *w = (unsigned short *)malloc((size_t)(sl + 1) * 2);
+
+            if (!w)
+                break;
+            len += ms_put8(b + len, w, jw_to_utf16(s, sl, w, sl + 1));
+            free(w);
+        }
+        b[len++] = '\r';
+        b[len++] = '\n';
+    }
+    free(l);
+    *out = b;
+    *n = len;
+    return 1;
+}
+
+/* 外部エディタ: what goes into TEMP.TXT */
+int jw_cmd_moji_edit_text(const jw_drawing *d, unsigned char **out, long *n)
+{
+    return ms_out(d, 0, out, n);
+}
+
+/* 文書 (1070): the file the picked texts are written to.  The picking is
+   let go of afterwards and the drawing is not changed. */
+int jw_cmd_moji_doc(jw_drawing *d, unsigned char **out, long *n)
+{
+    int ok = ms_out(d, 1, out, n);
+
+    if (ok)
+        sel_clear(d);
+    return ok;
+}
+
+/* Is it valid UTF-8 with something above ASCII in it? */
+static int ms_is_utf8(const unsigned char *b, long n)
+{
+    long j = 0;
+    int hi = 0;
+
+    while (j < n) {
+        unsigned c = b[j++];
+        int more = c < 0x80 ? 0 : (c & 0xe0) == 0xc0 ? 1 : (c & 0xf0) == 0xe0 ? 2
+                 : (c & 0xf8) == 0xf0 ? 3 : -1;
+
+        if (more < 0)
+            return 0;
+        if (more)
+            hi = 1;
+        while (more-- > 0)
+            if (j >= n || (b[j++] & 0xc0) != 0x80)
+                return 0;
+    }
+    return hi;
+}
+
+/* The lines of a file as CP932 strings, each ended by a NUL.  A BOM says
+   UTF-16LE or UTF-8; with none, valid UTF-8 with more than ASCII in it is
+   taken as such when the setting is UTF8, and the rest is CP932.  A CR before
+   the LF is dropped. */
+static char *ms_lines(const unsigned char *b, long n, int *nl)
+{
+    unsigned short *w = (unsigned short *)malloc((size_t)(n + 2) * 2);
+    char *cp = (char *)malloc((size_t)n * 2 + 8), *r;
+    long wn = 0, on = 0, i, q = 0, s = 0;
+    int k = 0, open = 0, utf8 = 0;
+
+    *nl = 0;
+    if (!w || !cp) {
+        free(w);
+        free(cp);
+        return 0;
+    }
+    if (n >= 2 && b[0] == 0xff && b[1] == 0xfe) {
+        for (i = 2; i + 1 < n; i += 2)
+            w[wn++] = (unsigned short)(b[i] | (b[i + 1] << 8));
+        on = jw_from_utf16(w, wn, cp, n * 2 + 4);
+    } else {
+        if (n >= 3 && b[0] == 0xef && b[1] == 0xbb && b[2] == 0xbf) {
+            utf8 = 1;
+            s = 3;
+        } else if (!moji_sjis && ms_is_utf8(b, n)) {
+            utf8 = 1;
+        }
+        if (utf8) {
+            for (i = s; i < n;) {
+                unsigned c = b[i++], v;
+                int more = c < 0x80 ? 0 : (c & 0xe0) == 0xc0 ? 1 : (c & 0xf0) == 0xe0 ? 2 : 3;
+
+                v = more == 0 ? c : more == 1 ? c & 31 : more == 2 ? c & 15 : c & 7;
+                while (more-- > 0 && i < n)
+                    v = (v << 6) | (b[i++] & 63u);
+                if (v >= 0x10000) {
+                    v -= 0x10000;
+                    w[wn++] = (unsigned short)(0xd800 + (v >> 10));
+                    w[wn++] = (unsigned short)(0xdc00 + (v & 1023));
+                } else
+                    w[wn++] = (unsigned short)v;
+            }
+            on = jw_from_utf16(w, wn, cp, n * 2 + 4);
+        } else {
+            memcpy(cp, b, (size_t)n);
+            on = n;
+        }
+    }
+    free(w);
+    if (on > n * 2 + 4)
+        on = n * 2 + 4;
+    r = (char *)malloc((size_t)on + 2);
+    if (!r) {
+        free(cp);
+        return 0;
+    }
+    for (i = 0; i < on; i++) {
+        if (cp[i] == '\n') {
+            r[q++] = 0;
+            k++;
+            open = 0;
+        } else if (cp[i] != '\r') {
+            r[q++] = cp[i];
+            open = 1;
+        }
+    }
+    if (open) {
+        r[q++] = 0;
+        k++;
+    }
+    r[q] = 0;
+    free(cp);
+    *nl = k;
+    return r;
+}
+
+/* 外部エディタ and 貼付: the lines of the file go back onto the picked texts,
+   in the same order.  A line replaces a text, an empty one (or none left)
+   erases it, and lines past the last text become new ones below it.
+   Returns how many elements changed, were erased or were made; 0 if the file
+   holds no line at all. */
+int jw_cmd_moji_apply(jw_drawing *d, const unsigned char *b, long n)
+{
+    int nl, k, i, *l, changed = 0, made = 0, ng = 0, *gone;
+    char *lines, *p;
+    op_t *o;
+
+    if (!d)
+        return 0;
+    lines = ms_lines(b, n, &nl);
+    l = ms_list(d, &k);
+    if (!lines || !l || k <= 0 || nl <= 0) {
+        free(lines);
+        free(l);
+        return 0;
+    }
+    o = op_new();
+    gone = (int *)malloc((size_t)k * sizeof *gone);
+    p = lines;
+    for (i = 0; i < k; i++) {
+        jw_obj *t = &d->obj[l[i]];
+        const char *line = i < nl ? p : "";
+
+        if (i < nl)
+            p += strlen(p) + 1;
+        if (!*line) {
+            gone[ng++] = l[i];
+            continue;
+        }
+        op_keep(o, d, l[i], 0);
+        {
+            double dx = t->d[2] - t->d[0], dy = t->d[3] - t->d[1];
+            double len = sqrt(dx * dx + dy * dy), want;
+
+            t->text = jw_add_str(d, line);
+            want = jw_coord_text_len(d, t);
+            if (len > 0.0) {
+                t->d[2] = t->d[0] + dx / len * want;
+                t->d[3] = t->d[1] + dy / len * want;
+            }
+        }
+        changed++;
+    }
+    /* the lines that are left over: new texts under the last one */
+    if (nl > k) {
+        jw_obj last = d->obj[l[k - 1]];
+        double dx = last.d[2] - last.d[0], dy = last.d[3] - last.d[1];
+        double len = sqrt(dx * dx + dy * dy), ux = len > 0 ? dx / len : 1.0,
+               uy = len > 0 ? dy / len : 0.0, pitch = txt_pitch() / 2.0;
+        int j;
+
+        for (j = k; j < nl; j++) {
+            jw_obj *nw = jw_add(d, JW_MOJI);
+            double want;
+
+            if (!nw)
+                break;
+            *nw = last;
+            nw->face = last.face >= 0 ? jw_add_str(d, jw_str(d, last.face)) : -1;
+            nw->text = jw_add_str(d, p);
+            p += strlen(p) + 1;
+            nw->d[0] = last.d[0] + uy * pitch * (j - k + 1);
+            nw->d[1] = last.d[1] - ux * pitch * (j - k + 1);
+            nw->d[2] = nw->d[0] + ux * len;
+            nw->d[3] = nw->d[1] + uy * len;
+            want = jw_coord_text_len(d, nw);
+            nw->d[2] = nw->d[0] + ux * want;
+            nw->d[3] = nw->d[1] + uy * want;
+            made++;
+        }
+    }
+    /* erase, highest first so the numbers stay true */
+    {
+        int a, c;
+
+        for (a = 0; a < ng; a++)
+            for (c = a + 1; c < ng; c++)
+                if (gone[c] > gone[a]) {
+                    int t = gone[a];
+
+                    gone[a] = gone[c];
+                    gone[c] = t;
+                }
+        for (a = 0; a < ng; a++) {
+            op_keep(o, d, gone[a], 1);
+            jw_remove(d, gone[a]);
+        }
+    }
+    if (o)
+        o->n = made;
+    sel_clear(d);
+    free(gone);
+    free(l);
+    free(lines);
+    return changed + ng + made;
 }

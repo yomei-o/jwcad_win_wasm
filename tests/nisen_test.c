@@ -79,7 +79,7 @@ static void run(const char *path, const char *what)
     unsigned char *b;
     long n;
     jw_drawing ref, *d;
-    const jw_obj *r[3];
+    const jw_obj *r[3] = { 0, 0, 0 };
     int i, k = 0, before;
 
     b = slurp(path, &n);

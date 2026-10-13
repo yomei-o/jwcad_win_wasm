@@ -1851,7 +1851,7 @@ void ui_moji_drop(fb_t *fb)
     rect_t r;
     int i, th = jw_text_height(), fonts = app_moji_drop() == 2;
     int n = fonts ? app_moji_font_n() : 10, cur;
-    char t[8];
+    char t[16];
 
     moji_drop_rect(fb->w, fb->h, &r);
     if (r.w <= 0)

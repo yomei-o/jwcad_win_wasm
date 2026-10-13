@@ -490,6 +490,7 @@ int main(int argc, char **argv)
             fails++;
         else
             printf("ok   %s\n", sc[k].name);
+        jw_free(&ref);
     }
     /* 天空図: 測定点表示 の番号は描くたびに一つ進み、≪ と Esc は一段ずつ戻る
        （原典 tools/hkprobe.sh の s12: 3 → 4、中心待ち → 測定点待ち → 初め） */

@@ -41,7 +41,7 @@ static int dec_bmp(const unsigned char *b, long n, jw_img *img)
         w = rd16(b + 18);
         h = rd16(b + 20);
         bpp = rd16(b + 24);
-    } else if (hs >= 40 && n >= 14 + 40) {
+    } else if (hs >= 40 && hs <= (unsigned)n && n >= 14 + 40) {
         w = (int)rd32(b + 18);
         h = (int)rd32(b + 22);
         bpp = rd16(b + 28);
@@ -51,6 +51,11 @@ static int dec_bmp(const unsigned char *b, long n, jw_img *img)
         return 0;
     if (h < 0) { top = 1; h = -h; }
     if (w <= 0 || h <= 0 || w > 30000 || h > 30000)
+        return 0;
+    /* the pixel data starts inside the file (and a long is 32 bits here) */
+    if (off > (unsigned)n)
+        return 0;
+    if ((double)w * h > 67108864.0)
         return 0;
     if (bpp != 1 && bpp != 4 && bpp != 8 && bpp != 16 && bpp != 24 && bpp != 32)
         return 0;
@@ -115,7 +120,7 @@ static int dec_bmp(const unsigned char *b, long n, jw_img *img)
         return 1;
     }
     stride = (((long)w * bpp + 31) / 32) * 4;
-    if ((long)off + stride * (h - 1) + ((long)w * bpp + 7) / 8 > n) {
+    if ((double)off + (double)stride * (h - 1) + (double)(((long)w * bpp + 7) / 8) > (double)n) {
         free(o);
         return 0;
     }
@@ -216,6 +221,7 @@ static int oput(inf_t *s, int c)
 {
     if (s->on >= s->ocap) {
         long nc = s->ocap ? s->ocap * 2 : 65536;
+        if (s->ocap >= (1L << 29)) { s->bad = 1; return 0; }
         unsigned char *q = (unsigned char *)realloc(s->out, nc);
         if (!q) { s->bad = 1; return 0; }
         s->out = q;
@@ -275,7 +281,7 @@ static int inflate_at(const unsigned char *p, long n, long start, unsigned char 
             if (s.pos + 4 > s.n) { s.bad = 1; break; }
             len = s.p[s.pos] | s.p[s.pos + 1] << 8;
             s.pos += 4;
-            if (s.pos + len > s.n) { s.bad = 1; break; }
+            if (s.pos + (long)len > s.n) { s.bad = 1; break; }
             while (len--) oput(&s, s.p[s.pos++]);
         } else if (type == 1) {
             huff_t lc, dc;
@@ -365,10 +371,11 @@ static int dec_png(const unsigned char *b, long n, jw_img *img)
 
     if (n < 33 || memcmp(b, SIG, 8)) return 0;
     memset(trns, 255, sizeof trns);
+    memset(pal, 0, sizeof pal);
     while (pos + 12 <= n) {
         unsigned len = be32(b + pos);
         const unsigned char *t = b + pos + 4, *d = b + pos + 8;
-        if ((long)len > n - pos - 12) break;
+        if ((unsigned long)len > (unsigned long)(n - pos - 12)) break;
         if (!memcmp(t, "IHDR", 4) && len >= 13) {
             w = (int)be32(d); h = (int)be32(d + 4);
             depth = d[8]; ct = d[9]; il = d[12];
@@ -378,6 +385,7 @@ static int dec_png(const unsigned char *b, long n, jw_img *img)
         } else if (!memcmp(t, "tRNS", 4) && ct == 3) {
             for (i = 0; i < (int)len && i < 256; i++) trns[i] = d[i];
         } else if (!memcmp(t, "IDAT", 4)) {
+            if ((double)idl + len > 1.0e9) { free(idat); return 0; }
             if (idl + (long)len > idcap) {
                 unsigned char *q;
                 idcap = (idl + len) * 2;
@@ -392,6 +400,7 @@ static int dec_png(const unsigned char *b, long n, jw_img *img)
         pos += 12 + len;
     }
     if (w <= 0 || h <= 0 || w > 30000 || h > 30000 || !idat) goto done;
+    if ((double)w * h > 67108864.0) goto done;
     if (ct != 0 && ct != 2 && ct != 3 && ct != 4 && ct != 6) goto done;
     if (depth != 1 && depth != 2 && depth != 4 && depth != 8 && depth != 16) goto done;
     if (!inflate_z(idat, idl, &raw, &rawn)) goto done;
@@ -409,7 +418,7 @@ static int dec_png(const unsigned char *b, long n, jw_img *img)
             int ph = il ? (h - Y0[pass] + DY[pass] - 1) / DY[pass] : h;
             if (pw <= 0 || ph <= 0) continue;
             stride = ((long)pw * chan * depth + 7) / 8;
-            if (rp + (stride + 1) * ph > rawn) goto done;
+            if ((double)rp + ((double)stride + 1) * ph > (double)rawn) goto done;
             prev = (unsigned char *)calloc(stride, 1);
             pix = (unsigned char *)malloc(stride);
             if (!prev || !pix) { free(prev); free(pix); goto done; }
@@ -540,9 +549,10 @@ static int jr_bit(jr_t *r)
 
 static int jr_bits(jr_t *r, int n)
 {
-    int v = 0;
-    while (n--) v = v << 1 | jr_bit(r);
-    return v;
+    unsigned v = 0;
+    if (n > 16) n = 16;                 /* no real code is longer */
+    while (n-- > 0) v = v << 1 | (unsigned)jr_bit(r);
+    return (int)v;
 }
 
 static int jr_huff(jr_t *r, const jh_t *h)
@@ -558,6 +568,7 @@ static int jr_huff(jr_t *r, const jh_t *h)
 
 static int jext(int v, int n)
 {
+    if (n > 16) n = 16;
     return n && v < (1 << (n - 1)) ? v - (1 << n) + 1 : v;
 }
 
@@ -649,6 +660,7 @@ static int dec_jpg(const unsigned char *b, long n, jw_img *img)
                 w = d[3] << 8 | d[4];
                 ncomp = d[5];
                 if (w <= 0 || h <= 0 || w > 30000 || h > 30000 || (ncomp != 1 && ncomp != 3 && ncomp != 4)) goto done;
+                if ((double)w * h > 67108864.0) goto done;
                 if (dl < 6 + 3 * ncomp) goto done;
                 for (i = 0; i < ncomp; i++) {
                     comp[i].id = d[6 + i * 3];
@@ -710,12 +722,11 @@ static int dec_jpg(const unsigned char *b, long n, jw_img *img)
                             r.eobrun = 0;
                         }
                         blk = c->coef + ((size_t)by * c->bw + bx) * 64;
-                        goto_block:;
                         {
                             const jh_t *td = &dc[c->td], *ta = &ac[c->ta];
                             if (!prog) {
                                 int t = jr_huff(&r, td), diff = t ? jext(jr_bits(&r, t), t) : 0, kk;
-                                c->pred += diff;
+                                c->pred = (int)((unsigned)c->pred + (unsigned)diff);
                                 blk[0] = (short)c->pred;
                                 for (kk = 1; kk < 64;) {
                                     int rs = jr_huff(&r, ta), rr = rs >> 4, s = rs & 15;
@@ -728,8 +739,8 @@ static int dec_jpg(const unsigned char *b, long n, jw_img *img)
                             } else if (ss == 0) {
                                 if (!ah) {
                                     int t = jr_huff(&r, td), diff = t ? jext(jr_bits(&r, t), t) : 0;
-                                    c->pred += diff;
-                                    blk[0] = (short)(c->pred * (1 << al));
+                                    c->pred = (int)((unsigned)c->pred + (unsigned)diff);
+                                    blk[0] = (short)((unsigned)c->pred << al);
                                 } else if (jr_bit(&r))
                                     blk[0] |= (short)(1 << al);
                             } else if (!ah) {
@@ -800,7 +811,7 @@ static int dec_jpg(const unsigned char *b, long n, jw_img *img)
                                     const jh_t *td = &dc[c->td], *ta = &ac[c->ta];
                                     if (!prog) {
                                         int t = jr_huff(&r, td), diff = t ? jext(jr_bits(&r, t), t) : 0, kk;
-                                        c->pred += diff;
+                                        c->pred = (int)((unsigned)c->pred + (unsigned)diff);
                                         blk[0] = (short)c->pred;
                                         for (kk = 1; kk < 64;) {
                                             int rs = jr_huff(&r, ta), rr = rs >> 4, s = rs & 15;
@@ -812,8 +823,8 @@ static int dec_jpg(const unsigned char *b, long n, jw_img *img)
                                         }
                                     } else if (!ah) {
                                         int t = jr_huff(&r, td), diff = t ? jext(jr_bits(&r, t), t) : 0;
-                                        c->pred += diff;
-                                        blk[0] = (short)(c->pred * (1 << al));
+                                        c->pred = (int)((unsigned)c->pred + (unsigned)diff);
+                                        blk[0] = (short)((unsigned)c->pred << al);
                                     } else if (jr_bit(&r))
                                         blk[0] |= (short)(1 << al);
                                 }
@@ -947,8 +958,8 @@ static const char *base_of(const char *s)
 {
     const char *p = s, *q = s;
     for (; *p; p++) {
-        if ((unsigned char)*p >= 0x81 && (unsigned char)*p <= 0x9f ||
-            (unsigned char)*p >= 0xe0 && (unsigned char)*p <= 0xfc) {
+        if (((unsigned char)*p >= 0x81 && (unsigned char)*p <= 0x9f) ||
+            ((unsigned char)*p >= 0xe0 && (unsigned char)*p <= 0xfc)) {
             if (p[1]) p++;
             continue;
         }

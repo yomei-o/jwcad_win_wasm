@@ -229,7 +229,7 @@ def main():
     w('static const jw_cd_t jw_colordlg[] = {')
     for kind, cid, x, y, cwid, chei, en, text in rows:
         w('    { %4d, %4d, %4d, %3d, %5d, %-13s, %d, "%s" },'
-          % (x, y, cwid, chei, cid, kind, en, esc(text)))
+          % (x, y, cwid, chei, (cid - 65536 if cid >= 32768 else cid), kind, en, esc(text)))
     w('};')
     w('#define JW_NCOLORDLG (int)(sizeof jw_colordlg / sizeof jw_colordlg[0])')
     w('')

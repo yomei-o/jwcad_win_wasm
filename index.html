@@ -401,13 +401,41 @@
   // 新規 starts a drawing with no name; the downloads should not go on
   // carrying the name of the one that was open before it.
   function curName() {
-    if (newCount() !== seenNew) { seenNew = newCount(); openedName = 'drawing.jww'; }
+    if (newCount() !== seenNew) { seenNew = newCount(); openedName = 'drawing.jww'; handles.clear(); }
     return openedName;
+  }
+  // File System Access API (Chromium): a save goes to a file the person picks,
+  // and a later save under the same name writes back to it.  Anywhere else,
+  // or if it fails, the download below is the fallback.
+  const handles = new Map();
+  async function writeOut(bytes, name) {
+    try {
+      let h = handles.get(name);
+      if (!h) h = await window.showSaveFilePicker({ suggestedName: name });
+      const w = await h.createWritable();
+      await w.write(bytes);
+      await w.close();
+      handles.set(h.name, h);
+      if (/\.jww$/i.test(h.name)) { openedName = h.name; setName(h.name); }
+      document.getElementById('msg').textContent = h.name + ' に保存しました';
+      return true;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return true;     /* cancelled: say nothing */
+      handles.delete(name);
+      return false;
+    }
   }
   function offer(p, name) {
     if (!p) return;
     const bytes = mod.HEAPU8.slice(p, p + savedLen());
     savedFree();
+    if (window.showSaveFilePicker) {
+      writeOut(bytes, name).then(ok => { if (!ok) saveLink(bytes, name); });
+      return;
+    }
+    saveLink(bytes, name);
+  }
+  function saveLink(bytes, name) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([bytes],
       { type: 'application/octet-stream' }));
@@ -466,10 +494,62 @@
   let askedText = false;
   let askedEnv = false;
 
+  // 文字の 範囲選択: 文書 (13) downloads the picked texts as a .txt, 外部エディタ
+  // (14) lets the lines be edited in a box and puts them back, 貼付 (15) puts the
+  // clipboard's lines onto them.  What the SJIS/UTF8 button says decides how the
+  // .txt is coded; the lines come back by their BOM, or as CP932.
+  function mojiAction(r) {
+    const msg = document.getElementById('msg');
+    if (!mod._jw_moji_doc) { msg.textContent = 'この wasm には 文字の 範囲選択 の取り出しがありません'; return; }
+    const dec = bytes => {
+      const u8 = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+      return new TextDecoder(u8 ? 'utf-8' : 'shift_jis').decode(bytes);
+    };
+    const give = str => {
+      const enc = new TextEncoder().encode(str.replace(/\r?\n/g, '\r\n'));
+      const bytes = new Uint8Array(enc.length + 3);
+      bytes.set([0xef, 0xbb, 0xbf]); bytes.set(enc, 3);
+      const p = mod._malloc(bytes.length);
+      mod.HEAPU8.set(bytes, p);
+      const ok = mod._jw_moji_apply(p, bytes.length);
+      mod._free(p);
+      present();
+      msg.textContent = ok ? '文字を置き換えました' : '行がありません';
+    };
+    if (r === 13) {
+      const p = mod._jw_moji_doc();
+      if (!p) return;
+      offer(p, curName().replace(/\.[^.]*$/, '') + '.txt');
+      msg.textContent = '文書込完了';
+      present();
+    } else if (r === 14) {
+      const p = mod._jw_moji_edit_text();
+      if (!p) return;
+      const bytes = mod.HEAPU8.slice(p, p + mod._jw_saved_len());
+      mod._jw_saved_free();
+      const text = dec(bytes);
+      const box = document.createElement('dialog');
+      box.innerHTML = '<form method="dialog"><p>外部エディタ — 1 行が 1 文字です。空行は削除、行を足すと文字が増えます</p>'
+        + '<textarea rows="14" cols="60" style="font-family:monospace"></textarea>'
+        + '<p><button value="ok">OK</button> <button value="cancel">取消</button></p></form>';
+      box.querySelector('textarea').value = text;
+      document.body.appendChild(box);
+      box.addEventListener('close', () => {
+        if (box.returnValue === 'ok') give(box.querySelector('textarea').value);
+        box.remove();
+      });
+      box.showModal();
+    } else if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(give, () => { msg.textContent = 'クリップボードを読めません'; });
+    } else {
+      msg.textContent = 'クリップボードを読めません';
+    }
+  }
+
   // What a press or a command came back asking for (see finish() in
   // src/main_wasm.c): a file to open or write, or just a repaint.
   function react(r) {
-    if (r === 2) document.getElementById('pick').click();
+    if (r === 2) pickFile();
     else if (r === 3) download();
     else if (r === 4) downloadFig();
     else if (r === 5) downloadCoord();
@@ -479,14 +559,20 @@
     }
     else if (r === 9) {
       askedEnv = true;
-      document.getElementById('pick').click();
+      pickFile();
     }
     else if (r === 6) {
       askedText = true;
-      document.getElementById('pick').click();
+      pickFile();
     }
     else if (r === 10) document.getElementById('pickimg').click();
     else if (r === 11) downloadImages();
+    else if (r === 13 || r === 14 || r === 15) mojiAction(r);
+    else if (r === 12) {
+      document.getElementById('msg').textContent =
+        '外部変形はブラウザ版では実行できません（BAT を走らせられないため）。デスクトップ版をお使いください';
+      present();
+    }
     else if (r === 7) {
       if (confirm('変更を保存していません。破棄して新規作成しますか？')) {
         newDrawing();
@@ -588,6 +674,22 @@
     const f = e.target.files[0];
     e.target.value = '';
     if (f) loadImage(f, true);
+  });
+  // File System Access API open: keeps the handle so a later 上書 writes back.
+  async function pickFile() {
+    if (!window.showOpenFilePicker) { document.getElementById('pick').click(); return; }
+    try {
+      const [h] = await window.showOpenFilePicker({ types: [{ description: 'Jw_cad',
+        accept: { 'application/octet-stream': ['.jww', '.dxf', '.sfc', '.jwc', '.jws', '.txt', '.jwf'] } }] });
+      const f = await h.getFile();
+      if (/\.jww$/i.test(f.name)) handles.set(f.name, h);
+      load(f);
+    } catch (e) {
+      if (!e || e.name !== 'AbortError') document.getElementById('pick').click();
+    }
+  }
+  document.getElementById('pick').addEventListener('click', e => {
+    if (e.isTrusted && window.showOpenFilePicker) { e.preventDefault(); pickFile(); }
   });
   document.getElementById('pick').addEventListener('change', e => {
     const f = e.target.files[0];
@@ -760,6 +862,38 @@
 
   window.addEventListener('resize', fit);
   fit();
+
+  // Settings kept in this browser: the 環境設定 (基本設定, 画面倍率 ... as a .jwf)
+  // and the 文字 bar's SJIS/UTF8.  Read back at start, written when the page is
+  // left or hidden.  Anything that fails (no storage, a wasm without the
+  // exports) is skipped; the page works the same without it.
+  try {
+    const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 4096) s += String.fromCharCode.apply(null, u8.subarray(i, i + 4096)); return btoa(s); };
+    const saved = localStorage.getItem('jw.env');
+    if (saved) {
+      const bytes = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
+      const p = mod._malloc(bytes.length);
+      mod.HEAPU8.set(bytes, p);
+      openEnv(p, bytes.length);
+      mod._free(p);
+      present();
+    }
+    if (mod._jw_moji_sjis_put && localStorage.getItem('jw.sjis') !== null)
+      mod._jw_moji_sjis_put(localStorage.getItem('jw.sjis') === '0' ? 0 : 1);
+    const keep = () => {
+      try {
+        const p = saveEnv('jw.jwf');
+        if (p) {
+          localStorage.setItem('jw.env', b64(mod.HEAPU8.slice(p, p + savedLen())));
+          savedFree();
+        }
+        if (mod._jw_moji_sjis_get)
+          localStorage.setItem('jw.sjis', String(mod._jw_moji_sjis_get()));
+      } catch (e) { /* storage full or blocked */ }
+    };
+    window.addEventListener('pagehide', keep);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
+  } catch (e) { /* storage not available */ }
 })();
 </script>
 </body>

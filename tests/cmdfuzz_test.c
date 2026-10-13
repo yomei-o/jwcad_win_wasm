@@ -571,6 +571,46 @@ int main(int argc, char **argv)
                 if (!settles(app_drawing(), w, who0))
                     bad++;
         }
+        /* JW_CMDFUZZ_IMG names picture files (BMP, PNG, JPEG), a comma
+           between them: they are put in the drawing first, so that the walk
+           has pictures to select, move, trim, copy and erase, and the
+           image code (src/image.c, src/imgpic.c) runs under the same
+           random commands as the rest */
+        {
+            const char *im = getenv("JW_CMDFUZZ_IMG");
+            char name[300];
+            int at = 0;
+
+            while (im && *im) {
+                int m = 0;
+                FILE *pf;
+
+                while (im[m] && im[m] != ',' && m < (int)sizeof name - 1) {
+                    name[m] = im[m];
+                    m++;
+                }
+                name[m] = 0;
+                im += m;
+                if (*im == ',')
+                    im++;
+                pf = fopen(name, "rb");
+                if (pf) {
+                    unsigned char *pb;
+                    long pn;
+
+                    fseek(pf, 0, SEEK_END);
+                    pn = ftell(pf);
+                    fseek(pf, 0, SEEK_SET);
+                    pb = (unsigned char *)malloc((size_t)(pn ? pn : 1));
+                    if (pb && fread(pb, 1, (size_t)pn, pf) == (size_t)pn)
+                        app_image(name, pb, pn);
+                    free(pb);
+                    fclose(pf);
+                    at++;
+                }
+            }
+            (void)at;
+        }
         t0 = clock();
         compare_time = 0;
 

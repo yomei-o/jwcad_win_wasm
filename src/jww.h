@@ -405,4 +405,49 @@ static __inline double jw_prefold(double v, double period)
     return v;
 }
 
+/* 外部変形 (32913), see tmp/spec_gaibu/A_gaibu_henkei.md.  The port reads a
+   BAT's header, writes JWC_TEMP.TXT, and reads the program's answer back;
+   running the BAT is the front end's job (Win32: CreateProcess; a browser
+   cannot). */
+typedef struct {
+    int jww;                    /* 0 #jw, 1 #jww, 2 #jwwB */
+    int cd;                     /* #cd: run in the BAT's folder */
+    int nitems;                 /* #hm: how many items (at most 9) */
+    char title[128];
+    char item[9][64];
+} jw_gaibu;
+typedef struct {
+    int again;                  /* hr */
+    char msg[128], next[260], note[128];
+} jw_gaibu_out;
+int jw_gaibu_header(const char *bat, long n, jw_gaibu *g);
+int jw_gaibu_write(const jw_drawing *d, const jw_gaibu *g, double ox, double oy,
+                   double bx0, double by0, double bx1, double by1,
+                   unsigned char **out, long *n);
+int jw_gaibu_read(jw_drawing *res, const jw_drawing *host,
+                  const unsigned char *b, long n, jw_gaibu_out *o);
+
+
+/* The script of a 外部変形 BAT, step by step (A_gaibu_henkei.md 3.3, 5.3) */
+enum { JW_GS_END = 0x13, JW_GS_RANGE = 1, JW_GS_POINT = 2, JW_GS_INPUT = 3,
+       JW_GS_INPUT_IME = 4, JW_GS_CHOICE = 5, JW_GS_CHOICE_LR = 6,
+       JW_GS_ARGS = 7, JW_GS_ARGS_IME = 8, JW_GS_LINE = 9, JW_GS_CIRCLE = 10,
+       JW_GS_TEXT = 11 };
+typedef struct {
+    int type, n;                /* n: #h's kind (1,2,3,5), or the point's number */
+    int mode;                   /* a point: 1 rubber line, 2 every 15 degrees */
+    int number;                 /* "No.%d " in the prompt */
+    int quote;                  /* the prefix opens a quote: close it */
+    int nitems;
+    char prompt[128], prefix[32], item[9][64];
+} jw_gstep;
+typedef struct {
+    int nsteps, all, hp, hf, zz;
+    char next[260];
+    jw_gstep step[200];
+} jw_gscript;
+int jw_gaibu_script(const char *bat, long n, int item, jw_gscript *s);
+int jw_gaibu_args(const jw_gscript *s, char val[][128], char *out, int cap);
+int jw_gaibu_points(const jw_gscript *s, const double (*xy)[2], char *out, int cap);
+
 #endif

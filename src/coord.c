@@ -616,3 +616,327 @@ int jw_parse_coord(jw_drawing *d, const jw_drawing *host,
     }
     return d->ndrawn > 0;
 }
+
+/* ---- 外部変形 (32913): see tmp/spec_gaibu/A_gaibu_henkei.md ------------- */
+
+/* One line of a BAT: is it a script line?  `REM`, any case, then blanks, then
+   a '#' within the first ten columns.  Returns the text after the '#', or 0. */
+static const char *gaibu_rem(const char *t)
+{
+    const char *q;
+
+    if (strlen(t) <= 5 || (t[0] != 'R' && t[0] != 'r') ||
+        (t[1] != 'E' && t[1] != 'e') || (t[2] != 'M' && t[2] != 'm'))
+        return 0;
+    q = t + 3;
+    while (*q == ' ' || *q == '\t')
+        q++;
+    if (*q != '#' || q - t >= 10)
+        return 0;
+    return q + 1;
+}
+
+/* Read the header of a BAT: #jw / #jww / #jwwB, #cd, #hm title|item|item|...
+   Everything from the first "#:" or "#e" on is the script proper, which the
+   caller does not need until it runs the steps.  Returns 0 if the file is not
+   one for Jw_cad (the original says 5449 and asks again). */
+int jw_gaibu_header(const char *bat, long n, jw_gaibu *g)
+{
+    const char *p = bat, *end = bat + n;
+    char t[512];
+    int is_jw = 0;
+
+    memset(g, 0, sizeof *g);
+    while (p < end) {
+        const char *s;
+
+        p = eat_line(p, end, t, (int)sizeof t);
+        s = gaibu_rem(t);
+        if (!s)
+            continue;
+        if (s[0] == ':' || ((s[0] == 'e' || s[0] == 'E') && !s[1]))
+            break;
+        if (!strncmp(s, "jwwB", 4)) { is_jw = 1; g->jww = 2; }
+        else if (!strncmp(s, "jww", 3)) { is_jw = 1; g->jww = 1; }
+        else if (!strncmp(s, "jw", 2)) { is_jw = 1; }
+        else if (!strncmp(s, "cd", 2)) { g->cd = 1; }
+        else if (!strncmp(s, "hm", 2) && !g->nitems) {
+            /* title first, then the items, each ended by a bar */
+            char *q = t + (s - t) + 2, *bar;
+            int k = 0;
+
+            bar = strchr(q, '|');
+            if (bar)
+                *bar++ = 0;
+            snprintf(g->title, sizeof g->title, "%s", q);
+            while (bar && *bar && k < 9) {
+                char *nx = strchr(bar, '|');
+
+                if (nx)
+                    *nx++ = 0;
+                if (strcmp(bar, "##"))
+                    snprintf(g->item[k++], sizeof g->item[0], "%s", bar);
+                bar = nx;
+            }
+            g->nitems = k;
+        }
+    }
+    return is_jw;
+}
+
+/* The text of JWC_TEMP.TXT: the header the original puts on a file for an
+   external program (hq, hk, hs, hn), and then the same lines a 座標ファイル
+   carries.  (bx0, by0)-(bx1, by1) is the range that was picked, in paper
+   millimetres; it goes out relative to (ox, oy) and times the scale. */
+int jw_gaibu_write(const jw_drawing *d, const jw_gaibu *g, double ox, double oy,
+                   double bx0, double by0, double bx1, double by1,
+                   unsigned char **out, long *n)
+{
+    unsigned char *body = 0;
+    long bn = 0;
+    char h[1024];
+    int i, wg = 0, hl = 0;
+    double sc;
+
+    (void)g;
+    *out = 0;
+    *n = 0;
+    if (!jw_write_coord(d, ox, oy, &body, &bn))
+        return 0;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3)
+            wg = i;
+    sc = d->group[wg].scale > 0.0 ? d->group[wg].scale : 1.0;
+    hl += sprintf(h + hl, "hq\r\nhk 0\r\nhs");
+    for (i = 0; i < 16; i++)
+        hl += sprintf(h + hl, " %g", d->group[i].scale > 0.0 ? d->group[i].scale : 1.0);
+    hl += sprintf(h + hl, "\r\nhn %.15g %.15g %.15g %.15g\r\n",
+                  (bx0 - ox) * sc, (by0 - oy) * sc, (bx1 - ox) * sc, (by1 - oy) * sc);
+    *out = (unsigned char *)malloc((size_t)(hl + bn + 1));
+    if (!*out) {
+        free(body);
+        return 0;
+    }
+    memcpy(*out, h, (size_t)hl);
+    memcpy(*out + hl, body, (size_t)bn);
+    *n = hl + bn;
+    free(body);
+    return 1;
+}
+
+/* Read what the program left in JWC_TEMP.TXT.  The words only 外部変形 knows
+   are taken out and the rest is an ordinary 座標ファイル, parsed into `res`.
+   Returns 0 normally, 10 if the program asked for the original data to be
+   deleted (hd), -2 if it stopped (hq still there: not run; he: its own
+   message) and -1 if it is not readable.  *msg gets the message, *again the
+   next BAT (h/) -- both may be NULL. */
+int jw_gaibu_read(jw_drawing *res, const jw_drawing *host,
+                  const unsigned char *b, long n, jw_gaibu_out *o)
+{
+    const char *p = (const char *)b, *end = p + n;
+    char t[512];
+    unsigned char *keep = (unsigned char *)malloc((size_t)n + 1);
+    long kn = 0;
+    int status = 0, ok;
+
+    if (o)
+        memset(o, 0, sizeof *o);
+    if (!keep)
+        return -1;
+    while (p < end) {
+        const char *ls = p;
+
+        p = eat_line(p, end, t, (int)sizeof t);
+        if (t[0] == 'h') {
+            if (!strcmp(t, "hq")) { status = -2; snprintf(o ? o->msg : t, 120, "未実行"); }
+            else if (t[1] == 'e' && status != -2) {
+                status = -2;
+                if (o)
+                    snprintf(o->msg, sizeof o->msg, "%s", t + 2);
+            }
+            else if (!strcmp(t, "hd") && status == 0) status = 10;
+            else if (!strcmp(t, "hr")) { if (o) o->again = 1; }
+            else if (t[1] == '/') { if (o) snprintf(o->next, sizeof o->next, "%s", t + 2); }
+            else if (t[1] == '#') { if (o) snprintf(o->note, sizeof o->note, "%s", t + 2); }
+            continue;                   /* an h line is not an element */
+        }
+        memcpy(keep + kn, ls, (size_t)(p - ls));
+        kn += p - ls;
+    }
+    if (status == -2) {
+        free(keep);
+        return -2;
+    }
+    ok = jw_parse_coord(res, host, keep, kn);
+    free(keep);
+    return ok ? status : -1;
+}
+
+/* ---- 外部変形: the script's steps (A_gaibu_henkei.md 3.3 and 5.3) --------- */
+
+/* The script lines of a BAT after the header: from "#:<item>" (when #hm made
+   a choice, item > 0) or from the start, up to "#e".  Each becomes a step. */
+int jw_gaibu_script(const char *bat, long n, int item, jw_gscript *s)
+{
+    const char *p = bat, *end = bat + n;
+    char t[512];
+    int collecting = item <= 0, past_head = 0;
+
+    memset(s, 0, sizeof *s);
+    while (p < end && s->nsteps < 199) {
+        const char *q;
+        jw_gstep *st;
+
+        p = eat_line(p, end, t, (int)sizeof t);
+        q = gaibu_rem(t);
+        if (!q)
+            continue;
+        if (!past_head) {
+            /* the header lines are not steps; the first "#:" or "#e" ends them */
+            if (q[0] == ':' || q[0] == 'e' || q[0] == 'E')
+                past_head = 1;
+            else if (item <= 0 && (!strncmp(q, "jw", 2) || !strncmp(q, "cd", 2)
+                                   || !strncmp(q, "hm", 2)))
+                continue;
+            else if (item <= 0 && q[0] != 'h' && !(q[0] >= '0' && q[0] <= '9')
+                     && q[0] != 'c' && q[0] != 'f' && q[0] != 'i' && q[0] != 'k'
+                     && q[0] != 'g' && q[0] != 'z' && q[0] != 'b')
+                continue;
+            else if (item <= 0)
+                past_head = 1;
+            else
+                continue;
+        }
+        if (q[0] == ':') {
+            if (item > 0 && atoi(q + 1) == item) { collecting = 1; continue; }
+            if (collecting && item > 0)
+                break;                  /* the next item's section */
+            continue;
+        }
+        if (!collecting)
+            continue;
+        if (q[0] == 'e' || q[0] == 'E')
+            break;
+        st = &s->step[s->nsteps];
+        if (q[0] == 'h' && q[1] >= '0' && q[1] <= '9') {
+            int k = q[1] - '0';
+
+            if (k == 4) { s->all = 1; continue; }
+            if (k == 0) continue;
+            st->type = JW_GS_RANGE;
+            st->n = k;
+            s->nsteps++;
+        } else if (q[0] == 'h' && q[1] == 'c' && s->nsteps && s->step[s->nsteps - 1].type == JW_GS_RANGE) {
+            snprintf(s->step[s->nsteps - 1].prompt, sizeof st->prompt, "%s", q + 2);
+        } else if (q[0] == 'h' && q[1] == 'p') { s->hp = 1; }
+        else if (q[0] == 'h' && q[1] == 'f') { s->hf = 1; }
+        else if (q[0] == 'z' && q[1] == 'z') { s->zz = 1; }
+        else if (q[0] >= '0' && q[0] <= '9') {
+            const char *r = q;
+            int num = *r++ - '0';
+
+            if (*r >= '0' && *r <= '9')
+                num = num * 10 + *r++ - '0';
+            st->type = JW_GS_POINT;
+            st->n = num;
+            if (num > 0 && *r == '-') { st->mode = 1; r++; }
+            if (num > 0 && *r == '/') { st->mode = st->mode ? 2 : 2; r++; }
+            if (*r == '%' && r[1] == 'd') { st->number = 1; r += 2; }
+            if (!strncmp(r, "ln", 2)) { st->type = JW_GS_LINE; r += 2; }
+            else if (!strncmp(r, "ci", 2)) { st->type = JW_GS_CIRCLE; r += 2; }
+            else if (!strncmp(r, "ch", 2)) { st->type = JW_GS_TEXT; r += 2; }
+            snprintf(st->prompt, sizeof st->prompt, "%s", r);
+            s->nsteps++;
+        } else if ((q[0] == 'c' || q[0] == 'f') && q[1] == '&' && q[2] == '&') {
+            st->type = q[0] == 'c' ? JW_GS_ARGS : JW_GS_ARGS_IME;
+            s->nsteps++;
+        } else if (q[0] == 'c' || q[0] == 'f' || q[0] == 'i' || q[0] == 'k') {
+            char *sl;
+
+            st->type = q[0] == 'c' ? JW_GS_INPUT : q[0] == 'f' ? JW_GS_INPUT_IME
+                     : q[0] == 'i' ? JW_GS_CHOICE : JW_GS_CHOICE_LR;
+            snprintf(st->prompt, sizeof st->prompt, "%s", q + 1);
+            sl = strstr(st->prompt, "/_");
+            if (sl) {
+                snprintf(st->prefix, sizeof st->prefix, "%s", sl + 2);
+                *sl = 0;
+                if (!strncmp(st->prefix, "$X\"", 3) || !strncmp(st->prefix, "$1\"", 3))
+                    st->quote = 1;
+            }
+            if (st->type == JW_GS_CHOICE || st->type == JW_GS_CHOICE_LR) {
+                char *bar = strchr(st->prompt, '|');
+
+                if (bar) {
+                    *bar++ = 0;
+                    while (bar && *bar && st->nitems < 9) {
+                        char *nx = strchr(bar, '|');
+
+                        if (nx)
+                            *nx++ = 0;
+                        snprintf(st->item[st->nitems++], sizeof st->item[0], "%s", bar);
+                        bar = nx;
+                    }
+                }
+            }
+            s->nsteps++;
+        } else if (q[0] == 'h' && q[1] == '/') {
+            snprintf(s->next, sizeof s->next, "%s", q + 2);
+        }
+    }
+    if (!s->nsteps) {
+        s->step[0].type = JW_GS_END;
+        s->nsteps = 1;
+    }
+    return 1;
+}
+
+/* The argument string the BAT is started with: for each input or choice step
+   the prefix and the value and a blank.  `val[i]` is step i's text (empty if
+   it was skipped); a quoted prefix gets its closing quote. */
+int jw_gaibu_args(const jw_gscript *s, char val[][128], char *out, int cap)
+{
+    int i, len = 0;
+
+    out[0] = 0;
+    for (i = 0; i < s->nsteps; i++) {
+        const jw_gstep *st = &s->step[i];
+        int k;
+
+        if (st->type != JW_GS_INPUT && st->type != JW_GS_INPUT_IME
+            && st->type != JW_GS_CHOICE && st->type != JW_GS_CHOICE_LR)
+            continue;
+        if (!val[i][0])
+            continue;
+        k = snprintf(out + len, (size_t)(cap - len), "%s%s%s ", st->prefix, val[i],
+                     st->quote ? "\"" : "");
+        if (k < 0 || len + k >= cap)
+            break;
+        len += k;
+    }
+    return len;
+}
+
+/* The picked points as the header lines hp<n> (kind 1), hp<n>- (2), hp<n>ln/ci/ch */
+int jw_gaibu_points(const jw_gscript *s, const double (*xy)[2], char *out, int cap)
+{
+    int i, len = 0;
+
+    out[0] = 0;
+    for (i = 0; i < s->nsteps; i++) {
+        const jw_gstep *st = &s->step[i];
+        const char *w;
+        int k;
+
+        if (st->type != JW_GS_POINT && st->type != JW_GS_LINE
+            && st->type != JW_GS_CIRCLE && st->type != JW_GS_TEXT)
+            continue;
+        w = st->type == JW_GS_LINE ? "ln " : st->type == JW_GS_CIRCLE ? "ci "
+          : st->type == JW_GS_TEXT ? "ch " : st->mode ? "- " : "  ";
+        k = snprintf(out + len, (size_t)(cap - len), "hp%d%s%.15g %.15g\r\n", st->n,
+                     w, xy[i][0], xy[i][1]);
+        if (k < 0 || len + k >= cap)
+            break;
+        len += k;
+    }
+    return len;
+}

@@ -109,7 +109,7 @@ def main():
     for x, y, ww, hh, cid, k, chk, dft, en, text in rows:
         f.write('    { %4d, %4d, %4d, %3d, %5d, JW_MK_%-6s, %d, %d, %d,'
                 ' "%s" },\n'
-                % (x, y, ww, hh, cid, k, chk, dft, en, esc(text)))
+                % (x, y, ww, hh, (cid - 65536 if cid >= 32768 else cid), k, chk, dft, en, esc(text)))
     f.write('};\n#define JW_NMOJIKIJUN %d\n\n' % len(rows))
     f.write('#endif\n')
     f.close()

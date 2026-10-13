@@ -69,6 +69,14 @@ printf '    %s\n' "$(./tests/jws_test.exe $JWS 2>/dev/null | tail -1)"
 echo
 echo "=== 壊れたファイル —— 読み手が落ちず、いつまでも回らないか"
 ./tests/fuzz_test.exe orig/*.jww decomp/res/*.jww $JWS     decomp/res/*.dxf decomp/res/*.sfc decomp/res/*.jwc 2>/dev/null     | sed 's/^/    /'
+# the settings files (.jwf) go through the app; a second run keeps the command line short
+./tests/fuzz_test.exe decomp/res/*.jwf orig/*.jwf 2>/dev/null | sed 's/^/    /'
+# the picture decoders (BMP, PNG, JPEG, gzip) on damaged copies of the files
+# python tools/mkimgs.py leaves in tmp/img
+if ls tmp/img/dec_*.png >/dev/null 2>&1; then
+    ${CC:-gcc} -O1 -w -std=c99 -Isrc -o tmp/imgfuzz.exe tests/imgfuzz_test.c src/image.c src/imgpic.c src/jww.c src/cp932.c &&
+    JW_FUZZ_ROUNDS=1000 ./tmp/imgfuzz.exe tmp/img/dec_*.bmp tmp/img/dec_*.png tmp/img/dec_*.jpg decomp/res/bitmap/2562.bmp 2>&1 | sed 's/^/    /'
+fi
 
 echo
 echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が壊れないか"
@@ -78,6 +86,10 @@ echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が�
 # its own layers and colours)
 ./tests/cmdfuzz_test.exe decomp/res/aci1.dxf decomp/res/geo.sfc     decomp/res/t5.jwc 2>/dev/null | sed 's/^/    /'
 ./tests/cmdfuzz_test.exe 2>/dev/null | sed 's/^/    from nothing: /'
+# with pictures in the drawing to be selected, moved, trimmed and erased
+if ls tmp/img/dec_rgb.png >/dev/null 2>&1; then
+    JW_CMDFUZZ_IMG=tmp/img/dec_rgb.png,tmp/img/dec_q95.jpg,tmp/img/dec_pal8.bmp ./tests/cmdfuzz_test.exe orig/Test1.jww 2>/dev/null | sed 's/^/    with pictures: /'
+fi
 
 echo
 echo "=== 形式をまたいで続けて読む —— 前の読み手が残したものから始まる"

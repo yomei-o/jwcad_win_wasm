@@ -232,6 +232,14 @@ static int finish(int redraw)
         return 10;              /* 画像挿入: a bitmap, PNG or JPEG to pick */
     case JW_ACT_SAVE_IMAGES:
         return 11;              /* 同梱画像分離: the pictures to hand out */
+    case JW_ACT_MOJI_DOC:
+        return 13;              /* 文書: the picked texts as a .txt */
+    case JW_ACT_MOJI_EDIT:
+        return 14;              /* 外部エディタ: the page edits the lines */
+    case JW_ACT_MOJI_PASTE:
+        return 15;              /* 貼付: the clipboard's lines */
+    case JW_ACT_GAIBU:
+        return 12;              /* 外部変形: a browser cannot run a BAT */
     }
     if (redraw)
         app_paint();
@@ -438,6 +446,46 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_coord(void)
     return saved;
 }
 
+
+/* 文字の 範囲選択: 文書 and 外部エディタ hand a text file to the page, and
+   外部エディタ and 貼付 take one back. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_moji_doc(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_moji_doc(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_moji_edit_text(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_moji_edit_text(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_moji_apply(unsigned char *b, int n)
+{
+    if (!app_moji_apply(b, n))
+        return 0;
+    app_paint();
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_moji_sjis_get(void)
+{
+    return jw_moji_sjis();
+}
+
+EMSCRIPTEN_KEEPALIVE void jw_moji_sjis_put(int on)
+{
+    jw_moji_sjis_set(on);
+}
 /* 「SFCファイルを開く」, the same way. */
 EMSCRIPTEN_KEEPALIVE int jw_open_sfc(unsigned char *b, int n)
 {

@@ -67,7 +67,7 @@ int main(int argc, char **argv)
     unsigned char *b;
     long n;
     jw_drawing ref, *d;
-    const jw_obj *r[3];
+    const jw_obj *r[3] = { 0, 0, 0 };
     int i, k = 0, before;
     double ax, ay, bx, by, cx, cy;
 

@@ -1922,7 +1922,6 @@ static void dim_progressive(void)
     unsigned char *b;
     long n;
     jw_drawing ref, *d;
-    const jw_obj *all[4096];
     const jw_obj *plain = 0, *r[7];
     int m, i, k = 0, before, ok = 1;
 

@@ -52,7 +52,7 @@ static void run(const char *name, int dat, int item, jw_tg_pose p)
     unsigned char *b;
     jw_drawing ref, mine;
     const jw_tategu *t = jw_tategu_load(dat);
-    int i, k, ok = 1, bad = 0, nref = 0;
+    int i, k, ok = 1, bad = 0;
 
     snprintf(path, sizeof path, "decomp/res/%s.jww", name);
     memset(&ref, 0, sizeof ref);
@@ -74,9 +74,6 @@ static void run(const char *name, int dat, int item, jw_tg_pose p)
     }
     jw_tategu_put(&mine, t, item, &p);
     /* 原典の答えは 壁・（建具）・文字 の順。文字だけ外す */
-    for (i = 0; i < ref.ndrawn; i++)
-        if (ref.obj[i].cls != JW_MOJI)
-            nref++;
     {
         int ri = 0, mi = 0;
         const jw_obj *ra[256], *ma[256];

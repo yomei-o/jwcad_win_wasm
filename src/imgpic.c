@@ -67,7 +67,7 @@ static void put_lit(bw_t *w, int c)
 
 static const short LB[] = { 3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,259 };
 static const short LE[] = { 0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0 };
-static const short DB[] = { 1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,32769 };
+static const int DB[] = { 1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,32769 };
 static const short DE[] = { 0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13 };
 
 /* Fixed-Huffman deflate behind a hash of three bytes.  It does not have to
@@ -240,6 +240,7 @@ int jw_pic_parse(const jw_drawing *d, const jw_obj *o, jw_pic *p)
         *c = 0;
     }
     strncpy(p->name, buf, sizeof p->name - 1);
+    p->name[sizeof p->name - 1] = 0;
     p->nfield = nt;
     nv = nt;
     for (i = 0; i < nv; i++) {

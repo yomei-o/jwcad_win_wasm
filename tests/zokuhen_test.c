@@ -75,7 +75,7 @@ int main(void)
     long n;
     jw_drawing ref, *d;
     const jw_obj *rl[64], *pl[64];
-    int i, nr = 0, np = 0, at = -1;
+    int i, nr = 0, np = 0;
     unsigned short colour, lt;
     unsigned short layer, lgroup;
     jw_obj was;
