@@ -422,6 +422,11 @@ static int hk_iso_step = 60;      /* 精度（秒）: 60・10・4 */
 static int hk_iso_n(jw_drawing *d, double level, double label);
 static int hk_tbl_pending;
 static int tn_mode, tn_equi, tn_count, tn_sansha;
+/* 天空率比較計算 (1066): 0 でなければ 歩み + 1（原典 CZukeiTenkuu +0x1b0 = 0/1/2）。
+   tn_cv・tn_cx/cy は 計画・比較 の字の数値と位置、tn_cdec は 小数の桁の大きいほう（+0x828、2 以上）、
+   tn_csan は 三斜計算 の字（+0x82c） */
+static int tn_cmp, tn_cdec, tn_csan;
+static double tn_cv[2], tn_cx[2], tn_cy[2];
 static double tn_px, tn_py;
 static int hk_pts;
 static int hkp_n;
@@ -2492,6 +2497,7 @@ void jw_cmd_set(int id)
     hk_write_cond = 0;
     hk_north = 0;
     tn_mode = 0;
+    tn_cmp = 0;
     tn_count = 0;
     hk_sub = 0;
     hk_iso_on = 0;
@@ -2747,6 +2753,10 @@ void jw_cmd_esc_key(jw_drawing *d)
     }
     /* 天空図: 中心待ち → 測定点待ち → 初めのバー と一段ずつ（tools/tnprobe.sh
        で Esc を二回、バーが 9006 系 → 9005 → 32971 と戻るのを読んだ） */
+    if (current == JW_CMD_TENKU && tn_cmp > 0) {
+        tn_cmp--;                   /* FUN_007346f0 の +0xbc = 5: 歩みを一つ戻し、初めの歩みなら抜ける */
+        return;
+    }
     if (current == JW_CMD_TENKU && tn_mode > 0) {
         tn_mode--;
         return;
@@ -10208,6 +10218,8 @@ int jw_cmd_bar_check(int id)
     if (id >= 9005 && id <= 9015 && current == JW_CMD_TENKU) {
         int c = jw_cmd_bar_check(1323) > 0, s = jw_cmd_bar_check(1325) > 0;
 
+        if (tn_cmp)
+            return id == 9012;      /* 天空率比較計算 は ≪ だけ */
         if (tn_mode == 1)
             return id == (tn_sansha ? 9010 : tn_equi ? 9013 : 9005);
         if (tn_mode == 2) {
@@ -10506,6 +10518,16 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_HIKAGE && hk_sub && (id == 1065 || id == 1066)) {
         hk_outlines(d, id == 1066);
+        return 1;
+    }
+    if (current == JW_CMD_TENKU && id == 1066 && !tn_mode && !tn_cmp) {
+        tn_cmp = 1;                 /* FUN_007393f0: +0xbc = 5、+0x1b0 = 0 */
+        tn_cdec = 2;
+        tn_csan = 0;
+        return 1;
+    }
+    if (current == JW_CMD_TENKU && id == 1121 && tn_cmp > 0) {
+        tn_cmp--;
         return 1;
     }
     if (current == JW_CMD_TENKU && (id == 1064 || id == 1065)) {
@@ -14977,6 +14999,69 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         else if (hk_tbl_pending == 1071)
             hk_table23(d, x, y, 3);
         return;
+    }
+    if (current == JW_CMD_TENKU && tn_cmp && d && button <= 1) {
+        /* 天空率比較計算 (1066)。一つ目・二つ目は字を指示（FUN_0074e1c0、拾いは FUN_004500e0。
+           移植は 点から字の枠までの近さで拾う。原典の拾い方は確認が要る）、三つ目は 結果の位置
+           「(L)free  (R)Read」（0x16a3）。答えは decomp/res/hk_tc1〜tc3（tools/tnbatch4.sh） */
+        if (tn_cmp <= 2) {
+            int i, best = -1;
+            double bd = jw_pick_tol(v), val;
+            int dec;
+
+            for (i = 0; i < d->ndrawn; i++) {
+                const jw_obj *o = &d->obj[i];
+                double ux, uy, len, lx, ly, ex, ey, dd;
+
+                if (o->cls != JW_MOJI)
+                    continue;
+                len = hypot(o->d[2] - o->d[0], o->d[3] - o->d[1]);
+                ux = len > 0.0 ? (o->d[2] - o->d[0]) / len : 1.0;
+                uy = len > 0.0 ? (o->d[3] - o->d[1]) / len : 0.0;
+                lx = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
+                ly = -(x - o->d[0]) * uy + (y - o->d[1]) * ux;
+                ex = lx < 0.0 ? -lx : lx > len ? lx - len : 0.0;
+                ey = ly < 0.0 ? -ly : ly > o->d[5] ? ly - o->d[5] : 0.0;
+                dd = hypot(ex, ey);
+                if (dd <= bd) {
+                    bd = dd;
+                    best = i;
+                }
+            }
+            if (best < 0 || !jw_tenku_cmp_parse(jw_str(d, d->obj[best].text), &val, &dec,
+                                                &tn_csan))
+                return;             /* 原典は 0x16a4「天空率ではありません」 */
+            if (tn_cmp == 1) {
+                tn_csan = 0;
+                jw_tenku_cmp_parse(jw_str(d, d->obj[best].text), &val, &dec, &tn_csan);
+                tn_cdec = 2;
+            }
+            if (dec > tn_cdec)
+                tn_cdec = dec;
+            tn_cv[tn_cmp - 1] = val;
+            tn_cx[tn_cmp - 1] = d->obj[best].d[0];
+            tn_cy[tn_cmp - 1] = d->obj[best].d[1];
+            tn_cmp++;
+            return;
+        } else {
+            double px = x, py = y, sxr, syr;
+            op_t *rec;
+            int n0 = d->ndrawn;
+
+            if (button == 1) {
+                if (!jw_read(d, v, x, y, &sxr, &syr))
+                    return;
+                px = sxr;
+                py = syr;
+            }
+            rec = op_new();
+            jw_tenku_cmp_write(d, tn_cv[0], tn_cv[1], tn_cdec, tn_csan,
+                               tn_cx[0], tn_cy[0], tn_cx[1], tn_cy[1], px, py);
+            if (rec)
+                rec->n = d->ndrawn - n0;
+            tn_cmp = 1;             /* +0x1b0 = 0 に戻る（FUN_00739bd0） */
+            return;
+        }
     }
     if (current == JW_CMD_TENKU && tn_mode && !hk_north && d && button <= 1) {
         double px = x, py = y;

@@ -84,4 +84,13 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
 int jw_tenku_draw(jw_drawing *d, const hk_tenku_opts *o,
                   double px, double py, double cx, double cy, double *pct);
 
+/* 天空率比較計算 (1066)。CZukeiTenkuu の +0xbc = 5 の歩み（FUN_00739bd0 の 0x1b0 = 0/1/2）。
+ * 字「… 天空率 … = 数値 … %」から数値と小数の桁を読む（FUN_0074e1c0）。天空率でなければ 0
+ * （原典は 0x16a4「天空率ではありません」）。三斜計算 の字なら *sansha = 1（+0x82c）。 */
+int jw_tenku_cmp_parse(const char *s, double *val, int *dec, int *sansha);
+/* 結果を書く（FUN_00737bf0）。(ax,ay)・(bx,by) は 計画・比較 の字の位置、(x,y) は 結果の位置
+ * （数値左中）。差 |計画| − |比較| を %.2lf（桁 3 以上なら %.3lf）で、その前に ＜ か ＝ を置く。 */
+void jw_tenku_cmp_write(jw_drawing *d, double plan, double cmp, int dec, int sansha,
+                        double ax, double ay, double bx, double by, double x, double y);
+
 #endif

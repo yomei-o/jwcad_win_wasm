@@ -1107,3 +1107,155 @@ int jw_tenku_draw(jw_drawing *d, const hk_tenku_opts *o,
         return n < 0 ? -1 : -2;
     return jw_tenku_draw_edges2(d, o, e, b, n, px, py, cx, cy, pct);
 }
+
+/* ------------------------------------------------------------------ */
+/* 天空率比較計算 (1066)。原典の答え tools/tnbatch4.sh → decomp/res/hk_tc1〜tc3。 */
+#define S_SANSHAKEI  "\x8e\x4f\x8e\xce\x8c\x76\x8e\x5a"      /* 0x1672 三斜計算 */
+#define S_LT         "\x81\x83"                              /* 0x16a5 ＜ */
+#define S_EQ         "\x81\x81"                              /* 0x180b ＝ */
+
+int jw_tenku_cmp_parse(const char *s, double *val, int *dec, int *sansha)
+{
+    /* FUN_0074e1c0: 天空率 (0x1652)・"="（0x95bbfc）・"%"（0x95bc08）の位置が
+       どれも 0 以上で、% が = より後。= の次から % の前までを取り、後ろの空白を落とし、
+       "."（0x95bcc4）の後ろの桁数を数える。等距離の「[天空比]」は 天空率 を含まないので
+       ここで落ちる（原典に確認が要る） */
+    const char *t = strstr(s, S_TENKURITSU), *eq, *pc, *dot;
+    char buf[64];
+    size_t n;
+
+    if (!t)
+        return 0;
+    eq = strchr(s, '=');
+    pc = strchr(s, '%');
+    if (!eq || !pc || pc <= eq)
+        return 0;
+    n = (size_t)(pc - eq - 1);
+    if (n >= sizeof buf)
+        n = sizeof buf - 1;
+    memcpy(buf, eq + 1, n);
+    buf[n] = 0;
+    while (n > 0 && buf[n - 1] == ' ')
+        buf[--n] = 0;
+    if (n == 0)
+        return 0;
+    *val = atof(buf);
+    dot = strchr(buf, '.');
+    *dec = dot ? (int)(n - (size_t)(dot - buf) - 1) : 0;
+    if (sansha && strstr(s, S_SANSHAKEI))
+        *sansha = 1;
+    return 1;
+}
+
+void jw_tenku_cmp_write(jw_drawing *d, double plan, double cmp, int dec, int sansha,
+                        double ax, double ay, double bx, double by, double x, double y)
+{
+    /* FUN_00737bf0（_unassigned.c 300962〜） */
+    double diff = fabs(plan) - fabs(cmp), dx = ax - bx, dy = ay - by;
+    double th, ang, w, h, sp, cx, cy, ox, oy, a, b;
+    int col, n = 3;
+    char buf[64];
+    jw_obj *o;
+
+    /* 二つの字が横に並ぶ（|dy| < |dx| − 1e-7）なら 字は 90°、記号は 0°／180°。
+       縦に並ぶなら 字は 0°、記号は 90°／−90°（hk_tc1〜tc3 は縦だけ。横は原典に確認が要る） */
+    if (fabs(dy) < fabs(dx) - 1e-7) {
+        th = 90.0;
+        ang = 180.0;
+        if (0.0 <= dx ? 0.0 < diff : diff < 0.0)
+            ang = 0.0;
+    } else {
+        th = 0.0;
+        ang = 90.0;
+        if (dy <= 0.0 ? 0.0 < diff : diff < 0.0)
+            ang = -90.0;
+    }
+    /* 文字種は DAT_00a0beb8 / 100（1〜10 でなければ 3）。移植は 3 に決め打ち（原典に確認が要る） */
+    w = d->style[n - 1].w;
+    h = d->style[n - 1].h;
+    sp = d->style[n - 1].sp;
+    col = d->style[n - 1].color;
+    /* 許し: DAT_00a0bec4 / 10 が 1 以上で 三斜計算 でなければ n/1000（既定 0.02）。
+       そうでなければ 差 ≤ 1e-7 で 文字種 0・色 8。hk_tc1（−0.06）・tc3（0）は 色 8、
+       tc2（+0.06）は 文字種 3 のまま。どちらの枝かは答えから分からない（原典に確認が要る） */
+    (void)sansha;
+    if (diff <= 1e-7) {
+        n = 0;
+        col = 8;
+    }
+    /* 数値: 桁 3 未満は %.2lf、ほかは %.3lf。左中に置く（hk_tc1: 原点は (x, y − h/2)） */
+    snprintf(buf, sizeof buf, dec < 3 ? "%.2f" : "%.3f", diff);
+    a = th * PI / 180.0;
+    o = jw_add(d, JW_MOJI);
+    if (!o)
+        return;
+    {
+        int k = halves(buf);
+        double len = k * w / 2.0 + (k > 1 ? (k - 1) * sp / 2.0 : 0.0);
+
+        ox = x + h / 2.0 * sin(a);
+        oy = y - h / 2.0 * cos(a);
+        o->color = (unsigned short)col;
+        o->ltype = 4;
+        o->d[0] = ox;
+        o->d[1] = oy;
+        o->d[2] = ox + len * (fabs(cos(a)) < 1e-12 ? 0.0 : cos(a));
+        o->d[3] = oy + len * (fabs(sin(a)) < 1e-12 ? 0.0 : sin(a));
+        o->d[4] = w;
+        o->d[5] = h;
+        o->d[6] = sp;
+        o->d[7] = th;
+        o->n = n;
+        o->text = jw_add_str(d, buf);
+        o->face = jw_add_str(d, S_FACE);
+    }
+    /* 記号: 中心は 結果の位置から 2.2 × 幅 だけ 字の向きの逆へ。そこから 記号の向き ang に
+       応じた角へ（0x738630〜0x7387f0）。|差| < 1e-7 なら ＝、ほかは ＜ */
+    cx = x - 2.2 * w * cos(a);
+    cy = y - 2.2 * w * sin(a);
+    a = w / 2.0;
+    b = h / 2.0;
+    {
+        double p = a, q = b;            /* local_6578, local_6570 */
+
+        if (-0.1 < ang) {
+            p = -b;
+            q = a;
+        }
+        q = -q;
+        if (89.0 < ang) {
+            p = -a;
+            q = b;
+        }
+        if (179.0 < ang) {
+            p = b;
+            q = a;
+        }
+        ox = cx + q;
+        oy = cy + p;
+    }
+    o = jw_add(d, JW_MOJI);
+    if (!o)
+        return;
+    {
+        double r = ang * PI / 180.0, c = cos(r), s = sin(r);
+
+        if (fabs(c) < 1e-12)
+            c = 0.0;
+        if (fabs(s) < 1e-12)
+            s = 0.0;
+        o->color = (unsigned short)col;
+        o->ltype = 5;
+        o->d[0] = ox;
+        o->d[1] = oy;
+        o->d[2] = ox + c * w;
+        o->d[3] = oy + s * w;
+        o->d[4] = w;
+        o->d[5] = h;
+        o->d[6] = sp;
+        o->d[7] = ang;
+        o->n = n;
+        o->text = jw_add_str(d, fabs(diff) < 1e-7 ? S_EQ : S_LT);
+        o->face = jw_add_str(d, S_FACE);
+    }
+}
