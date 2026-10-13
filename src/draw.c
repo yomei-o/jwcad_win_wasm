@@ -2899,41 +2899,6 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
 
-    /* 目盛 first of all: a grid of single pixels under the drawing.
-     *
-     * The drawing carries its own spacing and the least number of pixels it
-     * is worth drawing at (jw_drawing's mesh_*).  Of the fifteen samples only
-     * 木造平面例.jww has 9 mm rather than 5, and it is the only one the
-     * original draws a grid for -- 9 mm at its A4 scale is 29.4 pixels and
-     * the minimum is 15, while 5 mm never reaches 11.6.  That one rule covers
-     * all fifteen.
-     */
-    /* The >= 1.0 pair is not the original's rule, which is mesh_min alone.
-       It is there because a damaged file may say mesh_min <= 0 with a
-       spacing of 1e-300, and then the two loops below step across the window
-       in 1e-300 millimetre hops and never come back -- and the first pixel
-       divides by that spacing, which is past what a long holds.  Every
-       drawing to hand says 15, so no real one notices. */
-    if (d->mesh_ix > 0.0 && d->mesh_iy > 0.0
-        && d->mesh_ix / v->mmpp >= d->mesh_min
-        && d->mesh_iy / v->mmpp >= d->mesh_min
-        && d->mesh_ix / v->mmpp >= 1.0
-        && d->mesh_iy / v->mmpp >= 1.0) {
-        /* over the whole drawing area, not just the sheet: the original's
-           grid carries two more columns past each edge of the paper */
-        double lx = v->ox + (v->clip.x - v->bx) * v->mmpp;
-        double hx = v->ox + (v->clip.x + v->clip.w - v->bx) * v->mmpp;
-        double ly = v->oy - (v->clip.y + v->clip.h - v->by) * v->mmpp;
-        double hy = v->oy - (v->clip.y - v->by) * v->mmpp;
-        double x0 = d->mesh_ox, y0 = d->mesh_oy, x, y;
-        long k = jw_px_round(floor((lx - x0) / d->mesh_ix));
-        long j0 = jw_px_round(floor((ly - y0) / d->mesh_iy));
-
-        for (x = x0 + k * d->mesh_ix; x <= hx; x += d->mesh_ix)
-            for (y = y0 + j0 * d->mesh_iy; y <= hy; y += d->mesh_iy)
-                put(fb, &v->clip, jw_sx(v, x), jw_sy(v, y), d->pen_rgb[2]);
-    }
-
     /* The solids go down first, and everything else on top of them.
      *
      * Not in element order: Ａマンション平面例.jww has 79 of them making its
@@ -3145,6 +3110,46 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         }
     }
+
+    /* 目盛: a grid of single pixels, on top of the lines and solids.
+     *
+     * The drawing carries its own spacing and the least number of pixels it
+     * is worth drawing at (jw_drawing's mesh_*).  Of the fifteen samples only
+     * 木造平面例.jww has 9 mm rather than 5, and it is the only one the
+     * original draws a grid for -- 9 mm at its A4 scale is 29.4 pixels and
+     * the minimum is 15, while 5 mm never reaches 11.6.  That one rule covers
+     * all fifteen.
+     *
+     * The grid used to be drawn first of all, under everything -- reasonable
+     * since it is meant to sit behind the drawing, but wrong where a wall's
+     * corner lands exactly on a grid point: the original's grid dot (always
+     * pen_rgb[2], black) is the one left showing there, not the wall's own
+     * colour, so the grid has to go down after the lines and solids.
+     * 木造平面例 has four such corners, each exactly 29 (= round(9/mmpp))
+     * pixels from the next, and each one pixel the port had wrong (an own
+     * pen colour where the original shows the grid's black) until this move
+     * (`sh tools/scoreall.sh`, 5 -> 0 pixels).
+     */
+    if (d->mesh_ix > 0.0 && d->mesh_iy > 0.0
+        && d->mesh_ix / v->mmpp >= d->mesh_min
+        && d->mesh_iy / v->mmpp >= d->mesh_min
+        && d->mesh_ix / v->mmpp >= 1.0
+        && d->mesh_iy / v->mmpp >= 1.0) {
+        /* over the whole drawing area, not just the sheet: the original's
+           grid carries two more columns past each edge of the paper */
+        double lx = v->ox + (v->clip.x - v->bx) * v->mmpp;
+        double hx = v->ox + (v->clip.x + v->clip.w - v->bx) * v->mmpp;
+        double ly = v->oy - (v->clip.y + v->clip.h - v->by) * v->mmpp;
+        double hy = v->oy - (v->clip.y - v->by) * v->mmpp;
+        double x0 = d->mesh_ox, y0 = d->mesh_oy, x, y;
+        long k = jw_px_round(floor((lx - x0) / d->mesh_ix));
+        long j0 = jw_px_round(floor((ly - y0) / d->mesh_iy));
+
+        for (x = x0 + k * d->mesh_ix; x <= hx; x += d->mesh_ix)
+            for (y = y0 + j0 * d->mesh_iy; y <= hy; y += d->mesh_iy)
+                put(fb, &v->clip, jw_sx(v, x), jw_sy(v, y), d->pen_rgb[2]);
+    }
+
     /* the pictures lie over everything, in the order they were put in */
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
