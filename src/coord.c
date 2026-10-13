@@ -150,6 +150,20 @@ static int pen_w(const jw_drawing *d, int col)
     return (int)w;
 }
 
+/* 外部変形: the elements a script step picked (ln, ci, ch) are named in the
+   file by a line `hhp<n>ln` (or ci, ch) just before their data.  tag[i] is
+   the number for element i, -1 for none; kind[i] is 'l', 'c' or 'h'. */
+static const int *coord_tag_n;
+static const char *coord_tag_kind;
+static int coord_tag_cnt;
+
+void jw_coord_tags(const int *n, const char *kind, int cnt)
+{
+    coord_tag_n = n;
+    coord_tag_kind = kind;
+    coord_tag_cnt = cnt;
+}
+
 int jw_write_coord(const jw_drawing *d, double ox, double oy,
                    unsigned char **out, long *n)
 {
@@ -256,6 +270,14 @@ int jw_write_coord(const jw_drawing *d, double ox, double oy,
                 lw = wid;
                 sprintf(t, "lw%d", lw); line(&w, t);
             }
+        }
+        if (coord_tag_n && i % d->ndrawn < coord_tag_cnt
+            && coord_tag_n[i % d->ndrawn] >= 0) {
+            int ti = i % d->ndrawn;
+
+            sprintf(t, "hhp%d%s", coord_tag_n[ti],
+                    coord_tag_kind[ti] == 'l' ? "ln" : coord_tag_kind[ti] == 'c' ? "ci" : "ch");
+            line(&w, t);
         }
         switch (o->cls) {
         case JW_SEN:

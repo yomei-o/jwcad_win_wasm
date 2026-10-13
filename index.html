@@ -26,6 +26,7 @@
 <div id="note">
   <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt,.jwf,.bmp,.png,.jpg,.jpeg"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く（画像は 画像編集 の 画像挿入 で）</label>
   <input type="file" id="pickimg" accept=".bmp,.png,.jpg,.jpeg,image/bmp,image/png,image/jpeg" hidden>
+  <select id="recent" title="最近のファイル" hidden></select>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
@@ -416,6 +417,7 @@
       await w.write(bytes);
       await w.close();
       handles.set(h.name, h);
+      recentAdd(h).then(recentShow);
       if (/\.jww$/i.test(h.name)) { openedName = h.name; setName(h.name); }
       document.getElementById('msg').textContent = h.name + ' に保存しました';
       return true;
@@ -675,6 +677,55 @@
     e.target.value = '';
     if (f) loadImage(f, true);
   });
+  // Recent files: the handles of what the File System Access API opened or
+  // saved, kept in IndexedDB (a handle cannot go in localStorage).  Choosing
+  // one asks for permission again if the browser wants it.
+  const recentSel = document.getElementById('recent');
+  const idb = () => new Promise((ok, no) => {
+    const q = indexedDB.open('jw_recent', 1);
+    q.onupgradeneeded = () => q.result.createObjectStore('h', { keyPath: 'name' });
+    q.onsuccess = () => ok(q.result);
+    q.onerror = () => no(q.error);
+  });
+  async function recentAll() {
+    try {
+      const db = await idb();
+      return await new Promise(ok => {
+        const r = db.transaction('h').objectStore('h').getAll();
+        r.onsuccess = () => ok(r.result.sort((a, b) => b.t - a.t).slice(0, 8));
+        r.onerror = () => ok([]);
+      });
+    } catch (e) { return []; }
+  }
+  async function recentAdd(h) {
+    try {
+      const db = await idb();
+      db.transaction('h', 'readwrite').objectStore('h').put({ name: h.name, h, t: Date.now() });
+    } catch (e) { /* no IndexedDB, or a handle it cannot store */ }
+  }
+  async function recentShow() {
+    const l = await recentAll();
+    recentSel.textContent = '';
+    recentSel.add(new Option('最近のファイル', ''));
+    l.forEach(e => recentSel.add(new Option(e.name, e.name)));
+    recentSel.hidden = !l.length;
+    recentSel.onchange = async () => {
+      const e = l.find(x => x.name === recentSel.value);
+      recentSel.value = '';
+      if (!e) return;
+      try {
+        if (e.h.queryPermission && await e.h.queryPermission({ mode: 'readwrite' }) !== 'granted'
+            && await e.h.requestPermission({ mode: 'readwrite' }) !== 'granted') return;
+        const f = await e.h.getFile();
+        if (/\.jww$/i.test(f.name)) handles.set(f.name, e.h);
+        load(f);
+      } catch (err) {
+        document.getElementById('msg').textContent = e.name + ' を開けません';
+      }
+    };
+  }
+  if (window.indexedDB && window.showOpenFilePicker) recentShow();
+
   // File System Access API open: keeps the handle so a later 上書 writes back.
   async function pickFile() {
     if (!window.showOpenFilePicker) { document.getElementById('pick').click(); return; }
@@ -683,6 +734,7 @@
         accept: { 'application/octet-stream': ['.jww', '.dxf', '.sfc', '.jwc', '.jws', '.txt', '.jwf'] } }] });
       const f = await h.getFile();
       if (/\.jww$/i.test(f.name)) handles.set(f.name, h);
+      recentAdd(h).then(recentShow);
       load(f);
     } catch (e) {
       if (!e || e.name !== 'AbortError') document.getElementById('pick').click();

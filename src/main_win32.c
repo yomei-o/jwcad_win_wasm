@@ -828,20 +828,21 @@ static int tag_jump(HWND wnd)
     return load_file(path);
 }
 
-/* 外部変形: pick a BAT, write JWC_TEMP.TXT next to it (or in the current folder),
-   run the BAT and wait, and read the file back (tmp/spec_gaibu/A_gaibu_henkei.md) */
-static int run_gaibu(HWND wnd)
+/* External transform: pick a BAT and hand it over (the steps are then asked in
+   the drawing window), and when they are answered run it: write JWC_TEMP.TXT
+   in the BAT's folder, start the BAT with its arguments and wait, read the
+   file back (tmp/spec_gaibu/A_gaibu_henkei.md) */
+static wchar_t gaibu_bat[MAX_PATH];
+
+static int pick_gaibu(HWND wnd)
 {
     static const wchar_t filter[] = L"BAT (*.bat)\0*.bat\0\0";
     OPENFILENAMEW o;
-    wchar_t path[MAX_PATH], dir[MAX_PATH], cmd[MAX_PATH + 8], *sl;
-    unsigned char *bat = 0, *t = 0, *back = 0;
-    long bn = 0, tn = 0, kn = 0;
+    wchar_t path[MAX_PATH];
+    unsigned char *bat;
+    long bn;
     FILE *f;
-    int r;
-    STARTUPINFOW si;
-    PROCESS_INFORMATION pi;
-    char msg[160];
+    int ok;
 
     path[0] = 0;
     ZeroMemory(&o, sizeof o);
@@ -867,14 +868,34 @@ static int run_gaibu(HWND wnd)
     }
     fclose(f);
     bat[bn] = 0;
-    r = app_gaibu_begin((const char *)bat, bn, &t, &tn);
+    ok = app_gaibu_load((const char *)bat, bn);
     free(bat);
-    if (r != 1) {
-        MessageBoxW(wnd, r == 0 ? L"Not a batch file for Jw_cad (no #jw line)."
-                                : L"Pick the data first.", L"jw_win", MB_OK);
+    if (!ok) {
+        MessageBoxW(wnd, L"Not a batch file for Jw_cad (no #jw line).", L"jw_win", MB_OK);
         return 0;
     }
-    wcscpy(dir, path);
+    lstrcpynW(gaibu_bat, path, MAX_PATH);
+    return 1;
+}
+
+static int run_gaibu(HWND wnd)
+{
+    wchar_t dir[MAX_PATH], cmd[MAX_PATH + 160], *sl, wargs[160];
+    unsigned char *t = 0, *back = 0;
+    long tn = 0, kn = 0;
+    char args[128], msg[160];
+    FILE *f;
+    int r;
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+
+    (void)wnd;
+    args[0] = 0;
+    if (app_gaibu_run_begin(&t, &tn, args, (int)sizeof args) != 1) {
+        app_gaibu_run_end();
+        return 0;
+    }
+    wcscpy(dir, gaibu_bat);
     sl = wcsrchr(dir, (wchar_t)92);
     if (sl)
         *sl = 0;
@@ -882,12 +903,14 @@ static int run_gaibu(HWND wnd)
     f = _wfopen(L"JWC_TEMP.TXT", L"wb");
     if (!f) {
         free(t);
+        app_gaibu_run_end();
         return 0;
     }
     fwrite(t, 1, (size_t)tn, f);
     fclose(f);
     free(t);
-    swprintf(cmd, MAX_PATH + 8, L"\"%s\"", path);
+    MultiByteToWideChar(932, 0, args, -1, wargs, 160);
+    swprintf(cmd, MAX_PATH + 160, L"\"%s\" %s", gaibu_bat, wargs);
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
     if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi)) {
@@ -896,8 +919,10 @@ static int run_gaibu(HWND wnd)
         CloseHandle(pi.hThread);
     }
     f = _wfopen(L"JWC_TEMP.TXT", L"rb");
-    if (!f)
+    if (!f) {
+        app_gaibu_run_end();
         return 0;
+    }
     fseek(f, 0, SEEK_END);
     kn = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -908,6 +933,7 @@ static int run_gaibu(HWND wnd)
         r = -1;
     fclose(f);
     free(back);
+    app_gaibu_run_end();
     return r >= 0;
 }
 
@@ -1079,6 +1105,8 @@ static int do_action(HWND wnd)
     case JW_ACT_MOJI_PASTE:
         return moji_file(wnd, 2);
     case JW_ACT_GAIBU:
+        return pick_gaibu(wnd);
+    case JW_ACT_GAIBU_RUN:
         return run_gaibu(wnd);
     case JW_ACT_SAVE_IMAGES:
         save_images(wnd);

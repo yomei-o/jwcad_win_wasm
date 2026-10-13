@@ -1,6 +1,7 @@
 /* 外部変形 (32913): the BAT header, the JWC_TEMP.TXT that goes out and the
  * one that comes back (tmp/spec_gaibu/A_gaibu_henkei.md).  The program is
  * played by this test. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -206,6 +207,114 @@ int main(void)
            "  with hp lines after hn");
         ck(!strcmp(args, "/N7 "), "  and the argument string /N7");
         free(t3);
+    }
+
+    /* the whole walk: the BAT picked, a range, two points, a typed value and
+       an item, and then the run */
+    {
+        static const char sb4[] =
+            "REM #jw\r\nREM #h1\r\nREM #0Base\r\nREM #2-%dNext\r\nREM #cN/_/N\r\n"
+            "REM #kWhich|a|b/_/K\r\nREM #e\r\n";
+        const fb_t *fb = app_fb();
+        rect_t rc;
+        unsigned char *t4 = 0;
+        long n4 = 0;
+        char args4[128];
+        const char *pr;
+
+        ui_view_rect(fb->w, fb->h, &rc);
+        ck(load(), "walk: Test5 again, nothing picked");
+        ck(app_command(32913) && app_take_action() == JW_ACT_GAIBU, "walk: 外部変形 asks for a BAT");
+        ck(app_gaibu_load(sb4, (long)strlen(sb4)) && jw_cmd() == JW_CMD_HANI, "  the BAT is taken and the range is asked for");
+        app_press(rc.x + 100, rc.y + 100, 0);
+        app_press(rc.x + rc.w - 4, rc.y + rc.h - 4, 1);
+        ck(app_key(13) && jw_cmd() == 0x8091 && app_take_action() == JW_ACT_NONE, "  Enter settles it and goes on");
+        pr = jw_cmd_prompt();
+        ck(pr && strstr(pr, "Base"), "  the prompt is the script's: Base");
+        app_press(rc.x + 200, rc.y + 200, 0);
+        pr = jw_cmd_prompt();
+        ck(pr && strstr(pr, "No.2") && strstr(pr, "Next"), "  and then No.2 Next");
+        app_press(rc.x + 300, rc.y + 250, 0);
+        app_key('5');
+        pr = jw_cmd_prompt();
+        ck(pr && strstr(pr, "5_"), "  a typed value shows in the prompt");
+        app_key(13);
+        app_key('2');
+        ck(jw_cmd_gaibu_ready() && app_take_action() == JW_ACT_GAIBU_RUN, "  the last answer asks for the run");
+        ck(app_gaibu_run_begin(&t4, &n4, args4, sizeof args4) == 1 && t4, "  run_begin writes the file");
+        t4[n4] = 0;
+        ck(strstr((char *)t4, "\r\nhp0  ") && strstr((char *)t4, "\r\nhp2- "), "  with hp0 and hp2-");
+        ck(!strcmp(args4, "/N5 /K2 "), "  and the arguments /N5 /K2");
+        free(t4);
+        app_gaibu_run_end();
+        ck(!jw_cmd_gaibu_active(), "  the run is over");
+    }
+
+    /* a rubber line "/" rounds the next point to 15 degrees; a picked line is named */
+    {
+        static const char sb5[] =
+            "REM #jw\r\nREM #h1\r\nREM #1/First\r\nREM #2Second\r\nREM #e\r\n";
+        const fb_t *fb = app_fb();
+        rect_t rc;
+        unsigned char *t5 = 0;
+        long n5 = 0;
+        char args5[64];
+        double x1, y1, x2, y2;
+        const char *a, *b2;
+
+        ui_view_rect(fb->w, fb->h, &rc);
+        ck(load(), "15 degrees: Test5 again");
+        app_command(32913);
+        app_take_action();
+        ck(app_gaibu_load(sb5, (long)strlen(sb5)), "  BAT taken");
+        app_press(rc.x + 100, rc.y + 100, 0);
+        app_press(rc.x + rc.w - 4, rc.y + rc.h - 4, 1);
+        app_key(13);
+        app_press(rc.x + 200, rc.y + 200, 0);
+        app_press(rc.x + 300, rc.y + 210, 0);
+        ck(app_take_action() == JW_ACT_GAIBU_RUN, "  both points in");
+        ck(app_gaibu_run_begin(&t5, &n5, args5, sizeof args5) == 1, "  written");
+        t5[n5] = 0;
+        a = strstr((char *)t5, "hp1- ");
+        b2 = strstr((char *)t5, "hp2  ");
+        ck(a && b2 && sscanf(a + 5, "%lf %lf", &x1, &y1) == 2 && sscanf(b2 + 5, "%lf %lf", &x2, &y2) == 2
+           && fabs(y1 - y2) < 1e-9 && x2 > x1, "  the second point is level with the first");
+        free(t5);
+        app_gaibu_run_end();
+    }
+
+    /* hhp<n>ln before a tagged element */
+    {
+        jw_drawing *dd;
+        int *num, i, hit = -1;
+        char *kind, *txt;
+        unsigned char *w = 0;
+        long wn = 0;
+
+        ck(load(), "hhp: Test5 again");
+        dd = app_drawing();
+        pick_all();
+        num = (int *)malloc((size_t)(dd->ndrawn + 1) * sizeof *num);
+        kind = (char *)malloc((size_t)dd->ndrawn + 1);
+        for (i = 0; i < dd->ndrawn; i++) {
+            num[i] = -1;
+            kind[i] = 'l';
+            if (hit < 0 && dd->obj[i].sel && dd->obj[i].cls == JW_SEN) {
+                hit = i;
+                num[i] = 3;
+            }
+        }
+        jw_coord_tags(num, kind, dd->ndrawn);
+        jw_write_coord(dd, 0, 0, &w, &wn);
+        jw_coord_tags(0, 0, 0);
+        txt = (char *)malloc((size_t)wn + 1);
+        memcpy(txt, w, (size_t)wn);
+        txt[wn] = 0;
+        ck(hit >= 0 && strstr(txt, "hhp3ln") != 0, "a tagged line is preceded by hhp3ln");
+        free(txt);
+        free(w);
+        free(num);
+        free(kind);
     }
     printf("%s\n", fails ? "FAILED" : "all ok");
     return fails != 0;

@@ -450,4 +450,7 @@ int jw_gaibu_script(const char *bat, long n, int item, jw_gscript *s);
 int jw_gaibu_args(const jw_gscript *s, char val[][128], char *out, int cap);
 int jw_gaibu_points(const jw_gscript *s, const double (*xy)[2], char *out, int cap);
 
+/* the elements a 外部変形 step picked get an hhp<n>ln/ci/ch line before them */
+void jw_coord_tags(const int *n, const char *kind, int cnt);
+
 #endif

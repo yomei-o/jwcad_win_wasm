@@ -75,7 +75,9 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        /* 外部変形 with something picked: app_gaibu_begin, run, app_gaibu_end */
        JW_ACT_GAIBU,
        /* 文字の 範囲選択: 文書 (a .TXT to write), 外部エディタ, 貼付 */
-       JW_ACT_MOJI_DOC, JW_ACT_MOJI_EDIT, JW_ACT_MOJI_PASTE };
+       JW_ACT_MOJI_DOC, JW_ACT_MOJI_EDIT, JW_ACT_MOJI_PASTE,
+       /* 外部変形: every step is answered, run the BAT (app_gaibu_run_begin) */
+       JW_ACT_GAIBU_RUN };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
@@ -179,6 +181,9 @@ int  app_figure_save(unsigned char **out, long *n);
 int  app_coord_save(unsigned char **out, long *n);
 int  app_gaibu_begin(const char *bat, long bn, unsigned char **out, long *n);
 int  app_gaibu_end(const unsigned char *b, long n, char *msg, int cap);
+int  app_gaibu_load(const char *bat, long n);
+int  app_gaibu_run_begin(unsigned char **out, long *n, char *args, int acap);
+void app_gaibu_run_end(void);
 int  app_gaibu_begin2(const char *bat, long bn, int item, const double (*xy)[2],
                       char val[][128], unsigned char **out, long *n,
                       char *args, int acap);

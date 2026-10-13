@@ -958,7 +958,7 @@ int app_gaibu_begin(const char *bat, long bn, unsigned char **out, long *n)
         return -1;
     if (!jw_gaibu_header(bat, bn, &gaibu_info))
         return 0;
-    if (!jw_cmd_block_point(&drawing, &gaibu_ox, &gaibu_oy))
+    if (!jw_cmd_gaibu_origin(&gaibu_ox, &gaibu_oy) && !jw_cmd_block_point(&drawing, &gaibu_ox, &gaibu_oy))
         return -1;
     for (i = 0; i < drawing.ndrawn; i++)
         if (drawing.obj[i].sel)
@@ -1050,6 +1050,50 @@ int app_moji_edit_text(unsigned char **out, long *n)
 int app_moji_apply(const unsigned char *b, long n)
 {
     return have_drawing && jw_cmd_moji_apply(&drawing, b, n) > 0;
+}
+
+/* 外部変形 with its steps (src/cmd.c): the BAT picked, then every step answered */
+int app_gaibu_load(const char *bat, long n)
+{
+    return have_drawing && jw_cmd_gaibu_load(&drawing, bat, n);
+}
+
+int app_gaibu_run_begin(unsigned char **out, long *n, char *args, int acap)
+{
+    const char *bat;
+    long bn;
+    int item;
+    const double (*xy)[2];
+    char (*val)[128];
+
+    int *num, r;
+    char *kind;
+
+    if (!have_drawing || !jw_cmd_gaibu_session(&bat, &bn, &item, &xy, &val))
+        return -1;
+    num = (int *)malloc((size_t)(drawing.ndrawn + 1) * sizeof *num);
+    kind = (char *)malloc((size_t)drawing.ndrawn + 1);
+    if (num && kind && jw_cmd_gaibu_tags(&drawing, num, kind, drawing.ndrawn))
+        jw_coord_tags(num, kind, drawing.ndrawn);
+    r = app_gaibu_begin2(bat, bn, item, xy, val, out, n, args, acap);
+    jw_coord_tags(0, 0, 0);
+    free(num);
+    free(kind);
+    return r;
+}
+
+void app_gaibu_run_end(void)
+{
+    jw_cmd_gaibu_done();
+}
+
+/* what a press or key may have left for the front end */
+static void gaibu_after(void)
+{
+    if (jw_cmd_gaibu_ready())
+        action = JW_ACT_GAIBU_RUN;
+    else if (jw_cmd_gaibu_want_bat())
+        action = JW_ACT_GAIBU;
 }
 /* 図形登録's 基準点, kept from the press that gave it. */
 static double fig_bx, fig_by;
@@ -3116,8 +3160,8 @@ int app_command(int cmd)
            the front end is handed JW_ACT_SAVE_COORD to ask for a name. */
         if (cmd == 32895 && have_drawing && jw_cmd_sel_count(&drawing) > 0)
             action = JW_ACT_SAVE_COORD;
-        if (cmd == 32913 && have_drawing && jw_cmd_sel_count(&drawing) > 0)
-            action = JW_ACT_GAIBU;
+        if (cmd == 32913 && have_drawing)
+            action = JW_ACT_GAIBU;          /* the front end picks the BAT */
         return 1;
     }
     /* a dialog put up from the original's own template (td_start) */
@@ -3666,6 +3710,7 @@ int app_press(int x, int y, int button)
             if (have_drawing && jw_cmd_block_editing()
                 && drawing.ndrawn > was)
                 jw_cmd_block_take(&drawing, was);
+            gaibu_after();
             if (jw_cmd_figure_base(&fig_bx, &fig_by))
                 action = JW_ACT_SAVE_FIG;   /* 図形登録 wants a file name */
         }
@@ -3735,6 +3780,12 @@ int app_menu_state(int id)
     switch (id) {
     case 59393:
         return ui_status_shown() ? 1 : 0;
+    case 57643:                         /* 戻る: nothing to take back */
+        return jw_cmd_can_undo() ? 0 : 2;
+    case 57644:                         /* 進む */
+        return jw_cmd_can_redo() ? 0 : 2;
+    case 57637:                         /* 貼り付け: the clipboard is empty */
+        return jw_cmd_clip_has() ? 0 : 2;
     case 32995:
         return bt_trans ? 1 : 0;
     case 33037:
@@ -3844,6 +3895,11 @@ int app_key(int c)
         }
         return 1;
     }
+    if (have_drawing && jw_cmd_gaibu_key(&drawing, c)) {
+        gaibu_after();
+        app_paint();
+        return 1;
+    }
     if (jw_cmd_box_key(c)) {
         app_paint();
         return 1;
@@ -3930,6 +3986,7 @@ int app_key(int c)
     if (c == 13 && have_drawing && jw_cmd_enter_key(&drawing)) {
         if (jw_cmd_moji_go())
             action = JW_ACT_MOJI_EDIT;      /* 外部エディタ, once the range is in */
+        gaibu_after();
         app_paint();
         return 1;
     }

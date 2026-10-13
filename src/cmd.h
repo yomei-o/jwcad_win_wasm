@@ -548,4 +548,18 @@ int  jw_cmd_moji_apply(jw_drawing *d, const unsigned char *b, long n);
 int  jw_cmd_moji_ready(void);               /* texts picked (2407 done) */
 int  jw_cmd_moji_go(void);                  /* 外部エディタ was waiting for the range */
 
+/* 外部変形's steps: the front end hands over the BAT, the command walks the
+   script, and says when the run can start (see the end of src/cmd.c) */
+int  jw_cmd_gaibu_load(jw_drawing *d, const char *bat, long n);
+int  jw_cmd_gaibu_active(void);
+int  jw_cmd_gaibu_ready(void);
+int  jw_cmd_gaibu_key(jw_drawing *d, int c);
+int  jw_cmd_gaibu_origin(double *x, double *y);
+int  jw_cmd_gaibu_session(const char **bat, long *bn, int *item,
+                          const double (**xy)[2], char (**val)[128]);
+void jw_cmd_gaibu_done(void);
+int  jw_cmd_gaibu_want_bat(void);
+
+int  jw_cmd_gaibu_tags(const jw_drawing *d, int *num, char *kind, int max);
+
 #endif

@@ -238,6 +238,7 @@ static int finish(int redraw)
         return 14;              /* 外部エディタ: the page edits the lines */
     case JW_ACT_MOJI_PASTE:
         return 15;              /* 貼付: the clipboard's lines */
+    case JW_ACT_GAIBU_RUN:
     case JW_ACT_GAIBU:
         return 12;              /* 外部変形: a browser cannot run a BAT */
     }

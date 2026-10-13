@@ -29,6 +29,12 @@ static int prev;
    texts are picked and shown pink (ms_text), 外部エディタ was pressed with
    nothing picked and goes on once the range is settled (ms_after, ms_go) */
 static int ms_back, ms_text, ms_after, ms_go;
+/* 外部変形 (0x8091), the steps of a BAT (end of this file) */
+static int gb_keep, gb_back, gb_state;
+static void gb_free(void);
+static void gb_step(jw_drawing *d);
+static const char *gb_prompt(void);
+static void gb_click(jw_drawing *d, const jw_view *v, double x, double y, int button);
 
 /* 水平・垂直, the first checkbox on 線's command bar after 矩形.
  *
@@ -2440,6 +2446,8 @@ void jw_cmd_set(int id)
     int carry_obj = cut_obj;
 
     prev = current;
+    if (id == 0x8091 ? !gb_keep : id != JW_CMD_HANI)
+        gb_free();                      /* a 外部変形 run does not outlive it */
     ms_text = 0;
     if (id != JW_CMD_HANI)
         ms_back = ms_after = 0;
@@ -3518,6 +3526,8 @@ static const char *sel_prompt_add(void)
 
 const char *jw_cmd_prompt(void)
 {
+    if (current == 0x8091)
+        return gb_prompt();
     /* a 取得 takes the status line over while it is on */
     if (get_mode) {
         /* What each of them puts there, read off the running original
@@ -10330,6 +10340,15 @@ static int sel_confirm(jw_drawing *d)
 /* Enter in the 追加・除外 stage is 範囲確定, the same as 選択確定. */
 int jw_cmd_enter_key(jw_drawing *d)
 {
+    if (d && gb_back && current == JW_CMD_HANI && sel_step == 2) {
+        /* the range a 外部変形 step asked for is settled: on to the next step */
+        gb_keep = 1;
+        jw_cmd_set(0x8091);
+        gb_keep = 0;
+        gb_back = 0;
+        gb_step(d);
+        return 1;
+    }
     if (d && ms_back && current == JW_CMD_HANI && sel_step == 2) {
         /* 範囲選択 for the 文字 command: what is not a text is let go, and the
            bar goes back to the 文字 one with the texts picked */
@@ -15316,6 +15335,10 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
+    if (current == 0x8091) {
+        gb_click(d, v, x, y, button);
+        return;
+    }
     if (d && ms_text && current == JW_CMD_MOJI) {
         /* a click on the drawing lets the picked texts go (slot 9) */
         sel_clear(d);
@@ -18814,4 +18837,413 @@ int jw_cmd_moji_apply(jw_drawing *d, const unsigned char *b, long n)
     free(l);
     free(lines);
     return changed + ng + made;
+}
+
+/* ---- 外部変形 (0x8091): the script's steps, one prompt at a time ------------
+   tmp/spec_gaibu/A_gaibu_henkei.md 5.  The front end picks the BAT and hands
+   it over (jw_cmd_gaibu_load); the steps are walked here -- a range through
+   範囲選択, points and picked elements by clicks, typed values and item
+   numbers by keys -- and when the last is in, the front end is asked to run it
+   (jw_cmd_gaibu_ready).  Not carried over: the rubber line to the last point,
+   the 15-degree rounding, hhp<n>ln lines before picked elements. */
+#define GB_CMD 0x8091
+enum { GB_NONE = 0, GB_ITEM = 1, GB_STEPS = 2, GB_READY = 3 };
+static jw_gscript *gb_sc;
+static jw_gaibu gb_hdr;
+static char *gb_bat;
+static long gb_batn;
+static int gb_state, gb_i, gb_item, gb_back, gb_keep, gb_want;
+static double gb_xy[200][2];
+static char gb_val[200][128];
+static char gb_buf[128];
+static double gb_ox, gb_oy;
+static int gb_org;
+static char gb_err[96];
+static int gb_pick[200];
+
+/* a UTF-8 literal as the CP932 the port draws with */
+static const char *u8cp(const char *u)
+{
+    static char out[4][256];
+    static int k;
+    unsigned short w[256];
+    long wn = 0;
+    char *o = out[k++ & 3];
+
+    while (*u && wn < 250) {
+        unsigned c = (unsigned char)*u++;
+
+        if (c >= 0xe0) {
+            c = ((c & 15) << 12) | ((unsigned char)u[0] & 63) << 6 | ((unsigned char)u[1] & 63);
+            u += 2;
+        } else if (c >= 0xc0) {
+            c = ((c & 31) << 6) | ((unsigned char)u[0] & 63);
+            u++;
+        }
+        w[wn++] = (unsigned short)c;
+    }
+    o[jw_from_utf16(w, wn, o, 254)] = 0;
+    return o;
+}
+
+static void gb_free(void)
+{
+    free(gb_sc);
+    free(gb_bat);
+    gb_sc = 0;
+    gb_bat = 0;
+    gb_state = GB_NONE;
+    gb_back = 0;
+    gb_org = 0;
+    gb_err[0] = 0;
+}
+
+/* on to the next step that has to be asked */
+static void gb_step(jw_drawing *d)
+{
+    while (++gb_i < gb_sc->nsteps) {
+        const jw_gstep *st = &gb_sc->step[gb_i];
+
+        gb_buf[0] = 0;
+        switch (st->type) {
+        case JW_GS_END:
+            gb_state = GB_READY;
+            return;
+        case JW_GS_RANGE:
+            if (d && jw_cmd_sel_count(d) > 0)
+                continue;               /* what is picked already is the range */
+            gb_keep = 1;
+            jw_cmd_set(JW_CMD_HANI);
+            gb_keep = 0;
+            gb_back = 1;
+            return;
+        case JW_GS_CHOICE:
+        case JW_GS_CHOICE_LR:
+            if (!st->nitems)
+                continue;
+            return;
+        default:
+            return;
+        }
+    }
+    gb_state = GB_READY;
+}
+
+static void gb_begin_steps(jw_drawing *d)
+{
+    gb_sc = (jw_gscript *)calloc(1, sizeof *gb_sc);
+    if (!gb_sc)
+        return;
+    jw_gaibu_script(gb_bat, gb_batn, gb_item, gb_sc);
+    memset(gb_xy, 0, sizeof gb_xy);
+    memset(gb_val, 0, sizeof gb_val);
+    memset(gb_pick, -1, sizeof gb_pick);
+    gb_org = 0;
+    gb_i = -1;
+    gb_state = GB_STEPS;
+    if (gb_sc->all && d) {              /* #h4: everything that can be read */
+        int i;
+
+        for (i = 0; i < d->ndrawn; i++) {
+            d->obj[i].sel = 1;
+            d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
+        }
+    }
+    gb_step(d);
+}
+
+/* the BAT the front end picked.  0 if it is not one for Jw_cad. */
+int jw_cmd_gaibu_load(jw_drawing *d, const char *bat, long n)
+{
+    jw_gaibu h;
+
+    if (!jw_gaibu_header(bat, n, &h))
+        return 0;
+    gb_free();
+    gb_hdr = h;
+    gb_bat = (char *)malloc((size_t)n + 1);
+    if (!gb_bat)
+        return 0;
+    memcpy(gb_bat, bat, (size_t)n);
+    gb_bat[n] = 0;
+    gb_batn = n;
+    gb_item = 0;
+    if (!gb_keep) {
+        gb_keep = 1;
+        jw_cmd_set(GB_CMD);
+        gb_keep = 0;
+    }
+    if (h.nitems > 0)
+        gb_state = GB_ITEM;             /* 項目を選択してください */
+    else
+        gb_begin_steps(d);
+    return 1;
+}
+
+int jw_cmd_gaibu_active(void)
+{
+    return current == GB_CMD && gb_state != GB_NONE;
+}
+
+/* 1 once the last step is answered; the front end runs the BAT */
+int jw_cmd_gaibu_ready(void)
+{
+    return current == GB_CMD && gb_state == GB_READY;
+}
+
+/* the 基準点 an #0 gave, if it did */
+int jw_cmd_gaibu_origin(double *x, double *y)
+{
+    if (!gb_org || gb_state == GB_NONE)
+        return 0;
+    *x = gb_ox;
+    *y = gb_oy;
+    return 1;
+}
+
+/* what the run is made of */
+int jw_cmd_gaibu_session(const char **bat, long *bn, int *item,
+                         const double (**xy)[2], char (**val)[128])
+{
+    if (!gb_bat)
+        return 0;
+    *bat = gb_bat;
+    *bn = gb_batn;
+    *item = gb_item;
+    *xy = (const double (*)[2])gb_xy;
+    *val = gb_val;
+    return 1;
+}
+
+/* the run is over (or given up): back to asking for a BAT */
+void jw_cmd_gaibu_done(void)
+{
+    gb_free();
+    gb_want = 0;
+}
+
+/* a click with no BAT in hand asks the front end for one again */
+int jw_cmd_gaibu_want_bat(void)
+{
+    int w = gb_want;
+
+    gb_want = 0;
+    return w;
+}
+
+static const char *gb_prompt(void)
+{
+    static char b[400];
+    const jw_gstep *st;
+
+    if (gb_state == GB_NONE)
+        return u8cp("操作を続けてください。");
+    if (gb_state == GB_ITEM) {
+        int k, n = 0;
+
+        n = snprintf(b, sizeof b, "%s %s", gb_hdr.title, u8cp("項目を選んで番号を押してください: "));
+        for (k = 0; k < gb_hdr.nitems && n < (int)sizeof b - 80; k++)
+            n += snprintf(b + n, sizeof b - (size_t)n, "%d.%s ", k + 1, gb_hdr.item[k]);
+        return b;
+    }
+    if (gb_state == GB_READY)
+        return u8cp("実行します。");
+    st = &gb_sc->step[gb_i];
+    if (gb_err[0]) {
+        snprintf(b, sizeof b, "%s", gb_err);
+        return b;
+    }
+    switch (st->type) {
+    case JW_GS_RANGE:
+        return st->prompt;
+    case JW_GS_POINT:
+    case JW_GS_LINE:
+    case JW_GS_CIRCLE:
+    case JW_GS_TEXT:
+        if (st->number)
+            snprintf(b, sizeof b, "No.%d %s", st->n, st->prompt[0] ? st->prompt : u8cp("点を指示してください。 (L)free (R)Read"));
+        else
+            snprintf(b, sizeof b, "%s", st->prompt[0] ? st->prompt : u8cp("点を指示してください。 (L)free (R)Read"));
+        return b;
+    case JW_GS_INPUT:
+    case JW_GS_INPUT_IME:
+        snprintf(b, sizeof b, "%s %s_", st->prompt, gb_buf);
+        return b;
+    case JW_GS_CHOICE:
+    case JW_GS_CHOICE_LR: {
+        int k, n = snprintf(b, sizeof b, "%s ", st->prompt);
+
+        for (k = 0; k < st->nitems; k++)
+            n += snprintf(b + n, sizeof b - (size_t)n, "%d.%s ", k + 1, st->item[k]);
+        snprintf(b + n, sizeof b - (size_t)n, "%s", u8cp("（マウス左クリックでスキップします）"));
+        return b;
+    }
+    case JW_GS_ARGS:
+    case JW_GS_ARGS_IME:
+        return u8cp("操作を続けてください。 Enter で実行");
+    }
+    return u8cp("操作を続けてください。");
+}
+
+/* a click while the steps are on */
+static void gb_click(jw_drawing *d, const jw_view *v, double x, double y, int button)
+{
+    const jw_gstep *st;
+    int k;
+
+    if (gb_state == GB_NONE) {
+        gb_want = 1;                    /* 選び直し */
+        return;
+    }
+    if (gb_state != GB_STEPS || !d)
+        return;
+    st = &gb_sc->step[gb_i];
+    gb_err[0] = 0;
+    switch (st->type) {
+    case JW_GS_POINT: {
+        int pk;
+
+        if (button == 1) {              /* (R)Read: an end, a point or a crossing */
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;                 /* nothing to read: nothing happens */
+            x = rx;
+            y = ry;
+        }
+
+        /* a rubber line "/" before this point: its direction goes to a
+           multiple of 15 degrees (FUN_00665740) */
+        for (pk = gb_i - 1; pk >= 0; pk--)
+            if (gb_sc->step[pk].type == JW_GS_POINT || gb_sc->step[pk].type == JW_GS_LINE
+                || gb_sc->step[pk].type == JW_GS_CIRCLE || gb_sc->step[pk].type == JW_GS_TEXT)
+                break;
+        if (pk >= 0 && gb_sc->step[pk].type == JW_GS_POINT && gb_sc->step[pk].mode == 2) {
+            double dx = x - gb_xy[pk][0], dy = y - gb_xy[pk][1];
+            double len = sqrt(dx * dx + dy * dy);
+            double a = floor(atan2(dy, dx) * 180.0 / 3.141592653589793 / 15.0 + 0.5) * 15.0;
+
+            if (len > 0.0) {
+                x = gb_xy[pk][0] + len * cos(a * 3.141592653589793 / 180.0);
+                y = gb_xy[pk][1] + len * sin(a * 3.141592653589793 / 180.0);
+            }
+        }
+        gb_xy[gb_i][0] = x;
+        gb_xy[gb_i][1] = y;
+        if (st->n == 0) {
+            gb_ox = x;
+            gb_oy = y;
+            gb_org = 1;
+        }
+        break;
+    }
+    case JW_GS_LINE:
+    case JW_GS_CIRCLE:
+    case JW_GS_TEXT:
+        k = jw_pick(d, v, x, y, 0);
+        if (k < 0 || k >= d->ndrawn
+            || d->obj[k].cls != (st->type == JW_GS_LINE ? JW_SEN
+                                 : st->type == JW_GS_CIRCLE ? JW_ENKO : JW_MOJI)) {
+            if (st->type == JW_GS_LINE)
+                snprintf(gb_err, sizeof gb_err, "%s", u8cp("直線ではありません。"));
+            else if (st->type == JW_GS_CIRCLE)
+                snprintf(gb_err, sizeof gb_err, "%s", u8cp("円ではありません"));
+            return;
+        }
+        gb_xy[gb_i][0] = x;
+        gb_xy[gb_i][1] = y;
+        gb_pick[gb_i] = k;
+        break;
+    case JW_GS_CHOICE:
+    case JW_GS_CHOICE_LR:
+    case JW_GS_INPUT:
+    case JW_GS_INPUT_IME:
+    case JW_GS_ARGS:
+    case JW_GS_ARGS_IME:
+        break;                          /* the click skips */
+    default:
+        return;
+    }
+    gb_step(d);
+}
+
+/* a key while the steps are on.  1 if it was theirs. */
+int jw_cmd_gaibu_key(jw_drawing *d, int c)
+{
+    const jw_gstep *st;
+    size_t n;
+
+    if (current != GB_CMD || gb_state == GB_NONE || gb_state == GB_READY)
+        return 0;
+    if (c == 27) {
+        gb_free();
+        gb_want = 0;
+        return 1;
+    }
+    if (gb_state == GB_ITEM) {
+        if (c >= '1' && c <= '9' && c - '0' <= gb_hdr.nitems) {
+            gb_item = c - '0';
+            gb_begin_steps(d);
+        }
+        return 1;
+    }
+    st = &gb_sc->step[gb_i];
+    switch (st->type) {
+    case JW_GS_INPUT:
+    case JW_GS_INPUT_IME:
+        n = strlen(gb_buf);
+        if (c == 13) {
+            snprintf(gb_val[gb_i], sizeof gb_val[0], "%s", gb_buf);
+            gb_step(d);
+        } else if (c == 8) {
+            if (n)
+                gb_buf[n - 1] = 0;
+        } else if (c >= 32 && n + 1 < sizeof gb_buf) {
+            gb_buf[n] = (char)c;
+            gb_buf[n + 1] = 0;
+        }
+        return 1;
+    case JW_GS_CHOICE:
+    case JW_GS_CHOICE_LR:
+        if (c >= '1' && c <= '9' && c - '0' <= st->nitems) {
+            snprintf(gb_val[gb_i], sizeof gb_val[0], "%d", c - '0');
+            gb_step(d);
+            return 1;
+        }
+        if (c == 32 || c == 13) {
+            gb_step(d);                 /* none chosen */
+            return 1;
+        }
+        return 1;
+    case JW_GS_ARGS:
+    case JW_GS_ARGS_IME:
+        if (c == 13)
+            gb_step(d);
+        return 1;
+    }
+    return 0;
+}
+
+/* the elements the steps picked, named by their point's number: for the
+   writer's hhp<n>ln / ci / ch lines.  num[i] is -1 for an element not picked. */
+int jw_cmd_gaibu_tags(const jw_drawing *d, int *num, char *kind, int max)
+{
+    int i, k, n = 0;
+
+    if (!gb_sc || !d)
+        return 0;
+    for (i = 0; i < max && i < d->ndrawn; i++)
+        num[i] = -1;
+    for (k = 0; k < gb_sc->nsteps; k++) {
+        const jw_gstep *st = &gb_sc->step[k];
+
+        if (st->type != JW_GS_LINE && st->type != JW_GS_CIRCLE && st->type != JW_GS_TEXT)
+            continue;
+        if (gb_pick[k] < 0 || gb_pick[k] >= max || gb_pick[k] >= d->ndrawn)
+            continue;
+        num[gb_pick[k]] = st->n;
+        kind[gb_pick[k]] = st->type == JW_GS_LINE ? 'l' : st->type == JW_GS_CIRCLE ? 'c' : 'h';
+        n++;
+    }
+    return n;
 }
