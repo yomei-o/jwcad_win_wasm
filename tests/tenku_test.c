@@ -195,10 +195,13 @@ int main(void)
             o.show_point = 1;
             o.number = k + 1;
             got = jw_tenku_draw_edges(&d2, &o, e, 9, T_pts[k][0], T_pts[k][1],
-                                      -170.770 + 40.0 * k, -230.501, &pct);
+                                      r2.obj[c0].d[0], r2.obj[c0].d[1], &pct);
             printf("     天空率表 No.%d: 足した要素 %d  天空率 %.2f\n", k + 1, got, pct);
             snprintf(nm, sizeof nm, "tenku_table_no%d", k + 1);
+            /* 塗りの線まで 原典の 折れ線×光線（jw_tenku_ratio）で 1e-6 まで合う */
+            g_tol = 1e-6;
             fails += same(&r2, c0, c1, &d2, 0, nm, 0);
+            g_tol = 0.02;
         }
         /* 目盛間隔 10°の一枚目: 円・目盛の円・放射線・測定点・文字 （物体なし） */
         d2.ndrawn = d2.nobj = 0;

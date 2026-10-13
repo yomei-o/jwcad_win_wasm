@@ -17,6 +17,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "tenku.h"
 
 #define PI 3.14159265358979323846
@@ -30,6 +31,11 @@
 #define S_SOKUTENN   "\x91\xaa\x92\xe8\x93\x5f"              /* 測定点 */
 #define S_MEMORI     "\x96\xda\x90\xb7\x8a\xd4\x8a\x75"      /* 目盛間隔 */
 #define S_TENKURITSU "\x93\x56\x8b\xf3\x97\xa6"              /* 天空率 */
+#define S_TENKUHI    "\x93\x56\x8b\xf3\x94\xe4"              /* 天空比 */
+#define S_SUIHEIEN   "\x90\x85\x95\xbd\x89\x7e\x8e\xcb\x89\x65\x96\xca\x90\xcf" /* 水平円射影面積 */
+#define S_HANKYU     "\x94\xbc\x8b\x85\x8e\xcb\x89\x65\x95\x5c\x96\xca\x90\xcf" /* 半球射影表面積 */
+#define S_KAKKO0     "\x81\x79"                              /* 【 */
+#define S_KAKKO1     "\x81\x7a"                              /* 】 */
 #define S_ZEN        "\x81\x40"                              /* U+3000 */
 #define S_DEG        "\x81\x8b"                              /* ° */
 #define S_FACE       "\x82\x6c\x82\x72\x20\x83\x53\x83\x56\x83\x62\x83\x4e"
@@ -48,13 +54,22 @@ void hk_tenku_opts_default(hk_tenku_opts *o)
 /* ------------------------------------------------------------------ */
 int jw_tenku_collect(const jw_drawing *d, double plane_m, hk_edge3 *e, int max)
 {
+    return jw_tenku_collect2(d, plane_m, e, NULL, max);
+}
+
+/* 下端は FUN_0073dc40 (_unassigned.c 302760〜): 値が二つなら 二つ目 + 高さの基準 − 測定面、
+   一つで 0 以上なら −測定面（正なら 0 に切る）、一つで負なら 下端なし（壁を立てない）。
+   原典の +0xbc==4 の枝（測定面を引かない）は 天空図では通らない（hk_s11 の 測定高 1.5 が
+   上端から引かれている）。 */
+int jw_tenku_collect2(const jw_drawing *d, double plane_m, hk_edge3 *e, hk_tenku_base *bb, int max)
+{
     int i, j, n = 0;
     double scale0 = -1.0;
 
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *l = &d->obj[i];
-        int end[2], k, found;
-        double h[2], z[2], base, sc;
+        int end[2], k, found, cnt[2] = { 0, 0 };
+        double h[2], h2[2] = { 0.0, 0.0 }, z[2], base, sc;
 
         if (l->cls != JW_SEN || l->color == 9 || l->ltype == 9)
             continue;
@@ -83,10 +98,11 @@ int jw_tenku_collect(const jw_drawing *d, double plane_m, hk_edge3 *e, int max)
                 s = jw_str(d, t->text);
                 strncpy(buf, s, sizeof buf - 1);
                 buf[sizeof buf - 1] = 0;
-                if (hk_parse_height_text(buf, &v1, &v2) < 1)
+                if ((cnt[k] = hk_parse_height_text(buf, &v1, &v2)) < 1)
                     continue;
                 end[k] = j;
                 h[k] = v1;
+                h2[k] = v2;
                 break;
             }
             if (end[k] >= 0)
@@ -113,6 +129,29 @@ int jw_tenku_collect(const jw_drawing *d, double plane_m, hk_edge3 *e, int max)
         e[n].x1 = l->d[2];
         e[n].y1 = l->d[3];
         e[n].z1 = z[1];
+        if (bb) {
+            double zb[2];
+            int w[2];
+
+            for (k = 0; k < 2; k++) {
+                if (cnt[k] >= 2) {
+                    zb[k] = (h2[k] + base - plane_m) * 1000.0 / sc;
+                    w[k] = 1;
+                } else if (h[k] >= 0.0) {
+                    zb[k] = (-plane_m > 0.0 ? 0.0 : -plane_m) * 1000.0 / sc;
+                    w[k] = 1;
+                } else {
+                    zb[k] = 0.0;
+                    w[k] = 0;
+                }
+            }
+            bb[n].zb0 = zb[0];
+            bb[n].zb1 = zb[1];
+            bb[n].wall0 = w[0];
+            bb[n].wall1 = w[1];
+            bb[n].lay = l->layer;
+            bb[n].grp = l->lgroup;
+        }
         n++;
     }
     return n;
@@ -245,35 +284,6 @@ static int same_xy(const hk_edge3 *a, int ea, const hk_edge3 *b, int eb)
     return fabs(ax - bx) < 0.01 && fabs(ay - by) < 0.01;
 }
 
-/* highest elevation along the ray of azimuth az.  Like hk_skyline_el but an
- * edge covers [0,1) of its length, so that a vertex shared by two edges is
- * counted once (the original's hatch at az 90 deg of 天空率表 No.10 shows the
- * end u = 1 does not count). */
-static double ray_el(const hk_edge3 *e, int n, double px, double py, double az)
-{
-    double dx = cos(az), dy = sin(az), best = -1.0;
-    int i;
-
-    for (i = 0; i < n; i++) {
-        double ex = e[i].x1 - e[i].x0, ey = e[i].y1 - e[i].y0;
-        double den = dx * ey - dy * ex, s, u, z, el;
-
-        if (fabs(den) < 1e-12)
-            continue;
-        s = ((e[i].x0 - px) * ey - (e[i].y0 - py) * ex) / den;
-        u = ((e[i].x0 - px) * dy - (e[i].y0 - py) * dx) / den;
-        if (s <= 0 || u < 0 || u >= 1.0)
-            continue;
-        z = e[i].z0 + (e[i].z1 - e[i].z0) * u;
-        if (z < 0)
-            z = 0;
-        el = atan2(z, s);
-        if (el > best)
-            best = el;
-    }
-    return best;
-}
-
 /* the skyline: every edge as a polyline, then the verticals */
 static int skyline(jw_drawing *d, const hk_tenku_opts *o, const hk_edge3 *e, int n,
                    double px, double py, double cx, double cy)
@@ -359,19 +369,450 @@ static void point_mark(jw_drawing *d, const hk_tenku_opts *o, double px, double 
     add_text(d, buf, px, py, 0, size, 1, 1);
 }
 
+/* ------------------------------------------------------------------ */
+/* 天空率の計算 —— 原典 FUN_00748da0 の写し                              */
+/* ------------------------------------------------------------------ */
+/* 三次元の線（原典の CData3DSen、doc の +0x1e4 の並び）。FUN_0073c0c0 が 一本の
+   平面の線から 下端の線・上端の線・始点の縦線・終点の縦線 の順に作る。 */
+typedef struct {
+    double x0, y0, z0, x1, y1, z1;
+    int lay, grp, bno;
+} tn_l3;
+
+/* 射影した線分（原典 FUN_0042de90 で作る CDataSen。+0x190 と +0x21c の並び）。
+   座標は 円の中心を原点・半径 50（+0xa8）の図の上 */
+typedef struct {
+    double x0, y0, x1, y1;
+    int ground, bno;
+} tn_seg;
+
+#define TN_A8 50.0
+
+typedef struct {
+    tn_l3 *c;
+    int nc, cap;
+} tn_list3;
+
+/* FUN_0073d240: 平面で長さが無く 高さも同じなら作らない。両端の z が 1e-7 以下なら
+   +0x44 = 1（地面の線） */
+static void tn_add3(tn_list3 *L, double x0, double y0, double z0, double x1, double y1, double z1,
+                    int lay, int grp)
+{
+    if (fabs(x0 - x1) < 1e-7 && fabs(y0 - y1) < 1e-7 && fabs(z0 - z1) < 1e-7)
+        return;
+    if (L->nc >= L->cap) {
+        int nc = L->cap ? L->cap * 2 : 64;
+        tn_l3 *p = (tn_l3 *)realloc(L->c, (size_t)nc * sizeof *p);
+
+        if (!p)
+            return;
+        L->c = p;
+        L->cap = nc;
+    }
+    L->c[L->nc].x0 = x0; L->c[L->nc].y0 = y0; L->c[L->nc].z0 = z0;
+    L->c[L->nc].x1 = x1; L->c[L->nc].y1 = y1; L->c[L->nc].z1 = z1;
+    L->c[L->nc].lay = lay;
+    L->c[L->nc].grp = grp;
+    L->c[L->nc].bno = 0;
+    L->nc++;
+}
+
+/* FUN_0073cde0: 平面で長さのある線が 高さ 0 をまたぐなら そこで二つに切る */
+static void tn_add3_split(tn_list3 *L, double x0, double y0, double z0, double x1, double y1,
+                          double z1, int lay, int grp)
+{
+    int flat = fabs(x0 - x1) < 1e-7 && fabs(y0 - y1) < 1e-7;
+
+    if (!flat && fabs(z0 - z1) >= 1e-7 && (z0 <= -1e-7 || z1 <= -1e-7) &&
+        (1e-7 <= z0 || 1e-7 <= z1)) {
+        /* P = (P1 − P0) / (z1 − z0) * (0 − z0) + P0 （498b00・498b90・4989e0・498a70） */
+        double mx = (x1 - x0) / (z1 - z0) * (0.0 - z0) + x0;
+        double my = (y1 - y0) / (z1 - z0) * (0.0 - z0) + y0;
+
+        tn_add3(L, x0, y0, z0, mx, my, 0.0, lay, grp);
+        tn_add3(L, mx, my, 0.0, x1, y1, z1, lay, grp);
+        return;
+    }
+    tn_add3(L, x0, y0, z0, x1, y1, z1, lay, grp);
+}
+
+/* FUN_0073e550: 同じ層・グループで 端を共有する線に同じ建物番号を付ける（再帰） */
+static void tn_flood(tn_list3 *L, double x, double y, int lay, int grp, int no)
+{
+    int i;
+
+    for (i = 0; i < L->nc; i++) {
+        tn_l3 *c = &L->c[i];
+
+        if (c->bno >= 1 || c->lay != lay || c->grp != grp)
+            continue;
+        if (fabs(x - c->x0) < 1e-7 && fabs(y - c->y0) < 1e-7) {          /* FUN_00436970 */
+            c->bno = no;
+            tn_flood(L, c->x1, c->y1, lay, grp, no);
+        } else if (fabs(x - c->x1) < 1e-7 && fabs(y - c->y1) < 1e-7) {
+            c->bno = no;
+            tn_flood(L, c->x0, c->y0, lay, grp, no);
+        }
+    }
+}
+
+/* FUN_00733e40（中心を原点、半径 +0xa8 = 50） */
+static void tn_proj50(const hk_tenku_opts *o, double px, double py, double x, double y, double z,
+                      double *ox, double *oy)
+{
+    double dx = x - px, dy = y - py, az, d, el, r;
+
+    if (z < 0.0)
+        z = 0.0;
+    if (fabs(dx) < 1e-7 && fabs(dy) < 1e-7) {
+        *ox = 0.0;
+        *oy = 0.0;
+        return;
+    }
+    az = atan2(dy, dx);
+    d = sqrt(dx * dx + dy * dy);
+    el = atan2(z, d);
+    if (!o->equidist)
+        r = cos(el) * TN_A8;
+    else
+        r = (1.0 - el / 1.5707963267948966) * TN_A8;
+    if (o->mirror)
+        az = 3.141592653589793 - (az - o->mirror_off);
+    for (; 3.141592653589793 < az; az -= 6.283185307179586) { }
+    for (; az <= -3.141592653589793; az += 6.283185307179586) { }
+    *ox = cos(az) * r;
+    *oy = sin(az) * r;
+}
+
+typedef struct {
+    tn_seg *s;
+    int n, cap;
+} tn_segs;
+
+static void tn_push(tn_segs *S, double x0, double y0, double x1, double y1, int g, int bno)
+{
+    if (S->n >= S->cap) {
+        int nc = S->cap ? S->cap * 2 : 256;
+        tn_seg *p = (tn_seg *)realloc(S->s, (size_t)nc * sizeof *p);
+
+        if (!p)
+            return;
+        S->s = p;
+        S->cap = nc;
+    }
+    S->s[S->n].x0 = x0;
+    S->s[S->n].y0 = y0;
+    S->s[S->n].x1 = x1;
+    S->s[S->n].y1 = y1;
+    S->s[S->n].ground = g;
+    S->s[S->n].bno = bno;
+    S->n++;
+}
+
+/* FUN_004619b0（線 と 線）: 光線 (0,0)-(ex,ey) と 線分の延長の交点。平行なら 0 */
+static int tn_isect(double ex, double ey, const tn_seg *s, double *ox, double *oy)
+{
+    double f0 = s->x1 - s->x0, f1 = s->y1 - s->y0;
+    double d4 = (s->y0 - 0.0) * ex - (s->x0 - 0.0) * ey;
+    double d5 = (s->y1 - 0.0) * ex - (s->x1 - 0.0) * ey, t;
+
+    if (!(1e-7 < fabs(d4 - d5)) || !(fabs(d4) <= fabs(d4 - d5) * 10000000000.0))
+        return 0;
+    t = d4 / (d4 - d5);
+    *ox = f0 * t + s->x0;
+    *oy = f1 * t + s->y0;
+    if (fabs(*ox) + fabs(*oy) > 139778713.93879598)
+        return 0;
+    if (0.0 == ex)
+        *ox = 0.0;
+    if (0.0 == ey)
+        *oy = 0.0;
+    if (s->x0 == s->x1)
+        *ox = s->x0;
+    if (s->y0 == s->y1)
+        *oy = s->y0;
+    return 1;           /* 原典は線分の外なら 2 を返すが、呼び手は 0 か否かしか見ない */
+}
+
+double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *b, int n,
+                      double px, double py, double cx, double cy,
+                      double *area, double *hidden, double *hx, int maxh, int *nh)
+{
+    tn_list3 L = { 0, 0, 0 };
+    tn_segs A = { 0, 0, 0 }, B = { 0, 0, 0 };
+    int i, k, nb = 0, N, hstep, bdb8 = o->precise ? 1000 : 100;
+    double dt, bd30, bd50 = 0.0, b8, pct, *mn = 0, *mx = 0;
+    const double becc = 0.017453292519943295;   /* 1°（DAT_00a0bebc が正のとき） */
+
+    if (nh)
+        *nh = 0;
+    /* 1. 三次元の線（FUN_0073c0c0 の順: 下端・上端・始点の縦・終点の縦） */
+    for (i = 0; i < n; i++) {
+        double zb0 = b ? b[i].zb0 : 0.0, zb1 = b ? b[i].zb1 : 0.0;
+        int w0 = b ? b[i].wall0 : 1, w1 = b ? b[i].wall1 : 1;
+        int lay = b ? b[i].lay : 0, grp = b ? b[i].grp : 0;
+
+        if (fabs(e[i].x0 - e[i].x1) + fabs(e[i].y0 - e[i].y1) < 1e-7)   /* FUN_0043acd0 < 1e-7 */
+            continue;
+        if (w0 && w1)
+            tn_add3_split(&L, e[i].x0, e[i].y0, zb0, e[i].x1, e[i].y1, zb1, lay, grp);
+        tn_add3_split(&L, e[i].x0, e[i].y0, e[i].z0, e[i].x1, e[i].y1, e[i].z1, lay, grp);
+        if (w0 && fabs(e[i].z0 - zb0) > 1e-7)
+            tn_add3(&L, e[i].x0, e[i].y0, e[i].z0, e[i].x0, e[i].y0, zb0, lay, grp);
+        if (w1 && fabs(e[i].z1 - zb1) > 1e-7)
+            tn_add3(&L, e[i].x1, e[i].y1, e[i].z1, e[i].x1, e[i].y1, zb1, lay, grp);
+    }
+    /* 2. 建物番号（306133〜306178）。1000 を超えると原典は 0x159a を出して止める */
+    for (i = 0; i < L.nc; i++)
+        if (L.c[i].bno < 1) {
+            L.c[i].bno = ++nb;
+            tn_flood(&L, L.c[i].x0, L.c[i].y0, L.c[i].lay, L.c[i].grp, nb);
+            tn_flood(&L, L.c[i].x1, L.c[i].y1, L.c[i].lay, L.c[i].grp, nb);
+        }
+    /* 3. 一本ずつ 射影した折れ線（A: +0x190）と 両端を結ぶ弦（B: +0x21c）。306259〜306503 */
+    for (i = 0; i < L.nc; i++) {
+        tn_l3 c = L.c[i];
+        double mxx = (c.x0 + c.x1) / 2.0, myy = (c.y0 + c.y1) / 2.0;
+        double fx = mxx - px, fy = myy - py, a18 = 1001.0, a08 = 1001.0, span;
+        double sx, sy, ex, ey, bx, by, qx, qy, qz, stx, sty, stz;
+        int ground, seg, s;
+
+        /* 中心 → 中点 の向きの右（または上）に終点があれば 入れ替える（FUN_005f8c20 < 1e-7） */
+        if (1e-7 <= fabs(fx) + fabs(fy)) {
+            double len = sqrt(fx * fx + fy * fy), co = fx / len, si = fy / len;
+
+            if ((c.y1 - py) * co - (c.x1 - px) * si < 1e-7) {
+                double t;
+
+                t = c.x0; c.x0 = c.x1; c.x1 = t;
+                t = c.y0; c.y0 = c.y1; c.y1 = t;
+                t = c.z0; c.z0 = c.z1; c.z1 = t;
+            }
+        }
+        {
+            double d22 = c.x0 - px, d23 = c.y0 - py, d24 = c.x1 - px, d25 = c.y1 - py;
+
+            if (1e-7 < fabs(d22) || 1e-7 < fabs(d23)) {
+                a18 = atan2(d23, d22);
+                if ((fabs(a18) - 3.141592653589793 <= 0.0 ? -(fabs(a18) - 3.141592653589793)
+                                                          : fabs(a18) - 3.141592653589793) <= 1e-7)
+                    a18 = 3.141592653589793;
+            }
+            if (1e-7 < fabs(d24) || 1e-7 < fabs(d25)) {
+                a08 = atan2(d25, d24);
+                if ((fabs(a08) - 3.141592653589793 <= 0.0 ? -(fabs(a08) - 3.141592653589793)
+                                                          : fabs(a08) - 3.141592653589793) <= 1e-7)
+                    a08 = 3.141592653589793;
+            }
+        }
+        if (1000.0 <= a18 || 1000.0 <= a08)
+            a18 = a08 = 0.0;
+        else if (1e-7 <= fabs(a18 - a08)) {
+            if (a08 < a18)
+                a08 += 6.283185307179586;
+        } else
+            a08 = a18;
+        span = fabs(a08 - a18);
+        ground = c.z0 < 1e-7 && c.z1 < 1e-7;
+        seg = (int)((a08 - a18) / becc) + 1;
+        if (ground || seg < 1)
+            seg = 1;
+        stx = (c.x1 - c.x0) / (double)seg;
+        sty = (c.y1 - c.y0) / (double)seg;
+        stz = (c.z1 - c.z0) / (double)seg;
+        tn_proj50(o, px, py, c.x0, c.y0, c.z0, &sx, &sy);
+        bx = sx;
+        by = sy;
+        qx = c.x0;
+        qy = c.y0;
+        qz = c.z0;
+        for (s = 1; s < seg; s++) {
+            qx += stx;
+            qy += sty;
+            qz += stz;
+            tn_proj50(o, px, py, qx, qy, qz, &ex, &ey);
+            tn_push(&A, sx, sy, ex, ey, ground, c.bno);
+            sx = ex;
+            sy = ey;
+        }
+        tn_proj50(o, px, py, c.x1, c.y1, c.z1, &ex, &ey);
+        tn_push(&A, sx, sy, ex, ey, ground, c.bno);
+        if (!ground && 1e-7 <= span)
+            tn_push(&B, bx, by, ex, ey, 0, c.bno);
+    }
+    /* 4. 光線ごとに 建物の [最小,最大] 半径（306944〜307113） */
+    N = bdb8 * 360;
+    dt = 6.283185307179586 / (double)N;
+    hstep = (bdb8 / 10) * 20;      /* 塗りは 2° ごと（DAT_00a0bebc = 20 と読める。hk_s2 の答え） */
+    mn = (double *)malloc((size_t)(nb + 2) * sizeof *mn);
+    mx = (double *)malloc((size_t)(nb + 2) * sizeof *mx);
+    b8 = o->R >= 0.4 ? o->R / TN_A8 : 1.0;
+    for (i = 0; mn && mx && i < N; i++) {
+        double ang = (double)i * dt, ex = cos(ang) * TN_A8, ey = sin(ang) * TN_A8;
+        double co = 1.0, si = 0.0, gmin = 9e+20, gmax = -9e+20, ox, oy;
+        int found = 0, nslot;
+
+        if (1e-7 <= fabs(ex) + fabs(ey)) {                     /* FUN_005f97f0 */
+            double len = sqrt(ex * ex + ey * ey);
+
+            co = ex / len;
+            si = ey / len;
+        }
+        for (k = 0; k < B.n && !found; k++) {
+            const tn_seg *s = &B.s[k];
+
+            if (0.0 < (co * s->y0 - si * s->x0) * (co * s->y1 - si * s->x1))
+                continue;
+            if (co * s->x0 + si * s->y0 < 0.0 && co * s->x1 + si * s->y1 < 0.0)
+                continue;
+            if (!tn_isect(ex, ey, s, &ox, &oy))
+                continue;
+            if (co * ox + si * oy < 1e-7)
+                continue;
+            found = 1;
+        }
+        if (!found)
+            continue;
+        for (k = 1; k <= nb; k++) {
+            mx[k] = -9e+20;
+            mn[k] = 9e+20;
+            /* 測定点が建物の中（原典 0x1659/0x165a の問い）で「はい」なら mn = 0。
+               問いの判定（306693〜306819）は写していない。原典に確認が要る */
+        }
+        for (k = 0; k < A.n; k++) {
+            const tn_seg *s = &A.s[k];
+            double r;
+
+            if (!((co * s->y0 - si * s->x0) * (co * s->y1 - si * s->x1) <= 0.0))
+                continue;
+            if (!tn_isect(ex, ey, s, &ox, &oy))
+                continue;
+            r = co * ox + si * oy;
+            if (!(1e-7 <= r))
+                continue;
+            if (s->ground)
+                r = TN_A8;
+            if (r < gmin)
+                gmin = r;
+            if (gmax < r)
+                gmax = r;
+            if (r < mn[s->bno])
+                mn[s->bno] = r;
+            if (mx[s->bno] < r)
+                mx[s->bno] = r;
+        }
+        if (!(gmin < gmax - 1e-7))
+            continue;
+        /* 重なる区間をまとめる（307021〜307052） */
+        nslot = 0;
+        for (k = 1; k <= nb; k++) {
+            int more, j;
+
+            if (!(mn[k] < mx[k]))
+                continue;
+            nslot++;
+            mx[nslot] = mx[k];
+            mn[nslot] = mn[k];
+            more = 1;
+            while (more) {
+                more = 0;
+                for (j = k + 1; j <= nb; j++)
+                    if ((mn[nslot] - 1e-7 < mx[j] || mn[nslot] - 1e-7 == mx[j]) &&
+                        mn[j] <= mx[nslot] + 1e-7) {
+                        if (mx[nslot] < mx[j])
+                            mx[nslot] = mx[j];
+                        if (mn[j] < mn[nslot])
+                            mn[nslot] = mn[j];
+                        more = 1;
+                        mx[j] = -9e+20;
+                        mn[j] = 9e+20;
+                    }
+            }
+        }
+        for (k = 1; k <= nslot; k++) {
+            double lo = mn[k], hi = mx[k];
+
+            if (!(lo < hi - 1e-7))
+                continue;
+            if (!o->equidist)
+                bd50 = ((dt * hi * hi) / 2.0 + bd50) - (dt * lo * lo) / 2.0;
+            else {
+                double z = (lo / TN_A8) * 1.5707963267948966, z1 = (hi / TN_A8) * 1.5707963267948966;
+                double w = dt * TN_A8, prev = sin(z) * w, acc = 0.0;
+
+                while (z < z1 - 1e-7) {
+                    double zp = z, v;
+
+                    z += 0.0017453292519943296;
+                    if (z1 < z)
+                        z = z1;
+                    v = sin(z) * w;
+                    acc = ((v + prev) * (z - zp) * TN_A8) / 2.0 + acc;
+                    prev = v;
+                }
+                bd50 += acc;
+            }
+            if (hx && nh && i % hstep == 0 && *nh < maxh) {     /* 塗りの線 (307083〜307107) */
+                double *h = hx + 4 * *nh;
+
+                h[0] = co * lo * b8 + cx;
+                h[1] = si * lo * b8 + cy;
+                h[2] = co * hi * b8 + cx;
+                h[3] = si * hi * b8 + cy;
+                (*nh)++;
+            }
+        }
+    }
+    free(mn);
+    free(mx);
+    free(L.c);
+    free(A.s);
+    free(B.s);
+    /* 5. 面積と率（307115〜307148） */
+    bd30 = !o->equidist ? TN_A8 * 3.141592653589793 * TN_A8 : TN_A8 * 6.283185307179586 * TN_A8;
+    bd30 = b8 * b8 * bd30;
+    bd50 = b8 * b8 * bd50;
+    pct = ((bd30 - bd50) * 100.0) / bd30;
+    if (!o->precise) {
+        if (24.99 < pct && pct < 25.01) pct = 25.0;
+        if (49.99 < pct && pct < 50.01) pct = 50.0;
+        if (74.99 < pct && pct < 75.01) pct = 75.0;
+        pct = (double)(int)(100.0 * pct + 0.5) / 100.0;
+    } else {
+        if (24.999 < pct && pct < 25.001) pct = 25.0;
+        if (49.999 < pct && pct < 50.001) pct = 50.0;
+        if (74.999 < pct && pct < 75.001) pct = 75.0;
+        pct = (double)(int)(1000.0 * pct + 0.5) / 1000.0;
+    }
+    if (area)
+        *area = bd30;
+    if (hidden)
+        *hidden = bd50;
+    return pct;
+}
+
 int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
                         const hk_edge3 *e, int n,
                         double px, double py, double cx, double cy, double *pct)
+{
+    return jw_tenku_draw_edges2(d, o, e, NULL, n, px, py, cx, cy, pct);
+}
+
+int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
+                         const hk_edge3 *e, const hk_tenku_base *bb, int n,
+                         double px, double py, double cx, double cy, double *pct)
 {
     int start = d->ndrawn, i, slot = 1, r;
     double size = o->size_class == 2 || o->size_class < 1 ? 2.5 : 2.5;
     double ty = cy - o->R - 3.75;
     char buf[160];
-    double v = 100.0;
+    double v = 100.0, area = 0.0, hid = 0.0, *hx = 0;
+    int nh = 0;
 
     if (o->calc || pct) {
-        v = hk_sky_ratio(e, n, px, py, o->precise ? 360000 : 36000, o->equidist);
-        v = hk_sky_round(v, o->precise);
+        /* 天空率は 原典と同じ 射影した折れ線 × 光線 の足し上げ（jw_tenku_ratio、FUN_00748da0） */
+        hx = (double *)malloc(4 * 4096 * sizeof *hx);
+        v = jw_tenku_ratio(o, e, bb, n, px, py, cx, cy, &area, &hid, hx, hx ? 4096 : 0, &nh);
         if (pct)
             *pct = v;
     }
@@ -411,26 +852,47 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
             slot++;
         }
-        for (i = 0; i < 180; i++) {
-            double az = i * 2.0 * PI / 180.0, el = ray_el(e, n, px, py, az), rr;
+        /* 塗り: 2° ごとの光線で 隠れる区間（まとめた区間ごとに一本、307083〜307107） */
+        for (i = 0; i < nh; i++)
+            add_line(d, hx[4 * i], hx[4 * i + 1], hx[4 * i + 2], hx[4 * i + 3], 1, 1, 0x20);
+        if (o->show_area) {
+            /* 射影面積表示 (1324): 二つの面積を %.6lg（高精度は %.7lg）で丸めて読み直し、
+               " %.15lg" で書く（307149〜307234）。率が 50 なら 隠れる面積 = 全体/2、
+               0 なら 全体（丸めた全体から）。字は 0x1b5e「【」0x1664「水平円射影面積」
+               （等距離は 0x1665「半球射影表面積」）" ," 0x1b58「】」。原典 hk_s4 */
+            char t1[64], t2[64];
+            const char *fmt = o->precise ? "%.7g" : "%.6g";
 
-            if (el <= 0.0)
-                continue;
-            rr = radius_of(o, el);
-            add_line(d, cx + rr * cos(az), cy + rr * sin(az),
-                     cx + o->R * cos(az), cy + o->R * sin(az), 1, 1, 0x20);
+            snprintf(t1, sizeof t1, fmt, area);
+            area = strtod(t1, NULL);
+            if (fabs(v - 50.0) < 1e-7)
+                hid = area / 2.0;
+            if (v < 1e-7)
+                hid = area;
+            snprintf(t2, sizeof t2, fmt, hid);
+            hid = strtod(t2, NULL);
+            snprintf(buf, sizeof buf, S_KAKKO0 "%s %.15g , %.15g" S_KAKKO1,
+                     o->equidist ? S_HANKYU : S_SUIHEIEN, area, hid);
+            add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
+            slot++;
         }
-        snprintf(buf, sizeof buf, S_TENKURITSU " = %.*f %%", o->precise ? 3 : 2, v);
+        /* 等距離では 0x1653「[天空比]」（307174〜307185。原典の答えはまだ無い） */
+        snprintf(buf, sizeof buf, "%s = %.*f %%", o->equidist ? "[" S_TENKUHI "]" : S_TENKURITSU,
+                 o->precise ? 3 : 2, v);
         add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
         r = skyline(d, o, e, n, px, py, cx, cy);
-        if (r < 0)
+        if (r < 0) {
+            free(hx);
             return -1;
+        }
     } else {
         /* [hk_s1] circle, skyline, then the texts.  測定点表示 の点と「No.n」は
            skyline のあと、文字の前（原典 hk_s9） */
         r = skyline(d, o, e, n, px, py, cx, cy);
-        if (r < 0)
+        if (r < 0) {
+            free(hx);
             return -1;
+        }
         if (o->show_point)
             point_mark(d, o, px, py, size);
         if (o->show_point) {
@@ -449,16 +911,18 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
             slot++;
         }
     }
+    free(hx);
     return d->ndrawn - start;
 }
 
 int jw_tenku_draw(jw_drawing *d, const hk_tenku_opts *o,
                   double px, double py, double cx, double cy, double *pct)
 {
-    hk_edge3 e[1000];
-    int n = jw_tenku_collect(d, o->plane_m, e, 1000);
+    static hk_edge3 e[1000];
+    static hk_tenku_base b[1000];
+    int n = jw_tenku_collect2(d, o->plane_m, e, b, 1000);
 
     if (n < 1)
         return n < 0 ? -1 : -2;
-    return jw_tenku_draw_edges(d, o, e, n, px, py, cx, cy, pct);
+    return jw_tenku_draw_edges2(d, o, e, b, n, px, py, cx, cy, pct);
 }

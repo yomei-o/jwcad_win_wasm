@@ -15006,12 +15006,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             o.mirror = jw_cmd_bar_check(1325) > 0 && jw_cmd_bar_check(1326) > 0;
             o.calc = jw_cmd_bar_check(1323) > 0;
             o.precise = jw_cmd_bar_check(1327) > 0;
-            /* 射影面積表示 (1324) はまだ出さない。原典は「【水平円射影面積 πR² , 隠れる
-               面積】」を %.6lg に丸めて出すが、隠れる面積は 一本ずつの稜線を
-               射影した折れ線と 36000 本の光線との交わりから足し上げる
-               （FUN_00748da0、_unassigned.c 306899〜307117）もので、移植の
-               hk_sky_ratio（仰角の標本）では 333.801 と 333.835（hk_s4）のように
-               三桁目がずれる。nokori.md */
+            /* 射影面積表示 (1324): 「【水平円射影面積 πR² , 隠れる面積】」（原典 hk_s4）。
+               隠れる面積は 原典と同じく 建物ごとの射影折れ線 × 光線 で足し上げる
+               （src/tenku.c の jw_tenku_ratio、FUN_00748da0） */
+            o.show_area = o.calc && jw_cmd_bar_check(1324) > 0;
             o.number = o.show_point ? atoi(jw_cmd_box(2216)) : tn_count + 1;
             if (tn_sansha) {
                 hk_sansha_opts so;
