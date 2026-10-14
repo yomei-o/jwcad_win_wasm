@@ -10,6 +10,16 @@
 
 ---
 
+## 引き継ぎメモ（2026-10-14 夕、別アカウントで続ける人へ）
+
+- **まず**: `git pull`、`sh tools/qtest.sh`（末尾 `diff 7` が正常）。`src/gen/` は今回から repo に入れた（`tools/gen.sh` は原典の資源から作り直すとき用）。wasm は `EMSDK_PYTHON=C:/prog/emsdk/emsdk/python/3.13.3_64bit/python.exe sh tools/build_wasm.sh`。
+- **こまめにコミット・push**（ユーザーの指示）。エージェントを並べるときは、原典（`Jw_win.exe`）を動かすのは**一つだけ**、`src/cmd.c` はみんなで触るので小さく直す。
+- **未解決（原典が要る）**: s24_8（多角形→複写のあと 分割の 割付 (1324) が移植で OFF、原典は ON。`chk_slot(bar_cmd(), 1324)` が別のバーと共有している疑い。`python tools/difffuzz.py one` に `tmp/fz/results.json` の s24_8 の steps）／
+  残り 7 件の fzcheck（ケース 6・10・15・25・62・71・74 と s7_32: 範囲移動・複写のあとの複線で、原典は覚えている線を元にして最初のクリックを位置として扱う。状態の持ち越しが未実装）／
+  分割 補助メニュー（逆分割・線長割合・馬目地）の出し方／壁面の効き／画像の DXF/SFC/JWC 書出し／任意時期の日赤緯／天空図の残り (e)(k)(l)(o)／前範囲・中心線 (R)（`docs/todo-stubs.md`）。
+- **ファジングの注意**: 二回の原典の実行が一致したときだけ食い違いを信じる。`replay` には `type:` が無いので文字のケースは偽の食い違いになる。`decomp/res/*.jww` は必ず `tmp/` に写してから原典に開かせる。
+- **ブラウザ・Windows 版**: 今回ずいぶん手を入れたが、実機の人手での確認は少ない（CDP と PowerShell の自動確認のみ）。`tools/web/cdp*.js`、`tools/smoke_native.ps1`、`tools/ci.sh`。
+
 ## いますぐ次の三つ
 
 0. **分割は (R) 分割始点・連続点分割 (RR)・割付（線・円・点）・仮点・連続点分割の仮表示まで入った**
