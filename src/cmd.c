@@ -750,7 +750,7 @@ static double nisen_x, nisen_y;
  */
 /* The ids are not unique: 1411 is the first combo of nearly every bar, so
    a box belongs to a command as well as to an id. */
-static struct { unsigned short cmd, id; char t[16]; } box[] = {
+static struct { unsigned short cmd, id; char t[64]; } box[] = {
     { JW_CMD_25D, 1491, "10 , 0" },     /* 高さ , 奥行 */
     { JW_CMD_HIKAGE, 1491, "10" },      /* 高さ(m) */
     { JW_CMD_HIKAGE, 1492, "4" },       /* 測定高 */
@@ -1006,7 +1006,7 @@ int jw_cmd_sunpo_arrows(void)
 static struct { unsigned cmd; unsigned short id; unsigned char on; }
     chk[JW_NBARSTATE];
 static int nchk;
-static struct { unsigned cmd; unsigned short id; char t[16]; }
+static struct { unsigned cmd; unsigned short id; char t[64]; }
     xbox[JW_NBARSTATE];
 static int nxbox;
 

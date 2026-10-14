@@ -371,11 +371,19 @@ static void keypad(void)
        "  which Enter writes after the first, as the original's two-number "
        "boxes have it");
 
+    /* 二つの長い数も 切れずに戻る（箱の字は 15 文字までだった） */
+    jw_cmd_box_put(1411, "12345.678,98765.432");
+    app_press(x - 2, y - 2, 1);
+    app_key(13);
+    t = jw_cmd_box(1411);
+    ck(!app_modal() && t && !strcmp(t, "12345.678 , 98765.432"),
+       "  two long numbers come back whole");
+
     app_press(x - 2, y - 2, 1);
     press_ctl(1161, 0);
     app_key(27);
     t = jw_cmd_box(1411);
-    ck(!app_modal() && t && !strcmp(t, "-205 , 7"),
+    ck(!app_modal() && t && !strcmp(t, "12345.678 , 98765.432"),
        "  and Esc leaves the box as it was");
 }
 
