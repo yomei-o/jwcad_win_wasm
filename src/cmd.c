@@ -3870,7 +3870,7 @@ const char *jw_cmd_status(const jw_drawing *d)
        あとに FUN_006608e0 の距離 × 書込みグループの縮尺を 三桁区切り・小数 3 桁）。
        距離は線なら直線までの垂線、円なら半径の差。逆コンパイルの読みで、原典の
        実測（18,428.571 など）は形が合うことだけ確かめてある */
-    if (current == JW_CMD_FUKUSEN && p == JW_STR_5312 && tracking && d
+    if (current == JW_CMD_FUKUSEN && !strcmp(p, JW_STR_5312) && tracking && d
         && para_obj >= 0 && para_obj < d->ndrawn) {
         const jw_obj *o = &d->obj[para_obj];
         double dist = -1.0;
