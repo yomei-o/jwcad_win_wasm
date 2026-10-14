@@ -1549,6 +1549,7 @@ static void kh_apply(void)
 {
     jw_draw_images_first = kh_value(2405);
     jw_draw_transparent = kh_value(2860);
+    jw_draw_reverse = kh_value(2444);
 }
 
 static void kh_start(void)
@@ -4906,6 +4907,11 @@ static void draw_drawing(void)
     h = mix(h, &jw_line_open, sizeof jw_line_open);
     h = mix(h, &jw_mm_per_bit, sizeof jw_mm_per_bit);
     h = mix(h, &jw_stretch, sizeof jw_stretch);
+    /* 基本設定 の 描く順・透過（OK で変わっても 図面は同じなので、鍵に入れないと
+       古い絵が当たる） */
+    h = mix(h, &jw_draw_images_first, sizeof jw_draw_images_first);
+    h = mix(h, &jw_draw_transparent, sizeof jw_draw_transparent);
+    h = mix(h, &jw_draw_reverse, sizeof jw_draw_reverse);
     {   /* an outline font arriving changes how its texts come out */
         int fg = jw_outfont_gen();
 

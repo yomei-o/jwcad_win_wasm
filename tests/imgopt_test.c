@@ -185,6 +185,33 @@ int main(void)
         ck(!app_kihon_open(), "OK closes it");
         ck(jw_draw_images_first == 1 && jw_draw_transparent == 0, "and now the two options are on and off");
     }
+    /* 逆順描画 (2444): 同じ所に重ねた二本の線は、ふだん後の線の色、逆順なら先の線の色。
+       画面をずらさずに描き直しても変わる（描いた絵の控えの鍵に旗が入っている） */
+    {
+        jw_drawing *d;
+        jw_obj *o;
+        unsigned int c0, c1, c2;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = -50; o->d[1] = 0; o->d[2] = 50; o->d[3] = 0; o->color = 2;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = -50; o->d[1] = 0; o->d[2] = 50; o->d[3] = 0; o->color = 5;
+        jw_draw_reverse = 0;
+        app_paint();
+        c0 = pixel_at(0.0, 0.0);
+        jw_draw_reverse = 1;
+        app_paint();
+        c1 = pixel_at(0.0, 0.0);
+        jw_draw_reverse = 0;
+        app_paint();
+        c2 = pixel_at(0.0, 0.0);
+        ck(c0 == (d->pen_rgb[4] & 0xffffffu) || c0 != c1,
+           "two lines on top of each other: the later one shows");
+        ck(c1 != c0 && c2 == c0, "逆順描画 puts the earlier one on top, and a repaint alone shows it");
+    }
+    jw_draw_reverse = 0;
     jw_draw_images_first = 0;
     jw_draw_transparent = 1;
     free(w);

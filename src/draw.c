@@ -2998,6 +2998,11 @@ static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_o
    pixel of it shows.  The defaults (off, on) are the original's own and draw as before. */
 int jw_draw_images_first = 0;
 int jw_draw_transparent = 1;
+/* 逆順描画 (2444): every pass goes over the elements from the last to the first
+   (the original's +0x82b8; its pick order follows the same flag -- the hatch's
+   FUN_006715f0 walks backwards with it on).  Off by default. */
+int jw_draw_reverse = 0;
+#define DRAW_AT(i, n) (jw_draw_reverse ? (n) - 1 - (i) : (i))
 
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
@@ -3005,7 +3010,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
     if (jw_draw_images_first && !jw_draw_kari)
         for (i = 0; i < d->ndrawn; i++) {
-            const jw_obj *o = &d->obj[i];
+            const jw_obj *o = &d->obj[DRAW_AT(i, d->ndrawn)];
 
             if (o->cls == JW_MOJI && shown(d, o) && jw_is_pic(d, o))
                 pic_draw(fb, v, d, o);
@@ -3019,9 +3024,12 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
      * out grey.  Putting them all down first leaves those lines showing and
      * takes that drawing from 2,775 mismatched pixels to 568.
      */
-    for (i = 0; i < d->ndrawn; i++)
-        if (d->obj[i].cls == JW_SOLID && shown(d, &d->obj[i]))
-            solid(fb, v, d, &d->obj[i]);
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *so = &d->obj[DRAW_AT(i, d->ndrawn)];
+
+        if (so->cls == JW_SOLID && shown(d, so))
+            solid(fb, v, d, so);
+    }
     /* And the flat grey of the 表示のみ layers goes down before the rest of
      * the lines, not in element order.  日影図.jww is the one that says so:
      * its 表示のみ layers cross the editable ones all over, and taken in
@@ -3032,7 +3040,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
      * The loop runs twice over the elements: once for the grey ones, once
      * for the rest. */
     for (i = 0; i < 2 * d->ndrawn; i++) {
-        const jw_obj *o = &d->obj[i % d->ndrawn];
+        const jw_obj *o = &d->obj[DRAW_AT(i % d->ndrawn, d->ndrawn)];
         int grey_pass = i < d->ndrawn;
         int state = shown(d, o);
 
@@ -3282,7 +3290,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
     /* the pictures lie over everything, in the order they were put in */
     for (i = 0; i < d->ndrawn; i++) {
-        const jw_obj *o = &d->obj[i];
+        const jw_obj *o = &d->obj[DRAW_AT(i, d->ndrawn)];
 
         if (o->cls != JW_MOJI || jw_draw_kari || !shown(d, o) || !jw_is_pic(d, o))
             continue;
