@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <imm.h>
+#include <shellapi.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,10 @@ static const wchar_t CLASS_NAME[] = L"JwWinWasmPort";
 /* The file the drawing came from, so 上書 knows where to put it back. */
 static wchar_t current_path[MAX_PATH];
 static void sync_doc(void);
+static int uiscale = 1;                 /* see dpi_init */
+static void autosave_clear(void);
+static int print_gdi(HWND wnd);
+static int user_closed;                 /* closed on purpose, changes saved or thrown away */
 
 /* Recent files and the one setting the .jwf does not carry, in
    %APPDATA%\jw_port\jw_port.ini ([moji] OutSJIS, [recent] 1..5) */
@@ -43,9 +48,20 @@ static int ini_path(wchar_t *p)
 
     if (!GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH))
         return 0;
-    swprintf(p, MAX_PATH, L"%s%cjw_port", dir, (wchar_t)92);
+    swprintf(p, MAX_PATH, L"%ls%cjw_port", dir, (wchar_t)92);
     CreateDirectoryW(p, NULL);
-    swprintf(p, MAX_PATH, L"%s%cjw_port%cjw_port.ini", dir, (wchar_t)92, (wchar_t)92);
+    swprintf(p, MAX_PATH, L"%ls%cjw_port%cjw_port.ini", dir, (wchar_t)92, (wchar_t)92);
+    if (GetFileAttributesW(p) == INVALID_FILE_ATTRIBUTES) {
+        /* a private-profile file is read in the ANSI page unless it starts with a
+           UTF-16 byte order mark: with one, file names keep every character */
+        FILE *f = _wfopen(p, L"wb");
+
+        if (f) {
+            fputc(0xff, f);
+            fputc(0xfe, f);
+            fclose(f);
+        }
+    }
     return 1;
 }
 
@@ -134,6 +150,14 @@ static int save_file(const wchar_t *path)
 
     if (!app_save(&b, &n))
         return 0;
+    {   /* what was there is kept one save back, as a .bak beside it */
+        wchar_t bak[MAX_PATH + 8];
+
+        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) {
+            swprintf(bak, MAX_PATH + 8, L"%ls.bak", path);
+            CopyFileW(path, bak, FALSE);
+        }
+    }
     f = _wfopen(path, L"wb");
     if (!f) {
         free(b);
@@ -146,6 +170,7 @@ static int save_file(const wchar_t *path)
         lstrcpynW(current_path, path, MAX_PATH);
         recent_add(path);
         sync_doc();
+        autosave_clear();
     }
     return ok;
 }
@@ -192,6 +217,16 @@ static void sync_doc(void)
     }
     (void)dot;
     app_doc(dir, stem);
+    if (main_wnd) {                     /* the window's own title (task bar, Alt+Tab) */
+        wchar_t title[MAX_PATH + 32];
+        const wchar_t *nm = w + (last >= 0 ? last + 1 : 0);
+
+        if (*nm)
+            swprintf(title, MAX_PATH + 32, L"%ls - jw_win (port)", nm);
+        else
+            lstrcpynW(title, L"jw_win (port)", MAX_PATH + 32);
+        SetWindowTextW(main_wnd, title);
+    }
 }
 
 /* Picture files by the name a drawing keeps them under: an absolute path as
@@ -661,7 +696,7 @@ static void open_arg(PWSTR cmd)
             path[j++] = cmd[i++];
     }
     path[j] = 0;
-    if (j)
+    if (j && j < MAX_PATH - 1)
         load_file(path);
 }
 
@@ -744,7 +779,17 @@ static HMENU build_menu(void)
                     for (r = 0; r < NRECENT && recent[r][0]; r++) {
                         wchar_t t[MAX_PATH + 8];
 
-                        swprintf(t, MAX_PATH + 8, L"&%d %s", r + 1, recent[r]);
+                        {   /* an & in a name would underline the next letter: double it */
+                            wchar_t *o = t + swprintf(t, MAX_PATH + 8, L"&%d ", r + 1);
+                            const wchar_t *q;
+
+                            for (q = recent[r]; *q && o < t + MAX_PATH + 4; q++) {
+                                if (*q == L'&')
+                                    *o++ = L'&';
+                                *o++ = *q;
+                            }
+                            *o = 0;
+                        }
                         AppendMenuW(stack[d], MF_STRING, RECENT_ID + r, t);
                     }
                     break;
@@ -916,7 +961,7 @@ static int run_gaibu(HWND wnd)
     fclose(f);
     free(t);
     MultiByteToWideChar(932, 0, args, -1, wargs, 160);
-    swprintf(cmd, MAX_PATH + 160, L"\"%s\" %s", gaibu_bat, wargs);
+    swprintf(cmd, MAX_PATH + 160, L"\"%ls\" %ls", gaibu_bat, wargs);
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
     if (CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi)) {
@@ -1020,7 +1065,7 @@ static int moji_file(HWND wnd, int what)
         PROCESS_INFORMATION pi;
 
         GetWindowsDirectoryW(win, MAX_PATH);
-        swprintf(cmd, 2 * MAX_PATH + 16, L"\"%s%cNOTEPAD.EXE\" \"%s\"", win, (wchar_t)92, tmp);
+        swprintf(cmd, 2 * MAX_PATH + 16, L"\"%ls%cNOTEPAD.EXE\" \"%ls\"", win, (wchar_t)92, tmp);
         ZeroMemory(&si, sizeof si);
         si.cb = sizeof si;
         if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
@@ -1087,7 +1132,12 @@ static int do_action(HWND wnd)
         edit_env();
         break;
     case JW_ACT_PLOT:
-        save_plot(wnd);
+        /* a printer, or a file of the sheet (PDF / PNG) */
+        if ((_wgetenv(L"JW_PRINTER") && *_wgetenv(L"JW_PRINTER")) || MessageBoxW(wnd, L"\u30d7\u30ea\u30f3\u30bf\u306b\u5370\u5237\u3057\u307e\u3059\u304b\uff1f\n\uff08\u300c\u3044\u3044\u3048\u300d\u306f PDF / PNG \u30d5\u30a1\u30a4\u30eb\u306b\u3057\u307e\u3059\uff09",
+                        L"jw_win", MB_YESNO | MB_ICONQUESTION) == IDYES)
+            print_gdi(wnd);
+        else
+            save_plot(wnd);
         break;
     case JW_ACT_OPEN_JWC:
         return open_other(wnd, L"JWC (*.jwc)\0*.jwc\0\0", app_open_jwc);
@@ -1150,8 +1200,380 @@ static void present(HDC dc)
     bi.bmiHeader.biPlanes = 1;
     bi.bmiHeader.biBitCount = 32;
     bi.bmiHeader.biCompression = BI_RGB;
+    if (uiscale > 1) {
+        SetStretchBltMode(dc, COLORONCOLOR);
+        StretchDIBits(dc, 0, 0, fb->w * uiscale, fb->h * uiscale, 0, 0, fb->w, fb->h,
+                      fb->px, &bi, DIB_RGB_COLORS, SRCCOPY);
+        return;
+    }
     SetDIBitsToDevice(dc, 0, 0, fb->w, fb->h, 0, 0, 0, fb->h,
                       fb->px, &bi, DIB_RGB_COLORS);
+}
+
+/* ---- high DPI -------------------------------------------------------------
+   The frame is a bitmap drawn at 96 dpi.  The process says it knows about DPI
+   (so Windows does not blur it), and on a screen with more dots the bitmap is
+   shown a whole number of times larger, which keeps it sharp; mouse positions
+   are divided back down. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+static void dpi_init(void)
+{
+    HMODULE u = GetModuleHandleW(L"user32.dll");
+    UINT dpi = 96;
+    const wchar_t *e = _wgetenv(L"JW_UISCALE");
+
+    if (u) {
+        BOOL (WINAPI *ctx)(HANDLE) = (BOOL (WINAPI *)(HANDLE))GetProcAddress(u, "SetProcessDpiAwarenessContext");
+        BOOL (WINAPI *old)(void) = (BOOL (WINAPI *)(void))GetProcAddress(u, "SetProcessDPIAware");
+        UINT (WINAPI *gds)(void) = (UINT (WINAPI *)(void))GetProcAddress(u, "GetDpiForSystem");
+
+        if (!(ctx && ctx((HANDLE)-4)) && old)       /* per monitor v2, else system */
+            old();
+        if (gds)
+            dpi = gds();
+    }
+    uiscale = (int)((dpi + 48) / 96);
+    if (e && *e >= L'1' && *e <= L'4')
+        uiscale = *e - L'0';
+    if (uiscale < 1)
+        uiscale = 1;
+    if (uiscale > 4)
+        uiscale = 4;
+}
+
+#pragma GCC diagnostic pop
+
+#define MX(v) ((int)(short)(v) / uiscale)
+
+/* ---- asking before work is lost ------------------------------------------- */
+static int ask_save(HWND wnd);
+
+/* 1 if it is all right to go on: nothing to lose, or saved, or thrown away on purpose */
+static int ask_save_changes(HWND wnd)
+{
+    int r;
+
+    if (!app_modified())
+        return 1;
+    r = MessageBoxW(wnd, L"変更を保存しますか？", L"jw_win",
+                    MB_YESNOCANCEL | MB_ICONQUESTION);
+    if (r == IDCANCEL)
+        return 0;
+    if (r == IDYES) {
+        if (current_path[0])
+            return save_file(current_path);
+        return ask_save(wnd);
+    }
+    return 1;
+}
+
+/* ---- autosave and recovery -------------------------------------------------
+   While the drawing is changed and not saved, a copy of it goes to
+   %APPDATA%\jw_port\autosave.jww every couple of minutes (JW_AUTOSAVE_SEC
+   changes that), with the name it came from beside it.  A clean close or a save
+   takes the copy away.  If one is found at the start the program died, and it
+   offers to bring it back. */
+static int autosave_paths(wchar_t *jww, wchar_t *txt)
+{
+    wchar_t dir[MAX_PATH];
+
+    if (!GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH))
+        return 0;
+    swprintf(jww, MAX_PATH, L"%ls%cjw_port", dir, (wchar_t)92);
+    CreateDirectoryW(jww, NULL);
+    swprintf(jww, MAX_PATH, L"%ls%cjw_port%cautosave.jww", dir, (wchar_t)92, (wchar_t)92);
+    swprintf(txt, MAX_PATH, L"%ls%cjw_port%cautosave.txt", dir, (wchar_t)92, (wchar_t)92);
+    return 1;
+}
+
+static void autosave_clear(void)
+{
+    wchar_t a[MAX_PATH], b[MAX_PATH];
+
+    if (autosave_paths(a, b)) {
+        DeleteFileW(a);
+        DeleteFileW(b);
+    }
+}
+
+static void autosave_write(void)
+{
+    wchar_t a[MAX_PATH], b[MAX_PATH];
+    unsigned char *buf = 0;
+    long n = 0;
+    FILE *f;
+
+    if (!app_modified()) {
+        autosave_clear();               /* saved since: nothing to keep */
+        return;
+    }
+    if (!autosave_paths(a, b) || !app_save_backup(&buf, &n))
+        return;
+    f = _wfopen(a, L"wb");
+    if (f) {
+        fwrite(buf, 1, (size_t)n, f);
+        fclose(f);
+    }
+    free(buf);
+    f = _wfopen(b, L"wb");
+    if (f) {
+        fwrite(current_path, sizeof(wchar_t), wcslen(current_path), f);
+        fclose(f);
+    }
+}
+
+/* at the start: is there a copy left from a run that did not end properly? */
+static void autosave_recover(HWND wnd)
+{
+    wchar_t a[MAX_PATH], b[MAX_PATH], name[MAX_PATH];
+    FILE *f;
+    long n;
+    unsigned char *buf;
+    const wchar_t *auto_answer = _wgetenv(L"JW_RECOVER");
+    int yes;
+
+    if (!autosave_paths(a, b) || GetFileAttributesW(a) == INVALID_FILE_ATTRIBUTES)
+        return;
+    if (auto_answer)
+        yes = auto_answer[0] == L'y';
+    else
+        yes = MessageBoxW(wnd, L"前回、保存されていない図面がありました。復元しますか？",
+                          L"jw_win", MB_YESNO | MB_ICONQUESTION) == IDYES;
+    if (!yes) {
+        autosave_clear();
+        return;
+    }
+    f = _wfopen(a, L"rb");
+    if (!f)
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = (unsigned char *)malloc((size_t)(n > 0 ? n : 1));
+    if (buf && n > 0 && fread(buf, 1, (size_t)n, f) == (size_t)n && app_open(buf, n)) {
+        name[0] = 0;
+        fclose(f);
+        f = _wfopen(b, L"rb");
+        if (f) {
+            size_t got = fread(name, sizeof(wchar_t), MAX_PATH - 1, f);
+
+            name[got] = 0;
+        }
+        lstrcpynW(current_path, name, MAX_PATH);
+        sync_doc();
+        app_mark_modified();
+        app_paint();
+    }
+    if (f)
+        fclose(f);
+    free(buf);
+}
+
+/* ---- where the window was -------------------------------------------------- */
+static void placement_save(HWND wnd)
+{
+    wchar_t p[MAX_PATH];
+    WINDOWPLACEMENT wp;
+    wchar_t v[96];
+
+    if (!ini_path(p))
+        return;
+    wp.length = sizeof wp;
+    if (!GetWindowPlacement(wnd, &wp))
+        return;
+    swprintf(v, 96, L"%d,%d,%d,%d,%d", (int)wp.rcNormalPosition.left, (int)wp.rcNormalPosition.top,
+             (int)wp.rcNormalPosition.right, (int)wp.rcNormalPosition.bottom,
+             wp.showCmd == SW_SHOWMAXIMIZED ? 1 : 0);
+    WritePrivateProfileStringW(L"window", L"placement", v, p);
+}
+
+/* put the window where it was, if that is still on a screen; returns the show command */
+static int placement_restore(HWND wnd, int show)
+{
+    wchar_t p[MAX_PATH], v[96];
+    int l, t, r, b, mx;
+    WINDOWPLACEMENT wp;
+    RECT rc;
+
+    if (!ini_path(p))
+        return show;
+    GetPrivateProfileStringW(L"window", L"placement", L"", v, 96, p);
+    if (swscanf(v, L"%d,%d,%d,%d,%d", &l, &t, &r, &b, &mx) != 5 || r - l < 200 || b - t < 150)
+        return show;
+    rc.left = l; rc.top = t; rc.right = r; rc.bottom = b;
+    if (!MonitorFromRect(&rc, MONITOR_DEFAULTTONULL))
+        return show;                    /* that screen is gone */
+    wp.length = sizeof wp;
+    GetWindowPlacement(wnd, &wp);
+    wp.rcNormalPosition = rc;
+    wp.showCmd = show;
+    SetWindowPlacement(wnd, &wp);
+    return mx && show != SW_SHOWMINIMIZED ? SW_SHOWMAXIMIZED : show;
+}
+
+/* ---- opening what is dropped on the window ---------------------------------- */
+static int open_any(HWND wnd, const wchar_t *path)
+{
+    size_t n = wcslen(path);
+    const wchar_t *e = n > 4 ? path + n - 4 : path;
+    int (*take)(const unsigned char *, long) = 0;
+    unsigned char *b;
+    long len;
+    FILE *f;
+    int ok = 0;
+
+    if (!_wcsicmp(e, L".jww")) {
+        if (!ask_save_changes(wnd))
+            return 0;
+        return load_file(path);
+    }
+    if (!_wcsicmp(e, L".dxf"))
+        take = app_open_dxf;
+    else if (!_wcsicmp(e, L".sfc"))
+        take = app_open_sfc;
+    else if (!_wcsicmp(e, L".jwc"))
+        take = app_open_jwc;
+    if (!take)
+        return 0;
+    f = _wfopen(path, L"rb");
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)(len > 0 ? len : 1));
+    if (b && fread(b, 1, (size_t)len, f) == (size_t)len)
+        ok = take(b, len);
+    fclose(f);
+    free(b);
+    return ok;
+}
+
+/* ---- 印刷 on a printer --------------------------------------------------------
+   The sheet is rendered by the port's own drawing code (src/plot.h) at the
+   printer's resolution, then stretched onto the page: at its own size when it
+   fits, scaled down to fit when it does not, and turned a quarter if that makes
+   it bigger.  Cancelling the dialog prints nothing. */
+static int print_gdi(HWND wnd)
+{
+    PRINTDLGW pd;
+    DOCINFOW di;
+    HDC dc;
+    double sw, sh, dpmm, s;
+    int pw, ph, dpix, iw, ih, rot, x, y, dw, dh, i, j;
+    unsigned char *png, *pix, *bits;
+    long pn = 0;
+    jw_img im;
+    BITMAPINFO bi;
+
+    const wchar_t *named = _wgetenv(L"JW_PRINTER");        /* a printer by name, no dialog: for the tests */
+    const wchar_t *to_file = _wgetenv(L"JW_PRINT_FILE");   /* and the file it is to write, for a PDF/XPS printer */
+
+    ZeroMemory(&pd, sizeof pd);
+    pd.lStructSize = sizeof pd;
+    pd.hwndOwner = wnd;
+    pd.Flags = PD_RETURNDC | PD_NOSELECTION | PD_NOPAGENUMS | PD_USEDEVMODECOPIESANDCOLLATE;
+    pd.nCopies = 1;
+    if (named && *named) {
+        dc = CreateDCW(L"WINSPOOL", named, NULL, NULL);
+        if (!dc)
+            return 0;
+    } else {
+        if (!PrintDlgW(&pd))
+            return 0;
+        dc = pd.hDC;
+    }
+    pw = GetDeviceCaps(dc, HORZRES);
+    ph = GetDeviceCaps(dc, VERTRES);
+    dpix = GetDeviceCaps(dc, LOGPIXELSX);
+    jw_plot_paper(app_drawing(), &sw, &sh);
+    dpmm = dpix / 25.4;
+    if (dpmm > 6.0)
+        dpmm = 6.0;                     /* more than that is only a bigger file */
+    png = jw_plot_png(app_drawing(), dpmm, 0, &pn);
+    if (!png || !jw_img_decode(png, pn, &im)) {
+        free(png);
+        DeleteDC(dc);
+        if (pd.hDevMode) GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
+        return 0;
+    }
+    free(png);
+    /* the picture, and the way it sits: turned when that fits better */
+    rot = (im.w > im.h) != (pw > ph);
+    iw = rot ? im.h : im.w;
+    ih = rot ? im.w : im.h;
+    pix = (unsigned char *)malloc((size_t)iw * ih * 3 + 3);
+    bits = pix;
+    if (!pix) {
+        jw_img_free(&im);
+        DeleteDC(dc);
+        return 0;
+    }
+    for (j = 0; j < ih; j++)
+        for (i = 0; i < iw; i++) {
+            const unsigned char *q = rot ? im.rgb + ((size_t)(im.h - 1 - i) * im.w + j) * 3
+                                         : im.rgb + ((size_t)j * im.w + i) * 3;
+            unsigned char *o = pix + ((size_t)j * iw + i) * 3;
+
+            o[0] = q[2];                /* BGR */
+            o[1] = q[1];
+            o[2] = q[0];
+        }
+    /* its size on paper: sw x sh millimetres of the sheet, at the printer's dots */
+    s = 1.0;
+    {
+        double wpx = (rot ? sh : sw) * dpix / 25.4, hpx = (rot ? sw : sh) * dpix / 25.4;
+
+        if (wpx > pw)
+            s = pw / wpx;
+        if (hpx * s > ph)
+            s = ph / hpx;
+        dw = (int)(wpx * s);
+        dh = (int)(hpx * s);
+    }
+    x = (pw - dw) / 2;
+    y = (ph - dh) / 2;
+    ZeroMemory(&bi, sizeof bi);
+    bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+    bi.bmiHeader.biWidth = iw;
+    bi.bmiHeader.biHeight = -ih;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 24;
+    bi.bmiHeader.biCompression = BI_RGB;
+    /* a 24 bit row is padded to four bytes: pad the rows */
+    {
+        int stride = (iw * 3 + 3) & ~3;
+        unsigned char *padded = (unsigned char *)calloc((size_t)stride, (size_t)ih);
+
+        if (padded) {
+            for (j = 0; j < ih; j++)
+                memcpy(padded + (size_t)j * stride, pix + (size_t)j * iw * 3, (size_t)iw * 3);
+            free(pix);
+            bits = pix = padded;
+        }
+    }
+    ZeroMemory(&di, sizeof di);
+    di.cbSize = sizeof di;
+    di.lpszDocName = L"Jw_cad";
+    if (to_file && *to_file)
+        di.lpszOutput = to_file;
+    if (StartDocW(dc, &di) > 0) {
+        StartPage(dc);
+        SetStretchBltMode(dc, HALFTONE);
+        StretchDIBits(dc, x, y, dw, dh, 0, 0, iw, ih, bits, &bi, DIB_RGB_COLORS, SRCCOPY);
+        EndPage(dc);
+        EndDoc(dc);
+    }
+    free(pix);
+    jw_img_free(&im);
+    DeleteDC(dc);
+    if (pd.hDevMode)
+        GlobalFree(pd.hDevMode);
+    if (pd.hDevNames)
+        GlobalFree(pd.hDevNames);
+    return 1;
 }
 
 /* The right button does two jobs: dragged it moves the drawing, clicked it is
@@ -1170,13 +1592,13 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         p.x = (short)LOWORD(lp);
         p.y = (short)HIWORD(lp);
         ScreenToClient(wnd, &p);
-        app_zoom((short)HIWORD(wp) > 0 ? 1.25 : 1.0 / 1.25, p.x, p.y);
+        app_zoom((short)HIWORD(wp) > 0 ? 1.25 : 1.0 / 1.25, p.x / uiscale, p.y / uiscale);
         app_paint();
         InvalidateRect(wnd, NULL, FALSE);
         return 0;
     }
     case WM_LBUTTONDOWN: {
-        int redraw = app_press((short)LOWORD(lp), (short)HIWORD(lp), 0);
+        int redraw = app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 0);
         redraw |= do_action(wnd);
         if (redraw) {
             app_paint();
@@ -1188,8 +1610,8 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_RBUTTONDOWN:
         dragging = 1;
         moved = 0;
-        lastx = downx = (short)LOWORD(lp);
-        lasty = downy = (short)HIWORD(lp);
+        lastx = downx = MX(LOWORD(lp));
+        lasty = downy = MX(HIWORD(lp));
         SetCapture(wnd);
         return 0;
     case WM_MBUTTONUP:
@@ -1197,13 +1619,13 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         dragging = 0;
         ReleaseCapture();
         if (msg == WM_RBUTTONUP && !moved
-            && app_press((short)LOWORD(lp), (short)HIWORD(lp), 1)) {
+            && app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 1)) {
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
         }
         return 0;
     case WM_MOUSEMOVE: {
-        int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
+        int x = MX(LOWORD(lp)), y = MX(HIWORD(lp));
         if (dragging) {
             if (abs(x - downx) > DRAG_SLOP || abs(y - downy) > DRAG_SLOP)
                 moved = 1;
@@ -1331,9 +1753,44 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_SIZE:
-        if (app_resize(LOWORD(lp), HIWORD(lp)))
+        if (app_resize(LOWORD(lp) / uiscale, HIWORD(lp) / uiscale))
             app_paint();
         return 0;
+    case WM_CLOSE:
+        if (!ask_save_changes(wnd))
+            return 0;                   /* cancelled: stay */
+        user_closed = 1;
+        break;                          /* DefWindowProc destroys the window */
+    case WM_QUERYENDSESSION:
+        autosave_write();               /* Windows is going down: keep a copy at least */
+        return TRUE;
+    case WM_TIMER:
+        if (wp == 1)
+            autosave_write();
+        return 0;
+    case WM_DROPFILES: {
+        wchar_t dropped[MAX_PATH];
+
+        if (DragQueryFileW((HDROP)wp, 0, NULL, 0) < MAX_PATH - 1
+            && DragQueryFileW((HDROP)wp, 0, dropped, MAX_PATH) && open_any(wnd, dropped)) {
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
+        DragFinish((HDROP)wp);
+        return 0;
+    }
+    case 0x02E0: {                      /* WM_DPICHANGED: another screen, another scale */
+        const RECT *r = (const RECT *)lp;
+        UINT dpi = HIWORD(wp);
+        int ns = (int)((dpi + 48) / 96);
+
+        if (ns < 1) ns = 1;
+        if (ns > 4) ns = 4;
+        uiscale = ns;
+        SetWindowPos(wnd, NULL, r->left, r->top, r->right - r->left, r->bottom - r->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        return 0;
+    }
     case WM_ERASEBKGND:
         return 1;                       /* the repaint covers everything */
     case WM_PAINT: {
@@ -1344,6 +1801,10 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_DESTROY:
+        KillTimer(wnd, 1);
+        placement_save(wnd);
+        if (user_closed || !app_modified())
+            autosave_clear();           /* a clean end: nothing to recover */
         ini_save();
         settings_save();
         PostQuitMessage(0);
@@ -1360,9 +1821,9 @@ static int settings_path(wchar_t *p)
 
     if (!GetEnvironmentVariableW(L"APPDATA", dir, MAX_PATH))
         return 0;
-    swprintf(p, MAX_PATH, L"%s%cjw_port", dir, (wchar_t)92);
+    swprintf(p, MAX_PATH, L"%ls%cjw_port", dir, (wchar_t)92);
     CreateDirectoryW(p, NULL);
-    swprintf(p, MAX_PATH, L"%s%cjw_port%csettings.jwf", dir, (wchar_t)92, (wchar_t)92);
+    swprintf(p, MAX_PATH, L"%ls%cjw_port%csettings.jwf", dir, (wchar_t)92, (wchar_t)92);
     return 1;
 }
 
@@ -1421,11 +1882,21 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
             k--;
         if (k > 0 && k < MAX_PATH - 8) {
             wcscpy(w + k, L"fonts");
-            if (WideCharToMultiByte(CP_ACP, 0, w, -1, dir, sizeof dir, NULL, NULL))
+            BOOL lost = FALSE;
+
+            dir[0] = 0;
+            if (!WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, w, -1, dir, sizeof dir, NULL, &lost) || lost) {
+                wchar_t sh[MAX_PATH];
+
+                if (GetShortPathNameW(w, sh, MAX_PATH))
+                    WideCharToMultiByte(CP_ACP, 0, sh, -1, dir, sizeof dir, NULL, NULL);
+            }
+            if (dir[0])
                 jw_outfont_dir(dir);
         }
     }
     jw_outfont_enable(1);               /* IPAex for every face */
+    dpi_init();
     app_new();
     ini_load();
     settings_load();
@@ -1441,8 +1912,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     /* the reference screens are of a 1264x741 client area */
     r.left = 0;
     r.top = 0;
-    r.right = 1264;
-    r.bottom = 741;
+    r.right = 1264 * uiscale;
+    r.bottom = 741 * uiscale;
     /* TRUE: with a menu bar on it, which is one row taller */
     AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, TRUE, 0);
 
@@ -1454,9 +1925,19 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     if (!wnd)
         return 1;
     main_wnd = wnd;
+    sync_doc();                         /* the title: a drawing opened from the command line */
     SetMenu(wnd, build_menu());
     accel = build_accel();
+    DragAcceptFiles(wnd, TRUE);
+    show = placement_restore(wnd, show);
     ShowWindow(wnd, show);
+    {
+        const wchar_t *sec = _wgetenv(L"JW_AUTOSAVE_SEC");
+        int secs = sec ? _wtoi(sec) : 120;
+
+        SetTimer(wnd, 1, (UINT)((secs > 0 ? secs : 120) * 1000), NULL);
+    }
+    autosave_recover(wnd);
 
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
         if (accel && TranslateAcceleratorW(wnd, accel, &msg))

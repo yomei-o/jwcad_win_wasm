@@ -207,8 +207,9 @@ class Gen:
         分割数 か 割付(振分・割付距離以下)。"""
         r = self.r
         es = self.elems()
-        if not es:
-            return None
+        if not es or getattr(self, 'bk2_done', False):
+            return None         # 割付・振分 の釦は 押すたびに入れ替わるので 一列に一度だけ
+        self.bk2_done = True
         toks = ['cmd:32867']
         mode = r.choice(['n', 'n', 'wari', 'furi', 'ika'])
         if mode == 'n':
@@ -247,6 +248,27 @@ class Gen:
                      'r' + self.S((clampi(p2[0], 0, 1100), clampi(p2[1], 0, 680))), self.S(self.pick(e))]
         return ('bk2', toks)
 
+    def op_nisen(self):
+        """２線: 線を拾い、そこに沿う二点（始まりと終わり）を押す。"""
+        L = self.lines
+        if not L:
+            return None
+        g = self.r.choice(L)
+        t0, t1 = sorted((self.r.uniform(.05, .45), self.r.uniform(.55, .95)))
+        p0 = (clampi(g[0] + (g[2] - g[0]) * t0, 0, 1100), clampi(g[1] + (g[3] - g[1]) * t0, 0, 680))
+        p1 = (clampi(g[0] + (g[2] - g[0]) * t1, 0, 1100), clampi(g[1] + (g[3] - g[1]) * t1, 0, 680))
+        pk = self.pick(('L', g), self.r.uniform(.3, .7))
+        return ('nisen', ['cmd:32892', self.S(pk), self.S(p0), self.S(p1)])
+
+    def op_chushin(self):
+        """中心線: 線 A・線 B を拾い、二点で 長さを決める。"""
+        pr = self.pair(near=False)
+        if not pr:
+            return None
+        a, b = self.lines[pr[0]], self.lines[pr[1]]
+        p0, p1 = self.pt(), self.pt()
+        return ('chushin', ['cmd:32873', self.S(self.pick(('L', a))), self.S(self.pick(('L', b))), self.S(p0), self.S(p1)])
+
     def rng_box(self):
         es = self.elems()
         if not es:
@@ -283,7 +305,7 @@ class Gen:
 
 
 DRAW = ['line', 'line', 'line', 'rect', 'circle', 'poly', 'arc']
-EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2',
+EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2', 'nisen', 'nisen', 'chushin', 'chushin',
         'range_erase', 'move', 'copy']
 
 

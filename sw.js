@@ -2,7 +2,9 @@
    when the network is not there.  Online, the network answers first, so a
    new build shows up on the next load. */
 const CACHE = 'jw-port-v1';
-const FIRST = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+// everything the page needs, so the first visit is enough: the program, the fonts, the icons
+const FIRST = ['./', 'index.html', 'jwcad.js', 'jwcad.wasm', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+  'fonts/jwsubgothic.ttf', 'fonts/jwsubmincho.ttf', 'fonts/bizudgothic-sub.ttf'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FIRST)).then(() => self.skipWaiting()));

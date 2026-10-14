@@ -752,6 +752,51 @@ int main(int argc, char **argv)
         } else
             puts("ok   日影図 確認 の釦と状態の行");
     }
+    /* 測定点が建物の内側: 窓（はい／いいえ／キャンセル）を app の紙面から出して 釦で答える（hk_s29〜s31） */
+    {
+        int k;
+        static const int want[3] = { 559, 559, 8 };      /* はい・いいえは 図ができ、キャンセルは 何も描かない */
+        static const int bx[3] = { 59, 143, 225 };       /* 窓のクライアントの釦の x */
+        static const char *nm[3] = { "はい", "いいえ", "キャンセル" };
+
+        for (k = 0; k < 3; k++) {
+            unsigned char *b;
+            long n;
+            rect_t r;
+            const jw_drawing *dd;
+            int cw, ch, wx, wy, cnt = 0, q;
+
+            b = slurp("decomp/res/new.jww", &n);
+            app_new();
+            app_resize(1264, 741);
+            app_open(b, n);
+            free(b);
+            ui_view_rect(app_fb()->w, app_fb()->h, &r);
+            app_command(32771);
+            addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;");
+            app_command(32971);
+            clicks(&r, "b:10;405,300;595,300;595,500;405,500;B:1064;500,400;");
+            if (jw_cmd_bar_check(1323) <= 0)
+                clicks(&r, "B:1323;");
+            clicks(&r, "900,300;");
+            app_paint();                          /* 問いが出る */
+            cw = app_fb()->w;
+            ch = app_fb()->h;
+            wx = (cw - 331) / 2;
+            wy = (ch - 42 - 166) / 2;
+            app_press(wx + 8 + bx[k] + 37, wy + 31 + 94 + 11, 0);
+            dd = app_drawing();
+            for (q = 0; q < dd->ndrawn; q++)
+                if (!junk(&dd->obj[q]))
+                    cnt++;
+            if ((k < 2) != (cnt > 100)) {
+                printf("BAD  内側の問い %s: 描かれた数 %d\n", nm[k], cnt);
+                fails++;
+            } else
+                printf("ok   内側の問い %s（%d）\n", nm[k], cnt);
+            (void)want;
+        }
+    }
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);
     return fails != 0;
 }

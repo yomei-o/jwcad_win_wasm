@@ -375,6 +375,7 @@ static int en_step;
 
 /* 中心線: the two lines it runs between, and the first of its two points */
 static int chu_a = -1, chu_b = -1, chu_step;
+static double chu_ax, chu_ay, chu_bx, chu_by;     /* 二本を拾ったクリック（交わる二本の どちらの半分を拾ったか） */
 /* 接線: the circle picked first, and where it was picked -- which of the
    four common tangents comes out is settled by the side each circle was
    pointed at. */
@@ -6592,7 +6593,8 @@ static int nisen_gap(const jw_drawing *d)
 
 static void nisen(jw_drawing *d, double x, double y)
 {
-    const jw_obj *o = &d->obj[nisen_obj];
+    jw_obj oline = d->obj[nisen_obj];     /* a copy: jw_add below may move the array */
+    const jw_obj *o = &oline;
     double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
     double len = sqrt(dx * dx + dy * dy), ux, uy, vx, vy;
     double s0, s1, t0, made = 0;
@@ -6697,6 +6699,36 @@ static int chushin_line(const jw_drawing *d, double *px, double *py,
         bdy = -bdy;
     }
     den = adx * bdy - ady * bdx;
+    if (fabs(den) >= 1e-12) {
+        /* 交わる二本: 二等分線は 拾った半分どうしの間（原典ファジング s22_19: もう一方の二等分線ではなかった）。
+           交点から 拾った点の側を向く向きを 各線に取って足す */
+        double tt = ((q->d[0] - p->d[0]) * bdy - (q->d[1] - p->d[1]) * bdx) / den;
+        double xx = p->d[0] + tt * adx, yy = p->d[1] + tt * ady;
+        double sa = (chu_ax - xx) * adx + (chu_ay - yy) * ady;
+        double sb = (chu_bx - xx) * bdx + (chu_by - yy) * bdy;
+
+        if (sa < 0.0) {
+            adx = -adx;
+            ady = -ady;
+        }
+        if (sb < 0.0) {
+            bdx = -bdx;
+            bdy = -bdy;
+        }
+        den = adx * bdy - ady * bdx;
+        t = ((q->d[0] - p->d[0]) * bdy - (q->d[1] - p->d[1]) * bdx) / den;
+        (void)t;
+        *px = xx;
+        *py = yy;
+        *ux = adx + bdx;
+        *uy = ady + bdy;
+        t = sqrt(*ux * *ux + *uy * *uy);
+        if (t == 0.0)
+            return 0;
+        *ux /= t;
+        *uy /= t;
+        return 1;
+    }
     if (fabs(den) < 1e-12) {
         /* they run together: half way between, along the first one */
         double wx = q->d[0] - p->d[0], wy = q->d[1] - p->d[1];
@@ -10525,7 +10557,7 @@ static int sel_confirm(jw_drawing *d)
 {
     int i, n = jw_cmd_sel_count(d);
 
-    if (!d || n <= 0 || !tracking)
+    if (!d || n <= 0)
         return 0;
     sel_free();
     sel_was = (jw_obj *)malloc((size_t)n * sizeof *sel_was);
@@ -10540,8 +10572,26 @@ static int sel_confirm(jw_drawing *d)
             sel_was[sel_n] = d->obj[i];
             sel_n++;
         }
-    base_x = tx;
-    base_y = ty;
+    if (tracking) {
+        base_x = tx;
+        base_y = ty;
+    } else {
+        /* マウスがビューの中で動いていない（原典を押し・離しの投稿だけで叩いたとき）の既定の基準点は
+           選んだものの外接枠の中心（fuzz 28・31・33・36・37・39: 写しの先がクリックに中心を合わせた） */
+        double x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
+
+        for (i = 0; i < sel_n; i++) {
+            double a, b2, c2, e2;
+
+            jw_obj_box(&sel_was[i], &a, &b2, &c2, &e2);
+            if (a < x0) x0 = a;
+            if (b2 < y0) y0 = b2;
+            if (c2 > x1) x1 = c2;
+            if (e2 > y1) y1 = e2;
+        }
+        base_x = (x0 + x1) / 2.0;
+        base_y = (y0 + y1) / 2.0;
+    }
     /* 範囲選択 has nothing to place: confirming there only settles what is
        picked, and it is the next command that does something with it. */
     sel_step = current == JW_CMD_HANI ? 4 : 3;
@@ -14932,7 +14982,7 @@ static int hk_outlines(jw_drawing *d, int half)
                 jw_tg_out to;
                 double wx[2], wy[2], w;
                 hk_pt a, b;
-                int nn;
+                int nn, lcolor;
 
                 hk_fmt_hour_label(lab, sizeof lab, hour);
                 w = (double)strlen(lab) * 1.0;
@@ -14942,11 +14992,12 @@ static int hk_outlines(jw_drawing *d, int half)
                 to.cls = JW_TG_TEXT_O;
                 to.kind = 1;
                 to.text = lab;
+                lcolor = l->color;          /* before jw_tg_text adds: that may move the array */
                 nn = jw_tg_text(d, &to, wx, wy, 0);
                 if (nn > 0) {
                     d->obj[d->ndrawn - 1].id = gid;
                     d->obj[d->ndrawn - 1].n = 0;                 /* 原典は 任意サイズ・書く色 */
-                    d->obj[d->ndrawn - 1].color = l->color;
+                    d->obj[d->ndrawn - 1].color = (unsigned short)lcolor;
                 }
                 made += nn;
             }
@@ -17077,6 +17128,8 @@ placed:
             if (i < 0 || d->obj[i].cls != JW_SEN)
                 return;
             chu_a = i;
+            chu_ax = x;
+            chu_ay = y;
             chu_step = 1;
             return;
         }
@@ -17085,6 +17138,8 @@ placed:
             if (i < 0 || i == chu_a || d->obj[i].cls != JW_SEN)
                 return;
             chu_b = i;
+            chu_bx = x;
+            chu_by = y;
             chu_step = 2;
             return;
         }

@@ -30,3 +30,4 @@ sync.tgz
 
 # ブロック編集の途中で原典が orig/ に落としていく一時ファイル
 orig/$EDTBLK*.001
+dist/

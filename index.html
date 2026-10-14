@@ -1025,6 +1025,89 @@
     document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
   } catch (e) { /* storage not available */ }
 
+  // Autosave and recovery.  While the drawing is changed and not saved, a copy
+  // goes into IndexedDB every half minute (and when the tab is hidden); a
+  // saved or discarded drawing takes it out.  If one is found at the start
+  // the tab died or was closed with work in it, and a bar offers it back.
+  // `?autosave=N` sets the interval in seconds (the tests use 1).
+  const autoSecs = +(new URLSearchParams(location.search).get('autosave')) || 30;
+  const autoDB = () => new Promise((ok, no) => {
+    const q = indexedDB.open('jw_autosave', 1);
+    q.onupgradeneeded = () => q.result.createObjectStore('d');
+    q.onsuccess = () => ok(q.result);
+    q.onerror = () => no(q.error);
+  });
+  const autoPut = async rec => {
+    try {
+      const db = await autoDB();
+      await new Promise(ok => {
+        const t = db.transaction('d', 'readwrite');
+        if (rec) t.objectStore('d').put(rec, 'last'); else t.objectStore('d').delete('last');
+        t.oncomplete = ok; t.onerror = ok; t.onabort = ok;
+      });
+      db.close();
+    } catch (e) { /* no IndexedDB: no autosave */ }
+  };
+  const autoGet = async () => {
+    try {
+      const db = await autoDB();
+      const rec = await new Promise(ok => {
+        const r = db.transaction('d').objectStore('d').get('last');
+        r.onsuccess = () => ok(r.result); r.onerror = () => ok(null);
+      });
+      db.close();
+      return rec || null;
+    } catch (e) { return null; }
+  };
+  let autoHad = false;
+  const autoSave = () => {
+    if (!mod._jw_save_backup || document.getElementById('recover')) return;   /* the old copy is still being decided on */
+    if (!modified()) {
+      if (autoHad) { autoHad = false; autoPut(null); }
+      return;
+    }
+    const p = mod._jw_save_backup();
+    if (!p) return;
+    const bytes = mod.HEAPU8.slice(p, p + savedLen());
+    savedFree();
+    autoHad = true;
+    autoPut({ bytes, name: openedName, t: Date.now() });
+  };
+  setInterval(autoSave, autoSecs * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) autoSave(); });
+  window.addEventListener('pagehide', autoSave);
+  (async () => {
+    const rec = await autoGet();
+    if (!rec || !rec.bytes || !mod._jw_mark_modified) return;
+    const bar = document.createElement('div');
+    bar.id = 'recover';
+    bar.setAttribute('role', 'alert');
+    bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:5;background:#fd8;color:#000;padding:6px 10px;font:14px sans-serif';
+    bar.append('保存されていない図面が残っています（' + (rec.name || 'drawing.jww') + '、'
+               + new Date(rec.t).toLocaleString() + '）。');
+    const yes = document.createElement('button'), no = document.createElement('button');
+    yes.textContent = '復元'; no.textContent = '破棄';
+    yes.style.margin = '0 6px'; no.style.margin = '0 6px';
+    yes.onclick = () => {
+      const p = mod._malloc(rec.bytes.length || 1);
+      mod.HEAPU8.set(rec.bytes, p);
+      const ok = open(p, rec.bytes.length);
+      mod._free(p);
+      if (ok) {
+        openedName = rec.name || 'drawing.jww';
+        setName(openedName);
+        mod._jw_mark_modified();
+        autoHad = true;
+        document.getElementById('msg').textContent = '保存されていない図面を復元しました';
+      }
+      present();
+      bar.remove();
+    };
+    no.onclick = () => { autoPut(null); bar.remove(); };
+    bar.append(yes, no);
+    document.body.appendChild(bar);
+  })();
+
   // Works offline once it has been loaded, and can be installed (sw.js,
   // manifest.webmanifest).  Only over http(s): file: has no service workers.
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

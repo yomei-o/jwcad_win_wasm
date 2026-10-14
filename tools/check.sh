@@ -86,6 +86,13 @@ echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が�
 # its own layers and colours)
 ./tests/cmdfuzz_test.exe decomp/res/aci1.dxf decomp/res/geo.sfc     decomp/res/t5.jwc 2>/dev/null | sed 's/^/    /'
 ./tests/cmdfuzz_test.exe 2>/dev/null | sed 's/^/    from nothing: /'
+# and with awkward geometry in it: lines of no length, a pair parallel to 1e-9, circles of
+# radius 0 and 1e10, coordinates near the 1e12 a drawing may hold
+JW_CMDFUZZ_EXTREME=1 JW_CMDFUZZ_STEPS=1500 ./tests/cmdfuzz_test.exe orig/Test1.jww orig/Test7.jww 2>/dev/null | sed 's/^/    extreme: /'
+# garbage in every number box of every command
+./tests/boxfuzz_test.exe 2>/dev/null | sed 's/^/    boxes: /'
+# the 外部変形 BAT, its answer, coordinate / figure / text files
+./tests/miscfuzz_test.exe orig/*.BAT orig/Test1.jww 2>/dev/null | sed 's/^/    misc: /'
 # with pictures in the drawing to be selected, moved, trimmed and erased
 if ls tmp/img/dec_rgb.png >/dev/null 2>&1; then
     JW_CMDFUZZ_IMG=tmp/img/dec_rgb.png,tmp/img/dec_q95.jpg,tmp/img/dec_pal8.bmp ./tests/cmdfuzz_test.exe orig/Test1.jww 2>/dev/null | sed 's/^/    with pictures: /'

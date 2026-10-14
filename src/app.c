@@ -4154,6 +4154,23 @@ int app_modified(void)
     return have_drawing && jw_cmd_edit_stamp() != clean_stamp;
 }
 
+
+/* The drawing as a .jww without calling it saved: for the copy a front end
+   keeps in case the program dies (autosave).  The drawing stays "modified". */
+int app_save_backup(unsigned char **out, long *n)
+{
+    unsigned keep = clean_stamp;
+    int ok = app_save(out, n);
+
+    clean_stamp = keep;
+    return ok;
+}
+
+/* A drawing brought back from such a copy is not on disk as it is now. */
+void app_mark_modified(void)
+{
+    clean_stamp = ~jw_cmd_edit_stamp();
+}
 /* The same drawing as DXF, which is what 「DXF形式で保存」 writes. */
 int app_save_dxf(unsigned char **out, long *n)
 {

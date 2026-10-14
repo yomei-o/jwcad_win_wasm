@@ -112,6 +112,9 @@ step_fuzz() {
     fi
     gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/miscfuzz.exe tests/miscfuzz_test.c $SRC -lm || return 1
     JW_FUZZ_ROUNDS=100 ./tmp/ci/miscfuzz.exe orig/*.BAT orig/Test1.jww || rc=1
+    gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/boxfuzz.exe tests/boxfuzz_test.c $SRC -lm || return 1
+    ./tmp/ci/boxfuzz.exe orig/Test1.jww || rc=1
+    JW_CMDFUZZ_EXTREME=1 JW_CMDFUZZ_STEPS=800 ./tmp/ci/cmdfuzz.exe orig/Test1.jww orig/Test7.jww || rc=1
     ! grep -a "^ *BAD" tmp/ci/fuzz.log || rc=1
     return $rc
 }

@@ -82,6 +82,8 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
 int  app_modified(void);
+int  app_save_backup(unsigned char **out, long *n);   /* a copy for autosave: still "modified" */
+void app_mark_modified(void);                      /* e.g. after restoring such a copy */
 /* how many times a new, empty drawing has been started -- the front end
    notices a 新規 it was not told about by this changing */
 int  app_new_count(void);

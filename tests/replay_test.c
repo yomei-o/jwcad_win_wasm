@@ -88,7 +88,7 @@ static int run(const char *steps, const char *out)
             p = strchr(p, ',');
             if (p) jw_cmd_box_put(id, p + 1);
         } else if (tok[0] == 'm' && sscanf(tok + 1, "%d,%d%n", &x, &y, &nn) == 2) {
-            app_move(r.x + x, r.y + y);
+            (void)x; (void)y;   /* 原典の m は 実カーソルを動かすだけで ビューの WM_MOUSEMOVE は来ない（fuzz 28〜39）*/
         } else if (tok[0] == 'r' && sscanf(tok + 1, "%d,%d%n", &x, &y, &nn) == 2) {
             app_press(r.x + x, r.y + y, 1);
         } else if (sscanf(tok, "%d,%d%n", &x, &y, &nn) == 2) {

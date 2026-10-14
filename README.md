@@ -111,6 +111,8 @@ sh tools/refshots.sh && sh tools/scoreall.sh   # 同梱 15 枚の採点
 | `tests/bigcirc_test.c` ほか | 半径 1〜8,200・直線 12,636 本・全画素の拾い上げを端から端まで |
 | `sh tools/asan.sh` | emscripten の clang で ASan/UBSan（w64devkit には `libasan` がありません）。**Windows 版では 787 万通り流しても出ない**ものが 8 つ出ました |
 | `sh tools/asanseeds.sh` | 同じものを壊し方 20 通りで（数時間。`check.sh` には入れていません） |
+| `sh tools/asansym.sh <名前>_test` | 一つの試験を ASan/UBSan で、報告の各フレームを関数名と行に直して出します。`JW_MOVE=1` を付けると要素の配列が**追加のたびに引っ越す**ので、`jw_add` をまたいで持ち越したポインタが即座に use-after-free になります（普段は配列が 2 倍になる瞬間にしか壊れない種類の誤り） |
+| `tests/boxfuzz_test.c`・`dxfextreme_test.c`・`miscfuzz_test.c`・`imgfuzz_test.c` | 全コマンドの全部の箱に変な文字列、1e999 や nan だらけの DXF、外部変形の入力、壊れた BMP/PNG/JPEG。`JW_CMDFUZZ_EXTREME=1` の cmdfuzz は長さ 0 の線・半径 0 の円・ほぼ平行な線・1e12 すれすれの座標を図面に入れてから乱打します |
 | `sh tools/ci.sh` | **入口はこれ**。数分で「ビルドできて、試験が通り、wasm が node で動き、サニタイザが黙っているか」を一覧にします（下） |
 
 ### `sh tools/ci.sh` —— 一つで通す入口
@@ -280,3 +282,30 @@ Jw_cad の著作権は **Jiro Shimizu & Yoshifumi Tanaka** にあり、フリー
 Chrome・Edge では アドレスバーの「インストール」から アプリとして入れられます
 （`manifest.webmanifest`）。新しい版は ネットワークがあるとき 次に開いたときに 入ります。
 ツールバーの釦に カーソルを置くと 原典の説明（ステータス行の文）が ツールチップに出ます。
+
+## 自動保存・復元・バックアップ
+
+* **デスクトップ版**: 変更して保存していない図面は 2 分ごとに `%APPDATA%\jw_port\autosave.jww` へ控えを置きます
+  （環境変数 `JW_AUTOSAVE_SEC` で秒数を変えられます）。保存するか 閉じるときに「変更を保存しますか？」へ
+  答えると 控えは消えます。強制終了のあとの次の起動で「復元しますか？」と聞きます。上書き保存の前の
+  ファイルは `名前.jww.bak` に残ります。窓の位置と大きさ、最近のファイル、基本設定も覚えます。
+  ウィンドウへ `.jww`・`.dxf`・`.sfc`・`.jwc` をドロップして開けます。高 DPI の画面では 図面を 2 倍・3 倍にして
+  くっきり見せます。印刷は プリンタ（紙の大きさに合わせて縮小）か PDF / PNG のファイルを選べます。
+  `tools/smoke_native.ps1` が 起動・描画・自動保存・保存・.bak・ドロップ・閉じる確認・強制終了からの復元・
+  窓位置・高 DPI を メッセージを送って確かめます。
+* **ブラウザ版**: 30 秒ごと（タブを隠したときも）、変更があれば IndexedDB へ控えを置きます。次に開くと
+  「保存されていない図面が残っています」の帯が出て、復元か破棄を選べます。保存すれば控えは消えます。
+
+## 配布用にまとめる
+
+`sh tools/package.sh` が `dist/` に 次を作ります（インストーラは作りません）。
+
+* `dist/jw_port-win64.zip` —— `jw_port.exe`・`fonts/`・README。どこへ展開しても動きます
+* `dist/web/` —— `index.html`・`jwcad.js`/`.wasm`・`sw.js`・`manifest.webmanifest`・アイコン・`fonts/`。
+  パスは全部 相対なので、どの URL の下（GitHub Pages のサブパスなど）に置いても動き、オフラインにもなります
+* `dist/jwcad-web.zip` —— 上と同じものを 一つに
+
+`--no-wasm` を付けると ルートの `jwcad.js`/`.wasm` をそのまま使います。サブパスでの動作は
+`PWA_DIR=dist/web PWA_PREFIX=/jw/app/ node tmp/features_wasm/cdp_pwa.js` で 確かめられます。
+印刷の確かめ（Microsoft Print to PDF へ 対話なしで）は `tools/print_native.ps1`、日本語名のフォルダ・
+ファイルでの起動〜保存〜復元は `tools/smoke_native.ps1` です。

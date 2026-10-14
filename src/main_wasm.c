@@ -652,3 +652,21 @@ EMSCRIPTEN_KEEPALIVE const char *jw_tip(int x, int y)
 {
     return app_tip(x, y - app_chrome_h());
 }
+
+/* A copy of the drawing for the page to keep in case the tab dies (autosave):
+   unlike jw_save it does not call the drawing saved. */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_backup(void)
+{
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_save_backup(&saved, &saved_n))
+        return 0;
+    return saved;
+}
+
+/* a drawing brought back from such a copy has not been saved */
+EMSCRIPTEN_KEEPALIVE void jw_mark_modified(void)
+{
+    app_mark_modified();
+}
