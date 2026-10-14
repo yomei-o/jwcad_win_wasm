@@ -15,6 +15,10 @@ Jw_cad 10.03.6 を逆コンパイルから C に書き直したものです。
 `nokori.md` の 10-14 夕の引き継ぎから続けた。**原典は動かしていない**（無人で原典を駆動しない約束）
 ので、どれも**逆コンパイルの読みか、すでにある原典の答えとの突き合わせ**。
 
+**10-15 朝の時点**: `sh tools/qtest.sh` 全部 ok・`diff 0`、VM の全件 `tools/check.sh` は `4603673`（前範囲まで）で ok 3559・BAD 0、
+cmdfuzz 40 種 BAD 0、wasm は `d9650c2` で作り直し `tools/web/cdp*.js` 10 本とも ok（Edge）、ネイティブもビルド可。
+VM のサニタイザ（`tools/asan.sh`）は 06:20 ごろ流し始めたところで、結果は `C:\prog\claude2\jw2	mpsan.txt`（VM）。
+
 | 入れたもの | 根拠 |
 |---|---|
 | **原典が書いた答えを CRLF で入れ直した**（`.jwf`・`.dxf`・`.sfc`・座標ファイル `coord*.txt`） | `decomp/res/** -text`（`4ec1be2`）のとき autocrlf で LF のまま入っていた。CRLF で取り出してあった木では通るが、**新しく clone すると env・座標ファイルの試験が落ちていた**（大きさが行数ぶん違う）。VM の新しい clone の全件で見つけた |
