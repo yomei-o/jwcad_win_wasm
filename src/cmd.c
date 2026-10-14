@@ -11025,6 +11025,14 @@ static double sel_turn(void)
     return box_num(t, 0.0) * PI / 180.0;
 }
 
+/* 基本設定 2446: レイヤ非表示化 が 表示のみ にする */
+static int layhide_shown;
+
+void jw_cmd_layhide_shown(int on)
+{
+    layhide_shown = on != 0;
+}
+
 /* 作図属性設定 (template 342), which the second bar's 作図属性 (1070)
  * puts up.  Four of its ticks say what the elements 複写 and 移動 put down
  * take from the ones being written now rather than keep their own:
@@ -14452,19 +14460,24 @@ static int get_click(jw_drawing *d, const jw_view *v,
      * 効いたのは、移植に図面を読ませて**線の通る所を計算してから**
      * 指したときでした。
      *
-     * 書込レイヤ（状態 3）の図形を指したらどうなるかは**訊いていません**。
-     * 消せないはずなので、そのままにしてあります。別のレイヤグループの
-     * 図形も訊いていません。 */
+     * 原典の受け手（FUN_004754c0）は、指した図形が**書込グループの書込
+     * レイヤ**にあれば札 0x148e を出して何もせず（ほかのグループの書込
+     * レイヤは非表示にする）、そうでなければ状態を 0 にする。基本設定の
+     * 2446「[レイヤ非表示化]を[表示のみレイヤ化]にする」（DAT_00a0c7d0）
+     * が立っていれば 1（表示のみ）にする。逆コンパイルの読み。 */
     if (get_mode == 32936) {
         int i = jw_pick(d, v, x, y, 0);
 
         if (i < 0)
             return 1;
         {
-            int g = d->obj[i].lgroup & 15, l = d->obj[i].layer & 15;
+            int g = d->obj[i].lgroup & 15, l = d->obj[i].layer & 15, wg = 0, k;
 
-            if (d->group[g].layer[l].state != 3)
-                d->group[g].layer[l].state = 0;
+            for (k = 0; k < 16; k++)
+                if (d->group[k].state == 3)
+                    wg = k;
+            if (!(g == wg && l == (d->group[wg].write_layer & 15)))
+                d->group[g].layer[l].state = layhide_shown ? 1 : 0;
         }
         get_mode = 0;
         return 1;

@@ -502,6 +502,8 @@ int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
 
 /* 作図属性設定's four ticks for 複写・移動: 0 書込み線種, 1 書込み線色,
    2 書込み【レイヤ】, 3 書込みレイヤグループ */
+/* 基本設定 2446「[レイヤ非表示化]を[表示のみレイヤ化]にする」 */
+void jw_cmd_layhide_shown(int on);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
 

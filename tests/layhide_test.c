@@ -129,6 +129,15 @@ int main(void)
     ck(d->group[0].layer[9].state == 0 || d->group[0].layer[8].state == 3,
        "(R) でも同じ所を拾う（書込レイヤは消さない）");
 
+    /* 基本設定 2446「[レイヤ非表示化]を[表示のみレイヤ化]にする」が立つと 表示のみ (1)
+       （原典 FUN_004754c0 の DAT_00a0c7d0。逆コンパイルの読み） */
+    ((jw_drawing *)d)->group[0].layer[0].state = 2;
+    jw_cmd_layhide_shown(1);
+    app_command(32936);
+    app_press(vr.x + 395, vr.y + 534, 0);
+    ck(d->group[0].layer[0].state == 1, "2446 が立つと 表示のみ になる");
+    jw_cmd_layhide_shown(0);
+
     /* nothing is drawn or taken away */
     {
         static jw_drawing fresh;

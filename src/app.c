@@ -1550,6 +1550,7 @@ static void kh_apply(void)
     jw_draw_images_first = kh_value(2405);
     jw_draw_transparent = kh_value(2860);
     jw_draw_reverse = kh_value(2444);
+    jw_cmd_layhide_shown(kh_value(2446));
 }
 
 static void kh_start(void)
