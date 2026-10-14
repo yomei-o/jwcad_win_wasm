@@ -4457,8 +4457,20 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             paint_combo(fb, c[i].x, c[i].y, c[i].w, c[i].h);
             if (t) {
                 int tx = c[i].x + 4, ty = c[i].y + (c[i].h - th) / 2;
+                int room = c[i].w - c[i].h - 6, focus = jw_cmd_box_focus() == c[i].id;
+
+                /* a long one stays inside the box: while it is typed into the
+                   end shows, the way an edit control scrolls; otherwise the
+                   start does */
+                if (focus)
+                    while (*t && jw_text_px_w(t) > room)
+                        t += jw_is_lead((unsigned char)*t) && t[1] ? 2 : 1;
+                if (!focus && jw_text_px_w(t) > room) {
+                    zs_text(fb, tx, ty, room, t, C_BTNTEXT);
+                    break;
+                }
                 tx = jw_text_px(fb, tx, ty, t, C_BTNTEXT);
-                if (jw_cmd_box_focus() == c[i].id)
+                if (focus)
                     fb_fill(fb, tx, ty, 1, th, C_BTNTEXT);
             }
             break;
