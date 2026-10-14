@@ -12450,12 +12450,493 @@ int jw_cmd_box_focus(void)
    operations and brackets (the reader the 日影 height box already has,
    hk_eval) and works the sum out when the box is left or Enter is pressed,
    leaving the answer in the box; each of two numbers either side of a comma
-   is worked out on its own.  Not the original's whole reader: its \, #p and
-   the like are not here, and anything else is left as typed.  The 日影・
-   天空図・2.5D boxes are left alone, their height box has a syntax of its own. */
-static const char *hk_e;
-static int hk_bad;                      /* a number was wanted and not there */
-static double hk_eval(const char *t);
+   is worked out on its own.  The reader is the original's, read off the
+   decompile (box_calc below): + - * / % ^ and brackets, the functions
+   s c a q b i l n j, p and pp ppp, m, 0x / &, e and 度:分'秒".  What it
+   cannot do -- @ \ x y, which are values the original takes from elsewhere,
+   and its "@@" / "**" way of writing degrees -- is left as typed, as is a sum
+   the original would refuse with a message.  The 日影・天空図・2.5D boxes are
+   left alone, their height box has a syntax of its own. */
+static int hk_bad;                      /* a number was wanted and not there (hk_atom) */
+static int box_calc(const char *t, double *out);
+
+/* The original's expression reader, FUN_004f2220 (read off the decompile;
+   the original was not driven for it).  Three passes over the text:
+
+   1. FUN_004f47b0 tidies it: spaces and R dropped, the letters it knows
+      lowered, m (metres) is *1000 and mm is nothing, 0x is &, and a degree
+      mark with no number before it gets a 0.  A letter it does not know
+      empties the lot.
+   2. FUN_004f2480 makes it the inner form: // is a (the angle of a slope),
+      pp is # (√2/√3) and ppp $ (1/√3), every run of digits -- with its
+      度:分'秒" marks and a sign just after an operator -- goes in [ ], a *
+      goes in between a number and a bracket, constant or function next to
+      it, e after a number is *10^[...], and & / 0x hex is turned into a
+      number.  Then it checks the order (an operator not followed by a
+      number and so on) and that the brackets close.
+   3. FUN_004f36e0 / 3fa0 / 3930 / 3470 / 3b80 work it out by recursive
+      descent: + -, then * / % (% of whole numbers), then ^ (left to
+      right), and a function letter takes the one number or bracket after
+      it -- s30 is sin 30°, so s30+1 is 1.5.
+
+   0 when the original would have shown one of its messages (or the text
+   has something the port does not carry: @ \ x y, @@ / ** degrees). */
+#define BC_DEG ':'                      /* the original's +0x2f4, a ':' read as one */
+
+static int bc_class(int c)              /* FUN_004f3a30 */
+{
+    if (c == 0)
+        return 0;
+    if (c == '.' || (c >= '0' && c <= '9'))
+        return 1;
+    if (c == '@' || c == 'p' || c == 'x' || c == 'y' || c == '\\' || c == '#' || c == '$')
+        return 2;
+    if (c == '-' || c == '+')
+        return 3;
+    if (c == '*' || c == '/' || c == '^' || c == '%')
+        return 4;
+    if (c == '[' || c == '(')
+        return 5;
+    if (c == ']' || c == ')')
+        return 6;
+    if (c && strchr("aicsqblnj", c))
+        return 7;
+    if (c == BC_DEG || c == '\'' || c == '"' || c == ':')
+        return 8;
+    if (c == 'e' || c == 'E')
+        return 9;
+    return -1;
+}
+
+static int bc_map(int c)                /* FUN_004f4200 */
+{
+    if (c == '(')
+        return '[';
+    if (c == ')')
+        return ']';
+    if (c == 'P')
+        return 'p';
+    if (c == ',')
+        return 0;
+    return c;
+}
+
+static int bc_fn(int c)
+{
+    return c && strchr("aicsqblnj", c) != 0;
+}
+
+static double bc_expr(const int *t, int *pos, int *err);
+
+static int bc_atom(const int *t, int *pos, double *val, int *err)    /* FUN_004f3b80 */
+{
+    double deg = 0.0;
+    int dms = 0, c;
+
+    for (;;) {
+        double frac = -1.0, num = 0.0;
+
+        *val = 0.0;
+        for (;;) {
+            if (*err > 100)
+                return 0;
+            c = t[(*pos)++];
+            if (c == '.') {
+                if (frac > 0.0)
+                    *err = 0x68;
+                else
+                    frac = 1.0;
+            } else if (c >= '0' && c <= '9') {
+                if (frac > 0.0) {
+                    frac /= 10.0;
+                    num = (double)(c - '0') * frac + num;
+                } else
+                    num = num * 10.0 + (double)(c - '0');
+                *val = num;
+            } else if (c == 'p')
+                *val = 3.141592653589793;
+            else if (c == '#')
+                *val = sqrt(2.0) * 1.0 / sqrt(3.0);
+            else if (c == '$')
+                *val = 1.0 / sqrt(3.0);
+            else
+                break;
+        }
+        if (c == BC_DEG) {
+            deg = *val;
+            dms = 1;
+        } else if (c == '\'') {
+            deg = *val / 60.0 + deg;
+            dms = 2;
+        } else if (c == '"') {
+            deg = *val / 3600.0 + deg;
+            dms = 3;
+        } else
+            break;
+    }
+    if (dms == 1)
+        deg = *val / 60.0 + deg;
+    if (dms == 2)
+        deg = *val / 3600.0 + deg;
+    if (dms) {
+        int k = bc_class(c);
+
+        *val = deg;
+        if (k != 0 && k != 3 && k != 4 && k != 6) {
+            *err = 0x68;
+            return 0;
+        }
+    }
+    if (c == '[') {
+        if (*err < 100) {
+            *val = bc_expr(t, pos, err);
+            c = *err < 0x65 ? t[(*pos)++] : 0;
+        } else {
+            *err = 800;
+            c = 0;
+        }
+    }
+    return c;
+}
+
+static double bc_pow(const int *t, int *pos, double base, int *c, int *err)    /* FUN_004f3930 */
+{
+    double e;
+
+    do {
+        *c = bc_atom(t, pos, &e, err);
+        if (*err > 100)
+            return 0.0;
+        if ((base < 0.0 && e != (double)(int)e) || (base == 0.0 && e <= 0.0)) {
+            *err = 0x67;
+            return 0.0;
+        }
+        base = pow(base, e);
+        if (1e20 < base) {
+            *err = 0x65;
+            return 0.0;
+        }
+    } while (*c == '^');
+    return base;
+}
+
+static double bc_func(const int *t, int *pos, double was, int *c, int *err)    /* FUN_004f3470 */
+{
+    int f = *c;
+    double x, r = was;
+
+    *c = bc_atom(t, pos, &x, err);
+    if (*err >= 0x65)
+        return 0.0;
+    switch (f) {
+    case 'a': r = atan2(x, 1.0) * 180.0 / 3.141592653589793; break;
+    case 'i':
+        if (fabs(x) > 100000000.0) {
+            *err = 0x65;
+            return 0.0;
+        }
+        r = (double)(int)x;
+        break;
+    case 'c': r = cos(x * 3.141592653589793 / 180.0); break;
+    case 's': r = sin(x * 3.141592653589793 / 180.0); break;
+    case 'b': r = fabs(x); break;
+    case 'l':
+    case 'n':
+        if (x <= 0.0) {
+            *err = 0x65;
+            return 0.0;
+        }
+        r = f == 'l' ? log10(x) : log(x);
+        break;
+    case 'j': r = exp(x); break;
+    case 'q':
+        if (x < 0.0) {
+            *err = 0x65;
+            return 0.0;
+        }
+        r = sqrt(x);
+        break;
+    }
+    return r;
+}
+
+static double bc_term(const int *t, int *pos, int op, double left, int *c, int *err)   /* FUN_004f3fa0 */
+{
+    double v;
+
+    for (;;) {
+        *c = bc_atom(t, pos, &v, err);
+        if (*err > 100)
+            return 0.0;
+        if (*c == '^')
+            v = bc_pow(t, pos, v, c, err);
+        if (bc_fn(*c))
+            v = bc_func(t, pos, v, c, err);
+        if (op == '*')
+            left *= v;
+        if (op == '/') {
+            if (v == 0.0)
+                *err = 0x66;
+            else
+                left /= v;
+        }
+        if (op == '%') {
+            if (fabs(v) <= 100000000.0 && fabs(left) <= 100000000.0 && (int)v != 0)
+                left = (double)((int)left % (int)v);
+            else
+                *err = 0x65;
+        }
+        if (1e20 < left)
+            *err = 0x65;
+        if (*err > 100)
+            return 0.0;
+        if (*c != '*' && *c != '/' && *c != '%')
+            return left;
+        op = *c;
+    }
+}
+
+static double bc_expr(const int *t, int *pos, int *err)    /* FUN_004f36e0 */
+{
+    double sum = 0.0, v;
+    int op = '+', c;
+
+    for (;;) {
+        for (;;) {
+            c = bc_atom(t, pos, &v, err);
+            if (*err > 100)
+                return 0.0;
+            if (c == '^')
+                v = bc_pow(t, pos, v, &c, err);
+            if (*err > 100)
+                return 0.0;
+            if (bc_fn(c))
+                v = bc_func(t, pos, v, &c, err);
+            if (*err > 100)
+                return 0.0;
+            if (c != '+' && c != '-' && c != 0 && c != ']')
+                break;
+            if (op == '+')
+                sum += v;
+            if (op == '-')
+                sum -= v;
+            if (c < 1 || c == ']')
+                break;
+            op = c;
+        }
+        if (c != '*' && c != '/' && c != '%')
+            return sum;
+        if (op == '+')
+            sum = bc_term(t, pos, c, v, &c, err) + sum;
+        else if (op == '-')
+            sum = sum - bc_term(t, pos, c, v, &c, err);
+        if (*err > 100)
+            return 0.0;
+        if (c <= 0 || c == ']')
+            return sum;
+        op = c;
+    }
+}
+
+static int box_calc(const char *text, double *out)
+{
+    int s[80], t[300], n = 0, i, k, br = 0, err = 0, prev, depth;
+    size_t len = strlen(text);
+
+    *out = 0.0;
+    if (len >= 64)
+        return 0;
+    /* 1. FUN_004f47b0 */
+    for (i = 0; text[i]; i++) {
+        int c = (unsigned char)text[i], nx = (unsigned char)text[i + 1];
+
+        if (c == ' ' || c == 'R')
+            continue;
+        if (c >= 'A' && c <= 'Z' && strchr("ABCDEFSXYILNJPQ", c))
+            c += 'a' - 'A';
+        if (c == 'm' || c == 'M') {
+            if (nx == 'm' || nx == 'M') {
+                i++;
+                continue;
+            }
+            if (nx == '^')
+                return 0;               /* m^2 and the like: not carried */
+            if (n + 5 >= 72)
+                return 0;
+            s[n++] = '*'; s[n++] = '1'; s[n++] = '0'; s[n++] = '0'; s[n++] = '0';
+            continue;
+        }
+        if (c == '0' && (nx == 'x' || nx == 'X'))
+            c = '&';
+        if (c == '&') {
+            s[n++] = '&';
+            if (text[i] == '0')
+                i++;
+            while (n < 72) {
+                int h = (unsigned char)text[i + 1];
+
+                if (h >= 'A' && h <= 'F')
+                    h += 'a' - 'A';
+                if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f')))
+                    break;
+                s[n++] = h;
+                i++;
+            }
+            continue;
+        }
+        if (c == '@' || c == '\\' || c == 'x' || c == 'y')
+            return 0;                   /* values the original takes from elsewhere */
+        if (c == '*' && nx == '*')
+            return 0;                   /* its other way of writing degrees */
+        if (bc_class(c) < 0)
+            return 0;
+        if ((c == BC_DEG || c == ':') && (n == 0 || bc_class(s[n - 1]) != 1))
+            s[n++] = '0';
+        if (n >= 72)
+            return 0;
+        s[n++] = c;
+    }
+    s[n] = 0;
+    s[n + 1] = 0;
+    if (n == 0)
+        return 0;
+    /* 2. FUN_004f2480 */
+    k = 0;
+#define BC_PUT(ch) do { if (k + 2 >= (int)(sizeof t / sizeof t[0])) return 0; t[++k] = (ch); } while (0)
+    for (i = 0; i < 1000 && s[i]; i++) {
+        int c = bc_map(s[i]);
+
+        if (c == 0 || c == 10 || c == ';')
+            break;
+        if (c == ' ')
+            continue;
+        if (c == '/' && s[i + 1] == '/') {
+            c = 'a';
+            i++;
+        }
+        if (c == 'p' && bc_map(s[i + 1]) == 'p') {
+            c = '#';
+            i++;
+        }
+        if (c == '#' && bc_map(s[i + 1]) == 'p') {
+            c = '$';
+            i++;
+        }
+        if (c == '&') {
+            unsigned long h = 0;
+            int digits = 0, after;
+            char num[24];
+            const char *q;
+
+            BC_PUT('[');
+            for (;;) {
+                int d = s[i + 1];
+
+                if (!((d >= '0' && d <= '9') || (d >= 'a' && d <= 'f')))
+                    break;
+                h = h * 16 + (unsigned long)(d <= '9' ? d - '0' : d - 'a' + 10);
+                digits++;
+                i++;
+            }
+            after = bc_class(s[i + 1]);
+            if (!digits || digits > 6 || s[i + 1] == '.'
+                || (after != 0 && after != 3 && after != 4 && after != 6))
+                return 0;               /* 0x6a */
+            snprintf(num, sizeof num, "%d", (int)h);
+            for (q = num; *q; q++)
+                BC_PUT(*q);
+            BC_PUT(']');
+            continue;
+        }
+        if (k == 0 || c != 'e' || bc_class(t[k]) != 1) {
+            int sign = 0;
+
+            if (k != 0 && bc_class(c) == 8 && bc_class(t[k]) == 8)
+                BC_PUT('0');
+            if (c == '+' || c == '-') {
+                prev = k == 0 ? 0 : t[k];
+                if (bc_class(prev) == 4 || bc_class(prev) == 7)
+                    sign = 1;
+            }
+            if (bc_class(c) == 1 || bc_class(c) == 8 || sign) {
+                if (!br) {
+                    br = 1;
+                    BC_PUT('[');
+                }
+            } else if (br) {
+                br = 0;
+                BC_PUT(']');
+            }
+            if (k != 0 && (bc_class(c) == 2 || c == '[' || bc_class(c) == 7)
+                && (bc_class(t[k]) == 1 || bc_class(t[k]) == 2 || t[k] == ']'))
+                BC_PUT('*');
+            BC_PUT(c);
+            if ((bc_class(c) == 2 || c == ']')
+                && (bc_class(s[i + 1]) == 1 || bc_class(s[i + 1]) == 2 || bc_class(s[i + 1]) == 5))
+                BC_PUT('*');
+            if (bc_class(c) == -1)
+                return 0;               /* 0x68 */
+        } else {
+            int got = 0, nk;
+
+            BC_PUT('*'); BC_PUT('1'); BC_PUT('0'); BC_PUT('^'); BC_PUT('[');
+            nk = bc_class(s[i + 1]);
+            for (;;) {
+                if (nk != 1 && (nk != 3 || got))
+                    break;
+                if (s[i + 1] == '.') {
+                    got = 0;
+                    break;
+                }
+                i++;
+                BC_PUT(s[i]);
+                got = 1;
+                nk = bc_class(s[i + 1]);
+            }
+            if (!got || nk == -1 || (nk != 0 && nk != 3 && nk != 4 && nk != 6))
+                return 0;               /* 0x69 */
+            BC_PUT(']');
+        }
+    }
+    if (br)
+        BC_PUT(']');
+#undef BC_PUT
+    t[k + 1] = 0;
+    t[k + 2] = 0;
+    /* the order check */
+    depth = 0;
+    prev = 0;
+    for (i = 0; i < k; i++) {
+        int a = bc_class(t[i + 1]), b = bc_class(t[i + 2]);
+
+        if (a == 1 && (b == 7 || b == 2 || b == 5))
+            return 0;
+        if (a == 2 && (b == 1 || b == 2 || b == 5))
+            return 0;
+        if (a == 3 && b != 1 && b != 2 && b != 5 && b != 7)
+            return 0;
+        if (a == 4 && (i == 0 || (b != 1 && b != 2 && b != 5 && b != 7)))
+            return 0;
+        if (a == 5 && (depth++, b == 0 || b == 4 || b == 6))
+            return 0;
+        if (a == 6 && (depth--, b == 1 || b == 2 || b == 5 || b == 7))
+            return 0;
+        if (a == 7 && (b == 3 || b == 4))
+            return 0;
+        if (a == 8 && (prev == 0 || (2 < prev && prev < 9)))
+            return 0;
+        if (a == b && (a == 3 || a == 4 || (6 < a && a < 10)))
+            return 0;
+        prev = a;
+    }
+    if (depth != 0)
+        return 0;
+    /* 3. FUN_004f36e0 */
+    i = 1;
+    *out = bc_expr(t, &i, &err);
+    (void)len;
+    return err == 0;
+}
 
 static void box_sum(int id)
 {
@@ -12476,20 +12957,18 @@ static void box_sum(int id)
             return;
         memcpy(part, p, n);
         part[n] = 0;
-        for (i = 0; i < n; i++) {
-            if (part[i] >= '0' && part[i] <= '9')
+        for (i = 0; i < n; i++)
+            if (part[i] != ' ')
                 digit = 1;
-            else if (strchr("+*/()^", part[i]) || (part[i] == '-' && i > 0))
-                op = 1;
-            else if (part[i] != '.' && part[i] != ' ' && part[i] != '-')
-                return;                 /* not a sum: leave it */
+        if (digit) {
+            const char *q = part + strspn(part, " ");
+
+            if (*q == '-')
+                q++;
+            op = q[strspn(q, "0123456789. ")] != 0;  /* a plain number is left as typed */
         }
-        if (op && digit) {
-            hk_bad = 0;
-            v = hk_eval(part);
-            while (*hk_e == ' ')
-                hk_e++;
-            if (*hk_e || hk_bad || !(v == v) || v > 1e12 || v < -1e12)
+        if (op) {
+            if (!box_calc(part, &v) || !(v == v) || v > 1e12 || v < -1e12)
                 return;                 /* not one the reader finished */
             snprintf(part, sizeof part, "%.10g", v);
             any = 1;
@@ -12543,8 +13022,8 @@ int jw_cmd_box_key(int ch)
         /* ２線's box holds two numbers with a comma between them, and any
            box takes a sum (box_sum) */
         if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ','
-            || ch == '+' || ch == '*' || ch == '/' || ch == '(' || ch == ')'
-            || ch == '^') {
+            || (ch > ' ' && ch < 127 && strchr("+*/()^%:'\"&[]", ch))
+            || (ch > ' ' && ch < 127 && strchr("aAbBcCeEiIjJlLmMnNpPqQsSxX", ch))) {
             if (box_fresh) {
                 t[0] = 0;
                 n = 0;
