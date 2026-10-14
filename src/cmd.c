@@ -19034,8 +19034,53 @@ placed:
     }
     if (current == JW_CMD_CORNER) {
         int i;
-        if (button != 0 || !d)
-            return;             /* (R) is 線切断, which is not done here */
+        if (!d)
+            return;
+        if (button != 0) {
+            /* (R) 線切断 (CZukeiCorner's slot 11, FUN_00636ee0 -- read off
+               the decompile, not asked of the original): the line or arc
+               under the click is cut there, a 切断間隔 wide.  The width is
+               the bar's 1411 (FUN_004cacd0 → DAT_00a0cc58), on the paper,
+               or in real size over the write group's scale when 実寸 (2096)
+               is ticked; FUN_00471e40 / FUN_004702f0 then take out the
+               piece from half the width before the click to half after --
+               along a line, across an arc's tangent -- and with no width
+               the element is split in two there.  A line picked as the
+               first of the corner stays picked. */
+            double gap = box_num(jw_cmd_box(1411), 0.0), h;
+            const jw_obj *o;
+
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0)
+                return;
+            if (gap < 0.0)
+                gap = 0.0;
+            if (jw_cmd_bar_check(2096) > 0)
+                gap /= write_scale(d);
+            h = gap / 2.0;
+            o = &d->obj[i];
+            if (o->cls == JW_SEN) {
+                double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1], len = sqrt(ux * ux + uy * uy), t;
+
+                if (len < 1e-7)
+                    return;
+                ux /= len;
+                uy /= len;
+                t = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
+                cut_line(d, i, o->d[0] + ux * (t - h), o->d[1] + uy * (t - h),
+                         o->d[0] + ux * (t + h), o->d[1] + uy * (t + h));
+            } else if (o->cls == JW_ENKO) {
+                double ex = x - o->d[0], ey = y - o->d[1], el = sqrt(ex * ex + ey * ey);
+
+                if (el < 1e-7)
+                    return;
+                if (o->d[4] < 0.0)      /* the arc runs the other way round */
+                    h = -h;
+                cut_arc(d, i, x + ey / el * h, y - ex / el * h,
+                        x - ey / el * h, y + ex / el * h);
+            }
+            return;
+        }
         if (corner_step == 0) {
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || d->obj[i].cls != JW_SEN)
