@@ -175,8 +175,81 @@ static void rpoints(void)
        && near(o->d[2], 50) && near(o->d[3], 0), "  the parallel half way, x = 50");
 }
 
+/* circles (FUN_0063f520's cases 1, 3 and 5, read off the decompile --
+   原典では押していない): the crossing nearer the pick counts */
+static void circles(void)
+{
+    jw_drawing *d;
+    jw_obj *o;
+    int before;
+
+    app_resize(1264, 741);
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_ENKO);                 /* r 20 round (0,0) */
+    o->d[0] = 0; o->d[1] = 0; o->d[2] = 20; o->d[3] = 0; o->d[4] = 2 * 3.141592653589793;
+    o->d[5] = 0; o->d[6] = 1;
+    o = jw_add(d, JW_ENKO);                 /* r 10 round (100,0) */
+    o->d[0] = 100; o->d[1] = 0; o->d[2] = 10; o->d[3] = 0; o->d[4] = 2 * 3.141592653589793;
+    o->d[5] = 0; o->d[6] = 1;
+    o = jw_add(d, JW_SEN);                  /* something to read at (100,0) */
+    o->d[0] = 100; o->d[1] = 0; o->d[2] = 100; o->d[3] = -5;
+    o = jw_add(d, JW_SEN);                  /* the line y = -60 */
+    o->d[0] = -50; o->d[1] = -60; o->d[2] = 150; o->d[3] = -60;
+    app_fit();
+    before = d->ndrawn;
+
+    /* two circles, picked on their facing sides: half way between x = 20
+       and x = 90, so x = 55 */
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), 20, 0, 0);
+    jw_cmd_point(d, app_view(), 90, 0, 0);
+    jw_cmd_point(d, app_view(), 0, 30, 0);
+    jw_cmd_point(d, app_view(), 0, -60, 0);
+    printf("two circles:\n");
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == before + 1 && near(o->d[0], 55) && near(o->d[2], 55)
+       && near(o->d[1], 30) && near(o->d[3], -60), "  x = 55, square to the centres");
+
+    /* a circle and a point (R): the point (100,0) is the other circle's
+       centre, and the crossing nearer the pick is (20,0) -- x = 60 */
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), 20, 0, 0);
+    jw_cmd_point(d, app_view(), 100, 0, 1);
+    jw_cmd_point(d, app_view(), 0, 30, 0);
+    jw_cmd_point(d, app_view(), 0, -60, 0);
+    printf("a circle and a point:\n");
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == before + 2 && near(o->d[0], 60) && near(o->d[2], 60),
+       "  x = 60");
+
+    /* a circle picked on its far side: the crossing is (-20,0), so the
+       middle to (100,0) is x = 40 */
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), -20, 0, 0);
+    jw_cmd_point(d, app_view(), 100, 0, 1);
+    jw_cmd_point(d, app_view(), 0, 30, 0);
+    jw_cmd_point(d, app_view(), 0, -60, 0);
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == before + 3 && near(o->d[0], 40) && near(o->d[2], 40),
+       "  picked on the far side: x = 40");
+
+    /* a line and a circle: the square from (0,0) to y = -60 crosses the
+       circle at (0,-20) when it is picked low -- half way, y = -40 */
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), 0, -60, 0);
+    jw_cmd_point(d, app_view(), 0, -20, 0);
+    jw_cmd_point(d, app_view(), 0, 30, 0);
+    jw_cmd_point(d, app_view(), 100, 0, 0);
+    printf("a line and a circle:\n");
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == before + 4 && near(o->d[1], -40) && near(o->d[3], -40)
+       && near(o->d[0], 0) && near(o->d[2], 100), "  y = -40, along the line");
+}
+
 int main(void)
 {
+    circles();
     rpoints();
     run("decomp/res/chushin.jww", "two lines that run together:");
     run("decomp/res/chushin2.jww", "two that meet at an angle:");

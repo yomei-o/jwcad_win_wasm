@@ -7095,40 +7095,139 @@ static void nisen(jw_drawing *d, double x, double y)
  * that cross it is the bisector through the crossing, and the two points are
  * dropped onto it square. */
 /* (R) reads a point in place of a line (CZukeiChuushinSen's right button,
-   FUN_0063ef60 → FUN_0063f0e0; the middle is FUN_0063f520 -- read off the
-   decompile, not asked of the original):
-     two points     the square bisector of them (its case 6)
-     line + point   the line's parallel half way to the point (case 2)
-   It also takes circles (cases 1, 3, 5), which the port does not. */
+   FUN_0063ef60 → FUN_0063f0e0), and the left one takes a circle as well as
+   a line.  The middle of each pair is FUN_0063f520 (read off the decompile,
+   not asked of the original):
+     two points       the square bisector of them (its case 6)
+     line + point     the line's parallel half way to the point (case 2)
+     line + circle    the parallel half way to where the square from the
+                      centre to the line crosses the circle (case 1)
+     circle + point   square to centre→point, half way between the point
+                      and where that line crosses the circle (case 3)
+     two circles      square to centre→centre, half way between where that
+                      line crosses each circle (case 5)
+   "Where it crosses" is the crossing nearer the click that picked the
+   circle (FUN_00462070's near point is the pick, +0x100 / +0x110).  Only
+   true circles and arcs: an ellipse is not taken. */
+#define CHU_KIND(i) ((i) == CHU_PT ? 2 : d->obj[i].cls == JW_SEN ? 0 : 1)
+
+static int chu_cross(const jw_obj *c, double tx, double ty, double nx, double ny,
+                     double *ox, double *oy)
+{
+    /* the line from the centre towards (tx,ty), across the circle, the
+       crossing nearer (nx,ny) */
+    double ux = tx - c->d[0], uy = ty - c->d[1], len = sqrt(ux * ux + uy * uy);
+    double ax, ay, bx, by;
+
+    if (len < 1e-7)
+        return 0;
+    ux /= len;
+    uy /= len;
+    ax = c->d[0] + ux * c->d[2];
+    ay = c->d[1] + uy * c->d[2];
+    bx = c->d[0] - ux * c->d[2];
+    by = c->d[1] - uy * c->d[2];
+    if ((ax - nx) * (ax - nx) + (ay - ny) * (ay - ny)
+        <= (bx - nx) * (bx - nx) + (by - ny) * (by - ny)) {
+        *ox = ax;
+        *oy = ay;
+    } else {
+        *ox = bx;
+        *oy = by;
+    }
+    return 1;
+}
+
+/* square to a→b, through their middle */
+static int chu_bisect(double ax, double ay, double bx, double by,
+                      double *px, double *py, double *ux, double *uy)
+{
+    double dx = bx - ax, dy = by - ay, len = sqrt(dx * dx + dy * dy);
+
+    if (fabs(dx) < 1e-7 && fabs(dy) < 1e-7)
+        return 0;
+    *px = ax + dx / 2.0;
+    *py = ay + dy / 2.0;
+    *ux = -dy / len;
+    *uy = dx / len;
+    return 1;
+}
+
+/* along the line l, half way out to (qx,qy) */
+static int chu_parallel(const jw_obj *l, double qx, double qy,
+                        double *px, double *py, double *ux, double *uy)
+{
+    double dx = l->d[2] - l->d[0], dy = l->d[3] - l->d[1], len = sqrt(dx * dx + dy * dy), h;
+
+    if (len < 1e-7)
+        return 0;
+    dx /= len;
+    dy /= len;
+    h = ((qx - l->d[0]) * -dy + (qy - l->d[1]) * dx) / 2.0;
+    *px = l->d[0] - dy * h;
+    *py = l->d[1] + dx * h;
+    *ux = dx;
+    *uy = dy;
+    return 1;
+}
+
 static int chushin_line_pt(const jw_drawing *d, double *px, double *py,
                            double *ux, double *uy)
 {
-    if (chu_a == CHU_PT && chu_b == CHU_PT) {
-        double dx = chu_bx - chu_ax, dy = chu_by - chu_ay, len = sqrt(dx * dx + dy * dy);
+    int ka = CHU_KIND(chu_a), kb = CHU_KIND(chu_b);
+    /* the pair, the line or circle first and the point last */
+    int i = ka <= kb ? chu_a : chu_b, k = ka <= kb ? chu_b : chu_a;
+    int ki = ka <= kb ? ka : kb, kk = ka <= kb ? kb : ka;
+    double ix = ka <= kb ? chu_ax : chu_bx, iy = ka <= kb ? chu_ay : chu_by;
+    double kx = ka <= kb ? chu_bx : chu_ax, ky = ka <= kb ? chu_by : chu_ay;
+    double x1, y1, x2, y2;
 
-        if (fabs(dx) < 1e-7 && fabs(dy) < 1e-7)
-            return 0;
-        *px = chu_ax + dx / 2.0;
-        *py = chu_ay + dy / 2.0;
-        *ux = -dy / len;
-        *uy = dx / len;
-        return 1;
-    } else {
-        const jw_obj *l = &d->obj[chu_a == CHU_PT ? chu_b : chu_a];
-        double qx = chu_a == CHU_PT ? chu_ax : chu_bx, qy = chu_a == CHU_PT ? chu_ay : chu_by;
-        double dx = l->d[2] - l->d[0], dy = l->d[3] - l->d[1], len = sqrt(dx * dx + dy * dy), h;
+    if (ki == 2)                                    /* two points */
+        return chu_bisect(chu_ax, chu_ay, chu_bx, chu_by, px, py, ux, uy);
+    if (ki == 0 && kk == 2)                         /* line + point */
+        return chu_parallel(&d->obj[i], kx, ky, px, py, ux, uy);
+    if (ki == 0 && kk == 1) {                       /* line + circle */
+        const jw_obj *l = &d->obj[i], *c = &d->obj[k];
+        double dx = l->d[2] - l->d[0], dy = l->d[3] - l->d[1], len = sqrt(dx * dx + dy * dy), t;
 
         if (len < 1e-7)
             return 0;
         dx /= len;
         dy /= len;
-        h = ((qx - l->d[0]) * -dy + (qy - l->d[1]) * dx) / 2.0;
-        *px = l->d[0] - dy * h;
-        *py = l->d[1] + dx * h;
-        *ux = dx;
-        *uy = dy;
+        if (fabs((c->d[0] - l->d[0]) * -dy + (c->d[1] - l->d[1]) * dx) < 1e-7)
+            return 0;                               /* the centre is on the line */
+        t = (c->d[0] - l->d[0]) * dx + (c->d[1] - l->d[1]) * dy;
+        if (!chu_cross(c, l->d[0] + dx * t, l->d[1] + dy * t, kx, ky, &x1, &y1))
+            return 0;
+        return chu_parallel(l, x1, y1, px, py, ux, uy);
+    }
+    if (ki == 1 && kk == 2) {                       /* circle + point */
+        const jw_obj *c = &d->obj[i];
+
+        if (!chu_cross(c, kx, ky, ix, iy, &x1, &y1))
+            return 0;                               /* the point is the centre */
+        return chu_bisect(kx, ky, x1, y1, px, py, ux, uy);
+    }
+    if (ki == 1 && kk == 1) {                       /* two circles */
+        const jw_obj *a = &d->obj[chu_a], *b = &d->obj[chu_b];
+        double dx = b->d[0] - a->d[0], dy = b->d[1] - a->d[1], len = sqrt(dx * dx + dy * dy), t;
+
+        if (fabs(dx) < 1e-7 && fabs(dy) < 1e-7)
+            return 0;                               /* one centre */
+        if (!chu_cross(a, b->d[0], b->d[1], chu_ax, chu_ay, &x1, &y1)
+            || !chu_cross(b, a->d[0], a->d[1], chu_bx, chu_by, &x2, &y2))
+            return 0;
+        dx /= len;
+        dy /= len;
+        /* through the middle of the two crossings, square to the centres */
+        t = ((x1 + x2) / 2.0 - a->d[0]) * dx + ((y1 + y2) / 2.0 - a->d[1]) * dy;
+        *px = a->d[0] + dx * t;
+        *py = a->d[1] + dy * t;
+        *ux = -dy;
+        *uy = dx;
         return 1;
     }
+    return 0;
 }
 
 static int chushin_line(const jw_drawing *d, double *px, double *py,
@@ -7138,7 +7237,8 @@ static int chushin_line(const jw_drawing *d, double *px, double *py,
     double adx, ady, bdx, bdy, alen, blen;
     double den, t;
 
-    if (chu_a == CHU_PT || chu_b == CHU_PT)
+    if (chu_a == CHU_PT || chu_b == CHU_PT || d->obj[chu_a].cls != JW_SEN
+        || d->obj[chu_b].cls != JW_SEN)
         return chushin_line_pt(d, px, py, ux, uy);
     p = &d->obj[chu_a];
     q = &d->obj[chu_b];
@@ -7213,6 +7313,12 @@ static int chushin_line(const jw_drawing *d, double *px, double *py,
     return 1;
 }
 
+/* what the left button picks: a line, or a circle or arc that is round */
+static int chu_takes(const jw_obj *o)
+{
+    return o->cls == JW_SEN || (o->cls == JW_ENKO && fabs(o->d[6] - 1.0) < 1e-9 && o->d[2] > 0.0);
+}
+
 static void chushin(jw_drawing *d, double x, double y)
 {
     double px, py, ux, uy, t0, t1;
@@ -7221,7 +7327,7 @@ static void chushin(jw_drawing *d, double x, double y)
     if ((chu_a < 0 && chu_a != CHU_PT) || (chu_b < 0 && chu_b != CHU_PT)
         || chu_a >= d->nobj || chu_b >= d->nobj)
         return;
-    if ((chu_a >= 0 && d->obj[chu_a].cls != JW_SEN) || (chu_b >= 0 && d->obj[chu_b].cls != JW_SEN))
+    if ((chu_a >= 0 && !chu_takes(&d->obj[chu_a])) || (chu_b >= 0 && !chu_takes(&d->obj[chu_b])))
         return;
     if (!chushin_line(d, &px, &py, &ux, &uy))
         return;
@@ -18397,7 +18503,7 @@ placed:
         }
         if (chu_step == 0) {
             i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i < 0 || !chu_takes(&d->obj[i]))
                 return;
             chu_a = i;
             chu_ax = x;
@@ -18406,12 +18512,19 @@ placed:
             return;
         }
         if (chu_step == 1) {
+            double px, py, ux, uy;
+
             i = jw_pick_tie(d, v, x, y, 3, 1);
-            if (i < 0 || i == chu_a || d->obj[i].cls != JW_SEN)
+            if (i < 0 || i == chu_a || !chu_takes(&d->obj[i]))
                 return;
             chu_b = i;
             chu_bx = x;
             chu_by = y;
+            if (!chushin_line(d, &px, &py, &ux, &uy)
+                && (d->obj[i].cls != JW_SEN || chu_a == CHU_PT || d->obj[chu_a].cls != JW_SEN)) {
+                chu_b = -1;     /* no middle (0x1455): it waits on */
+                return;
+            }
             chu_step = 2;
             return;
         }
