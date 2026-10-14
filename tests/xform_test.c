@@ -545,6 +545,47 @@ static void select_all_editable(void)
        "  選択の印も その線だけ");
 }
 
+/* 範囲選択のバーの 基準点変更 (1064): 選んだあとに押すと 次のクリックが基準点になり、
+   選択確定は マウスの位置ではなく その点を基準点にする（CZukeiSentaku の 22 番目
+   FUN_006f8e00 と FUN_006fd240 の +0xac の枝。逆コンパイルの読み） */
+static void base_before_confirm(void)
+{
+    jw_drawing *d;
+    const jw_view *v;
+    double x0, y0;
+    int n;
+
+    app_new();
+    v = app_view();
+    app_command(32771);
+    app_press(400, 300, 0);
+    app_press(500, 300, 0);
+    d = (jw_drawing *)app_drawing();
+    x0 = d->obj[0].d[0];
+    y0 = d->obj[0].d[1];
+    app_command(32804);                 /* 複写 */
+    ck(jw_cmd_bar_enabled(d, 1064) == 0, "基準点変更 は 範囲が無いうちは死んでいる");
+    app_press(350, 250, 0);
+    app_press(550, 350, 0);
+    ck(jw_cmd_bar_enabled(d, 1064) > 0, "  範囲で拾うと生きる");
+    jw_cmd_bar(d, 1064);
+    app_press(400, 300, 0);             /* the line's left end: the 基準点 */
+    app_move(700, 600);                 /* the mouse elsewhere when it is confirmed */
+    jw_cmd_bar(d, 1120);                /* 選択確定 */
+    n = d->ndrawn;
+    app_press(600, 500, 0);             /* where the 基準点 goes */
+    ck(d->ndrawn == n + 1, "  置き先を指すと 写しが一つ");
+    if (d->ndrawn == n + 1) {
+        const jw_obj *c = &d->obj[d->ndrawn - 1];
+        double px = jw_sx(v, c->d[0]), py = jw_sy(v, c->d[1]);
+
+        ck(px >= 598 && px <= 602 && py >= 498 && py <= 502,
+           "  写しの左端が置き先に来る（基準点は指した点で、マウスの位置ではない）");
+        (void)x0;
+        (void)y0;
+    }
+}
+
 int main(void)
 {
     if (!read_rect()) {
@@ -570,6 +611,7 @@ int main(void)
     ck(!strcmp(jw_cmd_dir_text(), "XY\x95\xfb\x8c\xfc"),
        "and the button is carrying XY方向 by now");
     select_all_editable();
+    base_before_confirm();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

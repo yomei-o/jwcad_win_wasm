@@ -276,6 +276,13 @@ static int range_moves(void)
 /* 基点変更 (the second stage's 1066): the next click is the new 基準点, and
    the one after that places as usual. */
 static int sel_base_wait;
+/* 基準点変更 (the range bar's 1064, before 選択確定): the next click is the
+   基準点, and 選択確定 takes it instead of where the mouse is.  CZukeiSentaku's
+   slot 22 (FUN_006f8e00) sets +0xac when something is picked, and FUN_006fd240
+   then takes the click as the point and drops +0xac.  Read off the decompile;
+   the original has not been asked. */
+static int sel_base_pick, sel_base_set;
+static double sel_base_px, sel_base_py;
 /* 任意方向 (the second stage's 1151).  The button cycles through four
    labels -- 任意方向, X 方向, Y 方向, XY方向 -- and each one squares the move
    off: X keeps only the across part, Y only the up-and-down one, and XY
@@ -3025,6 +3032,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_GAZOU)
         gz_reset();
     sel_flip = sel_base_wait = sel_dir = 0;
+    sel_base_pick = sel_base_set = 0;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_nreg = 0;
@@ -10889,7 +10897,11 @@ static int sel_confirm(jw_drawing *d)
             sel_was[sel_n] = d->obj[i];
             sel_n++;
         }
-    if (tracking) {
+    if (sel_base_set) {                 /* 基準点変更 put it somewhere */
+        base_x = sel_base_px;
+        base_y = sel_base_py;
+        sel_base_set = 0;
+    } else if (tracking) {
         base_x = tx;
         base_y = ty;
     } else {
@@ -11443,7 +11455,10 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         if (current == JW_CMD_SUNPO)
             return ika_step == 3;
         return sel_step == 2 && jw_cmd_sel_count(d) > 0;   /* 選択確定 */
-    case 1064:                  /* 連続 -- not done */
+    case 1064:                  /* 基準点変更 (not 連続: the template's 278 says so),
+                                   alive once something is picked */
+        if (range_cmd(current) && sel_step == 2)
+            return jw_cmd_sel_count(d) > 0;
         return 0;
     case 1065:                  /* 前範囲, and 追加範囲 once a box is in */
         return sel_step == 2;
@@ -11862,6 +11877,11 @@ static int bar_press(jw_drawing *d, int id)
         if (sel_step != 0)
             return 0;
         sel_cut = !sel_cut;
+        return 1;
+    case 1064:                  /* 基準点変更: the next click is the 基準点 */
+        if (!range_cmd(current) || sel_step != 2 || !d || jw_cmd_sel_count(d) <= 0)
+            return 0;
+        sel_base_pick = 1;
         return 1;
     case 1065:                  /* 追加範囲 -- the next box adds to it */
         if (sel_step != 2)
@@ -17088,6 +17108,14 @@ placed:
             sel_step = 2;       /* a box that caught nothing stays in the stage */
             return;
         case 2: {
+            if (sel_base_pick) {
+                sel_base_pick = 0;
+                sel_base_set = 1;
+                sel_base_px = x;
+                sel_base_py = y;
+                return;
+            }
+            {
             /* 追加・除外図形指示: (L) a line, circle or point, (R) a text,
                is added if it was not picked and taken away if it was.  A
                click on nothing does nothing -- two of them do not make a
@@ -17109,6 +17137,7 @@ placed:
                 d->obj[k].sel = 1;
             }
             return;
+            }
         }
         default:
             if (button != 0)
