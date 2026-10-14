@@ -527,6 +527,53 @@ static void block_name_narrows(void)
     app_key(27);
 }
 
+/* ブロック解除 of two references at once, then 戻る: the drawing comes back
+   exactly, order and all (each reference's members went where it was, two
+   places, which one add_at could not say -- cmdfuzz seed 715 on Test5) */
+static void free_two_then_undo(void)
+{
+    jw_drawing *d;
+    jw_obj *was;
+    int n, nd, same;
+    rect_t v;
+
+    /* the two references with a line between them, so that their members
+       go in at two places apart */
+    app_new();
+    app_command(32771);
+    app_press(400, 300, 0);
+    app_press(450, 320, 0);
+    app_press(700, 300, 0);
+    app_press(750, 320, 0);
+    make_block(380, 280, 470, 340, "A");
+    app_command(32771);
+    app_press(550, 450, 0);
+    app_press(600, 470, 0);
+    make_block(680, 280, 770, 340, "B");
+    d = (jw_drawing *)app_drawing();
+    app_command(32787);
+    ui_view_rect(1264, 741, &v);
+    app_press(v.x + 20, v.y + 20, 0);
+    app_press(v.x + v.w - 20, v.y + v.h - 20, 1);
+    n = d->nobj;
+    nd = d->ndrawn;
+    was = (jw_obj *)malloc((size_t)n * sizeof *was);
+    memcpy(was, d->obj, (size_t)n * sizeof *was);
+    app_command(32909);                 /* ブロック解除 */
+    {
+        int q, nb = 0;
+
+        for (q = 0; q < d->ndrawn; q++)
+            nb += d->obj[q].cls == JW_BLOCK;
+        ck(nb == 0 && memcmp(d->obj, was, (size_t)nd * sizeof *was) != 0,
+           "ブロック解除 of two references takes both apart");
+    }
+    jw_cmd_undo(d);
+    same = d->nobj == n && d->ndrawn == nd && !memcmp(d->obj, was, (size_t)n * sizeof *was);
+    ck(same, "  and 戻る brings the drawing back exactly, order and all");
+    free(was);
+}
+
 /* The command bars, against their templates.  A bar is a child dialog 462
    units wide, laid out by the same sum, and the strip puts it 6 pixels in
    and 5 down.  For every bar the port read off the original
@@ -614,6 +661,7 @@ int main(void)
     keypad();
     copy_takes_write_attributes();
     block_name_narrows();
+    free_two_then_undo();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

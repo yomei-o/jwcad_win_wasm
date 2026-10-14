@@ -1137,6 +1137,12 @@ typedef struct {
     jw_obj *back;
     int nback;
     unsigned gen;               /* which step this is, for jw_cmd_edit_stamp */
+    /* The whole drawing as it stood before the step, for a step that puts
+       things in at more than one place (ブロック解除 of several references:
+       each one's members go where that reference was, and add_at can only
+       say one place).  戻る puts this back whole; 進む uses `after`. */
+    jw_obj *before;
+    int nbefore, ndrawn_before;
 } op_t;
 
 /* Remember an element as it is now, so it can be put back. */
@@ -1173,6 +1179,7 @@ static void op_drop(op_t *o)
     free(o->item);
     free(o->after);
     free(o->back);
+    free(o->before);
     memset(o, 0, sizeof *o);
 }
 
@@ -3667,6 +3674,24 @@ void jw_cmd_undo(jw_drawing *d)
     o = &op[nop - 1];
     if (!op_snap(o, d))
         return;
+    if (o->before) {
+        /* the whole drawing back as it stood (see op_t's `before`) */
+        if (o->nbefore > d->cobj) {
+            jw_obj *p = (jw_obj *)realloc(d->obj, (size_t)o->nbefore * sizeof *p);
+
+            if (!p)
+                return;
+            d->obj = p;
+            d->cobj = o->nbefore;
+        }
+        memcpy(d->obj, o->before, (size_t)o->nbefore * sizeof *d->obj);
+        d->nobj = o->nbefore;
+        d->ndrawn = o->ndrawn_before;
+        nop--;
+        step = 0;
+        tracking = 0;
+        return;
+    }
     {   /* A definition and the elements inside it sit past the drawn ones,
            at the very end, so they come off first. */
         int n;
@@ -9776,6 +9801,18 @@ int jw_cmd_block_free(jw_drawing *d)
     if (!d)
         return 0;
     rec = op_new();
+    if (rec && d->nobj > 0) {
+        /* several references put their members in at several places, which
+           the record's single add_at cannot say: keep the whole drawing
+           (cmdfuzz seed 715 on Test5: 戻る brought the elements back out of
+           order) */
+        rec->before = (jw_obj *)malloc((size_t)d->nobj * sizeof *rec->before);
+        if (rec->before) {
+            memcpy(rec->before, d->obj, (size_t)d->nobj * sizeof *rec->before);
+            rec->nbefore = d->nobj;
+            rec->ndrawn_before = d->ndrawn;
+        }
+    }
     for (i = d->ndrawn - 1; i >= 0; i--) {
         jw_obj ref;
         int at = -1, span, made = 0;
