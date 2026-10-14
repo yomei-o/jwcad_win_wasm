@@ -12,7 +12,7 @@
 
 ## 引き継ぎメモ（2026-10-14 夕、別アカウントで続ける人へ）
 
-- **まず**: `git pull`、`sh tools/qtest.sh`（末尾 `diff 7` が正常）。`src/gen/` は今回から repo に入れた（`tools/gen.sh` は原典の資源から作り直すとき用）。wasm は `EMSDK_PYTHON=C:/prog/emsdk/emsdk/python/3.13.3_64bit/python.exe sh tools/build_wasm.sh`。
+- **まず**: `git pull`、`sh tools/qtest.sh`（末尾 `diff 0` が正常。2026-10-14 夜に 0 になった）。`src/gen/` は今回から repo に入れた（`tools/gen.sh` は原典の資源から作り直すとき用）。wasm は `EMSDK_PYTHON=C:/prog/emsdk/emsdk/python/3.13.3_64bit/python.exe sh tools/build_wasm.sh`。
 - **こまめにコミット・push**（ユーザーの指示）。エージェントを並べるときは、原典（`Jw_win.exe`）を動かすのは**一つだけ**、`src/cmd.c` はみんなで触るので小さく直す。
 - **未解決（原典が要る）**: s24_8（多角形→複写のあと 分割の 割付 (1324) が移植で OFF、原典は ON。`chk_slot(bar_cmd(), 1324)` が別のバーと共有している疑い。`python tools/difffuzz.py one` に `tmp/fz/results.json` の s24_8 の steps）／
   残り 7 件の fzcheck（ケース 6・10・15・25・62・71・74 と s7_32: 範囲移動・複写のあとの複線で、原典は覚えている線を元にして最初のクリックを位置として扱う。状態の持ち越しが未実装）／
@@ -52,7 +52,7 @@
    （切取・コピーも生きる）。**クリップボードと外部エディタの話**で、ブラウザ
    版では意味が薄い。やるなら 文書 (テキストの複数行編集) と SJIS/UTF の切替から
 3. **差分ファジングの残り** —— `tools/difffuzz.py`（原典と乱数列で比べる）。2026-10-14 に 種 7〜9・20〜24 を流し、ずれは直した
-   （`RESUME.md` 2026-10-14）。`python tools/fzcheck.py` の DIFF は 18 → 1 件: ケース 6 だけ（範囲の角が view rect の外。`orig_fail` の
+   （`RESUME.md` 2026-10-14）。`python tools/fzcheck.py` の DIFF は 18 → 1 → **0 件**（ケース 6 は 円の二点目が view rect の外で、原典は PostMessage の座標を窓の外でもそのまま受ける。`tests/replay_test.c` が外の点だけ `jw_cmd_point` に直接渡すようにした。移植の app_press は本物のマウスに合わせて外を捨てたまま。もとの記述:`orig_fail` の
    移動・複写 もこれ）。複線は 残った選択を元にする（`fk_selmode`）まで合った。ハーネス: `replay` は `type:`（文字）を持たないので 文字は流せない
 4. **天空図のオプションの残り**（バーに出す道筋・天空率計算・高精度・測定点表示・半径・測定高・等距離の字・
    ≪/Esc は入った。`RESUME.md` 2026-10-13 の節）:

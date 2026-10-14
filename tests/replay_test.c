@@ -14,6 +14,7 @@
 #include "../src/cmd.h"
 #include "../src/ui.h"
 #include "../src/jww.h"
+#include "../src/view.h"
 
 static unsigned char *slurp(const char *path, long *n)
 {
@@ -56,6 +57,25 @@ static int dump(const char *path)
     return 0;
 }
 
+/* 一押し。原典は PostMessage の座標を ビューの外でもそのまま点として受ける
+   （fuzz ケース 6: 円の二点目が y=700、ビューの高さ 686 の外）。本物の
+   マウスでは起きないので 移植の app_press は外を捨てる。ここでは外の点だけ
+   紙の座標にして jw_cmd_point に直接渡し、原典の受け方に合わせる */
+static void press(const rect_t *r, int x, int y, int button)
+{
+    if (x >= 0 && y >= 0 && x < r->w && y < r->h) {
+        app_press(r->x + x, r->y + y, button);
+        return;
+    }
+    {
+        const jw_view *v = app_view();
+        double px = v->ox + (r->x + x - v->bx) / v->scale;
+        double py = v->oy + (v->by - (r->y + y)) / v->scale;
+
+        jw_cmd_point((jw_drawing *)app_drawing(), v, px, py, button);
+    }
+}
+
 static int run(const char *steps, const char *out)
 {
     long n;
@@ -90,9 +110,9 @@ static int run(const char *steps, const char *out)
         } else if (tok[0] == 'm' && sscanf(tok + 1, "%d,%d%n", &x, &y, &nn) == 2) {
             (void)x; (void)y;   /* 原典の m は 実カーソルを動かすだけで ビューの WM_MOUSEMOVE は来ない（fuzz 28〜39）*/
         } else if (tok[0] == 'r' && sscanf(tok + 1, "%d,%d%n", &x, &y, &nn) == 2) {
-            app_press(r.x + x, r.y + y, 1);
+            press(&r, x, y, 1);
         } else if (sscanf(tok, "%d,%d%n", &x, &y, &nn) == 2) {
-            app_press(r.x + x, r.y + y, 0);
+            press(&r, x, y, 0);
         }
     }
     if (!app_save(&o, &n)) { fprintf(stderr, "save failed\n"); return 3; }
