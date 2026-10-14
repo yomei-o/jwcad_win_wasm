@@ -1011,7 +1011,9 @@ static int nxbox;
    100000 + the command the way tools/bars2.ps1 writes it. */
 static unsigned bar_cmd(void)
 {
-    return sel_step == 3 ? 100000u + (unsigned)current : (unsigned)current;
+    /* 選び終えた範囲が残っていても、二つ目のバーを持つのは 範囲を扱う命令だけ
+       （複写のあとの 分割 で 割付 の印が 別のスロットに入った: fuzz s24_8） */
+    return sel_step == 3 && range_cmd(current) ? 100000u + (unsigned)current : (unsigned)current;
 }
 
 /* The checkbox with this id on that bar, made the first time it is asked
@@ -2604,6 +2606,258 @@ int jw_cmd_hikage_preview(const jw_drawing *d, const jw_view *v, jw_drawing *out
     return m;
 }
 
+/* 範囲の移動・複写などのあとに 複線 へ替えると、選んだままの図形が複線の元になる
+ * （原典: 最初のクリックが 何も拾えなくても 選択中の線・円を まとめて写す。一度だけ。
+ *  向きはクリックに一番近い選択中の線の側で、ほかの線も同じ側。fuzz 10・15・25・62・71・74、
+ *  tmp/ov.py の二本線の実験）。 */
+static const jw_drawing *last_dr;   /* 直近に命令へ渡された図面（jw_cmd_set は図面を受け取らない） */
+
+static int fk_has_sel(void)
+{
+    int i;
+
+    if (!last_dr)
+        return 0;
+    for (i = 0; i < last_dr->ndrawn; i++)
+        if (last_dr->obj[i].sel && (last_dr->obj[i].cls == JW_SEN ||
+            (last_dr->obj[i].cls == JW_ENKO && fabs(last_dr->obj[i].d[6] - 1.0) < 1e-9)))
+            return 1;
+    return 0;
+}
+
+static int fk_sel_used;
+static int fk_selmode;      /* 選択中の図形が元（最初のクリックは 側・間隔の指示） */
+
+static int fukusen_selected(jw_drawing *d, double x, double y)
+{
+    int i, near = -1, n = d->ndrawn, made = 0, any = 0;
+    double best = 1e300, typed = 0.0, off = 0.0, sgn = 1.0;
+
+    if (fk_sel_used)
+        return 0;
+    for (i = 0; i < n; i++) {
+        const jw_obj *o = &d->obj[i];
+        double dd;
+
+        if (!o->sel)
+            continue;
+        if (o->cls == JW_SEN) {
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1], l2 = dx * dx + dy * dy, u;
+
+            if (l2 < 1e-14)
+                continue;
+            u = ((x - o->d[0]) * dx + (y - o->d[1]) * dy) / l2;
+            u = u < 0.0 ? 0.0 : u > 1.0 ? 1.0 : u;
+            dd = hypot(x - o->d[0] - u * dx, y - o->d[1] - u * dy);
+        } else if (o->cls == JW_ENKO && fabs(o->d[6] - 1.0) < 1e-9) {
+            dd = fabs(hypot(x - o->d[0], y - o->d[1]) - o->d[2]);
+        } else
+            continue;
+        any = 1;
+        if (dd < best) {
+            best = dd;
+            near = i;
+        }
+    }
+    if (!any)
+        return 0;
+    fk_sel_used = 1;
+    if (jw_cmd_get_kankaku(&typed))
+        have_kan = 0;
+    else
+        typed = box_mm(d, 1411);
+    {
+        const jw_obj *o = &d->obj[near];
+
+        if (o->cls == JW_SEN) {
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1], len = hypot(dx, dy);
+
+            off = ((x - o->d[0]) * -dy + (y - o->d[1]) * dx) / len;
+        } else
+            off = hypot(x - o->d[0], y - o->d[1]) - o->d[2];
+    }
+    sgn = off < 0.0 ? -1.0 : 1.0;
+    if (typed > 0.0)
+        off = sgn * typed;
+    {   /* つながった線は 角を延ばして つなぐ（四角の外側の複線が 四本一度にできる: fuzz 74）。
+           つながらない線は ただ平行に写す（二本線の実験） */
+        int *ch = (int *)calloc((size_t)n * 4 + 4, sizeof(int)); /* 鎖の並び（前後に伸ばせる窓） */
+        unsigned char *used = (unsigned char *)calloc((size_t)n + 1, 1);
+        int *fw = ch + 2 * n + 2;                    /* 並びの向き: 1 = 元の向き */
+        int k;
+
+        if (!ch || !used) {
+            free(ch);
+            free(used);
+            return 1;
+        }
+        for (i = 0; i < n; i++) {
+            const jw_obj *s0 = &d->obj[i];
+            int len, head, closed = 0;
+            double sx, sy, ex, ey;
+            int *seq = ch;
+
+            if (!s0->sel || s0->cls != JW_SEN || used[i] || hypot(s0->d[2] - s0->d[0], s0->d[3] - s0->d[1]) < 1e-9)
+                continue;
+            /* seq は n+1 個の窓（head から並べる） */
+            head = n;
+            len = 1;
+            seq[head] = i;
+            fw[head] = 1;
+            used[i] = 1;
+            sx = s0->d[0]; sy = s0->d[1]; ex = s0->d[2]; ey = s0->d[3];
+            for (;;) {      /* 終わりへ */
+                int hit = -1, f2 = 1;
+
+                if (fabs(ex - sx) < 1e-7 && fabs(ey - sy) < 1e-7 && len > 1) {
+                    closed = 1;
+                    break;
+                }
+                for (k = 0; k < n; k++) {
+                    const jw_obj *q = &d->obj[k];
+
+                    if (used[k] || !q->sel || q->cls != JW_SEN)
+                        continue;
+                    if (hypot(q->d[0] - ex, q->d[1] - ey) < 1e-7) { hit = k; f2 = 1; break; }
+                    if (hypot(q->d[2] - ex, q->d[3] - ey) < 1e-7) { hit = k; f2 = 0; break; }
+                }
+                if (hit < 0 || head + len >= 2 * n + 1)
+                    break;
+                seq[head + len] = hit;
+                fw[head + len] = f2;
+                used[hit] = 1;
+                ex = f2 ? d->obj[hit].d[2] : d->obj[hit].d[0];
+                ey = f2 ? d->obj[hit].d[3] : d->obj[hit].d[1];
+                len++;
+            }
+            while (!closed) {   /* 始めへ */
+                int hit = -1, f2 = 1;
+
+                for (k = 0; k < n; k++) {
+                    const jw_obj *q = &d->obj[k];
+
+                    if (used[k] || !q->sel || q->cls != JW_SEN)
+                        continue;
+                    if (hypot(q->d[2] - sx, q->d[3] - sy) < 1e-7) { hit = k; f2 = 1; break; }
+                    if (hypot(q->d[0] - sx, q->d[1] - sy) < 1e-7) { hit = k; f2 = 0; break; }
+                }
+                if (hit < 0 || head <= 0)
+                    break;
+                head--;
+                seq[head] = hit;
+                fw[head] = f2;
+                used[hit] = 1;
+                sx = f2 ? d->obj[hit].d[0] : d->obj[hit].d[2];
+                sy = f2 ? d->obj[hit].d[1] : d->obj[hit].d[3];
+                len++;
+            }
+            {
+                double (*Q)[4];
+                int m;
+
+                Q = (double (*)[4])malloc(sizeof(double[4]) * (size_t)len);
+                if (!Q)
+                    continue;
+                /* 鎖の向きの上の各線の 写した線 (点 + 向き) */
+                for (m = 0; m < len; m++) {
+                    const jw_obj *q = &d->obj[seq[head + m]];
+                    double ax = fw[head + m] ? q->d[0] : q->d[2], ay = fw[head + m] ? q->d[1] : q->d[3];
+                    double bx = fw[head + m] ? q->d[2] : q->d[0], by = fw[head + m] ? q->d[3] : q->d[1];
+                    double dx = bx - ax, dy = by - ay, ln = hypot(dx, dy);
+                    double sg = fw[head + m] ? 1.0 : -1.0;   /* 元の向きの左 = 鎖の向きの 左 か 右 */
+
+                    Q[m][0] = ax - dy / ln * off * sg;
+                    Q[m][1] = ay + dx / ln * off * sg;
+                    Q[m][2] = dx / ln;
+                    Q[m][3] = dy / ln;
+                }
+                {
+                    double *CX = (double *)malloc(sizeof(double) * 2 * (size_t)(len + 1));
+                    double *CY = CX + len + 1;
+
+                    if (!CX) {
+                        free(Q);
+                        continue;
+                    }
+                    for (m = 0; m <= len; m++) {
+                        int a = m - 1, c = m;       /* 角 m は 線 a と 線 c のあいだ */
+
+                        if (m == 0 && closed)
+                            a = len - 1;
+                        if (m == len && closed)
+                            c = 0;
+                        if (a < 0) {                /* 鎖の始め */
+                            CX[m] = Q[c][0];
+                            CY[m] = Q[c][1];
+                        } else if (c >= len) {      /* 鎖の終わり */
+                            const jw_obj *q = &d->obj[seq[head + a]];
+                            double bx = fw[head + a] ? q->d[2] : q->d[0], by = fw[head + a] ? q->d[3] : q->d[1];
+                            double sg = fw[head + a] ? 1.0 : -1.0;
+
+                            CX[m] = bx - Q[a][3] * off * sg;
+                            CY[m] = by + Q[a][2] * off * sg;
+                        } else {
+                            double den = Q[a][2] * Q[c][3] - Q[a][3] * Q[c][2];
+
+                            if (fabs(den) < 1e-9) {
+                                CX[m] = Q[c][0];
+                                CY[m] = Q[c][1];
+                            } else {
+                                double tt = ((Q[c][0] - Q[a][0]) * Q[c][3] - (Q[c][1] - Q[a][1]) * Q[c][2]) / den;
+
+                                CX[m] = Q[a][0] + Q[a][2] * tt;
+                                CY[m] = Q[a][1] + Q[a][3] * tt;
+                            }
+                        }
+                    }
+                    if (closed) {
+                        CX[len] = CX[0];
+                        CY[len] = CY[0];
+                    }
+                    for (m = 0; m < len; m++) {
+                        jw_obj *o = jw_add(d, JW_SEN);
+
+                        if (!o)
+                            break;
+                        if (fw[head + m]) {
+                            o->d[0] = CX[m]; o->d[1] = CY[m]; o->d[2] = CX[m + 1]; o->d[3] = CY[m + 1];
+                        } else {
+                            o->d[0] = CX[m + 1]; o->d[1] = CY[m + 1]; o->d[2] = CX[m]; o->d[3] = CY[m];
+                        }
+                        made++;
+                    }
+                    free(CX);
+                }
+                free(Q);
+            }
+        }
+        free(ch);
+        free(used);
+    }
+    for (i = 0; i < n; i++) {
+        jw_obj src = d->obj[i], *o;
+
+        if (!src.sel || src.cls != JW_ENKO || fabs(src.d[6] - 1.0) >= 1e-9)
+            continue;
+        {
+            double r, co = hypot(x - src.d[0], y - src.d[1]) - src.d[2];
+
+            r = typed > 0.0 ? src.d[2] + (co < 0.0 ? -typed : typed) : src.d[2] + co;
+            if (r < 1e-9)
+                continue;
+            o = jw_add(d, JW_ENKO);
+            if (!o)
+                break;
+            memcpy(o->d, src.d, sizeof o->d);
+            o->d[2] = r;
+            made++;
+        }
+    }
+    if (made)
+        op_push(made);
+    return 1;
+}
+
 void jw_cmd_set(int id)
 {
     /* 消去 の (L) で線を一本拾ったまま 複線 に替えると、原典は拾った線をそのまま
@@ -2614,6 +2868,7 @@ void jw_cmd_set(int id)
     int carry_obj = cut_obj;
 
     prev = current;
+    fk_sel_used = 0;
     if (fh_state) {                     /* a stroke does not outlive its command: what it drew stays, as one step */
         if (fh_made > 0)
             op_push(fh_made);
@@ -2649,6 +2904,12 @@ void jw_cmd_set(int id)
     if (carry_para) {
         para_obj = carry_obj;
         para_step = 1;
+    }
+    fk_selmode = 0;
+    if (id == JW_CMD_FUKUSEN && !carry_para && fk_has_sel()) {
+        fk_selmode = 1;         /* 選択が残っていれば それが複線の元（すでに「間隔を入力するか」の段） */
+        para_step = 1;
+        para_obj = -1;
     }
     tracking = 0;
     /* The range starts over, the way FUN_004fdc40 leaves the command's own
@@ -11547,7 +11808,9 @@ static int bar_press(jw_drawing *d, int id)
             sel_base_wait = 1;
             return 1;
         }
-        if (sel_step == 2) {    /* 除外範囲: the next box takes away */
+        /* 何も入っていない枠のあとは 除外範囲 ではなく 全選択（原典: 空の範囲のあとの 1066 で 複線 が
+           図面の全部を元にした。fuzz 62・71、tmp/ov.py） */
+        if (sel_step == 2 && jw_cmd_sel_count(d) > 0) {    /* 除外範囲: the next box takes away */
             sel_keep = 1;
             sel_sub = 1;
             sel_step = 0;
@@ -11621,6 +11884,8 @@ int jw_cmd_moji_go(void)
 int jw_cmd_bar(jw_drawing *d, int id)
 {
     unsigned char *on;
+
+    last_dr = d;
 
     if (current == JW_CMD_MOJI && !ren_step) {
         if (id == 2407 || (id == 1067 && !ms_text)) {
@@ -15678,6 +15943,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    last_dr = d;
     int depth0 = nop;
 
     jw_cmd_point_(d, v, x, y, button);
@@ -16966,10 +17232,18 @@ placed:
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || (d->obj[i].cls != JW_SEN
                           && !(d->obj[i].cls == JW_ENKO
-                               && fabs(d->obj[i].d[6] - 1.0) < 1e-9)))
+                               && fabs(d->obj[i].d[6] - 1.0) < 1e-9))) {
                 return;
+            }
             para_obj = i;
             para_step = 1;
+            return;
+        }
+        if (para_step == 1 && fk_selmode) {
+            fk_selmode = 0;
+            para_step = 0;
+            para_obj = -1;
+            fukusen_selected(d, x, y);
             return;
         }
         if (para_step == 1 && d->obj[para_obj].cls == JW_ENKO) {

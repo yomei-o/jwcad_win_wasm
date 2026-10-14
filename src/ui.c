@@ -4265,6 +4265,24 @@ static int ctl_enabled(const jw_drawing *d, const jw_ctl_t *c)
     return e < 0 ? c->enabled : e;
 }
 
+/* The controls of the bar in force, for the tests that press every one of them (tools/web/cdp_bars.js):
+   the i-th one's id, kind and rectangle.  Returns 0 past the end. */
+int ui_bar_item(int i, int *id, int *kind, int *x, int *y, int *w, int *h)
+{
+    const jw_ctl_t *c;
+    int n = bar_now(&c);
+
+    if (i < 0 || i >= n)
+        return 0;
+    *id = c[i].id;
+    *kind = c[i].kind;
+    *x = c[i].x;
+    *y = c[i].y;
+    *w = c[i].w;
+    *h = c[i].h;
+    return 1;
+}
+
 int ui_bar_hit(int x, int y)
 {
     const jw_ctl_t *c;

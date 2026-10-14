@@ -126,6 +126,7 @@ int ui_bar_ctl(unsigned cmd, int id, int *checked);
    bar.  Whether it can be pressed is a separate question: the painting asks
    jw_cmd_bar_enabled, and this does not. */
 int ui_bar_hit(int x, int y);
+int ui_bar_item(int i, int *id, int *kind, int *x, int *y, int *w, int *h);   /* the bar in force, control by control */
 /* which of the five boxes at the right of the status line, or -1 */
 int ui_status_hit(int x, int y, int cw, int ch);
 /* 表示 > ステータスバー (59393): the status line can be put away, and the

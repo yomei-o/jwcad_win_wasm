@@ -186,7 +186,8 @@ static void act(void)
 int main(int argc, char **argv)
 {
     int seeds = argc > 1 ? atoi(argv[1]) : 6;
-    static const unsigned short MENU_ONLY[] = { 32912, 32936, 32938, 32941, 32962, 32825, 32820, 32905 };
+    static const unsigned short MENU_ONLY[] = { 32912, 32936, 32938, 32941, 32962, 32825, 32820, 32905,
+                                                32913, 32988, 32923, 32924, 32954, 32995, 32953, 32967, 32862, 32946, 32895 };
     int ci, sd, st, ncmd = JW_NBUTTONS + (int)(sizeof MENU_ONLY / sizeof MENU_ONLY[0]);
 
     for (ci = 0; ci < ncmd; ci++) {

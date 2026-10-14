@@ -45,6 +45,9 @@ static const unsigned short MENU_ONLY[] = {
     59393,      /* ステータスバー */
     32825,      /* 用紙サイズのポップアップ */
     32820, 32905,       /* Ａ-０ と 100m */
+    /* added later: 外部変形 (the interactive flow), ブロックツリー, 環境設定ファイルの
+       読込み・書出し・編集、半透明化、ダイアログボックス、タグジャンプ、図形ファイル系 */
+    32913, 32988, 32923, 32924, 32954, 32995, 32953, 32967, 32862, 32946, 32895,
     /* the dialogs put up from the original's own templates (src/app.c's
        td_*): the walk then clicks and types inside them as well */
     59392, 32995, 57664, 32977, 32979, 32980, 32984,
@@ -684,6 +687,10 @@ int main(int argc, char **argv)
                 app_move((int)(nextr() % W), (int)(nextr() % H));
             else if (r < 90)
                 app_key(KEYS[nextr() % (sizeof KEYS / sizeof KEYS[0])]);
+            else if (r < 93)
+                app_release((int)(nextr() % W), (int)(nextr() % H), 0);   /* 手書線 lets go */
+            else if (r < 95)
+                jw_cmd_bar((jw_drawing *)app_drawing(), 1774);           /* 手書線 on / off */
             else
                 app_paint();
             fresh_step = before.nobj >= 0

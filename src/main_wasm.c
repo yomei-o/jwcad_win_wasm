@@ -680,3 +680,51 @@ EMSCRIPTEN_KEEPALIVE int jw_release(int x, int y)
         app_paint();
     return r;
 }
+
+/* ---- for tools/web/cdp_bars.js: the bar in force, and the status line in UTF-8 ---- */
+/* control i of the bar: id, kind, x, y, w, h in the canvas (chrome included), 0 past the end */
+EMSCRIPTEN_KEEPALIVE int *jw_bar_ctl(int i)
+{
+    static int v[6];
+    int id, kind, x, y, w, h;
+
+    if (!ui_bar_item(i, &id, &kind, &x, &y, &w, &h))
+        return 0;
+    v[0] = id;
+    v[1] = kind;
+    v[2] = x;
+    v[3] = y + app_chrome_h();
+    v[4] = w;
+    v[5] = h;
+    return v;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *jw_prompt(void)
+{
+    static char out[1500];
+    const char *p = jw_cmd_prompt();
+    unsigned short wbuf[400];
+    long n, i, k = 0;
+
+    if (!p)
+        return "";
+    n = jw_to_utf16(p, (long)strlen(p), wbuf, 400);
+    if (n > 400)
+        n = 400;
+    for (i = 0; i < n && k < (long)sizeof out - 4; i++) {
+        unsigned c = wbuf[i];
+
+        if (c < 0x80)
+            out[k++] = (char)c;
+        else if (c < 0x800) {
+            out[k++] = (char)(0xc0 | (c >> 6));
+            out[k++] = (char)(0x80 | (c & 63));
+        } else {
+            out[k++] = (char)(0xe0 | (c >> 12));
+            out[k++] = (char)(0x80 | ((c >> 6) & 63));
+            out[k++] = (char)(0x80 | (c & 63));
+        }
+    }
+    out[k] = 0;
+    return out;
+}
