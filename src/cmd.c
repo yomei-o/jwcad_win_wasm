@@ -385,6 +385,7 @@ static int en_step;
 
 /* 中心線: the two lines it runs between, and the first of its two points */
 static int chu_a = -1, chu_b = -1, chu_step;
+#define CHU_PT (-2)             /* chu_a / chu_b: not a line but a point read with (R), at chu_ax.. / chu_bx.. */
 static double chu_ax, chu_ay, chu_bx, chu_by;     /* 二本を拾ったクリック（交わる二本の どちらの半分を拾ったか） */
 /* 接線: the circle picked first, and where it was picked -- which of the
    four common tangents comes out is settled by the side each circle was
@@ -7093,16 +7094,60 @@ static void nisen(jw_drawing *d, double x, double y)
  * So the middle of two lines that run together is the line half way, of two
  * that cross it is the bisector through the crossing, and the two points are
  * dropped onto it square. */
+/* (R) reads a point in place of a line (CZukeiChuushinSen's right button,
+   FUN_0063ef60 → FUN_0063f0e0; the middle is FUN_0063f520 -- read off the
+   decompile, not asked of the original):
+     two points     the square bisector of them (its case 6)
+     line + point   the line's parallel half way to the point (case 2)
+   It also takes circles (cases 1, 3, 5), which the port does not. */
+static int chushin_line_pt(const jw_drawing *d, double *px, double *py,
+                           double *ux, double *uy)
+{
+    if (chu_a == CHU_PT && chu_b == CHU_PT) {
+        double dx = chu_bx - chu_ax, dy = chu_by - chu_ay, len = sqrt(dx * dx + dy * dy);
+
+        if (fabs(dx) < 1e-7 && fabs(dy) < 1e-7)
+            return 0;
+        *px = chu_ax + dx / 2.0;
+        *py = chu_ay + dy / 2.0;
+        *ux = -dy / len;
+        *uy = dx / len;
+        return 1;
+    } else {
+        const jw_obj *l = &d->obj[chu_a == CHU_PT ? chu_b : chu_a];
+        double qx = chu_a == CHU_PT ? chu_ax : chu_bx, qy = chu_a == CHU_PT ? chu_ay : chu_by;
+        double dx = l->d[2] - l->d[0], dy = l->d[3] - l->d[1], len = sqrt(dx * dx + dy * dy), h;
+
+        if (len < 1e-7)
+            return 0;
+        dx /= len;
+        dy /= len;
+        h = ((qx - l->d[0]) * -dy + (qy - l->d[1]) * dx) / 2.0;
+        *px = l->d[0] - dy * h;
+        *py = l->d[1] + dx * h;
+        *ux = dx;
+        *uy = dy;
+        return 1;
+    }
+}
+
 static int chushin_line(const jw_drawing *d, double *px, double *py,
                         double *ux, double *uy)
 {
-    const jw_obj *p = &d->obj[chu_a], *q = &d->obj[chu_b];
-    double adx = p->d[2] - p->d[0], ady = p->d[3] - p->d[1];
-    double bdx = q->d[2] - q->d[0], bdy = q->d[3] - q->d[1];
-    double alen = sqrt(adx * adx + ady * ady);
-    double blen = sqrt(bdx * bdx + bdy * bdy);
+    const jw_obj *p, *q;
+    double adx, ady, bdx, bdy, alen, blen;
     double den, t;
 
+    if (chu_a == CHU_PT || chu_b == CHU_PT)
+        return chushin_line_pt(d, px, py, ux, uy);
+    p = &d->obj[chu_a];
+    q = &d->obj[chu_b];
+    adx = p->d[2] - p->d[0];
+    ady = p->d[3] - p->d[1];
+    bdx = q->d[2] - q->d[0];
+    bdy = q->d[3] - q->d[1];
+    alen = sqrt(adx * adx + ady * ady);
+    blen = sqrt(bdx * bdx + bdy * bdy);
     if (alen == 0.0 || blen == 0.0)
         return 0;
     adx /= alen;
@@ -7173,9 +7218,10 @@ static void chushin(jw_drawing *d, double x, double y)
     double px, py, ux, uy, t0, t1;
     jw_obj *o;
 
-    if (chu_a < 0 || chu_b < 0 || chu_a >= d->nobj || chu_b >= d->nobj)
+    if ((chu_a < 0 && chu_a != CHU_PT) || (chu_b < 0 && chu_b != CHU_PT)
+        || chu_a >= d->nobj || chu_b >= d->nobj)
         return;
-    if (d->obj[chu_a].cls != JW_SEN || d->obj[chu_b].cls != JW_SEN)
+    if ((chu_a >= 0 && d->obj[chu_a].cls != JW_SEN) || (chu_b >= 0 && d->obj[chu_b].cls != JW_SEN))
         return;
     if (!chushin_line(d, &px, &py, &ux, &uy))
         return;
@@ -18308,8 +18354,47 @@ placed:
     }
     if (current == JW_CMD_CHUSHIN) {
         int i;
-        if (button != 0 || !d)
-            return;             /* (R) reads a point, which is not done */
+        if (!d)
+            return;
+        if (button != 0) {
+            /* (R): a point read in place of a line, and the two ends
+               read too (FUN_0063ef60 reads with FUN_00451eb0 whichever
+               step it is) */
+            double rx, ry, px, py, ux, uy;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            if (chu_step == 0) {
+                chu_a = CHU_PT;
+                chu_ax = rx;
+                chu_ay = ry;
+                chu_step = 1;
+            } else if (chu_step == 1) {
+                int was = chu_b;
+                double wx = chu_bx, wy = chu_by;
+
+                if (chu_a == CHU_PT && fabs(rx - chu_ax) < 1e-7 && fabs(ry - chu_ay) < 1e-7)
+                    return;     /* the same point twice: 0x14df */
+                chu_b = CHU_PT;
+                chu_bx = rx;
+                chu_by = ry;
+                if (!chushin_line(d, &px, &py, &ux, &uy)) {
+                    chu_b = was;  /* no middle: 0x1455, and it waits on */
+                    chu_bx = wx;
+                    chu_by = wy;
+                    return;
+                }
+                chu_step = 2;
+            } else if (chu_step == 2) {
+                chu_x = rx;
+                chu_y = ry;
+                chu_step = 3;
+            } else {
+                chushin(d, rx, ry);
+                chu_step = 2;
+            }
+            return;
+        }
         if (chu_step == 0) {
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || d->obj[i].cls != JW_SEN)

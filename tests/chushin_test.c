@@ -135,8 +135,49 @@ static void run(const char *path, const char *what)
     jw_free(&ref);
 }
 
+/* (R) reads a point in place of a line (FUN_0063f520's cases 6 and 2,
+   read off the decompile -- 原典では押していない): two points give their
+   square bisector, a line and a point the parallel half way */
+static void rpoints(void)
+{
+    jw_drawing *d;
+    jw_obj *o;
+    int before;
+
+    app_resize(1264, 741);
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_SEN);
+    o->d[0] = 0; o->d[1] = 0; o->d[2] = 0; o->d[3] = 50;
+    o = jw_add(d, JW_SEN);
+    o->d[0] = 100; o->d[1] = 0; o->d[2] = 100; o->d[3] = 50;
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), 0, 0, 1);
+    jw_cmd_point(d, app_view(), 100, 0, 1);
+    jw_cmd_point(d, app_view(), 0, 50, 1);
+    jw_cmd_point(d, app_view(), 100, 0, 1);
+    printf("(R) two points:\n");
+    ck(d->ndrawn == before + 1, "  one line");
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == before + 1 && near(o->d[0], 50) && near(o->d[1], 50)
+       && near(o->d[2], 50) && near(o->d[3], 0), "  the square bisector, x = 50");
+    jw_cmd_set(JW_CMD_CHUSHIN);
+    jw_cmd_point(d, app_view(), 0, 25, 0);              /* the line x = 0 */
+    jw_cmd_point(d, app_view(), 100, 50, 1);            /* a point */
+    jw_cmd_point(d, app_view(), 0, 50, 1);
+    jw_cmd_point(d, app_view(), 100, 0, 1);
+    printf("(L) a line and (R) a point:\n");
+    ck(d->ndrawn == before + 2, "  one line");
+    o = &d->obj[d->ndrawn - 1];
+    ck(d->ndrawn == before + 2 && near(o->d[0], 50) && near(o->d[1], 50)
+       && near(o->d[2], 50) && near(o->d[3], 0), "  the parallel half way, x = 50");
+}
+
 int main(void)
 {
+    rpoints();
     run("decomp/res/chushin.jww", "two lines that run together:");
     run("decomp/res/chushin2.jww", "two that meet at an angle:");
     printf(fails ? "%d failed\n" : "all passed\n", fails);
