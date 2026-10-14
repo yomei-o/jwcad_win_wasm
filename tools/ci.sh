@@ -15,6 +15,8 @@
 #   smoke    tools/smoke_wasm.js    that wasm under node: open, draw, save,
 #                                   reopen, exports, plot, pictures, bad input
 #   fuzz     the three damaged-input fuzzers, native, a few seconds each
+#   browser  tools/web/cdp*.js      the same wasm in headless Chrome/Edge over DevTools
+#                                   (SKIP: no browser found)
 #   asan     tools/asanone.sh on the fuzzers and a few answer tests, under
 #            AddressSanitizer and UndefinedBehaviorSanitizer (emscripten, node)
 #
@@ -55,8 +57,8 @@ HAVE_GCC=0
 command -v gcc >/dev/null 2>&1 && HAVE_GCC=1
 
 want="$*"
-[ "$1" = fast ] && want="tests qtest native wasm smoke fuzz"
-[ -z "$want" ] && want="tests qtest native wasm smoke fuzz asan"
+[ "$1" = fast ] && want="tests qtest native wasm smoke browser fuzz"
+[ -z "$want" ] && want="tests qtest native wasm smoke browser fuzz asan"
 
 RESULTS=""
 FAILS=0
@@ -116,6 +118,8 @@ step_fuzz() {
     ./tmp/ci/boxfuzz.exe orig/Test1.jww || rc=1
     gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/undoall.exe tests/undoall_test.c $SRC -lm || return 1
     ./tmp/ci/undoall.exe 12 || rc=1
+    gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/newcode.exe tests/newcode_test.c $SRC -lm || return 1
+    ./tmp/ci/newcode.exe tmp/img/dec_rgb.png tmp/img/dec_q95.jpg tmp/img/dec_pal8.bmp || rc=1
     JW_CMDFUZZ_EXTREME=1 JW_CMDFUZZ_STEPS=800 ./tmp/ci/cmdfuzz.exe orig/Test1.jww orig/Test7.jww || rc=1
     ! grep -a "^ *BAD" tmp/ci/fuzz.log || rc=1
     return $rc
@@ -156,7 +160,19 @@ step_smoke() {
 }
 run smoke  node   step_smoke
 run fuzz   gcc    step_fuzz
+step_browser() {
+    [ -f tmp/wasmci/jwcad.js ] || { echo "no tmp/wasmci/jwcad.js: run the wasm step first"; return 1; }
+    rc=0
+    for t in cdp cdp_lang cdp_freehand cdp_auto cdp_robust cdp_pwa; do
+        echo "== $t"
+        WASM_DIR=tmp/wasmci CDP_PORT=9433 "$NODE" tools/web/$t.js || rc=1
+    done
+    ! grep -a "^BAD" tmp/ci/browser.log || rc=1
+    return $rc
+}
 run asan   emnode step_asan
+run browser node  step_browser
+
 
 echo
 echo "================ tools/ci.sh summary ================"

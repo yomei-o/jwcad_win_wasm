@@ -139,6 +139,7 @@ sh tools/ci.sh qtest wasm   # 名前を挙げた段だけ
 | `wasm` | `tools/build_wasm.sh` を `WASM_OUT=tmp/wasmci` で。**リポジトリ直下の配布用 `jwcad.js`・`jwcad.wasm` は触りません** |
 | `smoke` | `tools/smoke_wasm.js`: その wasm を node で、開く→描く→保存→開き直す→DXF/SFC/JWC/環境設定→PDF/PNG→画像挿入→壊れた入力 |
 | `fuzz` | 壊れたファイル・乱打・画像（BMP/PNG/JPEG）・外部変形の入力を、ネイティブで短く |
+| `browser` | `tools/web/cdp*.js`: 本物の Chrome／Edge を DevTools で操作（ヘッドレス）。開く・描く・Ctrl+Z／Y・クリップボード・手書線・英語表示・オフライン／インストール（`sw.js`）・1.5 GB のファイル・自動保存の控え。`WASM_DIR` でどの wasm か、`CHROME` でどのブラウザか、`CDP_PORT` で 9334 以外のポートを選べます |
 | `asan` | `tools/asanone.sh` で上の読み手と答えの試験いくつかを ASan と UBSan に（emscripten と node が要る） |
 
 gcc・emcc・node が見つからない段は SKIP になります。見つけ方は他の `tools/*.sh` と同じ
@@ -163,8 +164,40 @@ ASan に通しても報告ゼロでした。そういうものは**定義域を�
 あります**（2026-09-28 に所有者の判断で）。原典を持っていなくても、
 `src/` の 1 行ずつが何を写したものか、答えがどう作られたかを追える
 ようにするためです。**この二つは「このままの形態」ではありません** ——
-その条件を満たすのは `jww10036.exe` だけです。`src/gen/` だけは手元で
-作ります（`sh tools/gen.sh`）。
+その条件を満たすのは `jww10036.exe` だけです。`src/gen/`（原典のメニュー・文字列・
+ツールバー・ダイアログを C の表にしたもの。3.9 MB）も**入れてあります**
+（2026-10-14 の判断）: 同じ原典から作った表で、新しく渡すものは増えず、
+これが無いと Python と Pillow を入れて 1 分の生成を回すまで ビルドできないからです。
+作り直したいときだけ `sh tools/gen.sh -r`（下）。
+
+## 取ってきたまま ビルドする（ブートストラップ）
+
+**`git clone` したものを そのまま ビルド・試験するのに要るのは C コンパイラだけです**
+（Windows なら w64devkit: `C:\prog\w64devkit` か `C:\prog\tools\w64devkit` に置くと
+`tools/*.sh` が見つけます。Git Bash の `sh` で回します）。原典も Python も要りません。
+
+```sh
+sh tools/build_native.sh        # jw_port.exe（Windows。-lgdi32 などが要るので Windows のみ）
+sh tools/qtest.sh               # 答え合わせの試験（1 分）。Python があれば 最後にファジングの差分も
+sh tools/package.sh --no-wasm   # dist/ に配布物（wasm を作るには emsdk と Python が要る。--no-wasm は 直下のものを使う）
+```
+
+ブラウザ版は `index.html` と直下の `jwcad.js`・`jwcad.wasm` を 静的に配るだけです（`tools/build_wasm.sh` は
+emsdk を使って 作り直します）。**clone したものだけでは出来ないこと**は 原典を起動する段（`tools/gen.sh`
+の後半、`refanswers.sh`、`check.sh` の原典との突き合わせ）で、Windows と Jw_cad を入れた機械が要ります。
+
+`src/gen/` を作り直す（`orig/` や `decomp/res/` の答えが変わったとき）:
+
+```sh
+python -m pip install pillow    # 要るのは Pillow だけ（ほかは標準ライブラリ）
+sh tools/gen.sh -r              # 原典を動かさずに、コミット済みの答えから（1 分）。node があれば ツールチップの表も
+```
+
+2026-10-14 に 新しく取り出した木で `gen.sh -r` を回し、いまの `src/gen/` と**同じバイト**になることを
+確かめました（44 ファイル中 43。違った `tgdat.inc` は 建具のデータを そのまま埋めるので、git の改行の
+自動変換（autocrlf）で 大きさが変わります）。
+
+## 原典を展開して 全部（生成と 原典との突き合わせまで）やり直す
 
 ```sh
 ./jww10036.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS \
@@ -311,7 +344,7 @@ Chrome・Edge では アドレスバーの「インストール」から アプ�
 * `dist/jwcad-web.zip` —— 上と同じものを 一つに
 
 `--no-wasm` を付けると ルートの `jwcad.js`/`.wasm` をそのまま使います。サブパスでの動作は
-`PWA_DIR=dist/web PWA_PREFIX=/jw/app/ node tmp/features_wasm/cdp_pwa.js` で 確かめられます。
+`PWA_DIR=dist/web PWA_PREFIX=/jw/app/ node tools/web/cdp_pwa.js` で 確かめられます。
 印刷の確かめ（Microsoft Print to PDF へ 対話なしで）は `tools/print_native.ps1`、日本語名のフォルダ・
 ファイルでの起動〜保存〜復元は `tools/smoke_native.ps1` です。
 
@@ -321,3 +354,10 @@ Chrome・Edge では アドレスバーの「インストール」から アプ�
 ヘッダの「English / 日本語」で選び、選んだものは覚えます。原典の言葉（メニュー・バー・問いかけ・ダイアログ）は
 原典のまま日本語です。デスクトップ版の確認の箱は 日本語の Windows では日本語、ほかは英語で、
 `JW_LANG=en|ja` か ini の `[ui] lang=` で 選べます。
+
+## ヘルプとコマンド検索（ブラウザ版）
+
+**F1** か **?**（文字を打っているとき以外）でキーとマウスの一覧、**Ctrl+K** で「コマンド検索」が出ます
+（画面のボタンからも）。検索は 命令の名前か 原典の説明の言葉を 打つと（スペースで 絞り込み）一覧になり、
+↑↓ で選んで Enter で メニューの項目と同じように 実行します。一覧は `cmdlist.js`（`node tools/mkcmdlist.js`
+が `docs/command-coverage.md` の「動く」「フロントエンド」の項目から作る）です。

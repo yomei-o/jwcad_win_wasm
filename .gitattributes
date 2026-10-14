@@ -1,0 +1,7 @@
+# The original's own files, and what is baked from them, are kept byte for byte whatever
+# core.autocrlf says on the machine: tools/mktgdat.py bakes orig/JW_OPT*.DAT into src/gen/tgdat.inc,
+# and a CRLF checkout made a different file from an LF one.
+orig/** -text
+src/gen/** -text
+fonts/** -text
+decomp/res/** -text

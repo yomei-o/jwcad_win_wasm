@@ -6,8 +6,9 @@
 #   sh tools/gen.sh
 #   sh tools/check.sh
 #
-# decomp/ and src/gen/ are machine output taken from someone else's program, so
-# neither is committed and a new machine makes them again.  README.md lists the
+# src/gen/ is machine output taken from someone else's program, so it is not
+# committed and a new machine makes it again (decomp/ and orig/ are committed;
+# `sh tools/gen.sh -r` is all a clone needs, no original is run).  README.md lists the
 # steps; this is them in an order that works, which matters -- tools/btnmap.py
 # needs what tools/rsrc.py writes, tools/mkcmd.py needs what tools/btnmap.py
 # writes, and so on.  Everything before "the original has to run" is pure
@@ -51,9 +52,11 @@ python tools/mkbtico.py                      # ブロックツリーの 16x15 �
 python tools/mkjwf.py                        # 環境設定ファイルの雛形
 python tools/mkaccel.py                      # the frame's keyboard shortcuts
 python tools/mkstr.py >/dev/null             # the prompts in the status line
+python tools/mktips.py                       # the tool tips (status text per command id)
 python tools/mktgdat.py
 python tools/mkpen.py                        # the pens a new drawing starts with
 python tools/mksunpo.py                      # the dimension settings
+if command -v node >/dev/null 2>&1; then node tools/mktips.js; fi   # tool tips (node is optional: src/gen/tips.h is committed)
 
 say "GDI's own circles, so the port rasterises them the same way"
 # Not from the .exe: this asks the GDI on this machine what Ellipse draws.

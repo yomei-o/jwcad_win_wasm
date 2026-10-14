@@ -19,5 +19,5 @@ for t in "$@"; do
     gcc -O1 -w -std=c99 -Isrc -Itests -o tmp/q_$t.exe tests/${t}_test.c tests/png.c $OBJ -lm -lpsapi || { echo "BUILD FAIL $t"; bad=1; continue; }
     if ./tmp/q_$t.exe >tmp/q_$t.log 2>&1; then echo "ok   $t"; else echo "FAIL $t (tmp/q_$t.log)"; bad=1; fi
 done
-PYTHONIOENCODING=utf-8 python tools/fzcheck.py | tail -1
+if python -c 1 >/dev/null 2>&1; then PYTHONIOENCODING=utf-8 python tools/fzcheck.py | tail -1; else echo "fuzz check skipped (no python)"; fi
 exit $bad

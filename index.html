@@ -25,6 +25,19 @@
   header a, #note a { color: #8cf; }
   @media (prefers-contrast: more) { #note { color: #ddd; } header { border-bottom-color: #fff; } }
   @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  dialog { background: #2b2b2b; color: #eee; border: 1px solid #888; border-radius: 6px; max-width: min(720px, 94vw); padding: 12px 16px; }
+  dialog::backdrop { background: rgba(0,0,0,.5); }
+  #help h2 { margin: 0 0 6px; font-size: 16px; }
+  #help h3 { margin: 12px 0 4px; font-size: 13px; color: #8cf; }
+  #help table { border-collapse: collapse; width: 100%; }
+  #help td { padding: 1px 8px 1px 0; vertical-align: top; }
+  #help td:first-child { white-space: nowrap; color: #fc8; font-family: monospace; }
+  #palette input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 6px; }
+  #palette ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 50vh; overflow: auto; }
+  #palette li { padding: 4px 6px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+  #palette li[aria-selected="true"] { background: #36c; }
+  #palette li small { color: #aaa; }
+  #palette li[aria-selected="true"] small { color: #cde; }
   @media (max-width: 600px) { #note > span:last-of-type { display: none; } }
 </style>
 </head>
@@ -39,6 +52,8 @@
   <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt,.jwf,.bmp,.png,.jpg,.jpeg"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く（画像は 画像編集 の 画像挿入 で）</label>
   <input type="file" id="pickimg" aria-label="画像を挿入" accept=".bmp,.png,.jpg,.jpeg,image/bmp,image/png,image/jpeg" hidden>
   <select id="recent" title="最近のファイル" aria-label="最近のファイル" hidden></select>
+  <button id="cmdbtn" type="button" title="Ctrl+K">コマンド検索</button>
+  <button id="helpbtn" type="button" title="F1 / ?">ヘルプ</button>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
@@ -57,6 +72,12 @@ const LANG = (() => {
   } catch (e) { return 'ja'; }
 })();
 const EN = {
+  'コマンド検索': 'Find a command',
+  'ヘルプ': 'Help',
+  'コマンドの名前を打つ（例: 線、寸法、DXF）': 'Type part of a command name (e.g. line, 寸法, DXF)',
+  '一致する命令がありません': 'No command matches',
+  '↑↓ で選び Enter で実行、Esc で閉じる': 'Up/Down to choose, Enter to run, Esc to close',
+  '閉じる': 'Close',
   'メモリが足りません': 'Out of memory',
   '実行ファイルを逆コンパイルして C に書き直した移植。': 'a port rewritten in C from the decompiled executable.',
   'ソース': 'Source',
@@ -116,6 +137,7 @@ if (LANG === 'en') {
   document.addEventListener('DOMContentLoaded', () => walk(document.body));
 }
 </script>
+<script src="cmdlist.js"></script>
 <script src="jwcad.js?v=14"></script>
 <script>
 (async function () {
@@ -397,16 +419,31 @@ if (LANG === 'en') {
     ime.value = '';
     send(v);
   }));
+  let bsAt = 0;                       // when a Backspace key was last taken, below
   ime.addEventListener('keydown', e => {
     if (composing) return;
-    if (e.key === 'Backspace') { if (key(8)) present(); e.preventDefault(); }
+    if (e.key === 'Backspace') { bsAt = Date.now(); if (key(8)) present(); e.preventDefault(); }
   });
+  // A phone's soft keyboard often sends no key at all: Backspace in an empty box is only a
+  // beforeinput (deleteContentBackward), and Enter is insertLineBreak.  Where a key event
+  // came as well it has been taken already, and is not taken twice.
+  ime.addEventListener('beforeinput', guard(e => {
+    if (composing || e.isComposing) return;
+    if (e.inputType === 'deleteContentBackward' && !ime.value) {
+      if (Date.now() - bsAt > 120 && key(8)) present();
+      e.preventDefault();
+    } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      if (key(13)) present();
+      e.preventDefault();
+    }
+  }));
   // The hidden input is only needed for a kanji conversion, which has to go
   // through a real element.  Plain characters are taken off the window as
   // well, so typing works whether or not the focus ended up where it was
   // meant to -- clicking the canvas moves the focus back to the page, and
   // the 文字 command would otherwise take nothing.
   window.addEventListener('keydown', e => {
+    if (document.querySelector('dialog[open]')) return;          /* a box is up: it hears the keys */
     /* While an IME is converting, the keys are its business.  The first key
        of a conversion is the awkward one: Chrome sends its keydown *before*
        compositionstart, with isComposing still false, so neither of the two
@@ -1192,6 +1229,128 @@ if (LANG === 'en') {
     bar.append(yes, no);
     document.body.appendChild(bar);
   })();
+
+
+  // ---- help and the command search --------------------------------------------------
+  // The keys and the mouse in one place (F1 or ? opens it), and every command the port
+  // answers by name (Ctrl+K): type a few letters of the name, or of what the original says
+  // it does, and Enter runs it as the menu item would.
+  const el = (tag, props, kids) => {
+    const e = document.createElement(tag);
+    Object.assign(e, props || {});
+    for (const k of kids || []) e.append(k);
+    return e;
+  };
+  const HELP = [
+    ['Mouse', 'マウス', [
+      ['Left', '左ボタン', 'Point for the command in force', '命令への点'],
+      ['Right click', '右クリック', '(R) -- read a point, finish a run', '(R)Read・連続の終わり など'],
+      ['Right drag', '右ドラッグ', 'Move the sheet', '用紙を動かす'],
+      ['Wheel', 'ホイール', 'Zoom about the pointer', 'ポインタを中心に拡大縮小'],
+    ]],
+    ['Touch', 'タッチ', [
+      ['1 finger', '指一本', 'Moves the cursor; the point goes where it is lifted', '動かすとカーソルが付き、離したところが点'],
+      ['2 fingers', '指二本', 'Pinch to zoom, drag to move the sheet', 'つまんで拡大縮小・ドラッグで移動'],
+      ['2-finger tap', '二本で軽く触れる', 'The right button', '右ボタン'],
+    ]],
+    ['Keys', 'キー', [
+      ['Ctrl+Z / Alt+BS', 'Ctrl+Z / Alt+BS', 'Undo (戻る)', '戻る'],
+      ['Ctrl+Y', 'Ctrl+Y', 'Redo (進む)', '進む'],
+      ['Ctrl+S / O / P', 'Ctrl+S / O / P', 'Save / open / print', '保存 / 開く / 印刷'],
+      ['Ctrl+C X V', 'Ctrl+C X V', 'Copy / cut / paste (also between tabs)', 'コピー・切取り・貼付（別のタブへも）'],
+      ['Del', 'Del', 'Erase (消去)', '消去'],
+      ['Esc', 'Esc', 'Let go of the points taken so far', 'ここまでの点を放す'],
+      ['Enter', 'Enter', 'Settle a range (範囲確定); Shift+Enter 基点変更', '範囲確定（Shift+Enter は 基点変更）'],
+      ['Space', 'Space', 'Turn 水平・垂直 over', '水平・垂直の切替'],
+      ['Home', 'Home', 'Show the whole sheet', '用紙全体を表示'],
+      ['Ctrl+K', 'Ctrl+K', 'Find a command by name', 'コマンドを名前で探す'],
+      ['F1 / ?', 'F1 / ?', 'This help', 'このヘルプ'],
+    ]],
+    ['One-letter commands (not while 文字 is being typed)', '一文字コマンド（文字を打っているとき以外）', [
+      ['a b c d', 'a b c d', '文字 / 矩形 / 図形複写 / 消去', '文字 / 矩形 / 図形複写 / 消去'],
+      ['e f h k', 'e f h k', '円弧 / 複線 / 線 / 曲線', '円弧 / 複線 / 線 / 曲線'],
+      ['l m o q', 'l m o q', '連続線 / 図形移動 / 接線 / 包絡処理', '連続線 / 図形移動 / 接線 / 包絡処理'],
+      ['r s t v', 'r s t v', '面取 / 寸法 / 伸縮 / コーナー処理', '面取 / 寸法 / 伸縮 / コーナー処理'],
+      ['w x y', 'w x y', '２線 / ハッチ / 範囲選択', '２線 / ハッチ / 範囲選択'],
+    ]],
+  ];
+  const help = el('dialog', { id: 'help' });
+  help.setAttribute('aria-label', T('ヘルプ'));
+  const fillHelp = () => {
+    const en = LANG === 'en';
+    help.textContent = '';
+    help.append(el('h2', { textContent: en ? 'Keys and mouse' : 'キーとマウス' }));
+    for (const [hen, hja, rows] of HELP) {
+      help.append(el('h3', { textContent: en ? hen : hja }));
+      const t = el('table');
+      for (const [ken, kja, ten, tja] of rows)
+        t.append(el('tr', {}, [el('td', { textContent: en ? ken : kja }), el('td', { textContent: en ? ten : tja })]));
+      help.append(t);
+    }
+    const b = el('button', { type: 'button', textContent: T('閉じる') });
+    b.addEventListener('click', () => help.close());
+    help.append(el('p', {}, [b]));
+  };
+  document.body.appendChild(help);
+  const openHelp = () => { if (help.open) return; fillHelp(); help.showModal(); };
+  help.addEventListener('close', () => canvas.focus({ preventScroll: true }));
+  document.getElementById('helpbtn').addEventListener('click', openHelp);
+
+  const pal = el('dialog', { id: 'palette' });
+  pal.setAttribute('aria-label', T('コマンド検索'));
+  const pin = el('input', { type: 'search', autocomplete: 'off', placeholder: T('コマンドの名前を打つ（例: 線、寸法、DXF）') });
+  pin.setAttribute('aria-label', T('コマンド検索'));
+  const plist = el('ul', { role: 'listbox' });
+  const phint = el('p', { textContent: T('↑↓ で選び Enter で実行、Esc で閉じる') });
+  phint.style.cssText = 'margin:6px 0 0;color:#aaa;font-size:12px';
+  pal.append(pin, plist, phint);
+  document.body.appendChild(pal);
+  let phits = [], psel = 0;
+  const fold = x => x.normalize('NFKC').toLowerCase();
+  const pshow = () => {
+    const words = fold(pin.value).split(/\s+/).filter(Boolean);
+    phits = (window.JW_CMDS || []).filter(c => {
+      const hay = fold(c[1] + ' ' + c[2] + ' ' + c[3]);
+      return words.every(w => hay.includes(w));
+    });
+    // the name first: a hit in the name outranks one in the explanation
+    phits.sort((a, b) => (words.every(w => fold(a[1]).includes(w)) ? 0 : 1) - (words.every(w => fold(b[1]).includes(w)) ? 0 : 1));
+    phits = phits.slice(0, 12);
+    psel = 0;
+    plist.textContent = '';
+    if (!phits.length) plist.append(el('li', { textContent: T('一致する命令がありません') }));
+    phits.forEach((c, i) => {
+      const li = el('li', { role: 'option' }, [el('span', { textContent: c[1] }), el('small', { textContent: c[3] })]);
+      li.title = c[2];
+      li.setAttribute('aria-selected', i === psel ? 'true' : 'false');
+      li.addEventListener('click', () => prun(i));
+      plist.append(li);
+    });
+  };
+  const pmark = () => [...plist.children].forEach((li, i) => li.setAttribute('aria-selected', i === psel ? 'true' : 'false'));
+  const prun = i => {
+    const c = phits[i];
+    if (!c) return;
+    pal.close();
+    react(command(c[0]));
+    present();
+  };
+  pin.addEventListener('input', pshow);
+  pin.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { psel = Math.min(psel + 1, phits.length - 1); pmark(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { psel = Math.max(psel - 1, 0); pmark(); e.preventDefault(); }
+    else if (e.key === 'Enter') { prun(psel); e.preventDefault(); }
+    else if (e.key === 'Escape') { pal.close(); e.preventDefault(); }   // a search box would clear itself first
+  });
+  pal.addEventListener('close', () => canvas.focus({ preventScroll: true }));
+  const openPalette = () => { if (pal.open) return; pin.value = ''; pshow(); pal.showModal(); pin.focus(); };
+  document.getElementById('cmdbtn').addEventListener('click', openPalette);
+  window.addEventListener('keydown', e => {
+    if (document.querySelector('dialog[open]')) return;          // a box is up: it hears the keys
+    const typing = cmdid() === 0x8026 || boxfocus();
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') { openPalette(); e.preventDefault(); }
+    else if (e.key === 'F1' || (e.key === '?' && !typing && !e.ctrlKey && !e.altKey && !e.metaKey)) { openHelp(); e.preventDefault(); }
+  }, true);
 
   // Works offline once it has been loaded, and can be installed (sw.js,
   // manifest.webmanifest).  Only over http(s): file: has no service workers.

@@ -3,7 +3,7 @@
    new build shows up on the next load. */
 const CACHE = 'jw-port-v1';
 // everything the page needs, so the first visit is enough: the program, the fonts, the icons
-const FIRST = ['./', 'index.html', 'jwcad.js', 'jwcad.wasm', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+const FIRST = ['./', 'index.html', 'cmdlist.js', 'jwcad.js', 'jwcad.wasm', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'fonts/jwsubgothic.ttf', 'fonts/jwsubmincho.ttf', 'fonts/bizudgothic-sub.ttf'];
 
 self.addEventListener('install', e => {

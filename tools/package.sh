@@ -39,7 +39,7 @@ if [ "$NOWASM" = 0 ]; then
 else
     cp jwcad.js jwcad.wasm dist/web/
 fi
-cp index.html sw.js manifest.webmanifest icon.svg icon-192.png icon-512.png dist/web/
+cp index.html cmdlist.js sw.js manifest.webmanifest icon.svg icon-192.png icon-512.png dist/web/
 cp fonts/*.ttf fonts/*.txt dist/web/fonts/ 2>/dev/null || true
 : > dist/web/.nojekyll
 # the page loads jwcad.js?v=N: the number is the build, so a new build is not served from a cache

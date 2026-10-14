@@ -4151,8 +4151,11 @@ int app_save(unsigned char **out, long *n)
     /* A drawing begun with 新規 does not hold the six hidden settings records
        (see app_new), but every file Jw_cad writes ends its drawn elements with
        them -- so put them on for the write, as the original makes them when
-       it writes, and take them off again.  A drawing that came from a file
-       has them already. */
+       it writes, and take them off again.  A drawing from a version 700 file has
+       them already.  One from a version 600 sample (orig/Test*.jww) does not, and
+       the original writes them into its save of one too (decomp/res/mentori.jww is
+       Test5 saved by the original: 89 drawn + 3 + the six), so a first save then a
+       reopen shows six more elements, once -- tests/saverepeat_test.c pins that. */
     if (nnew_hidden > 0) {
         int have = 0;
 

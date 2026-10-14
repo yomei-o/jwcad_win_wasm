@@ -21,9 +21,15 @@ __pycache__/
 *.o
 tests/*.exe
 
-# generated from your own copy of Jw_win.exe by tools/mkres.py and
-# tools/btnmap.py -- machine output from someone else's program
-src/gen/
+# src/gen/ IS committed (decision of 2026-10-14).  It is what src/ is compiled against: the
+# original's menus, strings, toolbars and dialogs laid out as C tables by tools/gen.sh, plus
+# a few tables made on a machine (GDI's circles).  They come from the same program whose
+# installer, expansion and resources this repository carries already (see above), so nothing
+# new is passed on; and without them a clone cannot be built unless it also has Python with
+# Pillow and runs a minute of generators first.  `sh tools/gen.sh -r` makes them again from
+# the committed answers and gives the same bytes (checked on a fresh checkout, 43 of 44 files
+# identical; the one that differs, tgdat.inc, embeds files whose line endings depend on git's
+# autocrlf setting).
 tests/out/
 jw_port.exe
 sync.tgz
@@ -31,3 +37,7 @@ sync.tgz
 # ブロック編集の途中で原典が orig/ に落としていく一時ファイル
 orig/$EDTBLK*.001
 dist/
+
+# profiler output and the .bak a save leaves beside a drawing
+gmon.out
+*.bak
