@@ -50,6 +50,12 @@ typedef struct {
        it is showing.  The port keeps the two in step whenever it picks or
        drops something, so a drawing it saves still says what was picked. */
     unsigned char sel;          /* not in the file */
+    /* In the last selection that had anything in it -- what 前範囲 (1065)
+       picks again.  The original keeps it as the bit of flags that stays on
+       when a selection is let go (CZukeiSentaku's FUN_006fcb00 reads it
+       back); the port keeps flags in step with `sel`, so it is held here
+       instead, also not in the file. */
+    unsigned char was_sel;
     int id;                     /* +0x04  a serial number, not the layer  */
     double d[8];                /* the geometry, class by class           */
     double e[4];                /* the rest of a JW_3DSOLID's twelve      */

@@ -586,6 +586,37 @@ static void base_before_confirm(void)
     }
 }
 
+/* 前範囲 (1065): 何も選んでいないときに押すと 直前の選択を選び直す（CZukeiSentaku の
+   43 番目 FUN_006fcb00、要素に残った選択の印から。逆コンパイルの読み、原典では押して
+   いない）。選びのあとは 追加範囲 のまま */
+static void mae_hani(void)
+{
+    jw_drawing *d;
+
+    app_new();
+    app_command(32771);
+    app_press(400, 300, 0);
+    app_press(500, 300, 0);
+    app_press(400, 450, 0);
+    app_press(500, 450, 0);
+    d = (jw_drawing *)app_drawing();
+    if (d->ndrawn < 2) {
+        ck(0, "前範囲: 二本の線が引けた");
+        return;
+    }
+    app_command(32804);                 /* 複写 */
+    ck(jw_cmd_bar(d, 1065) == 0, "前範囲: まだ選んだことが無ければ 何もしない");
+    app_press(350, 250, 0);
+    app_press(550, 350, 0);             /* the upper line only */
+    ck(d->obj[0].sel && !d->obj[1].sel, "  範囲で上の線を選ぶ");
+    jw_cmd_bar(d, 1067);                /* 選択解除 */
+    ck(!d->obj[0].sel && !d->obj[1].sel, "  選択解除で 何も選んでいない");
+    ck(jw_cmd_bar(d, 1065) > 0 && d->obj[0].sel && !d->obj[1].sel,
+       "  前範囲で 上の線が また選ばれる");
+    ck(jw_cmd_bar(d, 1065) > 0, "  選んであるうちは 追加範囲");
+    app_command(32771);
+}
+
 int main(void)
 {
     if (!read_rect()) {
@@ -612,6 +643,7 @@ int main(void)
        "and the button is carrying XY方向 by now");
     select_all_editable();
     base_before_confirm();
+    mae_hani();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

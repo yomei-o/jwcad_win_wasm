@@ -149,9 +149,17 @@ static int snap_differs(const snap_t *s, const jw_drawing *d)
 
     if (!d || d->nobj != s->nobj || d->ndrawn != s->ndrawn)
         return s->nobj;
-    for (i = 0; i < s->nobj; i++)
-        if (memcmp(&s->obj[i], &d->obj[i], sizeof *s->obj))
+    for (i = 0; i < s->nobj; i++) {
+        /* was_sel (what 前範囲 picks again) is the selection's trace, not
+           the drawing: 戻る does not take it back */
+        jw_obj x, y;
+
+        memcpy(&x, &s->obj[i], sizeof x);
+        memcpy(&y, &d->obj[i], sizeof y);
+        x.was_sel = y.was_sel = 0;
+        if (memcmp(&x, &y, sizeof x))
             return i;
+    }
     return -1;
 }
 

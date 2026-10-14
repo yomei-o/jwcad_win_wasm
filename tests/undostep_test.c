@@ -103,9 +103,22 @@ static void take(snap_t *s)
 
 static int same_exactly(const snap_t *s)
 {
-    return d->nobj == s->nobj && d->ndrawn == s->ndrawn
-           && (!s->nobj
-               || !memcmp(d->obj, s->obj, (size_t)s->nobj * sizeof *s->obj));
+    int i;
+
+    if (d->nobj != s->nobj || d->ndrawn != s->ndrawn)
+        return 0;
+    for (i = 0; i < s->nobj; i++) {
+        /* was_sel (what 前範囲 picks again) is the selection's trace, not
+           the drawing: 戻る does not take it back */
+        jw_obj x, y;
+
+        memcpy(&x, &s->obj[i], sizeof x);
+        memcpy(&y, &d->obj[i], sizeof y);
+        x.was_sel = y.was_sel = 0;
+        if (memcmp(&x, &y, sizeof x))
+            return 0;
+    }
+    return 1;
 }
 
 static int key_cmp(const void *a, const void *b)

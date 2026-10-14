@@ -8831,13 +8831,18 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis);
 
 static void sel_clear(jw_drawing *d)
 {
-    int i;
+    int i, any = 0;
 
-    if (d)
+    if (d) {
+        for (i = 0; i < d->nobj && !any; i++)
+            any = d->obj[i].sel != 0;
         for (i = 0; i < d->nobj; i++) {
+            if (any)            /* the last selection, for 前範囲 */
+                d->obj[i].was_sel = d->obj[i].sel != 0;
             d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
             d->obj[i].sel = 0;
         }
+    }
     sel_free();
 }
 
@@ -11737,7 +11742,7 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
             return jw_cmd_sel_count(d) > 0;
         return 0;
     case 1065:                  /* 前範囲, and 追加範囲 once a box is in */
-        return sel_step == 2;
+        return sel_step == 2 || sel_step == 0;
     case 1067:                  /* 選択解除, and 反転 one stage on */
         return sel_step == 3 || jw_cmd_sel_count(d) > 0;
     case 1066:                  /* 全選択, and 基点変更 one stage on: the
@@ -12160,8 +12165,26 @@ static int bar_press(jw_drawing *d, int id)
         sel_base_pick = 1;
         return 1;
     case 1065:                  /* 追加範囲 -- the next box adds to it */
-        if (sel_step != 2)
-            return 0;           /* 前範囲 before that, which is not done */
+        if (sel_step != 2 || jw_cmd_sel_count(d) <= 0) {
+            /* 前範囲: with nothing picked, CZukeiSentaku's FUN_006fcb00
+               picks again what the last selection had, of what can be
+               edited now (FUN_0042dd10) -- read off the decompile, not
+               asked of the original.  None left: its message 0x1592 */
+            int i, n = 0;
+
+            if (!d || (sel_step != 0 && sel_step != 2))
+                return 0;
+            for (i = 0; i < d->ndrawn; i++)
+                if (d->obj[i].was_sel && jw_pick_editable(d, &d->obj[i])) {
+                    d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
+                    d->obj[i].sel = 1;
+                    n++;
+                }
+            if (!n)
+                return 0;
+            sel_step = 2;
+            return 1;
+        }
         sel_keep = 1;
         sel_sub = 0;
         sel_step = 0;

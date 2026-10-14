@@ -82,7 +82,7 @@ static void commit(void)
     s->n = d->nobj; s->nd = d->ndrawn; s->depth = jw_cmd_undo_depth();
     s->o = (jw_obj *)malloc((size_t)(s->n + 1) * sizeof *s->o);
     if (s->n) memcpy(s->o, d->obj, (size_t)s->n * sizeof *s->o);
-    { int q0; for (q0 = 0; q0 < s->n; q0++) { s->o[q0].sel = 0; s->o[q0].flags &= ~2u; } }
+    { int q0; for (q0 = 0; q0 < s->n; q0++) { s->o[q0].sel = 0; s->o[q0].was_sel = 0; s->o[q0].flags &= ~2u; } }
 }
 
 static void roundtrip(void)
@@ -243,7 +243,7 @@ int main(void)
             guard = 0;
             while (jw_cmd_undo_depth() > ss[k].depth && guard++ < 500)
                 jw_cmd_undo(d);
-            { int q0; for (q0 = 0; q0 < d->nobj; q0++) { d->obj[q0].sel = 0; d->obj[q0].flags &= ~2u; } }
+            { int q0; for (q0 = 0; q0 < d->nobj; q0++) { d->obj[q0].sel = 0; d->obj[q0].was_sel = 0; d->obj[q0].flags &= ~2u; } }
             if (d->nobj != ss[k].n || memcmp(d->obj, ss[k].o, (size_t)(d->nobj < ss[k].n ? d->nobj : ss[k].n) * sizeof *d->obj)) {
                 int q;
                 printf("  nobj %d vs %d ndrawn %d vs %d\n", d->nobj, ss[k].n, d->ndrawn, ss[k].nd);
