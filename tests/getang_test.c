@@ -339,6 +339,45 @@ int main(void)
         cknear(deg_of(got), atan2(ey - sy, ex - sx) * 180.0 / PI, 0.4,
                "移植: コマンドを出ると角は消える");
 
+    /* 線長取得 で円を指す: ふだんは半径、基本設定 2100 が立つと円周の長さ
+       （FUN_0076bba0・FUN_0045cb90。逆コンパイルの読み） */
+    {
+        jw_drawing *dd;
+        const jw_view *vv;
+        jw_obj *o;
+        double mm = 0.0;
+        int k;
+
+        app_new();
+        dd = (jw_drawing *)app_drawing();
+        vv = app_view();
+        o = jw_add(dd, JW_ENKO);
+        o->d[0] = 0.0; o->d[1] = 0.0; o->d[2] = 30.0; o->d[3] = 0.0;
+        o->d[4] = 2.0 * PI; o->d[5] = 0.0; o->d[6] = 1.0;
+        for (k = 0; k < 2; k++) {
+            jw_cmd_get_arc_length(k);
+            app_command(32939);
+            app_press(jw_sx(vv, 30.0), jw_sy(vv, 0.0), 0);
+            mm = 0.0;
+            jw_cmd_get_naga(&mm);
+            cknear(mm, k ? 2.0 * PI * 30.0 : 30.0, 1e-6,
+                   k ? "移植: 2100 が立つと 円の線長取得は 円周の長さ"
+                     : "移植: 円の線長取得は 半径");
+        }
+        jw_cmd_get_arc_length(0);
+        /* 半円・楕円の弧は 弧の長さ（楕円は弦を足し上げる） */
+        o->d[4] = PI;
+        o->d[6] = 0.5;
+        jw_cmd_get_arc_length(1);
+        app_command(32939);
+        app_press(jw_sx(vv, 30.0), jw_sy(vv, 0.0), 0);
+        mm = 0.0;
+        jw_cmd_get_naga(&mm);
+        /* 半周の楕円 (a=30, b=15): 全周 ≒ 145.3267 の半分 */
+        cknear(mm, 145.3267 / 2.0, 0.01, "移植: 楕円の半周は 弦の足し上げで");
+        jw_cmd_get_arc_length(0);
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

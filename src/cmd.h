@@ -506,6 +506,8 @@ int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
 void jw_cmd_layhide_shown(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */
 void jw_cmd_get_shown_too(int on);
+/* 基本設定 2100「線長取得で円を指示したとき、円半径取得を円周長取得にする」 */
+void jw_cmd_get_arc_length(int on);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
 

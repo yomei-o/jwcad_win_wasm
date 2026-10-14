@@ -14424,6 +14424,51 @@ static void get_take_kankaku(double l)
     get_mode = 0;
 }
 
+/* The length along an arc or circle, FUN_0045cb90: the radius times the sweep,
+   and for an ellipse the chords of steps of 2e-5 radians added up.  (A radius
+   under 1e-7 is nothing, a flatness under 1e-4 is a diameter.) */
+static double arc_length(const jw_obj *o)
+{
+    double r = o->d[2], a0 = o->d[3], sw = o->d[4], fl = o->d[6];
+    double step, t = 0.0, sum = 0.0, px, py;
+    int last = 0;
+
+    if (r < 1e-7)
+        return 0.0;
+    if (fl < 1e-4)
+        return r * 2.0;
+    if (fabs(fl - 1.0) < 1e-7)
+        return fabs(r * sw);
+    step = sw < 0.0 ? -2e-5 : 2e-5;
+    px = cos(a0);
+    py = sin(a0) * fl;
+    do {
+        double u, cx, cy;
+
+        t += step;
+        u = t;
+        if (fabs(sw) <= fabs(t)) {
+            last = 1;
+            u = sw;
+        }
+        cx = cos(a0 + u);
+        cy = sin(a0 + u) * fl;
+        sum += sqrt((cx - px) * (cx - px) + (cy - py) * (cy - py));
+        px = cx;
+        py = cy;
+    } while (!last);
+    return r * sum;
+}
+
+/* 基本設定 2100「線長取得で円を指示したとき、円半径取得を円周長取得にする」
+   (DAT_00a0cb64, FUN_0076bba0) */
+static int get_arc_len;
+
+void jw_cmd_get_arc_length(int on)
+{
+    get_arc_len = on != 0;
+}
+
 /* one click while a 取得 is on; 1 if it was swallowed */
 /* 基本設定 一般(1) 1522「表示のみレイヤも属性取得」: the 取得 interrupts
    (FUN_004754c0) pick with FUN_0044a270's last argument = DAT_00a0c7b0, which
@@ -14598,6 +14643,12 @@ static int get_click_(jw_drawing *d, const jw_view *v,
     }
     /* the one-pick ones want a line */
     i = jw_pick(d, v, x, y, 6);
+    if (i >= 0 && get_mode == 32939 && d->obj[i].cls == JW_ENKO) {
+        /* 線長取得 of a circle or arc: its radius, or with 2100 the length
+           round it (FUN_0076bba0).  Read off the decompile. */
+        get_take_length(get_arc_len ? arc_length(&d->obj[i]) : d->obj[i].d[2]);
+        return 1;
+    }
     if (i < 0 || d->obj[i].cls != JW_SEN)
         return 1;
     {

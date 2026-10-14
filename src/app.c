@@ -1554,6 +1554,7 @@ static void kh_apply(void)
     jw_cmd_layhide_shown(kh_value(2446));
     jw_cmd_get_shown_too(kh_value(1522));
     jw_pick_reverse = kh_value(2445);
+    jw_cmd_get_arc_length(kh_value(2100));
 }
 
 static void kh_start(void)
