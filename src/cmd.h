@@ -414,6 +414,7 @@ int  jw_cmd_get_mode_now(void);
    whether the unit is mm rather than ｍ, and 小数桁 as 0..4 or 5 for F. */
 int  jw_cmd_sokutei_mode(void);
 int  jw_cmd_sokutei_mm(void);
+int  jw_cmd_sokutei_dms(void);   /* 角度測定 の 1069: 度分秒 */
 int  jw_cmd_sokutei_dp(void);
 
 /* 寸法設定 (32925): the boxes that are wired up, by the id each one

@@ -1522,6 +1522,7 @@ static int sok_one;             /* ○単独円指定: the next click is a circl
 static int sok_write;           /* 測定結果書込: the next click is where */
 static int sok_unit;            /* 0 ｍ, 1 mm */
 static int sok_dp = 3;          /* 小数桁: 0..4、5 は F（小数六桁） */
+static int sok_dms;             /* 角度測定 の 1069: 度分秒で読む（原典 DAT_00a0be54） */
 #define SOK_MAX 256
 static double sok_rx[SOK_MAX], sok_ry[SOK_MAX];  /* every point, for 仮表示 */
 static int sok_n;               /* how many points are down */
@@ -1568,6 +1569,37 @@ static void sok_num(char *out, int n, double v, int dp)
             out[k++] = buf[i];
     }
     out[k] = 0;
+}
+
+/* An angle as 度分秒, the original's FUN_00459e40 (read off the decompile;
+   not asked of the original): the seconds take 小数桁's places, and if they
+   come out as "60..." they are 0 and the minute goes up; minutes and
+   seconds under ten get a 0 in front, and the marks are the half-width
+   ﾟ ' " (strings 6195・6197・6199 -- the full-width ones are for when
+   DAT_00a0bd24 is set, which the port does not have). */
+static void sok_dms_str(char *out, int n, double v)
+{
+    double a = fabs(v), m, sec;
+    int deg = (int)a, mn;
+    char s[64], ss[72], ms[24];
+
+    m = (a - (double)deg) * 60.0;
+    mn = (int)m;
+    sec = (m - (double)mn) * 60.0;
+    sok_num(s, (int)sizeof s, sec, sok_places());
+    if (s[0] == '6' && s[1] == '0') {
+        sec = 0.0;
+        mn++;
+        sok_num(s, (int)sizeof s, 0.0, sok_places());
+    }
+    sec = atof(s);
+    snprintf(ss, sizeof ss, "%s%s\"", 10.0 <= sec ? "" : "0", s);
+    if (mn > 59) {
+        mn -= 60;
+        deg++;
+    }
+    snprintf(ms, sizeof ms, "%s%d'", mn < 10 ? "0" : "", mn);
+    snprintf(out, (size_t)n, "%s%d\xdf%s%s", 0.0 <= v ? "" : "-", deg, ms, ss);
 }
 
 /* The readout's number and its unit, which is also what 測定結果書込
@@ -4008,8 +4040,15 @@ const char *jw_cmd_status(const jw_drawing *d)
                 while (va <= -180.0)
                     va += 360.0;
             }
-            sok_num(a, (int)sizeof a, va, sok_places());
-            snprintf(buf, sizeof buf, "%s       \x81y %s\x81\x8b \x81z", p, a);
+            if (sok_dms) {
+                /* FUN_0071fe20: the 度分秒 string takes the number's
+                   place, unit and all */
+                sok_dms_str(a, (int)sizeof a, va);
+                snprintf(buf, sizeof buf, "%s       \x81y %s \x81z", p, a);
+            } else {
+                sok_num(a, (int)sizeof a, va, sok_places());
+                snprintf(buf, sizeof buf, "%s       \x81y %s\x81\x8b \x81z", p, a);
+            }
             return buf;
         }
         if (sok_mode == SOK_XY) {
@@ -12175,11 +12214,13 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
         if (id == 1069) {
             /* while 角度測定 is chosen this button is 【 °】／ °′″
-               instead, and 度分秒 is not done -- so it does nothing
-               there rather than quietly turning the length unit */
+               instead and turns the readout to 度分秒 and back
+               (FUN_0071dcb0: DAT_00a0be54, and the length unit is left
+               alone) */
             if (sok_mode == SOK_ANG)
-                return 0;
-            sok_unit = !sok_unit;
+                sok_dms = !sok_dms;
+            else
+                sok_unit = !sok_unit;
             return 1;
         }
         if (id == 1070) {
@@ -14977,6 +15018,11 @@ int jw_cmd_get_mode_now(void)
 int jw_cmd_sokutei_mode(void)
 {
     return sok_mode;
+}
+
+int jw_cmd_sokutei_dms(void)
+{
+    return sok_dms;
 }
 
 int jw_cmd_sokutei_mm(void)

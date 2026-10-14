@@ -4380,10 +4380,12 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             } else if (c[i].id == 1069 && jw_cmd() == 0x8081) {
                 /* 測定 の 単位: the braces mark the one in force, and
                    while 角度測定 is chosen the button is the degree
-                   format instead (tools/probe130.sh).  度分秒 is not
-                   done, so that one is drawn and left alone. */
+                   format instead (tools/probe130.sh; 度分秒 is string
+                   6216, FUN_0071e080) */
                 const char *t = jw_cmd_sokutei_mode() == 1067
-                    ? "\x81y \x81\x8b\x81z\x81^ \x81\x8b\x81\x8c\x81\x8d"
+                    ? (jw_cmd_sokutei_dms()
+                       ? " \x81\x8b\x81^\x81y \x81\x8b\x81\x8c\x81\x8d\x81z"
+                       : "\x81y \x81\x8b\x81z\x81^ \x81\x8b\x81\x8c\x81\x8d")
                     : jw_cmd_sokutei_mm() ? "\x81ymm\x81z / \x82\x8d"
                                           : "mm / \x81y\x82\x8d\x81z";
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
