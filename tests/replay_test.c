@@ -107,6 +107,18 @@ static int run(const char *steps, const char *out)
             id = atoi(p);
             p = strchr(p, ',');
             if (p) jw_cmd_box_put(id, p + 1);
+        } else if (!strncmp(tok, "type:", 5)) {
+            /* tools/jwdraw.ps1 の type:<字>（文字の箱に打って Enter）と
+               type::<字>（Enter なし） */
+            const char *p = tok + 5;
+            int enter = *p != ':';
+
+            if (!enter)
+                p++;
+            while (*p)
+                app_key((unsigned char)*p++);
+            if (enter)
+                app_key(13);
         } else if (tok[0] == 'm' && sscanf(tok + 1, "%d,%d%n", &x, &y, &nn) == 2) {
             (void)x; (void)y;   /* 原典の m は 実カーソルを動かすだけで ビューの WM_MOUSEMOVE は来ない（fuzz 28〜39）*/
         } else if (tok[0] == 'r' && sscanf(tok + 1, "%d,%d%n", &x, &y, &nn) == 2) {
