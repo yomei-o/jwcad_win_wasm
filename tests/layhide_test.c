@@ -138,6 +138,18 @@ int main(void)
     ck(d->group[0].layer[0].state == 1, "2446 が立つと 表示のみ になる");
     jw_cmd_layhide_shown(0);
 
+    /* 基本設定 1522「表示のみレイヤも属性取得」: 取得の系統（FUN_004754c0）の拾いが
+       表示のみのレイヤも拾う。立っていなければ 表示のみ の図形は拾わない */
+    ((jw_drawing *)d)->group[0].layer[0].state = 1;
+    app_command(32936);
+    app_press(vr.x + 395, vr.y + 534, 0);
+    ck(d->group[0].layer[0].state == 1, "表示のみ のレイヤの図形は ふだん拾わない");
+    jw_cmd_get_shown_too(1);
+    app_command(32936);
+    app_press(vr.x + 395, vr.y + 534, 0);
+    ck(d->group[0].layer[0].state == 0, "1522 が立つと 表示のみ のレイヤも拾って 非表示 にする");
+    jw_cmd_get_shown_too(0);
+
     /* nothing is drawn or taken away */
     {
         static jw_drawing fresh;

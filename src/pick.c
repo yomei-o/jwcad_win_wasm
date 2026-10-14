@@ -282,6 +282,8 @@ static int dist_moji(box_t *b, const jw_drawing *d, const jw_obj *o,
 
 /* Which layers can be picked from: only the ones that are editable.  That is
    the same state src/draw.c calls 3, the one the original draws normally. */
+int jw_pick_shown_too;
+
 static int editable(const jw_drawing *d, const jw_obj *o)
 {
     int g = o->lgroup & 15, l = o->layer & 15;
@@ -289,6 +291,8 @@ static int editable(const jw_drawing *d, const jw_obj *o)
 
     gs = gs == 0 ? 0 : gs == 1 ? 1 : 3;
     ls = ls == 0 ? 0 : ls == 1 ? 1 : 3;
+    if (jw_pick_shown_too)              /* 表示のみ too: anything that shows */
+        return gs && ls && !(o->flags & 1);
     return (gs & ls) == 3 && !(o->flags & 1);
 }
 

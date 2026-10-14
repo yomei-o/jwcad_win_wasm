@@ -504,6 +504,8 @@ int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
    2 書込み【レイヤ】, 3 書込みレイヤグループ */
 /* 基本設定 2446「[レイヤ非表示化]を[表示のみレイヤ化]にする」 */
 void jw_cmd_layhide_shown(int on);
+/* 基本設定 1522「表示のみレイヤも属性取得」 */
+void jw_cmd_get_shown_too(int on);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
 

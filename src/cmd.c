@@ -14425,7 +14425,31 @@ static void get_take_kankaku(double l)
 }
 
 /* one click while a 取得 is on; 1 if it was swallowed */
+/* 基本設定 一般(1) 1522「表示のみレイヤも属性取得」: the 取得 interrupts
+   (FUN_004754c0) pick with FUN_0044a270's last argument = DAT_00a0c7b0, which
+   lets 表示のみ layers in.  Read off the decompile. */
+static int get_shown_too;
+
+void jw_cmd_get_shown_too(int on)
+{
+    get_shown_too = on != 0;
+}
+
+static int get_click_(jw_drawing *d, const jw_view *v,
+                      double x, double y, int button);
+
 static int get_click(jw_drawing *d, const jw_view *v,
+                     double x, double y, int button)
+{
+    int r, was = jw_pick_shown_too;
+
+    jw_pick_shown_too = get_shown_too;
+    r = get_click_(d, v, x, y, button);
+    jw_pick_shown_too = was;
+    return r;
+}
+
+static int get_click_(jw_drawing *d, const jw_view *v,
                      double x, double y, int button)
 {
     int two = get_mode == 32940 || get_mode == 32933
