@@ -3865,6 +3865,32 @@ const char *jw_cmd_status(const jw_drawing *d)
         if (kind == 1 || kind == 2 || kind == 3)
             va = vb = 0.0;
     }
+    /* 複線の「間隔を入力するか、複写する位置…」(5312) には、選んだ線から
+       マウスまでの距離が実寸で付く（FUN_00658890 の 0x14c0 の分岐: 空白二つの
+       あとに FUN_006608e0 の距離 × 書込みグループの縮尺を 三桁区切り・小数 3 桁）。
+       距離は線なら直線までの垂線、円なら半径の差。逆コンパイルの読みで、原典の
+       実測（18,428.571 など）は形が合うことだけ確かめてある */
+    if (current == JW_CMD_FUKUSEN && p == JW_STR_5312 && tracking && d
+        && para_obj >= 0 && para_obj < d->ndrawn) {
+        const jw_obj *o = &d->obj[para_obj];
+        double dist = -1.0;
+
+        if (o->cls == JW_ENKO)
+            dist = fabs(sqrt((tx - o->d[0]) * (tx - o->d[0])
+                             + (ty - o->d[1]) * (ty - o->d[1])) - o->d[2]);
+        else if (o->cls == JW_SEN) {
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+            double len = sqrt(dx * dx + dy * dy);
+
+            if (len > 1e-9)
+                dist = fabs(((tx - o->d[0]) * -dy + (ty - o->d[1]) * dx) / len);
+        }
+        if (dist >= 0.0) {
+            num3(a, (int)sizeof a, d, dist);
+            snprintf(buf, sizeof buf, "%s  %s", p, a);
+            return buf;
+        }
+    }
     switch (kind) {
     case 1:
         num3(b, (int)sizeof b, d, vb);

@@ -290,6 +290,50 @@ static void prompts_of_the_commands(void)
            "  その間は「【図形】データがありません」");
 }
 
+/* 複線: 線を選んだあとの「間隔を入力するか、複写する位置…」(5312) には、
+   線からマウスまでの距離が実寸で付く。逆コンパイルの読み（FUN_00658890 の
+   0x14c0 の分岐、空白二つのあとに 三桁区切り・小数 3 桁）。原典の実測は
+   18,428.571 などの形だけ分かっていて、どの位置での値かは録っていない */
+static void fukusen_tail(void)
+{
+    const jw_drawing *d;
+    const jw_view *v;
+    const char *st;
+    size_t n = strlen(JW_STR_5312);
+    char num[64];
+    int i, k = 0;
+    double got, want, slack;
+
+    app_new();
+    d = app_drawing();
+    v = app_view();
+    app_command(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    click(-100.0, 0.0);
+    click(100.0, 0.0);
+    app_command(JW_CMD_FUKUSEN);
+    cksame(jw_cmd_status(d), JW_STR_5305, "複線は線を選ぶまで数値なし");
+    click(0.0, 0.0);
+    app_move(jw_sx(v, 0.0), jw_sy(v, 30.0));
+    st = jw_cmd_status(d);
+    ck(!strncmp(st, JW_STR_5312, n) && !strncmp(st + n, "  ", 2)
+       && st[n + 2] != ' ',
+       "  線を選ぶと 5312 の後ろに空白二つで数値");
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 30.0 * scale_of(d);
+    slack = 1.5 * v->mmpp * scale_of(d);
+    ck(fabs(got - want) <= slack && strchr(st + n, '.')
+       && strlen(strchr(st + n, '.')) == 4,
+       "  数値は線からマウスまでの距離 × 縮尺、小数 3 桁");
+    ck(strchr(st + n, ',') != 0, "  三桁ごとにコンマ");
+    app_command(JW_CMD_SEN);
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -380,6 +424,7 @@ int main(void)
     cksame(jw_cmd_status(d), P_TEN, "点に移ると尻尾は消える");
 
     prompts_of_the_commands();
+    fukusen_tail();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
