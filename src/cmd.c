@@ -12359,10 +12359,78 @@ int jw_cmd_box_focus(void)
     return box_focus;
 }
 
+/* A sum typed into a box.  The original's boxes take a formula -- every
+   CMy02ComboBox value goes through FUN_004f2220 / FUN_004f47b0, its
+   expression reader -- so 900+75 in 寸法 is 975.  The port takes the four
+   operations and brackets (the reader the 日影 height box already has,
+   hk_eval) and works the sum out when the box is left or Enter is pressed,
+   leaving the answer in the box; each of two numbers either side of a comma
+   is worked out on its own.  Not the original's whole reader: its \, #p and
+   the like are not here, and anything else is left as typed.  The 日影・
+   天空図・2.5D boxes are left alone, their height box has a syntax of its own. */
+static const char *hk_e;
+static int hk_bad;                      /* a number was wanted and not there */
+static double hk_eval(const char *t);
+
+static void box_sum(int id)
+{
+    char *t = id ? box_slot(bar_cmd(), id) : 0, out[64], part[64];
+    const char *p;
+    int k = 0, any = 0;
+
+    if (!t || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU || current == JW_CMD_25D)
+        return;
+    out[0] = 0;
+    for (p = t; ; ) {
+        const char *q = strchr(p, ',');
+        size_t n = q ? (size_t)(q - p) : strlen(p), i;
+        double v;
+        int op = 0, digit = 0;
+
+        if (n >= sizeof part)
+            return;
+        memcpy(part, p, n);
+        part[n] = 0;
+        for (i = 0; i < n; i++) {
+            if (part[i] >= '0' && part[i] <= '9')
+                digit = 1;
+            else if (strchr("+*/()", part[i]) || (part[i] == '-' && i > 0))
+                op = 1;
+            else if (part[i] != '.' && part[i] != ' ' && part[i] != '-')
+                return;                 /* not a sum: leave it */
+        }
+        if (op && digit) {
+            hk_bad = 0;
+            v = hk_eval(part);
+            while (*hk_e == ' ')
+                hk_e++;
+            if (*hk_e || hk_bad || !(v == v) || v > 1e12 || v < -1e12)
+                return;                 /* not one the reader finished */
+            snprintf(part, sizeof part, "%.10g", v);
+            any = 1;
+        }
+        if (k + strlen(part) + 2 >= sizeof out)
+            return;
+        if (k)
+            out[k++] = ',';
+        strcpy(out + k, part);
+        k += (int)strlen(part);
+        if (!q)
+            break;
+        p = q + 1;
+    }
+    if (any)
+        box_put(id, out);
+}
+
 void jw_cmd_box_click(int id)
 {
+    int was = box_focus;
+
     box_focus = jw_cmd_box(id) ? id : 0;
     box_fresh = box_focus != 0;
+    if (was && was != box_focus)
+        box_sum(was);
 }
 
 int jw_cmd_box_key(int ch)
@@ -12372,7 +12440,11 @@ int jw_cmd_box_key(int ch)
     if (t) {
         int n = (int)strlen(t);
         if (ch == 13 || ch == 27) {         /* Enter, Esc: done */
+            int was = box_focus;
+
             box_focus = 0;
+            if (ch == 13)
+                box_sum(was);
             return 1;
         }
         if (ch == 8) {                      /* backspace */
@@ -12383,8 +12455,10 @@ int jw_cmd_box_key(int ch)
             box_fresh = 0;
             return 1;
         }
-        /* ２線's box holds two numbers with a comma between them */
-        if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ',') {
+        /* ２線's box holds two numbers with a comma between them, and any
+           box takes a sum (box_sum) */
+        if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ','
+            || ch == '+' || ch == '*' || ch == '/' || ch == '(' || ch == ')') {
             if (box_fresh) {
                 t[0] = 0;
                 n = 0;
@@ -16029,8 +16103,10 @@ static double hk_atom(void)
         char *end;
 
         v = strtod(hk_e, &end);
-        if (end == hk_e)
+        if (end == hk_e) {
+            hk_bad = 1;
             return 0.0;
+        }
         hk_e = end;
     }
     return v;

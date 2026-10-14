@@ -373,6 +373,45 @@ static void sekien_tail(void)
     app_command(JW_CMD_SEN);
 }
 
+/* バーの箱は式を取る（原典は値を FUN_004f2220・FUN_004f47b0 の式の読み手に通す）。
+   移植は四則と括弧を、Enter か 箱を離れたときに計算して 答えを箱に残す */
+static void type_into(int id, const char *t)
+{
+    int i;
+
+    jw_cmd_box_click(id);
+    for (i = 0; i < 40; i++)
+        jw_cmd_box_key(8);
+    while (*t)
+        jw_cmd_box_key((unsigned char)*t++);
+}
+
+static void box_sums(void)
+{
+    app_new();
+    app_command(JW_CMD_TAKAKU);
+    type_into(1411, "900+75");
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_box(1411), "975", "箱の 900+75 は Enter で 975");
+    type_into(1411, "(1000-200)/4");
+    jw_cmd_box_click(1413);             /* to another box: the sum is done */
+    cksame(jw_cmd_box(1411), "200", "  (1000-200)/4 は 箱を離れると 200");
+    jw_cmd_box_click(0);
+    app_command(JW_CMD_KUKEI);
+    type_into(1413, "1000*2,300+300");
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_box(1413), "2000,600", "  二つの数は それぞれ計算");
+    type_into(1413, "-500");
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_box(1413), "-500", "  式でない数は そのまま");
+    type_into(1413, "1+");
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_box(1413), "1+", "  読み切れない式も そのまま");
+    type_into(1413, "");
+    jw_cmd_box_key(13);
+    app_command(JW_CMD_SEN);
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -465,6 +504,7 @@ int main(void)
     prompts_of_the_commands();
     fukusen_tail();
     sekien_tail();
+    box_sums();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
