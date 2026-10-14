@@ -211,6 +211,40 @@ int main(void)
            "two lines on top of each other: the later one shows");
         ck(c1 != c0 && c2 == c0, "逆順描画 puts the earlier one on top, and a repaint alone shows it");
     }
+    /* 2112「TextFileをUTF-8出力」は 文字の範囲選択の SJIS/UTF8 釦と同じ旗（DAT_00a0b458） */
+    {
+        const fb_t *fb = app_fb();
+        int x, y, tab, found = 0;
+
+        jw_moji_sjis_set(1);
+        app_command(32891);
+        for (tab = 0; tab < 8 && !found; tab++) {
+            for (y = 0; y < fb->h && !found; y++)
+                for (x = 0; x < fb->w; x++)
+                    if (ui_kihon_hit(fb->w, fb->h, app_kihon_tab(), x, y) == -tab - 1) {
+                        app_press(x, y, 0);
+                        y = fb->h;
+                        break;
+                    }
+            for (y = 0; y < fb->h && !found; y++)
+                for (x = 0; x < fb->w; x++)
+                    if (ui_kihon_hit(fb->w, fb->h, app_kihon_tab(), x, y) == 2112) {
+                        app_press(x, y, 0);
+                        found = 1;
+                        break;
+                    }
+        }
+        ck(found && jw_moji_sjis() == 1, "2112 is found and ticked; nothing changes until OK");
+        for (y = 0; y < fb->h; y++)
+            for (x = 0; x < fb->w; x++)
+                if (ui_kihon_hit(fb->w, fb->h, app_kihon_tab(), x, y) == 1) {
+                    app_press(x, y, 0);
+                    y = fb->h;
+                    break;
+                }
+        ck(!app_kihon_open() && jw_moji_sjis() == 0, "and OK makes text files UTF-8 (the SJIS button's flag)");
+        jw_moji_sjis_set(1);
+    }
     jw_draw_reverse = 0;
     jw_draw_images_first = 0;
     jw_draw_transparent = 1;

@@ -1555,6 +1555,7 @@ static void kh_apply(void)
     jw_cmd_get_shown_too(kh_value(1522));
     jw_pick_reverse = kh_value(2445);
     jw_cmd_get_arc_length(kh_value(2100));
+    jw_moji_sjis_set(!kh_value(2112));
 }
 
 static void kh_start(void)
@@ -1564,6 +1565,13 @@ static void kh_start(void)
     for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
         for (i = 0; i < ui_kihon_n(t) && i < 256; i++)
             kh_on[t][i] = (unsigned char)(kh_have_saved ? kh_saved[t][i] : ui_kihon_on(t, i));
+    /* 2112「TextFileをUTF-8出力」 is the same flag as the 文字 range bar's
+       SJIS/UTF8 button (DAT_00a0b458, MOJI\OutSJIS): the page ticks it when
+       the flag says UTF-8 (FUN_005cc7e0), and OK puts it back (DAT_00a0b458 = !ticked) */
+    for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
+        for (i = 0; i < ui_kihon_n(t) && i < 256; i++)
+            if (ui_kihon_id(t, i) == 2112)
+                kh_on[t][i] = (unsigned char)!jw_moji_sjis();
     kh_tab = 0;
     kh_open = 1;
 }
