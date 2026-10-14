@@ -371,6 +371,34 @@ static void keypad(void)
        "  which Enter writes after the first, as the original's two-number "
        "boxes have it");
 
+    /* 電卓: 12 × 3 ＝ は 36 で、上の数値にもなり、OK で箱へ（FUN_005d57e0・005d5e40） */
+    jw_cmd_box_put(1411, "1000");
+    app_press(x - 2, y - 2, 1);
+    press_ctl(1441, 0);                         /* １ */
+    press_ctl(1442, 0);                         /* ２ */
+    ck(!strcmp(ctl_text(1772), "12"), "  the calculator takes 12");
+    press_ctl(1453, 0);                         /* × */
+    press_ctl(1443, 0);                         /* ３ */
+    press_ctl(1451, 0);                         /* ＝ */
+    ck(!strcmp(ctl_text(1770), "36") && !strcmp(ctl_text(1764), "36")
+       && !strcmp(ctl_text(1772), "0"),
+       "  12 × 3 ＝ is 36, and it becomes the number above");
+    press_ctl(1, 0);
+    t = jw_cmd_box(1411);
+    ck(!app_modal() && t && !strcmp(t, "36"), "  which OK writes into the box");
+    app_press(x - 2, y - 2, 1);
+    press_ctl(1445, 0);                         /* ５ */
+    press_ctl(1452, 0);                         /* ÷ */
+    press_ctl(1440, 0);                         /* ０ (no leading zero: nothing) */
+    press_ctl(1451, 0);                         /* ＝: ÷ by nothing */
+    ck(!strcmp(ctl_text(1771), "E"), "  ÷ 0 shows E");
+    press_ctl(1460, 0);                         /* ＡＣ */
+    ck(!strcmp(ctl_text(1770), "0") && !strcmp(ctl_text(1771), " "), "  and ＡＣ clears it");
+    press_ctl(1444, 0);                         /* ４ */
+    press_ctl(1456, 0);                         /* √ */
+    ck(!strcmp(ctl_text(1764), "2"), "  √4 is 2");
+    app_key(27);
+
     /* 二つの長い数も 切れずに戻る（箱の字は 15 文字までだった） */
     jw_cmd_box_put(1411, "12345.678,98765.432");
     app_press(x - 2, y - 2, 1);

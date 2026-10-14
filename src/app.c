@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include <time.h>
 
@@ -2153,6 +2154,17 @@ static int kp_raw[2];           /* untouched since it came in (+0xbc/+0xc0) */
 static int kp_two;              /* the box had two numbers in it */
 static int kp_shown2;           /* the second number has been shown */
 static char kp_txt[3][32];
+/* 電卓 (the lower half, FUN_005d5fe0 / 005d57e0 / 005d5bb0 and the buttons'
+   handlers 0x005d6d90 .. 0x005d7890).  kp_acc is the dialog's +0x158: the
+   number the table above last made and the calculator's running result, shown
+   in 1770; the entry being typed is +0x16c (1772); the operator waiting is
+   +0x7c4 (1771: ＋ － × ÷ ＾ √ atan cos sin, "E" when a sum cannot be done). */
+static double kp_acc;
+static char kc_s[20];                   /* the entry as typed, 15 at most */
+static int kc_len, kc_dot, kc_minus, kc_op;
+static double kc_v;                     /* and its value (+0x160) */
+static char kc_acc_txt[32];
+static const char *kc_op_txt = " ";
 
 /* The column and the digit a button stands for: columns from 0 (0.0x) to 6
    (x0,000), as FUN_005d7cb0 has them; -1 if it is not one of them. */
@@ -2213,7 +2225,189 @@ static void kp_show(void)
     kp_set(1172, kp_which ? UI_TD_GREY : 0, 0);
     kp_set(1173, kp_which ? 0 : UI_TD_GREY, 0);
     kp_set(1765, kp_which ? 0 : UI_TD_GREY, kp_shown2 ? kp_txt[1] : 0);
-    kp_set(1770, 0, kp_txt[2]);
+    kp_fmt(kc_acc_txt, sizeof kc_acc_txt, kp_acc);
+    kp_set(1770, 0, kc_acc_txt);
+    kp_set(1771, 0, kc_op_txt);
+    kp_set(1772, 0, kc_len ? kc_s : "0");
+}
+
+/* FUN_005d7160 (Ｃ): the entry goes back to nothing */
+static void kc_clear(void)
+{
+    kc_len = kc_dot = kc_minus = 0;
+    kc_s[0] = 0;
+    kc_v = 0.0;
+}
+
+/* FUN_005d5bb0: the operator's mark */
+static void kc_mark(void)
+{
+    static const char *const mark[10] = {
+        " ", "\x81\x7b", "\x81\x7c", "\x81\x7e", "\x81\x80",      /* ＋ － × ÷ */
+        "atan", "cos", "sin", "\x81\xe3", "\x81\x4f"                 /* √ ＾ */
+    };
+
+    kc_op_txt = kc_op >= 0 && kc_op < 10 ? mark[kc_op] : " ";
+}
+
+/* FUN_005d5fe0: one key of the entry -- a digit, '.' or '-' */
+static void kc_key(int c)
+{
+    if (kc_len > 14)
+        return;
+    if (c == '0' && fabs(kc_v) < 1e-7 && !kc_dot
+        && !(kc_len == 1 && kc_s[0] == '-'))
+        return;                         /* no run of leading zeros */
+    if (c == '.') {
+        if (kc_dot)
+            return;
+        kc_dot = 1;
+        if (kc_len == 0) {
+            strcpy(kc_s, "0.");
+            kc_len = 2;
+            goto parse;
+        }
+        if (kc_len == 1 && kc_s[0] == '-') {
+            strcpy(kc_s, "-0.");
+            kc_len = 3;
+            goto parse;
+        }
+    }
+    if (c == '-') {
+        if (kc_minus)
+            return;
+        kc_minus = 1;
+        if (kc_len != 0)
+            return;
+        strcpy(kc_s, "-");
+        kc_len = 1;
+    } else {
+        kc_s[kc_len++] = (char)c;
+        kc_s[kc_len] = 0;
+    }
+parse:
+    kc_v = atof(kc_s);
+}
+
+/* FUN_005d57e0: do the operator waiting with the entry.  0 when it cannot be
+   done (÷ 0, a power out of reach), which leaves "E" showing */
+static int kc_do(void)
+{
+    int bad = 0;
+
+    if (kc_op == 0) {
+        if (fabs(kc_v) < 1e-7)
+            goto done;
+        kp_acc = kc_v;
+    }
+    if (kc_op == 1)
+        kp_acc += kc_v;
+    if (kc_op == 2)
+        kp_acc -= kc_v;
+    if (kc_op == 3)
+        kp_acc *= kc_v;
+    if (kc_op == 4) {
+        if (fabs(kc_v) < 1e-7) {
+            bad = 1;
+            goto done;
+        }
+        kp_acc /= kc_v;
+    }
+    if (kc_op == 9) {
+        if ((kp_acc >= 0.0 || kc_v == (double)(int)kc_v) && (kc_v != 0.0 || kp_acc > 0.0)) {
+            double r = pow(kp_acc, kc_v);
+
+            if (r <= 1e20)
+                kp_acc = r;
+            else
+                bad = 1;
+        } else
+            bad = 1;
+    }
+done:
+    kc_clear();
+    kc_op = 0;
+    kc_op_txt = bad ? "E" : " ";
+    return !bad;
+}
+
+/* FUN_005d5e40 (＝): the sum is done and becomes the number above */
+static void kc_equals(void)
+{
+    if (!kc_do())
+        return;
+    kp_v[kp_which] = kp_acc;
+    memset(kp_place, 0, sizeof kp_place);
+    kp_raw[0] = kp_raw[1] = 1;
+    if (kp_which)
+        kp_shown2 = 1;
+}
+
+/* atan, cos, sin and √ (FUN_005d6f80, 005d7200, 005d76a0, 005d74c0): the
+   operator waiting first, then the function of the result, then ＝ */
+static void kc_func(int f)
+{
+    int bad = 0;
+
+    if (kc_op == 0) {
+        if (fabs(kc_v) > 1e-7)
+            kp_acc = kc_v;
+    } else if (!kc_do())
+        return;
+    kc_clear();
+    kc_op = 0;
+    kc_mark();
+    if (f == 5)
+        kp_acc = atan2(kp_acc, 1.0) * 180.0 / 3.141592653589793;
+    else if (f == 6)
+        kp_acc = cos(kp_acc * 3.141592653589793 / 180.0);
+    else if (f == 7)
+        kp_acc = sin(kp_acc * 3.141592653589793 / 180.0);
+    else if (kp_acc >= 0.0)
+        kp_acc = sqrt(kp_acc);
+    else {
+        kp_acc = 0.0;
+        bad = 1;
+    }
+    kc_equals();
+    if (bad)
+        kc_op_txt = "E";
+}
+
+/* the calculator's buttons; 1 if it was one of them */
+static int kc_press(int id)
+{
+    if (id >= 1440 && id <= 1449) {
+        kc_key('0' + id - 1440);
+        return 1;
+    }
+    switch (id) {
+    case 1450: kc_key('.'); return 1;
+    case 1464: kc_key('-'); return 1;
+    case 1455: case 1454: case 1453: case 1452: case 1458: {   /* ＋ － × ÷ ＾ */
+        int op = id == 1455 ? 1 : id == 1454 ? 2 : id == 1453 ? 3 : id == 1452 ? 4 : 9;
+
+        if (fabs(kc_v) <= 1e-7 || kc_do()) {
+            kc_op = op;
+            kc_mark();
+        }
+        return 1;
+    }
+    case 1451: kc_equals(); return 1;                          /* ＝ */
+    case 1459: kc_func(5); return 1;                           /* atan */
+    case 1461: kc_func(6); return 1;                           /* cos */
+    case 1462: kc_func(7); return 1;                           /* sin */
+    case 1456: kc_func(8); return 1;                           /* √ */
+    case 1463: kp_acc = -kp_acc; return 1;                     /* ± */
+    case 1457: kc_clear(); return 1;                           /* Ｃ */
+    case 1460:                                                 /* ＡＣ */
+        kp_acc = 0.0;
+        kc_op = 0;
+        kc_mark();
+        kc_clear();
+        return 1;
+    }
+    return 0;
 }
 
 static void kp_sum(void)
@@ -2225,6 +2419,7 @@ static void kp_sum(void)
         s += kp_place[g];
     kp_raw[kp_which] = 0;
     kp_v[kp_which] = kp_sign[kp_which] * s;
+    kp_acc = kp_v[kp_which];            /* FUN_005d87c0 leaves it in +0x158 */
 }
 
 static int kp_start(int box)
@@ -2245,6 +2440,10 @@ static int kp_start(int box)
     kp_which = 0;
     kp_raw[0] = kp_raw[1] = 1;
     kp_shown2 = 0;
+    kp_acc = 0.0;
+    kc_clear();
+    kc_op = 0;
+    kc_mark();
     kp_show();
     return 1;
 }
@@ -2318,10 +2517,15 @@ static int press_kp(int x, int y, int button)
             kp_which = 0;
             kp_keep = kp_v[1];
         }
+        kp_acc = kp_v[kp_which];        /* FUN_005d8140 puts it in +0x158 */
         memset(kp_place, 0, sizeof kp_place);
         break;
     default:
-        return 1;
+        if (!kc_press(id))
+            return 1;
+        if (id == 1451 && button == 1)  /* ＝ is a CMy3Button too: a right press is OK */
+            kp_ok();
+        break;
     }
     kp_show();
     return 1;
