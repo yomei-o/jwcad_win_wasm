@@ -34,5 +34,6 @@ int jw_row_rgb_set(int row, unsigned int rgb);
 extern int jw_draw_images_first;
 extern int jw_draw_transparent;
 extern int jw_draw_reverse;
+extern int jw_draw_texts_last;   /* 1887 文字を最後に描画 (on by default) */
 
 #endif

@@ -1551,6 +1551,7 @@ static void kh_apply(void)
     jw_draw_images_first = kh_value(2405);
     jw_draw_transparent = kh_value(2860);
     jw_draw_reverse = kh_value(2444);
+    jw_draw_texts_last = kh_value(1887);
     jw_cmd_layhide_shown(kh_value(2446));
     jw_cmd_get_shown_too(kh_value(1522));
     jw_pick_reverse = kh_value(2445);
@@ -4926,6 +4927,7 @@ static void draw_drawing(void)
     h = mix(h, &jw_draw_images_first, sizeof jw_draw_images_first);
     h = mix(h, &jw_draw_transparent, sizeof jw_draw_transparent);
     h = mix(h, &jw_draw_reverse, sizeof jw_draw_reverse);
+    h = mix(h, &jw_draw_texts_last, sizeof jw_draw_texts_last);
     {   /* an outline font arriving changes how its texts come out */
         int fg = jw_outfont_gen();
 

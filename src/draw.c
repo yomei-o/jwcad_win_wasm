@@ -3002,12 +3002,23 @@ int jw_draw_transparent = 1;
    (the original's +0x82b8; its pick order follows the same flag -- the hatch's
    FUN_006715f0 walks backwards with it on).  Off by default. */
 int jw_draw_reverse = 0;
+/* 基本設定 文字 1887「文字（寸法図形､ブロック図形）を最後に描画」, on by default:
+   the texts -- the ones inside dimension figures and blocks too -- go down
+   after everything else, so no line is drawn over them.  They are held back
+   as each pass meets them (block() draws its members one jw_draw at a time,
+   so they come through here too) and put down at the end of the outermost
+   jw_draw, before the pictures.  Off, they go down in element order. */
+int jw_draw_texts_last = 1;
+static jw_obj *tl_obj;
+static int tl_n, tl_cap, tl_depth, tl_flushing;
 #define DRAW_AT(i, n) (rev ? (n) - 1 - (i) : (i))
 
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
     const int rev = jw_draw_reverse;    /* read once: DRAW_AT is in every pass */
+
+    tl_depth++;
 
     if (jw_draw_images_first && !jw_draw_kari)
         for (i = 0; i < d->ndrawn; i++) {
@@ -3163,6 +3174,20 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             break;
         }
         case JW_MOJI:
+            if (jw_draw_texts_last && !jw_draw_kari && !tl_flushing && !jw_is_pic(d, o)) {
+                if (tl_n == tl_cap) {
+                    int nc = tl_cap ? tl_cap * 2 : 64;
+                    jw_obj *p2 = (jw_obj *)realloc(tl_obj, (size_t)nc * sizeof *p2);
+
+                    if (!p2)
+                        goto draw_now;
+                    tl_obj = p2;
+                    tl_cap = nc;
+                }
+                tl_obj[tl_n++] = *o;    /* put down at the end (1887) */
+                break;
+            }
+        draw_now:
             if (jw_is_pic(d, o)) {
                 /* the pictures go on last, below; one hanging off the cursor
                    is a dashed outline (four on, four off) and, as for any text,
@@ -3289,6 +3314,24 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 put(fb, &v->clip, jw_sx(v, x), jw_sy(v, y), d->pen_rgb[2]);
     }
 
+    /* the texts held back (1887): the outermost call puts them all down */
+    if (tl_depth == 1 && tl_n > 0) {
+        jw_drawing one = *d;
+        int k, n = tl_n;
+
+        one.nobj = one.ndrawn = 1;
+        one.mesh_ix = one.mesh_iy = 0.0;
+        tl_flushing = 1;
+        for (k = 0; k < n; k++) {
+            jw_obj t = tl_obj[k];
+
+            one.obj = &t;
+            jw_draw(fb, v, &one);
+        }
+        tl_flushing = 0;
+        tl_n = 0;
+    }
+
     /* the pictures lie over everything, in the order they were put in */
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[DRAW_AT(i, d->ndrawn)];
@@ -3311,6 +3354,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
             }
         }
     }
+    tl_depth--;
 }
 
 void jw_draw_sel(fb_t *fb, const jw_view *v, const jw_drawing *d,

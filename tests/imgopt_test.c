@@ -245,6 +245,31 @@ int main(void)
         ck(!app_kihon_open() && jw_moji_sjis() == 0, "and OK makes text files UTF-8 (the SJIS button's flag)");
         jw_moji_sjis_set(1);
     }
+    /* 1887「文字（寸法図形､ブロック図形）を最後に描画」（既定で印あり）: 字の上を後から
+       線が横切っても 字が上に描かれる。印を外すと 要素の順（線が上） */
+    {
+        jw_drawing *d;
+        jw_obj *o;
+        unsigned int on, off;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_MOJI);
+        o->d[0] = -20; o->d[1] = -10; o->d[2] = 0; o->d[3] = -10;
+        o->d[4] = 20; o->d[5] = 20; o->color = 5;
+        o->text = jw_add_str(d, "\x81\xa1");        /* ■ */
+        o = jw_add(d, JW_SEN);
+        o->d[0] = -40; o->d[1] = 0; o->d[2] = 40; o->d[3] = 0; o->color = 2;
+        jw_draw_texts_last = 1;
+        app_paint();
+        on = pixel_at(-10.0, 0.0);
+        jw_draw_texts_last = 0;
+        app_paint();
+        off = pixel_at(-10.0, 0.0);
+        jw_draw_texts_last = 1;
+        ck(off == 0x000000u && on != off,
+           "1887: 字は最後に描かれ 線の上に来る（印を外すと 線が上）");
+    }
     jw_draw_reverse = 0;
     jw_draw_images_first = 0;
     jw_draw_transparent = 1;
