@@ -2,6 +2,8 @@
 # Build the browser front end with emscripten, at low priority (tools/lowpri.sh).
 #
 # Output lands in the repository root because GitHub Pages serves main:/ .
+# WASM_OUT=<dir> builds somewhere else instead (tools/ci.sh does, so the
+# shipped jwcad.js and jwcad.wasm are left alone).
 set -e
 cd "$(dirname "$0")/.."
 EMSDK="${EMSDK:-/c/prog/emsdk/emsdk}"
@@ -19,19 +21,20 @@ SRC="src/main_wasm.c src/cp932.c src/pick.c src/app.c src/cmd.c src/ui.c src/fb.
 # `cmd /c start /WAIT` does not hand emcc's exit status back, so without the
 # check at the end a compile error is announced as a successful build and the
 # stale .wasm stays in place.
-mkdir -p tmp
+OUT="${WASM_OUT:-.}"
+mkdir -p tmp "$OUT"
 STAMP=tmp/.wasm-stamp
 : > "$STAMP"
 
 sh tools/lowpri.sh "$EMCC" -O2 -Wall -Wextra -Isrc \
-   -o jwcad.js \
+   -o "$OUT/jwcad.js" \
    $SRC \
    -s MODULARIZE=1 -s EXPORT_NAME=createJwcad \
    -s EXPORTED_RUNTIME_METHODS=HEAPU8,HEAPU16,ccall,cwrap,UTF8ToString \
    -s ALLOW_MEMORY_GROWTH=1 -s ENVIRONMENT=web,node \
    -s EXPORTED_FUNCTIONS="$EXPORTS"
 
-if [ ! -f jwcad.wasm ] || [ ! jwcad.wasm -nt "$STAMP" ]; then
+if [ ! -f "$OUT/jwcad.wasm" ] || [ ! "$OUT/jwcad.wasm" -nt "$STAMP" ]; then
     echo "emcc did not rewrite jwcad.wasm - the build failed" >&2
     exit 1
 fi

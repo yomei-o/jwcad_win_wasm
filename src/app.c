@@ -4037,11 +4037,40 @@ int app_take_action(void)
     return a;
 }
 
+static jw_obj new_hidden[8];     /* the six, kept for app_save */
+static int nnew_hidden;
+
 int app_save(unsigned char **out, long *n)
 {
+    int added = 0, i, ok;
+
     if (!have_drawing)
         return 0;
-    if (!jw_write(&drawing, out, n))
+    /* A drawing begun with 新規 does not hold the six hidden settings records
+       (see app_new), but every file Jw_cad writes ends its drawn elements with
+       them -- so put them on for the write, as the original makes them when
+       it writes, and take them off again.  A drawing that came from a file
+       has them already. */
+    if (nnew_hidden > 0) {
+        int have = 0;
+
+        for (i = 0; i < drawing.ndrawn; i++)
+            if (drawing.obj[i].cls == JW_MOJI && drawing.obj[i].d[1] == -1000.0)
+                have = 1;
+        if (!have)
+            for (i = 0; i < nnew_hidden; i++) {
+                jw_obj *p = jw_add(&drawing, new_hidden[i].cls);
+
+                if (!p)
+                    break;
+                *p = new_hidden[i];
+                added++;
+            }
+    }
+    ok = jw_write(&drawing, out, n);
+    while (added-- > 0)
+        jw_remove(&drawing, drawing.ndrawn - 1);
+    if (!ok)
         return 0;
     clean_stamp = jw_cmd_edit_stamp();
     return 1;
@@ -4225,6 +4254,8 @@ void app_new(void)
         jw_free(&d);
         return;
     }
+    nnew_hidden = d.nobj > 8 ? 8 : d.nobj;
+    memcpy(new_hidden, d.obj, (size_t)nnew_hidden * sizeof new_hidden[0]);
     d.nobj = 0;
     d.ndrawn = 0;
     if (have_drawing)

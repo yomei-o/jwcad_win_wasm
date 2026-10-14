@@ -169,7 +169,15 @@ int main(int argc, char **argv)
     if (out) {
         jw_drawing back;
         ck(jw_parse(&back, out, n), "and reads back");
-        ck(back.ndrawn == d->ndrawn, "with the same elements in it");
+        {
+            int k, a = 0, b = 0;
+
+            for (k = 0; k < back.ndrawn; k++)
+                a += !(back.obj[k].cls == JW_MOJI && back.obj[k].d[1] == -1000.0);
+            for (k = 0; k < d->ndrawn; k++)
+                b += !(d->obj[k].cls == JW_MOJI && d->obj[k].d[1] == -1000.0);
+            ck(a == b, "with the same elements in it (not counting the six hidden records)");
+        }
         jw_free(&back);
         if (argc > 1) {
             FILE *f = fopen(argv[1], "wb");

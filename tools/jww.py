@@ -373,6 +373,16 @@ def main():
         # the second list (piStack_bc95c[0x40]): the block definitions
         objs += read_objects(ar, v, note=lambda s: print('block list: ' + s),
                              load=load)
+    if v > 0x275:
+        # Jw_cad 10 (version 700): after the two lists, the embedded pictures --
+        # a count, then for each a CString name (with .gz), a length and the gzip
+        # (src/jww.c, FUN_00575010).  No picture: just the zero count.
+        nimg = ar.l()
+        for _ in range(nimg):
+            ar.s()
+            ar.raw(ar.l())
+        if nimg:
+            print('embedded pictures: %d' % nimg)
     if '-l' in sys.argv[2:]:
         show(objs)
     if '-t' in sys.argv[2:]:

@@ -677,6 +677,15 @@ try {
             }
             Start-Sleep -Milliseconds 80
             foreach ($c in $s.ToCharArray()) {
+                if ([int][char]$c -gt 127) {
+                    # a double-byte character reaches the original's ANSI edit as its two
+                    # code-page bytes, lead first (a UTF-16 unit would lose its high byte)
+                    foreach ($b in [System.Text.Encoding]::GetEncoding(932).GetBytes([string]$c)) {
+                        [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr][int]$b, [IntPtr]1)
+                        Start-Sleep -Milliseconds 25
+                    }
+                    continue
+                }
                 [void][Jw]::PostMessage($e, $WM_CHAR, [IntPtr][int][char]$c, [IntPtr]1)
                 Start-Sleep -Milliseconds 25
             }

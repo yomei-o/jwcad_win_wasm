@@ -1269,8 +1269,16 @@ static unsigned char *dxf_normalize(const unsigned char *b, long n, long *out_n)
 
             while (j < head && b[j] != 'A')      /* the AC10xx line */
                 j++;
-            if (j + 6 <= head && !memcmp(b + j, "AC10", 4) && atoi((const char *)b + j + 2) >= 1021)
-                utf8 = 1;
+            if (j + 6 <= head && !memcmp(b + j, "AC10", 4)) {
+                /* the four digits, read by hand: the buffer is not NUL-terminated,
+                   and atoi would run on past the end of a file cut off here */
+                int v = 0, q;
+
+                for (q = 2; q < 6 && b[j + q] >= '0' && b[j + q] <= '9'; q++)
+                    v = v * 10 + (b[j + q] - '0');
+                if (v >= 1021)
+                    utf8 = 1;
+            }
             break;
         }
     for (i = 0; i < n; i++)

@@ -672,9 +672,17 @@ static int shown(const jw_drawing *d, const jw_obj *o)
     int gs = d->group[g].state, ls = d->group[g].layer[l].state;
     int v;
 
-    {   /* debugging hooks: draw just one layer, or just one flag value */
-        const char *e = getenv("JW_ONLY_LAYER");
-        const char *f = getenv("JW_ONLY_FLAG");
+    {   /* debugging hooks: draw just one layer, or just one flag value.
+           Read once: getenv walks the whole environment, and this runs
+           several times for every element of every picture. */
+        static int looked;
+        static const char *e, *f;
+
+        if (!looked) {
+            e = getenv("JW_ONLY_LAYER");
+            f = getenv("JW_ONLY_FLAG");
+            looked = 1;
+        }
         if (f)
             return o->flags == (unsigned short)strtoul(f, 0, 0) ? 3 : 0;
         if (e)
@@ -2749,13 +2757,37 @@ static void pic_dash(fb_t *fb, const jw_view *v, double x0, double y0, double x1
 static void pic_dots(fb_t *fb, const jw_view *v, double x0, double y0, double x1, double y1,
                      unsigned int col)
 {
-    double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy), t;
+    double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy), t, t0 = 0.0, t1 = 1.0;
+    double lo[2], hi[2], s[2], e[2];
+    int k;
 
-    if (len < 1.0)
+    if (!(len >= 1.0) || !isfinite(len))
         return;
-    for (t = 0; t < len; t += 8.0)
-        put(fb, &v->clip, v->bx + jw_px_round(x0 + dx * t / len),
-            v->by - jw_px_round(y0 + dy * t / len), col);
+    /* only the part inside the view is walked: a picture a million times the
+       sheet in size has edges that are not worth counting out */
+    lo[0] = v->clip.x - v->bx;
+    hi[0] = v->clip.x + v->clip.w - v->bx;
+    lo[1] = v->by - (v->clip.y + v->clip.h);
+    hi[1] = v->by - v->clip.y;
+    s[0] = x0; s[1] = y0; e[0] = dx; e[1] = dy;
+    for (k = 0; k < 2; k++) {
+        if (e[k] == 0.0) {
+            if (s[k] < lo[k] || s[k] > hi[k])
+                return;
+        } else {
+            double a = (lo[k] - s[k]) / e[k], b = (hi[k] - s[k]) / e[k], tmp;
+
+            if (a > b) { tmp = a; a = b; b = tmp; }
+            if (a > t0) t0 = a;
+            if (b < t1) t1 = b;
+        }
+    }
+    if (t0 > t1)
+        return;
+    for (t = floor(t0 * len / 8.0) * 8.0; t < len && t <= t1 * len + 8.0; t += 8.0)
+        if (t >= 0)
+            put(fb, &v->clip, v->bx + jw_px_round(x0 + dx * t / len),
+                v->by - jw_px_round(y0 + dy * t / len), col);
 }
 
 /* The part of the file's picture that is shown, in whole pixels, the way the
@@ -2996,11 +3028,29 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
         int wide = obj_wide(d, o);
 
         switch (o->cls) {
-        case JW_SEN:
-            line(fb, v, jw_ux(v, o->d[0]), jw_uy(v, o->d[1]),
-                 jw_ux(v, o->d[2]), jw_uy(v, o->d[3]), col, wide,
+        case JW_SEN: {
+            double u0 = jw_ux(v, o->d[0]), w0 = jw_uy(v, o->d[1]);
+            double u1 = jw_ux(v, o->d[2]), w1 = jw_uy(v, o->d[3]);
+            /* A line wholly beyond one side of the view, by more than its
+               own width and a dash or two, puts nothing down.  Zoomed in on
+               a big drawing that is most of them, and each took as long as
+               one that shows. */
+            double m = wide + 16.0;
+
+#ifndef JW_NOCULL
+            if (u0 + v->bx < v->clip.x - m && u1 + v->bx < v->clip.x - m)
+                break;
+            if (u0 + v->bx > v->clip.x + v->clip.w + m && u1 + v->bx > v->clip.x + v->clip.w + m)
+                break;
+            if (v->by - w0 < v->clip.y - m && v->by - w1 < v->clip.y - m)
+                break;
+            if (v->by - w0 > v->clip.y + v->clip.h + m && v->by - w1 > v->clip.y + v->clip.h + m)
+                break;
+#endif
+            line(fb, v, u0, w0, u1, w1, col, wide,
                  line_type(o), pix_per_bit(v), 0);
             break;
+        }
         case JW_ENKO:
             arc(fb, v, d, o);
             break;

@@ -960,6 +960,16 @@ int jw_tenku_draw_edges(jw_drawing *d, const hk_tenku_opts *o,
     return jw_tenku_draw_edges2(d, o, e, NULL, n, px, py, cx, cy, pct);
 }
 
+/* 目盛の円と放射線の線種: 30° の倍数は 1、10° の倍数は 4、ほかは 2（5°・15°…、原典 hk_rg1〜rg5） */
+static int tick_ltype(double a)
+{
+    if (fabs(fmod(a + 1e-9, 30.0)) < 2e-9)
+        return 1;
+    if (fabs(fmod(a + 1e-9, 10.0)) < 2e-9)
+        return 4;
+    return 2;
+}
+
 int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
                          const hk_edge3 *e, const hk_tenku_base *bb, int n,
                          double px, double py, double cx, double cy, double *pct)
@@ -984,15 +994,11 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
         int k;
 
         for (a = o->interval; a < 90.0 - 1e-9; a += o->interval) {
-            int major = fabs(fmod(a + 1e-9, 30.0)) < 2e-9;
-
-            add_circle(d, cx, cy, radius_of(o, a * PI / 180.0), 1, major ? 1 : 4);
+            add_circle(d, cx, cy, radius_of(o, a * PI / 180.0), 1, tick_ltype(a));
         }
         for (k = 0; k * o->interval < 360.0 - 1e-9; k++) {
             double ang = k * o->interval, rad = ang * PI / 180.0;
-            int major = fabs(fmod(ang + 1e-9, 30.0)) < 2e-9;
-
-            add_line(d, cx, cy, cx + o->R * cos(rad), cy + o->R * sin(rad), 1, major ? 1 : 4, 0);
+            add_line(d, cx, cy, cx + o->R * cos(rad), cy + o->R * sin(rad), 1, tick_ltype(ang), 0);
         }
     }
     if (o->sun) {
@@ -1076,6 +1082,12 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
                          o->number, o->interval);
             else
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d", o->number);
+            add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
+            slot++;
+        }
+        if (!o->show_point && o->interval > 0.0) {
+            /* 目盛間隔 は 測定点表示がなければ 単独の字（「目盛間隔 10゜」、5 は「 5」と桁を揃える、hk_s28・iv*） */
+            snprintf(buf, sizeof buf, S_MEMORI " %2g" S_DEG, o->interval);
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
             slot++;
         }

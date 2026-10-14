@@ -21,6 +21,18 @@
 static int fails;
 static jw_drawing *d;
 
+/* the six hidden settings records every saved file ends with: a new drawing
+   does not hold them, app_save puts them on when it writes */
+static int shown(const jw_drawing *d)
+{
+    int i, n = 0;
+
+    for (i = 0; i < d->nobj; i++)
+        if (!(d->obj[i].cls == JW_MOJI && d->obj[i].d[1] == -1000.0))
+            n++;
+    return n;
+}
+
 static void ck(int ok, const char *what)
 {
     printf("%-4s %s\n", ok ? "ok" : "BAD", what);
@@ -83,7 +95,7 @@ static void roundtrip(void)
     ck(app_save(&o, &n) && n > 0, "save .jww");
     memset(&e, 0, sizeof e);
     ck(jw_parse(&e, o, n), "reload .jww");
-    ck(e.nobj == d->nobj, "reload: same element count");
+    ck(shown(&e) == shown(d), "reload: same element count");
     jw_free(&e);
     free(o);
     ck(app_save_dxf(&o, &n) && n > 0, "dxf"); if (o) free(o);

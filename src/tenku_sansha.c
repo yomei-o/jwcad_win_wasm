@@ -198,6 +198,7 @@ typedef struct {
     double R;
     double tw, th, tsp;
     int sz;
+    int tcol;               /* text colour override (0 = the option's) */
 } octx;
 
 /* text width in half-width units, "^d" removes d+2, "^u"/"^l" removes 2  [G for other codes] */
@@ -268,7 +269,7 @@ static int ob_text(octx *c, const char *s, double x0, double y0, double x1, doub
     o->d[6] = c->tsp;
     o->d[7] = th * 180.0 / PI;
     o->ltype = flag;
-    o->color = c->o->text_color;
+    o->color = c->tcol ? c->tcol : c->o->text_color;
     o->n = c->sz;
     strncpy(o->text, s, sizeof o->text - 1);
     o->has_text = 1;
@@ -1511,6 +1512,7 @@ void hk_sansha_opts_default(hk_sansha_opts *o)
     o->t.show_point = 1;
     o->maxdiv = 10.0;
     o->calc = 1;
+    o->conf = 0;
     o->style = HK_SANSHA_EXE;
     hk_sansha_opts_set_mode(o, 0);
     strcpy(o->name, "No.1");
@@ -1521,6 +1523,288 @@ void hk_sansha_opts_default(hk_sansha_opts *o)
     o->tw = 2.5;
     o->th = 2.5;
     o->tsp = 0.0;
+}
+
+/* ------------------------------------------------------------------ */
+/* 建物位置確認表 (2114) -- FUN_00734920 (and its caller's first line)  */
+/* ------------------------------------------------------------------ */
+#define S_CONFNAME "\214\232\225\250\210\312\222u\212m\224F\225\134"
+#define S_C_POS    "\210\312\222u"
+#define S_C_PLAN   "\224z\222u\220}"
+#define S_C_SKY    "\223V\213\363\220}"
+#define S_C_DIST   "\213\227\227\243"
+#define S_C_HGT    "\215\202\202\263"
+#define S_C_AZ     "\225\373\210\312\212p"
+#define S_C_ELEV   "\213\302\212p:h"
+#define S_C_UREAL  "(\216\300\220\241m)"
+#define S_C_UDEG   "(\337)"
+
+static int ob_text_col(octx *c, const char *s, double x, double y, int align, int col)
+{
+    int n;
+
+    (void)col;
+    if (align == 0)             /* centred in a box 20 wide (FUN_00479c40's x ± 10) */
+        n = ob_text(c, s, x - 10.0, y, x + 10.0, y, 0);
+    else
+        n = ob_cell(c, s, x, y, align);
+    c->tcol = 0;
+    return n;
+}
+
+/* FUN_007400a0: nothing on the plan between the viewpoint and the point hides it.  A non-ground
+ * 3-D line hides it when it straddles the sight line, is not wholly behind the viewpoint and
+ * crosses the line nearer than the point. */
+static int conf_visible(const l3 *a, int n, double px, double py, double X, double Y)
+{
+    double dx = X - px, dy = Y - py, dist = sqrt(dx * dx + dy * dy), ux, uy;
+    int i;
+
+    if (dist < 1e-9)
+        return 1;
+    ux = dx / dist;
+    uy = dy / dist;
+    for (i = 0; i < n; i++) {
+        const l3 *e = &a[i];
+        double ax = e->x0 - px, ay = e->y0 - py, bx = e->x1 - px, by = e->y1 - py;
+        double ca, cb, s, ix, iy, along;
+
+        if (e->z0 <= 1e-07 && e->z1 <= 1e-07)
+            continue;
+        ca = ux * ay - uy * ax;
+        cb = ux * by - uy * bx;
+        if (ca * cb > 1e-07)
+            continue;
+        if (ux * ax + uy * ay < 0.0 && ux * bx + uy * by < 0.0)
+            continue;
+        if (fabs(ca - cb) < 1e-12)
+            continue;
+        s = ca / (ca - cb);
+        ix = ax + s * (bx - ax);
+        iy = ay + s * (by - ay);
+        along = ux * ix + uy * iy;
+        if (along < 0.0 || dist - 1e-07 <= along)
+            continue;
+        return 0;
+    }
+    return 1;
+}
+
+typedef struct { double x, y, z; } cpt;
+
+/* the corner points of the buildings, as FUN_00734920 collects them: each end of every non-ground
+ * line once (the first of equal ones), but not the foot of a line that rises from it; then an
+ * exchange sort: higher first, then smaller y, then smaller x */
+static int conf_points(const l3 *a, int n, cpt *out, int max)
+{
+    unsigned char *u0 = (unsigned char *)calloc((size_t)n + 1, 1);
+    unsigned char *u1 = (unsigned char *)calloc((size_t)n + 1, 1);
+    int i, j, k, m = 0;
+
+    if (!u0 || !u1) {
+        free(u0);
+        free(u1);
+        return 0;
+    }
+    for (i = 0; i < n && m < max; i++) {
+        double z0 = a[i].z0, z1 = a[i].z1;
+
+        if (z0 <= 1e-07 && z1 <= 1e-07)
+            continue;
+        for (k = 0; k < 2 && m < max; k++) {
+            double x = k ? a[i].x1 : a[i].x0, y = k ? a[i].y1 : a[i].y0, z = k ? z1 : z0;
+            int foot = 0;
+
+            if (k ? u1[i] : u0[i])
+                continue;
+            for (j = 0; j < n; j++) {
+                if (fabs(a[j].x0 - x) < 1e-07 && fabs(a[j].y0 - y) < 1e-07 && fabs(a[j].z0 - z) < 1e-07) {
+                    u0[j] = 1;
+                    if (z < 1e-07 && z < a[j].z1 - 1e-07)
+                        foot++;
+                }
+                if (fabs(a[j].x1 - x) < 1e-07 && fabs(a[j].y1 - y) < 1e-07 && fabs(a[j].z1 - z) < 1e-07) {
+                    u1[j] = 1;
+                    if (z < 1e-07 && z < a[j].z0 - 1e-07)
+                        foot += 2;
+                }
+            }
+            if (!foot) {
+                out[m].x = x;
+                out[m].y = y;
+                out[m].z = z;
+                m++;
+            }
+        }
+    }
+    for (i = 0; i < m; i++) {
+        int best = i;
+
+        for (j = i + 1; j < m; j++) {
+            const cpt *b = &out[best];
+
+            /* the original updates its "current" copy when it finds a better one, so this is
+               a plain selection sort (hk_sa8: the four corners come out front-left,
+               front-right, back-left, back-right) */
+            if (fabs(b->z - out[j].z) >= 1e-07) {
+                if (b->z < out[j].z)
+                    best = j;
+            } else if (fabs(b->y - out[j].y) >= 1e-07) {
+                if (out[j].y < b->y)
+                    best = j;
+            } else if (out[j].x < b->x && fabs(b->x - out[j].x) > 0.0) {
+                best = j;
+            }
+        }
+        if (best != i) {
+            cpt tmp = out[i];
+
+            out[i] = out[best];
+            out[best] = tmp;
+        }
+    }
+    free(u0);
+    free(u1);
+    return m;
+}
+
+/* the table, the dots on the diagram and the centre mark.  Result < 0 on failure.
+ * Layout and numbers read off decomp/res/hk_sa3.jww / hk_sa4.jww (the original's own answer) and
+ * FUN_00734920: y runs down from the circle's bottom (R + 1.5 th), columns are at multiples of
+ * the character pitch cw from x0c, centred texts are in colour 2 and right-justified ones in 3. */
+static int conf_table(octx *c, const l3 *raw, int nraw, double scale)
+{
+    const hk_sansha_opts *o = c->o;
+    double th = c->th, cw = c->tw + c->tsp, sp = c->tsp, cx = c->cx, cy = c->cy, R = c->R;
+    double x0c, C[7], y, yt, yh1, xl, xr, ybot, ycur;
+    char tb[256], nb[64];
+    cpt *pts;
+    int np, i, k, rows = 0;
+    oo *t;
+
+    y = cy - R - th * 1.5;
+    snprintf(tb, sizeof tb, S_SHASHAEI S_ZENSP S_SOKUTEIMEN " = %.3f m", o->t.plane_m);
+    if (ob_text_col(c, tb, cx, y, 0, 2) < 0)
+        return -1;
+    y -= th * 2.0;
+    snprintf(tb, sizeof tb, S_CONFNAME S_ZENSP S_RTXT "%.3f" S_ZUSUN, R);
+    if (ob_text_col(c, tb, cx, y, 0, 2) < 0)
+        return -1;
+    y -= th * 1.5;
+    if (ob_text_col(c, o->label, cx, y, 0, 2) < 0)
+        return -1;
+    x0c = cx - (cw * 47.0 - sp) / 4.0 - cw;
+    C[1] = cw * 3.0 - sp / 2.0 + x0c;
+    C[2] = cw * 7.5 - sp / 2.0 + x0c;
+    C[3] = cw * 12.0 - sp / 2.0 + x0c;
+    C[4] = cw * 16.5 - sp / 2.0 + x0c;
+    C[5] = cw * 21.0 - sp / 2.0 + x0c;
+    C[6] = cw * 25.5 - sp / 2.0 + x0c;
+    y -= th * 1.5;
+    ycur = y;                                   /* the header row (cmd+0x1bd0) */
+    if (ob_text_col(c, S_C_POS, C[1] - cw / 2.0, y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_PLAN, C[2], y, 0, 2) < 0 ||
+        ob_text_col(c, S_C_SKY, C[5] - cw / 2.0, y, -1, 3) < 0)
+        return -1;
+    y -= th * 1.5;
+    if (ob_text_col(c, "No.", C[1] - cw / 2.0, y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_DIST, C[2] - cw * 0.75, y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_HGT, C[3] - cw * 0.75, y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_AZ, C[4] - cw / 2.0, y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_ELEV, C[5] - cw / 2.0, y, -1, 3) < 0 ||
+        ob_text_col(c, "R*cos(h)", C[6], y, -1, 3) < 0)
+        return -1;
+    y -= th * 1.2;
+    if (ob_text_col(c, S_C_UREAL, C[2], y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_UREAL, C[3], y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_UDEG, C[4] - cw / 2.0, y, -1, 3) < 0 ||
+        ob_text_col(c, S_C_UDEG, C[5] - cw / 2.0, y, -1, 3) < 0 ||
+        ob_text_col(c, S_ZUSUN, C[6], y, -1, 3) < 0)
+        return -1;
+
+    pts = (cpt *)malloc(2000 * sizeof *pts);
+    if (!pts)
+        return -1;
+    np = conf_points(raw, nraw, pts, 2000);
+    for (i = 0; i < np; i++) {
+        double dx = pts[i].x - c->px, dy = pts[i].y - c->py, dist = sqrt(dx * dx + dy * dy);
+        double az = atan2(dy, dx), h = atan2(pts[i].z, dist), rc = cos(h) * R, X, Y;
+
+        if (az < 0.0)
+            az += 2.0 * PI;
+        if (!conf_visible(raw, nraw, c->px, c->py, pts[i].x, pts[i].y))
+            continue;
+        rows++;
+        y -= th * 1.5;
+        snprintf(nb, sizeof nb, "(%d)", i + 1);
+        if (ob_text_col(c, nb, C[1], y, -1, 3) < 0)
+            goto fail;
+        snprintf(nb, sizeof nb, "%.3f", dist * 0.001 * scale);
+        if (ob_text_col(c, nb, C[2], y, -1, 3) < 0)
+            goto fail;
+        snprintf(nb, sizeof nb, "%.3f", pts[i].z * 0.001 * scale);
+        if (ob_text_col(c, nb, C[3], y, -1, 3) < 0)
+            goto fail;
+        snprintf(nb, sizeof nb, "%.3f", az * 180.0 / PI);
+        if (ob_text_col(c, nb, C[4], y, -1, 3) < 0)
+            goto fail;
+        snprintf(nb, sizeof nb, "%.3f", h * 180.0 / PI);
+        if (ob_text_col(c, nb, C[5], y, -1, 3) < 0)
+            goto fail;
+        snprintf(nb, sizeof nb, "%.3f", rc);
+        if (ob_text_col(c, nb, C[6], y, -1, 3) < 0)
+            goto fail;
+        X = cx + rc * cos(az);
+        Y = cy + rc * sin(az);
+        t = ob_new(&c->b, JW_TEN);
+        if (!t)
+            goto fail;
+        t->d[0] = X;
+        t->d[1] = Y;
+        t->color = 3;
+        t->ltype = 1;
+        snprintf(nb, sizeof nb, "(%d)", i + 1);
+        if (ob_text_col(c, nb, X, Y, 0, 2) < 0)
+            goto fail;
+        (void)k;
+    }
+    free(pts);
+    /* the frame */
+    xl = x0c - cw / 4.0;
+    xr = C[6] + cw / 4.0;
+    yt = ycur + th * 1.25;
+    yh1 = ycur - th * 0.25;
+    ybot = yh1 - th * 2.7;
+    if (ob_aline(c, xl, yt, xr, yt) < 0 || ob_aline(c, C[1] + cw / 4.0, yh1, xr, yh1) < 0 ||
+        ob_aline(c, xl, ybot, xr, ybot) < 0)
+        return -1;
+    for (i = 1; i <= rows; i++) {
+        ybot -= th * 1.5;
+        if (ob_aline(c, xl, ybot, xr, ybot) < 0)
+            return -1;
+    }
+    if (ob_aline(c, xl, yt, xl, ybot) < 0 || ob_aline(c, C[1] + cw / 4.0, yt, C[1] + cw / 4.0, ybot) < 0 ||
+        ob_aline(c, C[2] + cw / 4.0, yh1, C[2] + cw / 4.0, ybot) < 0 ||
+        ob_aline(c, C[3] + cw / 4.0, yt, C[3] + cw / 4.0, ybot) < 0 ||
+        ob_aline(c, C[4] + cw / 4.0, yh1, C[4] + cw / 4.0, ybot) < 0 ||
+        ob_aline(c, C[5] + cw / 4.0, yh1, C[5] + cw / 4.0, ybot) < 0 ||
+        ob_aline(c, xr, yt, xr, ybot) < 0)
+        return -1;
+    /* the centre mark */
+    t = ob_new(&c->b, JW_TEN);
+    if (!t)
+        return -1;
+    t->d[0] = cx;
+    t->d[1] = cy;
+    t->color = 3;
+    t->ltype = 1;
+    /* the cross only without 三斜計算 (hk_sa3 has it, hk_sa4 does not) */
+    if (!o->calc && (ob_aline(c, cx - 1.5, cy, cx + 1.5, cy) < 0 || ob_aline(c, cx, cy - 1.5, cx, cy + 1.5) < 0))
+        return -1;
+    return rows;
+fail:
+    free(pts);
+    return -1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1537,6 +1821,8 @@ int jw_tenku_sansha_draw_ex(jw_drawing *d, const hk_sansha_opts *o,
     char tb[1100], nb1[64], nb2[64], nb3[64];
     double cw, ch, ye, Y, X0, sumA = 0.0, sect, diffv, circ, pctv;
     int rows_in_page = 0, k;
+    l3 *raw = 0;
+    int nraw = 0;
 
     memset(&c, 0, sizeof c);
     memset(&lb, 0, sizeof lb);
@@ -1557,6 +1843,12 @@ int jw_tenku_sansha_draw_ex(jw_drawing *d, const hk_sansha_opts *o,
     rc = collect3d(d, o, &lb);
     if (rc < 0) { ret = -1; goto out; }
     if (lb.n < 1) { ret = -2; goto out; }
+    if (o->conf) {                         /* 建物位置確認表 reads the lines as collected */
+        raw = (l3 *)malloc((size_t)lb.n * sizeof(l3));
+        if (!raw) { ret = -1; goto out; }
+        memcpy(raw, lb.a, (size_t)lb.n * sizeof(l3));
+        nraw = lb.n;
+    }
     stage_b(lb.a, lb.n, px, py);
     stage_b3(lb.a, lb.n, px, py, write_scale(d));
     if (stage_c(&c, lb.a, lb.n, &pb) < 0) { ret = -1; goto out; }
@@ -1576,6 +1868,7 @@ int jw_tenku_sansha_draw_ex(jw_drawing *d, const hk_sansha_opts *o,
         if (ob_text(&c, o->name, px, py, px + 100.0, py, 2) < 0) { ret = -1; goto out; }
     }
 
+    if (o->conf && conf_table(&c, raw, nraw, write_scale(d)) < 0) { ret = -1; goto out; }
     if (!o->calc)
         goto pieces;                   /* 三斜計算 が切: 円と 投影の線だけ（原典 hk_sa1） */
     w = (sweep *)calloc(1, sizeof *w);
@@ -1770,6 +2063,7 @@ pieces:
     }
     ret = nout;
 out:
+    free(raw);
     free(c.b.a);
     free(lb.a);
     free(pb.a);

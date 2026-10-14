@@ -129,10 +129,12 @@ echo "=== the .jww reader: every drawing lands on the end of its file"
 # Jw_cad's own sixteen, and every answer the original has written for this
 # port besides: a hundred and fifty more drawings in every state the tests
 # have ever put it in, which is a far wider sample of the format.
-printf '    %s of %s\n' \
-    "$(./tests/jww_test.exe orig/*.jww decomp/res/*.jww | grep -c '^ok')" \
-    "$(ls orig/*.jww decomp/res/*.jww | wc -l)"
-./tests/jww_test.exe orig/*.jww decomp/res/*.jww | grep '^BAD' || true
+# (through xargs: the list of names no longer fits one Windows command line, and
+# this section silently ran nothing -- Argument list too long -- until it did)
+ls orig/*.jww decomp/res/*.jww > tmp/jww_all.txt
+xargs -n 60 ./tests/jww_test.exe < tmp/jww_all.txt > tmp/jww_all.out 2>&1
+printf '    %s of %s\n' "$(grep -c '^ok' tmp/jww_all.out)" "$(wc -l < tmp/jww_all.txt)"
+grep '^BAD' tmp/jww_all.out || true
 
 echo
 echo "=== writing a drawing back out: the bytes have to be identical"
@@ -142,9 +144,10 @@ echo "=== writing a drawing back out: the bytes have to be identical"
 # way the original does when it loads a drawing -- decomp/res/zhlayer.jww is
 # the original's own proof of that.  So that file is written back different
 # in one double on purpose, and the original would do the same to it.
-WRITE="$(ls orig/*.jww decomp/res/*.jww | grep -v 'sfcgeo')"
-./tests/write_test.exe $WRITE | grep -c '^ok' | sed 's/^/    /'
-./tests/write_test.exe $WRITE | grep '^BAD' || true
+ls orig/*.jww decomp/res/*.jww | grep -v 'sfcgeo' > tmp/write_all.txt
+xargs -n 60 ./tests/write_test.exe < tmp/write_all.txt > tmp/write_all.out 2>&1
+printf '    %s of %s\n' "$(grep -c '^ok' tmp/write_all.out)" "$(wc -l < tmp/write_all.txt)"
+grep '^BAD' tmp/write_all.out || true
 
 echo
 echo "=== what is under the mouse"

@@ -12,11 +12,11 @@ sh tools/replay.sh >/dev/null || exit 1
 for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
     [ -x "$d/gcc.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
 done
-[ $# -eq 0 ] && set -- bunkatsu nisen mentori mentori2 renzoku chushin waritsuke undostep poly renarc env image flow promptsweep bunkpar gaibu mojisel cmdcover dxfsynth jwwver longtext
+[ $# -eq 0 ] && set -- bunkatsu nisen mentori mentori2 renzoku chushin waritsuke undostep poly renarc env image flow promptsweep bunkpar hk gaibu mojisel cmdcover dxfsynth jwwver longtext blkcycle rtsynth imgedge perf leak
 OBJ=$(ls tmp/ob/*.o | grep -v replay)
 bad=0
 for t in "$@"; do
-    gcc -O1 -w -std=c99 -Isrc -Itests -o tmp/q_$t.exe tests/${t}_test.c tests/png.c $OBJ -lm || { echo "BUILD FAIL $t"; bad=1; continue; }
+    gcc -O1 -w -std=c99 -Isrc -Itests -o tmp/q_$t.exe tests/${t}_test.c tests/png.c $OBJ -lm -lpsapi || { echo "BUILD FAIL $t"; bad=1; continue; }
     if ./tmp/q_$t.exe >tmp/q_$t.log 2>&1; then echo "ok   $t"; else echo "FAIL $t (tmp/q_$t.log)"; bad=1; fi
 done
 PYTHONIOENCODING=utf-8 python tools/fzcheck.py | tail -1

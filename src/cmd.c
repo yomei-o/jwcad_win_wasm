@@ -749,6 +749,7 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_TENKU, 1492, "" },         /* 測定高（ｍ）、空は 0 */
     { JW_CMD_TENKU, 1493, "" },         /* 天空図半径（図寸mm）、空は 25 */
     { JW_CMD_TENKU, 2216, "" },         /* 測定点表示 の番号、空は表示なし */
+    { JW_CMD_TENKU, 2209, "" },         /* 目盛間隔（度）。行は なし・5・10・15・30・45・90（hk_iv*） */
     { JW_CMD_SEN, 1411, "" },           /* 線の傾き */
     { JW_CMD_SEN, 1412, "" },           /* 線の寸法（長さ） */
     { JW_CMD_KUKEI, 1411, "" },         /* 矩形の傾き */
@@ -5130,6 +5131,10 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
     tq = ((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / den;
     ix = p->d[0] + tp * pdx;
     iy = p->d[1] + tp * pdy;
+    /* two lines that are nearly parallel meet a light-year away: that is no
+       corner either (and a drawing cannot hold the number) */
+    if (!(fabs(ix) < 1e9 && fabs(iy) < 1e9))
+        return;
     /* where each click falls along its own line */
     cp = ((ax - p->d[0]) * pdx + (ay - p->d[1]) * pdy) / (pdx * pdx + pdy * pdy);
     cq = ((bx - q->d[0]) * qdx + (by - q->d[1]) * qdy) / (qdx * qdx + qdy * qdy);
@@ -5202,6 +5207,8 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
     tq = ((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / den;
     ix = p->d[0] + tp * pdx;
     iy = p->d[1] + tp * pdy;
+    if (!(fabs(ix) < 1e9 && fabs(iy) < 1e9))
+        return;                 /* nearly parallel: no corner */
     cp = ((ax - p->d[0]) * pdx + (ay - p->d[1]) * pdy) / (pdx * pdx + pdy * pdy);
     cq = ((bx - q->d[0]) * qdx + (by - q->d[1]) * qdy) / (qdx * qdx + qdy * qdy);
     plen = sqrt(pdx * pdx + pdy * pdy);
@@ -10672,6 +10679,14 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
 
 /* Whether a tick box on the bar is ticked, for the ones the port works: -1
    means "not one of them, use what the original came up with". */
+/* 三斜のつまみを初めの状態に戻す（試験用。原典ではコマンドを選び直しても残る） */
+void jw_cmd_sansha_reset(void)
+{
+    tn_s_plan = 1;
+    tn_s_calc = 0;
+    tn_s_conf = 0;
+}
+
 int jw_cmd_bar_check(int id)
 {
     if (current == JW_CMD_GAZOU) {
@@ -15642,6 +15657,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             if (bs && *bs && atoi(bs) > 0) {
                 o.show_point = 1;
             }
+            /* 目盛間隔 (2209): 5・10・15・30・45・90 度（原典の行 1〜6）。ほかの字は なし */
+            bs = jw_cmd_box(2209);
+            if (bs && *bs) {
+                double iv = atof(bs);
+
+                if (iv == 5.0 || iv == 10.0 || iv == 15.0 || iv == 30.0 || iv == 45.0 || iv == 90.0)
+                    o.interval = iv;
+            }
             o.equidist = tn_equi;
             /* 南方向補正 (1326) は 太陽軌跡 (1325) を入れたときだけバーに出て
                効く（初めから点いている。tools/tnbatch.sh の hk_s1 は 1326 が
@@ -15667,7 +15690,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 const unsigned char *n15 = chk_slot(JW_CMD_HIKAGE, 1323);
 
                 /* 9～15時 (doc+0x83d0) も 日影図 の 1323 が効く（原典 hk_s23: 字が 9 と 15）。
-                   緯度 46° 超えで 9～15時 が強制されるのが 天空図 にも及ぶかは 原典に確認が要る */
+                   緯度 46° 超えの強制は 天空図にも及ぶ（hk_s24） */
                 o.sun_n15 = n15 && *n15;
                 o.sun10 = jw_cmd_bar_check(2113) > 0;
                 o.shiki = jw_cmd_bar_check(2115) > 0;
@@ -15676,6 +15699,8 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     o.lat = 0.0;
                 if (o.lat > 55.0)
                     o.lat = 55.0;
+                if (o.lat > 46.0)
+                    o.sun_n15 = 1;      /* 緯度 46° 超えは 9～15時 に強制（天空図にも及ぶ、hk_s24） */
                 o.dec = -23.45;
                 if (sb && (!strcmp(sb, "1") || !strcmp(sb, "\x8f\x74\x8f\x48\x95\xaa")))
                     o.dec = 0.0;
@@ -15717,9 +15742,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 else
                     so.name[0] = 0;
                 hk_sansha_opts_set_mode(&so, tn_s_plan);   /* 初めは《計画建物用》 */
-                so.calc = tn_s_calc;   /* 三斜計算。切なら円と投影の線だけ（hk_sa1） */
-                r = jw_tenku_sansha_draw_ex(d, &so, tn_px, tn_py, px, py, NULL);
-            } else
+                so.calc = tn_s_calc;
+                so.conf = tn_s_conf;   /* 三斜計算。切なら円と投影の線だけ（hk_sa1） */
+                r = jw_tenku_sansha_draw_ex(d, &so, tn_px, tn_py, px, py, NULL);            } else
                 r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
             if (r >= 0) {
                 tn_count++;

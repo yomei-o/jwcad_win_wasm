@@ -111,6 +111,32 @@ sh tools/refshots.sh && sh tools/scoreall.sh   # 同梱 15 枚の採点
 | `tests/bigcirc_test.c` ほか | 半径 1〜8,200・直線 12,636 本・全画素の拾い上げを端から端まで |
 | `sh tools/asan.sh` | emscripten の clang で ASan/UBSan（w64devkit には `libasan` がありません）。**Windows 版では 787 万通り流しても出ない**ものが 8 つ出ました |
 | `sh tools/asanseeds.sh` | 同じものを壊し方 20 通りで（数時間。`check.sh` には入れていません） |
+| `sh tools/ci.sh` | **入口はこれ**。数分で「ビルドできて、試験が通り、wasm が node で動き、サニタイザが黙っているか」を一覧にします（下） |
+
+### `sh tools/ci.sh` —— 一つで通す入口
+
+原典が要らず、数分で終わる検査を順に流して、最後に PASS / FAIL / SKIP の表を出します
+（FAIL の数が終了コード）。各段の出力は `tmp/ci/<段>.log` です。
+
+```
+sh tools/ci.sh              # 全部
+sh tools/ci.sh fast         # サニタイザの段 (asan) を除く
+sh tools/ci.sh qtest wasm   # 名前を挙げた段だけ
+```
+
+| 段 | 中身 |
+|---|---|
+| `tests` | `tools/build_tests.sh`: `tests/*_test.c` を警告つきで全部ビルド |
+| `qtest` | `tools/qtest.sh`: 答え合わせの試験の素早い一組＋オフラインの差分ファジング |
+| `native` | `tools/build_native.sh`: `jw_port.exe`（`src/main_win32.c` もここでコンパイルされる） |
+| `wasm` | `tools/build_wasm.sh` を `WASM_OUT=tmp/wasmci` で。**リポジトリ直下の配布用 `jwcad.js`・`jwcad.wasm` は触りません** |
+| `smoke` | `tools/smoke_wasm.js`: その wasm を node で、開く→描く→保存→開き直す→DXF/SFC/JWC/環境設定→PDF/PNG→画像挿入→壊れた入力 |
+| `fuzz` | 壊れたファイル・乱打・画像（BMP/PNG/JPEG）・外部変形の入力を、ネイティブで短く |
+| `asan` | `tools/asanone.sh` で上の読み手と答えの試験いくつかを ASan と UBSan に（emscripten と node が要る） |
+
+gcc・emcc・node が見つからない段は SKIP になります。見つけ方は他の `tools/*.sh` と同じ
+（`C:\prog\w64devkit` か `C:\prog\tools\w64devkit`、`EMSDK`、emsdk 付属の node と python）。
+`tools/check.sh`（原典との 1 画素ずつの突き合わせ、25 分）と `tools/asan.sh`・`asanseeds.sh`（数時間）の代わりではなく、その前の足慣らしです。
 
 **読み手・作図・入口をいじったら `asan.sh` を回してください。**
 **乱打だけでは届かないものもあります** —— 円の環の置き場が溢れるのは

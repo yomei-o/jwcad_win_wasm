@@ -240,6 +240,7 @@ int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
 int  jw_cmd_bar(jw_drawing *d, int id);
 /* Whether that button is there to be pressed, for the drawing of the bar. */
 int  jw_cmd_bar_check(int id);
+void jw_cmd_sansha_reset(void);        /* 三斜のつまみ（1689/1690・1329・2114）を初めに戻す（試験用） */
 /* The label 任意方向 is carrying (CP932): it cycles X, Y, XY and back. */
 const char *jw_cmd_dir_text(void);
 int  jw_cmd_bar_enabled(const jw_drawing *d, int id);

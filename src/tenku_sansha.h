@@ -52,6 +52,7 @@ typedef struct {
     int point_color;     /* DAT_00a0b428: circle and point, default 2                      */
     int text_color;      /* DAT_00a0b918[size_class]: all texts, default 1                 */
     double tw, th, tsp;  /* DAT_00a0b4f8/b658/b7b8[size_class]: char width, height, spacing */
+    int conf;            /* 建物位置確認表 (2114): default 0 */
     int calc;            /* 三斜計算 (1329): 0 = the circle and the projected lines only (default 1) */
     int step_tenth;      /* DAT_00a0bebc < 0: |value| tenths of a degree for the 2 deg grid
                             of the projected polylines; 0 = the default 2 degrees          */
