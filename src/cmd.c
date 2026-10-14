@@ -12394,7 +12394,7 @@ static void box_sum(int id)
         for (i = 0; i < n; i++) {
             if (part[i] >= '0' && part[i] <= '9')
                 digit = 1;
-            else if (strchr("+*/()", part[i]) || (part[i] == '-' && i > 0))
+            else if (strchr("+*/()^", part[i]) || (part[i] == '-' && i > 0))
                 op = 1;
             else if (part[i] != '.' && part[i] != ' ' && part[i] != '-')
                 return;                 /* not a sum: leave it */
@@ -12458,7 +12458,8 @@ int jw_cmd_box_key(int ch)
         /* ２線's box holds two numbers with a comma between them, and any
            box takes a sum (box_sum) */
         if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ','
-            || ch == '+' || ch == '*' || ch == '/' || ch == '(' || ch == ')') {
+            || ch == '+' || ch == '*' || ch == '/' || ch == '(' || ch == ')'
+            || ch == '^') {
             if (box_fresh) {
                 t[0] = 0;
                 n = 0;
@@ -16112,21 +16113,37 @@ static double hk_atom(void)
     return v;
 }
 
-static double hk_term(void)
+/* a number with its power: ^ binds to the number just read, as the original's
+   FUN_004f36e0 takes it straight after FUN_004f3b80's atom (FUN_004f3930) */
+static double hk_pow(void)
 {
     double v = hk_atom();
 
     for (;;) {
         while (*hk_e == ' ')
             hk_e++;
+        if (*hk_e != '^')
+            return v;
+        hk_e++;
+        v = pow(v, hk_atom());
+    }
+}
+
+static double hk_term(void)
+{
+    double v = hk_pow();
+
+    for (;;) {
+        while (*hk_e == ' ')
+            hk_e++;
         if (*hk_e == '*') {
             hk_e++;
-            v *= hk_atom();
+            v *= hk_pow();
         } else if (*hk_e == '/') {
             double r;
 
             hk_e++;
-            r = hk_atom();
+            r = hk_pow();
             v = r != 0.0 ? v / r : 0.0;
         } else
             return v;

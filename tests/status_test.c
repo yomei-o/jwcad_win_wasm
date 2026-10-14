@@ -401,6 +401,9 @@ static void box_sums(void)
     type_into(1413, "1000*2,300+300");
     jw_cmd_box_key(13);
     cksame(jw_cmd_box(1413), "2000,600", "  二つの数は それぞれ計算");
+    type_into(1413, "2^10+24");
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_box(1413), "1048", "  ^ は 直前の数の累乗（2^10+24）");
     type_into(1413, "-500");
     jw_cmd_box_key(13);
     cksame(jw_cmd_box(1413), "-500", "  式でない数は そのまま");
