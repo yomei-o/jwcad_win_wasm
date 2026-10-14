@@ -162,6 +162,9 @@ static int snap_differs(const snap_t *s, const jw_drawing *d)
  * step check below saw a dozen steps in eighteen hundred actions.  Half the
  * presses now go to a point of an element already drawn: an end of it,
  * the middle of a line, the centre of a circle. */
+static char tr_what[80];
+static long tr_from = -1;
+
 static void press_aimed(void)
 {
     const jw_drawing *d = app_drawing();
@@ -188,7 +191,12 @@ static void press_aimed(void)
         x = o->d[0];
         y = o->d[1];
     }
-    app_press(jw_sx(v, x), jw_sy(v, y), (int)(nextr() % 2));
+    {
+        int pb = (int)(nextr() % 2);
+
+        snprintf(tr_what, sizeof tr_what, "aimed %d,%d %d (obj cls %d)", jw_sx(v, x), jw_sy(v, y), pb, o->cls);
+        app_press(jw_sx(v, x), jw_sy(v, y), pb);
+    }
 }
 
 /* The picture of the drawing that app_paint keeps from one paint to the
@@ -497,6 +505,7 @@ int main(int argc, char **argv)
 {
     const char *seed = getenv("JW_CMDFUZZ_SEED");
     const char *nsteps = getenv("JW_CMDFUZZ_STEPS");
+    const char *trace = getenv("JW_CMDFUZZ_TRACE");
     int steps = nsteps && *nsteps ? atoi(nsteps) : 600;
     int i, bad = 0, files = 0;
     long acts = 0;
@@ -650,6 +659,8 @@ int main(int argc, char **argv)
             }
             (void)at;
         }
+        if (trace)
+            tr_from = atol(trace);
         t0 = clock();
         compare_time = 0;
 
@@ -668,9 +679,13 @@ int main(int argc, char **argv)
                 before.obj = 0, before.nobj = -1;
 
             acts++;
-            if (r < 23)
-                app_command(jw_btn_cmd[nextr() % JW_NBUTTONS]);
-            else if (r < 25)
+            tr_what[0] = 0;
+            if (r < 23) {
+                int c = jw_btn_cmd[nextr() % JW_NBUTTONS];
+
+                snprintf(tr_what, sizeof tr_what, "command %d", c);
+                app_command(c);
+            } else if (r < 25)
                 /* the ones that are only on a menu, so jw_btn_cmd does
                    not reach them: 目盛基準点・レイヤ非表示化・数値角度・
                    数値長・軸角・ステータスバー and the two paper sizes
@@ -678,15 +693,24 @@ int main(int argc, char **argv)
                 app_command(MENU_ONLY[nextr()
                                       % (sizeof MENU_ONLY
                                          / sizeof MENU_ONLY[0])]);
-            else if (r < 42)
-                app_press((int)(nextr() % W), (int)(nextr() % H),
-                          (int)(nextr() % 2));
-            else if (r < 60)
+            else if (r < 42) {
+                int px = (int)(nextr() % W), py = (int)(nextr() % H), pb = (int)(nextr() % 2);
+
+                snprintf(tr_what, sizeof tr_what, "press %d,%d %d", px, py, pb);
+                app_press(px, py, pb);
+            } else if (r < 60)
                 press_aimed();
-            else if (r < 75)
-                app_move((int)(nextr() % W), (int)(nextr() % H));
-            else if (r < 90)
-                app_key(KEYS[nextr() % (sizeof KEYS / sizeof KEYS[0])]);
+            else if (r < 75) {
+                int mx = (int)(nextr() % W), my = (int)(nextr() % H);
+
+                snprintf(tr_what, sizeof tr_what, "move %d,%d", mx, my);
+                app_move(mx, my);
+            } else if (r < 90) {
+                int kc = KEYS[nextr() % (sizeof KEYS / sizeof KEYS[0])];
+
+                snprintf(tr_what, sizeof tr_what, "key %d", kc);
+                app_key(kc);
+            }
             else if (r < 93)
                 app_release((int)(nextr() % W), (int)(nextr() % H), 0);   /* 手書線 lets go */
             else if (r < 95)
@@ -695,6 +719,12 @@ int main(int argc, char **argv)
                 app_paint();
             fresh_step = before.nobj >= 0
                          && jw_cmd_undo_depth() == depth0 + 1;
+            /* JW_CMDFUZZ_TRACE=<from>: 各歩の操作を書き出す（その歩から） */
+            if (tr_from >= 0 && k >= tr_from)
+                fprintf(stderr, "T %d r%lu cmd %d %s -> %d/%d depth %d\n", k, r, jw_cmd(),
+                        tr_what[0] ? tr_what : "(other)",
+                        app_drawing() ? app_drawing()->nobj : -1,
+                        app_drawing() ? app_drawing()->ndrawn : -1, jw_cmd_undo_depth());
             if (fresh_step) {
                 int at;
 

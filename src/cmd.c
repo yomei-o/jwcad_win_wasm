@@ -2875,9 +2875,7 @@ void jw_cmd_set(int id)
     prev = current;
     fk_sel_used = 0;
     if (fh_state) {                     /* a stroke does not outlive its command: what it drew stays, as one step */
-        if (fh_made > 0)
-            op_push(fh_made);
-        fh_made = 0;
+        fh_made = 0;                    /* (the step is already in: fh_sample opened it) */
         fh_state = 0;
     }
     if (id == 0x8091 ? !gb_keep : id != JW_CMD_HANI)
@@ -20140,6 +20138,25 @@ int jw_cmd_clip_set(const unsigned char *b, long n)
 static double fh_px, fh_py;             /* the last point */
 static int fh_sx, fh_sy;                /* the pixel it was noted at */
 static int fh_made;
+/* The stroke's step: opened with its first line and grown with every one after
+   it, so that 戻る at any moment takes back exactly what the stroke has drawn
+   (tests/cmdfuzz_test.c: a step must undo to the state just before the action
+   that made it -- a stroke left by switching commands used to be pushed then,
+   with lines drawn before it).  If anything else took a step meanwhile, the
+   next line opens a new one. */
+static int fh_op = -1;
+static unsigned fh_gen;
+
+static void fh_count(void)
+{
+    if (fh_op >= 0 && fh_op == nop - 1 && op[fh_op].gen == fh_gen && !op[fh_op].after) {
+        op[fh_op].n++;
+        return;
+    }
+    op_push(1);
+    fh_op = nop - 1;
+    fh_gen = nop > 0 ? op[nop - 1].gen : 0;
+}
 
 static void fh_press(jw_drawing *d, const jw_view *v, double x, double y)
 {
@@ -20149,6 +20166,7 @@ static void fh_press(jw_drawing *d, const jw_view *v, double x, double y)
     fh_sy = jw_sy(v, y);
     fh_made = 0;
     fh_state = 1;
+    fh_op = -1;
     (void)d;
 }
 
@@ -20172,6 +20190,7 @@ static int fh_sample(jw_drawing *d, const jw_view *v, double x, double y)
     fh_sx = sx;
     fh_sy = sy;
     fh_made++;
+    fh_count();
     return 1;
 }
 
@@ -20198,7 +20217,7 @@ int jw_cmd_release(jw_drawing *d, const jw_view *v, double x, double y)
     fh_sample(d, v, x, y);
     fh_state = 0;
     r = fh_made > 0;
-    op_push(fh_made);
     fh_made = 0;
+    fh_op = -1;
     return r;
 }
