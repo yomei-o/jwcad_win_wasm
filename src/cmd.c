@@ -1771,6 +1771,32 @@ void jw_cmd_key(int c)
 
 static void blank(jw_obj *o);
 
+static int moji(jw_drawing *d, jw_obj *o, double x, double y);
+static int moji_rule(jw_drawing *d, const jw_obj *t);
+
+/* the line typed, put down at (x, y) */
+static void moji_place(jw_drawing *d, double x, double y)
+{
+    jw_obj tmp, *o;
+
+    if (!d || line_n == 0 || !moji(d, &tmp, x, y))
+        return;
+    {
+        int made = moji_rule(d, &tmp);
+
+        o = jw_add(d, JW_MOJI);
+        if (!o)
+            return;
+        tmp.layer = o->layer;
+        tmp.lgroup = o->lgroup;
+        *o = tmp;
+        o->face = jw_add_str(d, JW_MOJI_FACE);
+        op_push(made + 1);
+    }
+    line_n = 0;
+    line_gen++;
+}
+
 /* What the line is worth in paper millimetres, and how the text element for
    it is laid out.  Shared by the preview and the one that gets placed. */
 /* 文読 (1069) -- read a text file and place its lines.
@@ -10928,8 +10954,30 @@ static int sel_confirm(jw_drawing *d)
 }
 
 /* Enter in the 追加・除外 stage is 範囲確定, the same as 選択確定. */
+/* 基本設定 一般(2) 2466「文字コマンドのとき文字位置指示後に文字入力を行う」
+   (DAT_00a0cc64, MOJI\PToInp): a click before anything is typed notes the
+   place, and the text typed after it goes there on Enter -- FUN_006bc120 puts
+   it at the noted point (+0xb4..) instead of the click's when the flag is set
+   and a point is noted.  Read off the decompile; not asked of the original. */
+static int moji_pre_on, moji_pre;
+static double moji_pre_x, moji_pre_y;
+
+void jw_cmd_moji_point_first(int on)
+{
+    moji_pre_on = on != 0;
+    if (!moji_pre_on)
+        moji_pre = 0;
+}
+
+static void moji_place(jw_drawing *d, double x, double y);
+
 int jw_cmd_enter_key(jw_drawing *d)
 {
+    if (d && current == JW_CMD_MOJI && moji_pre_on && moji_pre && line_n > 0 && !ren_step) {
+        moji_place(d, moji_pre_x, moji_pre_y);
+        moji_pre = 0;
+        return 1;
+    }
     if (d && gb_back && current == JW_CMD_HANI && sel_step == 2) {
         /* the range a 外部変形 step asked for is settled: on to the next step */
         gb_keep = 1;
@@ -17432,26 +17480,15 @@ placed:
          * make it -- half width ones advance cw/2 and the gaps are sp/2, and
          * the last gap is not counted (six of them at cw 10 sp 1 came to
          * 32.5, not 30). */
-        jw_obj tmp, *o;
-
+        if (button == 0 && d && line_n == 0 && moji_pre_on) {
+            moji_pre = 1;               /* 2466: the place first, the text after */
+            moji_pre_x = x;
+            moji_pre_y = y;
+            return;
+        }
         if (button != 0 || !d || line_n == 0)
             return;
-        if (!moji(d, &tmp, x, y))
-            return;
-        {
-            int made = moji_rule(d, &tmp);
-
-            o = jw_add(d, JW_MOJI);
-            if (!o)
-                return;
-            tmp.layer = o->layer;
-            tmp.lgroup = o->lgroup;
-            *o = tmp;
-            o->face = jw_add_str(d, JW_MOJI_FACE);
-            op_push(made + 1);
-        }
-        line_n = 0;
-        line_gen++;
+        moji_place(d, x, y);
         return;
     }
     if (current == JW_CMD_ZOKUHEN) {

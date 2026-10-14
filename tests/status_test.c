@@ -415,6 +415,32 @@ static void box_sums(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 基本設定 2466「文字コマンドのとき文字位置指示後に文字入力を行う」: 字の無いうちの
+   クリックが位置になり、そのあと打った字が Enter でそこへ行く（FUN_006bc120 の
+   DAT_00a0cc64。逆コンパイルの読み） */
+static void moji_point_first(void)
+{
+    const jw_drawing *d;
+    int n;
+
+    app_new();
+    d = app_drawing();
+    jw_cmd_moji_point_first(1);
+    app_command(JW_CMD_MOJI);
+    n = d->ndrawn;
+    click(-40.0, 25.0);
+    ck(d->ndrawn == n, "2466: 字の無いうちのクリックは何も置かない");
+    app_key('A');
+    app_key('B');
+    app_key(13);
+    ck(d->ndrawn == n + 1 && d->obj[d->ndrawn - 1].cls == JW_MOJI
+       && fabs(d->obj[d->ndrawn - 1].d[0] - -40.0) < 1.0
+       && fabs(d->obj[d->ndrawn - 1].d[1] - 25.0) < 1.0,
+       "  打った字が Enter で その位置に置かれる");
+    jw_cmd_moji_point_first(0);
+    app_command(JW_CMD_SEN);
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -508,6 +534,7 @@ int main(void)
     fukusen_tail();
     sekien_tail();
     box_sums();
+    moji_point_first();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;

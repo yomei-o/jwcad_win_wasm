@@ -508,6 +508,8 @@ void jw_cmd_layhide_shown(int on);
 void jw_cmd_get_shown_too(int on);
 /* 基本設定 2100「線長取得で円を指示したとき、円半径取得を円周長取得にする」 */
 void jw_cmd_get_arc_length(int on);
+/* 基本設定 2466「文字コマンドのとき文字位置指示後に文字入力を行う」 */
+void jw_cmd_moji_point_first(int on);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
 

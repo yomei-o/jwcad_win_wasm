@@ -1556,6 +1556,7 @@ static void kh_apply(void)
     jw_pick_reverse = kh_value(2445);
     jw_cmd_get_arc_length(kh_value(2100));
     jw_moji_sjis_set(!kh_value(2112));
+    jw_cmd_moji_point_first(kh_value(2466));
 }
 
 static void kh_start(void)
