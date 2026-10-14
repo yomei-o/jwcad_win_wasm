@@ -36,6 +36,7 @@ typedef struct {
     int sun_n15;        /* 9～15時（doc+0x83d0）: ±180 分、字は 9 と 15 */
     double lat;         /* 緯度（doc+0x83c0）、度 */
     double dec;         /* 日赤緯（doc+0x83c8）、度。±23.45 に切る */
+    int inside_yes;     /* 測定点が建物の内側のときの問い（0x1659）に「はい」: その建物の最小半径を 0 に */
     double north;       /* 真北（doc+0x1b80、旗 0x40 の数の字）、度。無ければ 0（上向き扱い） */
 } hk_tenku_opts;
 
@@ -53,6 +54,13 @@ typedef struct {
 double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *b, int n,
                       double px, double py, double cx, double cy,
                       double *area, double *hidden, double *hx, int maxh, int *nh);
+
+/* 測定点が建物の内側か線の上にあるか（原典の問い 0x1659 を出す条件。FUN_00748da0 306693〜306819） */
+int jw_tenku_inside(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *b, int n,
+                    double px, double py);
+
+/* 三次元の線（下端・上端・縦）を x0,y0,z0,x1,y1,z1,建物番号 の 7 つずつ out に。日影図の 確認 の窓 */
+int jw_tenku_lines3(const jw_drawing *d, double plane_m, double *out, int max);
 
 /* The state the probe hk_s1 was taken in. */
 void hk_tenku_opts_default(hk_tenku_opts *o);

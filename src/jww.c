@@ -370,6 +370,24 @@ static const struct {
 
 static jw_obj *obj_new(jw_drawing *d)
 {
+#ifdef JW_ALWAYS_MOVE
+    /* A debugging build (tools/asanone.sh with JW_MOVE=1): the element array
+       is moved to a fresh block on every addition and the old one freed, so a
+       pointer into it that is kept across a jw_add / obj_new is a use after
+       free that AddressSanitizer reports at once, rather than a crash only
+       when the array happens to cross a power of two. */
+    if (d->obj && d->cobj > 0) {
+        int c = d->nobj == d->cobj ? d->cobj * 2 : d->cobj;
+        jw_obj *p = (jw_obj *)malloc((size_t)c * sizeof *p);
+
+        if (!p)
+            return 0;
+        memcpy(p, d->obj, (size_t)d->nobj * sizeof *p);
+        free(d->obj);
+        d->obj = p;
+        d->cobj = c;
+    }
+#endif
     if (d->nobj == d->cobj) {
         int c = d->cobj ? d->cobj * 2 : 256;
         jw_obj *p = (jw_obj *)realloc(d->obj, (size_t)c * sizeof *p);
@@ -710,7 +728,13 @@ static void read_objs(ar_t *a, jw_drawing *d, lctx *L, long n)
         }
         o->cls = (unsigned char)cls;
         read_base(a, d->version, o);
-        read_body(a, d, d->version, o, L);
+        {   /* a definition reads its own elements inside read_body, which can move
+               the array: find this one again by its place afterwards */
+            int oi = (int)(o - d->obj);
+
+            read_body(a, d, d->version, o, L);
+            o = &d->obj[oi];
+        }
         /* A damaged file can leave 1e300 in a coordinate, and the writers
            put coordinates through printf's %f into buffers of a couple of
            hundred bytes -- 1e300 is three hundred and nine digits, and the

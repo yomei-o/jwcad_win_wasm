@@ -433,7 +433,12 @@ static int hk_iso_on;             /* 等時間の バー */
 static int hk_iso_step = 60;      /* 精度（秒）: 60・10・4 */
 static int hk_iso_n(jw_drawing *d, double level, double label);
 static int hk_tbl_pending;
+#define HK_PV_PROMPT "\x81\xa0\x81\xa0\x81@\x81@\x81@\x8d\x80\x96\xda\x82\xf0\x91I\x91\xf0\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81@\x81@\x81@\x81\xa0\x81\xa0"
+static int hk_pv;                       /* 日影図の 確認 の窓（下の hk_pv_az・hk_pv_el と jw_cmd_hikage_preview） */
 static int tn_mode, tn_equi, tn_count, tn_sansha;
+static int tn_ans = -1, tn_pend, tn_pend_b;   /* 測定点が建物の内側のときの問い: 答え（-1 未回答）・待ち・押したボタン */
+static double tn_pend_x, tn_pend_y;
+static const jw_view *tn_pend_v;
 static int tn_s_plan = 1, tn_s_calc, tn_s_conf;   /* 三斜のバー 9011: 1690 初めから点・1329・2114 */
 /* 天空率比較計算 (1066): 0 でなければ 歩み + 1（原典 CZukeiTenkuu +0x1b0 = 0/1/2）。
    tn_cv・tn_cx/cy は 計画・比較 の字の数値と位置、tn_cdec は 小数の桁の大きいほう（+0x828、2 以上）、
@@ -2442,6 +2447,159 @@ void jw_cmd_flush(jw_drawing *d)
     }
 }
 
+static int pv_round(double x)
+{
+    return (int)floor(x + 0.5);
+}
+
+/* 日影図の 確認 (1067): 建物を 針金で見る窓。方位角・仰角の向きの正射影で、中心は 三次元の線の端の平均、
+ * 黒い線が建物の辺（下端・上端・縦）、紫の点線が 測定面（測定高）の高さの 建物の外接枠。
+ * 左 右 は 方位角 −5・+5、上 下 は 仰角 +5・−5、「０，０」は 0・0、等角は −45・35.264、≪ で戻る。
+ * 初めは −45・30。原典 tmp の hk_pv1〜pv6（`tools/hkpreview.sh`）。 */
+static double hk_pv_az = -45.0, hk_pv_el = 30.0;
+
+int jw_cmd_hikage_pv_on(void)
+{
+    return current == JW_CMD_HIKAGE && hk_pv;
+}
+
+double jw_cmd_hikage_pv_az(void)
+{
+    return hk_pv_az;
+}
+
+/* 窓の中身を out に作る（紙の mm。v の画素に ちょうど落ちる位置）。戻り値は線の数 */
+int jw_cmd_hikage_preview(const jw_drawing *d, const jw_view *v, jw_drawing *out)
+{
+    static double L[7 * 4000];
+    int n, i, k, m = 0;
+    double cx = 0.0, cy = 0.0, cz = 0.0, s, a, el, ca, sa, ce, se, plane;
+    double bx0 = 1e30, by0 = 1e30, bx1 = -1e30, by1 = -1e30;
+    const char *pb = jw_cmd_box(1492);
+
+    if (!d || !v || !out || !jw_cmd_hikage_pv_on())
+        return 0;
+    n = jw_tenku_lines3(d, 0.0, L, 4000);
+    if (n < 1)
+        return 0;
+    for (i = 0; i < n; i++) {
+        cx += L[7 * i] + L[7 * i + 3];
+        cy += L[7 * i + 1] + L[7 * i + 4];
+        cz += L[7 * i + 2] + L[7 * i + 5];
+        for (k = 0; k < 2; k++) {
+            double x = L[7 * i + 3 * k], y = L[7 * i + 3 * k + 1];
+
+            if (x < bx0) bx0 = x;
+            if (x > bx1) bx1 = x;
+            if (y < by0) by0 = y;
+            if (y > by1) by1 = y;
+        }
+    }
+    cx /= 2.0 * n;
+    cy /= 2.0 * n;
+    cz /= 2.0 * n;
+    s = v->scale;
+    a = hk_pv_az * 3.14159265358979323846 / 180.0;
+    el = hk_pv_el * 3.14159265358979323846 / 180.0;
+    ca = cos(a);
+    sa = sin(a);
+    ce = cos(el);
+    se = sin(el);
+    /* 測定面の高さ: 測定高 (1492) 空は 4 m、紙の mm にして（縮尺で割る） */
+    plane = 4.0;
+    if (pb && *pb)
+        plane = atof(pb);
+    {
+        int g, wg = 0;
+        double sc;
+
+        for (g = 0; g < 16; g++)
+            if (d->group[g].state == 3)
+                wg = g;
+        sc = d->group[wg].scale > 0.0 ? d->group[wg].scale : 1.0;
+        plane = plane * 1000.0 / sc;
+    }
+    /* 窓の中心の紙の位置（作図の領域の真ん中の画素）。線は 普通の要素と同じく 紙の mm で置く */
+    {
+        double mx = v->ox + (v->clip.x + v->clip.w / 2.0 - v->bx) * v->mmpp;
+        double my = v->oy - (v->clip.y + v->clip.h / 2.0 - v->by) * v->mmpp;
+
+        {   /* 測定面: 建物ごとの外接枠（hk_pv5: 建物二つで枠も二つ） */
+            int bno, nbld = 0;
+
+            for (i = 0; i < n; i++)
+                if ((int)L[7 * i + 6] > nbld)
+                    nbld = (int)L[7 * i + 6];
+            for (bno = 1; bno <= nbld; bno++) {
+                double ax0 = 1e30, ay0 = 1e30, ax1 = -1e30, ay1 = -1e30;
+                double cxs[4], cys[4], qx[4], qy[4];
+
+                for (i = 0; i < n; i++) {
+                    if ((int)L[7 * i + 6] != bno)
+                        continue;
+                    for (k = 0; k < 2; k++) {
+                        double x = L[7 * i + 3 * k], y = L[7 * i + 3 * k + 1];
+
+                        if (x < ax0) ax0 = x;
+                        if (x > ax1) ax1 = x;
+                        if (y < ay0) ay0 = y;
+                        if (y > ay1) ay1 = y;
+                    }
+                }
+                if (ax0 > ax1)
+                    continue;
+                cxs[0] = ax0; cys[0] = ay0;
+                cxs[1] = ax1; cys[1] = ay0;
+                cxs[2] = ax1; cys[2] = ay1;
+                cxs[3] = ax0; cys[3] = ay1;
+                for (k = 0; k < 4; k++) {
+                    double X = cxs[k] - cx, Y = cys[k] - cy, Z = plane - cz;
+                    double xs = X * ca + Y * sa, dep = -X * sa + Y * ca, vv = dep * se + Z * ce;
+
+                    qx[k] = mx + xs;
+                    qy[k] = my + vv;
+                }
+                for (k = 0; k < 4; k++) {       /* 一周を逆回り（点線の位相が原典と合う） */
+                    jw_obj *o = jw_add(out, JW_SEN);
+                    int a0 = (4 - k) % 4, a1 = (4 - k - 1 + 4) % 4;
+
+                    if (!o)
+                        break;
+                    o->color = 5;
+                    o->ltype = 2;
+                    o->d[0] = qx[a0];
+                    o->d[1] = qy[a0];
+                    o->d[2] = qx[a1];
+                    o->d[3] = qy[a1];
+                    m++;
+                }
+
+            for (i = 0; i < n; i++) {
+                jw_obj *o;
+
+                if ((int)L[7 * i + 6] != bno)
+                    continue;
+                o = jw_add(out, JW_SEN);
+                if (!o)
+                    break;
+                o->color = 2;
+                o->ltype = 1;
+                for (k = 0; k < 2; k++) {
+                    double X = L[7 * i + 3 * k] - cx, Y = L[7 * i + 3 * k + 1] - cy, Z = L[7 * i + 3 * k + 2] - cz;
+                    double xs = X * ca + Y * sa, dep = -X * sa + Y * ca, vv = dep * se + Z * ce;
+
+                    o->d[2 * k] = mx + xs;
+                    o->d[2 * k + 1] = my + vv;
+                }
+                m++;
+            }
+
+            }
+        }
+    }
+    return m;
+}
+
 void jw_cmd_set(int id)
 {
     /* 消去 の (L) で線を一本拾ったまま 複線 に替えると、原典は拾った線をそのまま
@@ -2533,6 +2691,7 @@ void jw_cmd_set(int id)
     tn_cmp = 0;
     tn_count = 0;
     hk_sub = 0;
+    hk_pv = 0;
     hk_iso_on = 0;
     hk_iso_rng = 0;
     hk_iso_step = 60;
@@ -2673,6 +2832,10 @@ void jw_cmd_escape(void)
  * stays the plain "let go of everything" that 戻る and the tests use. */
 void jw_cmd_esc_key(jw_drawing *d)
 {
+    if (current == JW_CMD_HIKAGE && hk_pv) {
+        hk_pv = 0;              /* 確認の窓から戻る */
+        return;
+    }
     if (range_cmd(current) && current != JW_CMD_ZUKEIREG) {
         switch (sel_step) {
         case 1:
@@ -3408,6 +3571,11 @@ void jw_cmd_redo(jw_drawing *d)
 const char *jw_cmd_status(const jw_drawing *d)
 {
     static char buf[256];
+
+    if (current == JW_CMD_HIKAGE && hk_pv) {
+        snprintf(buf, sizeof buf, "%s         %.3f(\xdf)  %.3f(\xdf)", HK_PV_PROMPT, hk_pv_az, hk_pv_el);
+        return buf;
+    }
     const char *p = jw_cmd_prompt();
     char a[64], b[64];
     int kind = tail_kind;
@@ -3535,6 +3703,8 @@ static const char *sel_prompt_add(void)
 
 const char *jw_cmd_prompt(void)
 {
+    if (current == JW_CMD_HIKAGE && hk_pv)
+        return HK_PV_PROMPT;
     if (current == 0x8091)
         return gb_prompt();
     /* a 取得 takes the status line over while it is on */
@@ -5689,7 +5859,8 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
  * (-155.51,5.91837)-(-114.694,5.91837) ── 上の式とぴったり合う。 */
 static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
 {
-    const jw_obj *b = &d->obj[line_idx];
+    jw_obj bcopy = d->obj[line_idx];    /* a copy: jw_add below may move the array */
+    const jw_obj *b = &bcopy;
     int count, k, made = 0;
     double n;
 
@@ -5726,7 +5897,8 @@ static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
  * 点 P＋線 B と集合は同じで、並びだけが逆）。 */
 static void bk_fan_from_line(jw_drawing *d, int line_idx, double ex, double ey)
 {
-    const jw_obj *a = &d->obj[line_idx];
+    jw_obj acopy = d->obj[line_idx];    /* a copy: jw_add below may move the array */
+    const jw_obj *a = &acopy;
     int count, k, made = 0;
     double n;
 
@@ -10679,6 +10851,30 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
 
 /* Whether a tick box on the bar is ticked, for the ones the port works: -1
    means "not one of them, use what the original came up with". */
+/* 天空率計算 で測定点が建物の内側のときの問い（原典 0x1659）。1 を返すと 窓を出す（一度だけ） */
+int jw_cmd_tenku_ask(void)
+{
+    int r = tn_pend == 1 && current == JW_CMD_TENKU;
+
+    if (r)
+        tn_pend = 2;                /* 窓に出した */
+    return r;
+}
+
+/* 窓の答え: 1 はい（その建物の最小半径は 0）・0 いいえ・-1 キャンセル（何も描かない）。
+   同じ点でもう一度描く */
+void jw_cmd_tenku_answer(jw_drawing *d, int ans)
+{
+    if (!tn_pend)
+        return;
+    tn_pend = 0;
+    if (ans < 0 || current != JW_CMD_TENKU || !tn_pend_v)
+        return;
+    tn_ans = ans ? 1 : 0;
+    jw_cmd_point(d, tn_pend_v, tn_pend_x, tn_pend_y, tn_pend_b);
+    tn_ans = -1;
+}
+
 /* 三斜のつまみを初めの状態に戻す（試験用。原典ではコマンドを選び直しても残る） */
 void jw_cmd_sansha_reset(void)
 {
@@ -10697,6 +10893,8 @@ int jw_cmd_bar_check(int id)
     }
     if (id == 1064 && TG_IS3(current))
         return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
+    if (id == 9005 && current == JW_CMD_HIKAGE)
+        return hk_pv;
     if (id == 9002 && current == JW_CMD_HIKAGE)
         return hk_sub;
     if (id == 9003 && current == JW_CMD_HIKAGE)
@@ -10992,6 +11190,35 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_HIKAGE && id == 1064 && hk_pts) {
         hk_pts = 0;                 /* 指定点 から戻る */
         hk_calc_step = 0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_pv) {
+        switch (id) {
+        case 1121: hk_pv = 0; break;
+        case 1123: hk_pv_az -= 5.0; break;
+        case 1124: hk_pv_az += 5.0; break;
+        case 1125: hk_pv_el += 5.0; break;
+        case 1126: hk_pv_el -= 5.0; break;
+        case 1084: hk_pv_az = 0.0; hk_pv_el = 0.0; break;
+        case 1129: hk_pv_az = -45.0; hk_pv_el = 35.264389682754654; break;
+        default: return 0;
+        }
+        /* 仰角は 0〜90 に止まり、方位角は (−180, 180] に畳む（原典の実測: 左を 40 回で −245 が 115、
+           185 は −175、−180 は 180） */
+        if (hk_pv_el < 0.0)
+            hk_pv_el = 0.0;
+        if (hk_pv_el > 90.0)
+            hk_pv_el = 90.0;
+        while (hk_pv_az > 180.0)
+            hk_pv_az -= 360.0;
+        while (hk_pv_az <= -180.0)
+            hk_pv_az += 360.0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && id == 1067 && !hk_sub && !hk_pts) {
+        hk_pv = 1;                  /* 確認: 建物を針金で見る窓（初めは −45・30） */
+        hk_pv_az = -45.0;
+        hk_pv_el = 30.0;
         return 1;
     }
     if (current == JW_CMD_HIKAGE && id == 1066 && !hk_sub && !hk_pts) {
@@ -15384,7 +15611,17 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
 void jw_cmd_point(jw_drawing *d, const jw_view *v,
                   double x, double y, int button)
 {
+    int depth0 = nop;
+
     jw_cmd_point_(d, v, x, y, button);
+    /* A step that left a number the drawing cannot hold -- a copy scaled by
+       9e11, two nearly parallel lines carried on to where they meet -- is
+       taken back and forgotten: it could not be written out and read again,
+       and the original has nowhere to put it either.  (tests/boxfuzz_test.c) */
+    if (d && nop > depth0 && !jw_numbers_sane(d)) {
+        jw_cmd_undo(d);
+        ntop = nop;                 /* and not to be redone */
+    }
     if (auto_back && ((current == JW_CMD_FUKUSEN && para_step == 0) ||
                       (current == JW_CMD_KUKEI && step == 0) ||
                       (current == JW_CMD_SHOUKYO && cut_step == 0))) {
@@ -15640,7 +15877,32 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             hk_tenku_opts o;
             int n0 = d->ndrawn, r;
             const char *bs;
-            op_t *rec = op_new();
+            op_t *rec;
+
+            if (!tn_sansha && jw_cmd_bar_check(1323) > 0 && tn_ans < 0) {
+                /* 天空率計算 で 測定点が建物の内側（か線の上）なら 原典は「建物内部に測定点を指示した
+                   可能性があります。指示した測定点の上に庇または屋根がありますか？」（0x1659・0x165a、
+                   はい／いいえ／キャンセル）と問う。窓の答えが来るまで この点を取っておく（hk_s29〜s31） */
+                static hk_edge3 qe[1000];
+                static hk_tenku_base qb[1000];
+                hk_tenku_opts q;
+                int qn;
+
+                hk_tenku_opts_default(&q);
+                bs = jw_cmd_box(1492);
+                if (bs && *bs)
+                    q.plane_m = atof(bs);
+                qn = jw_tenku_collect2(d, q.plane_m, qe, qb, 1000);
+                if (qn > 0 && jw_tenku_inside(&q, qe, qb, qn, tn_px, tn_py)) {
+                    tn_pend = 1;
+                    tn_pend_x = x;
+                    tn_pend_y = y;
+                    tn_pend_b = button;
+                    tn_pend_v = v;
+                    return;
+                }
+            }
+            rec = op_new();
 
             hk_tenku_opts_default(&o);
             bs = jw_cmd_box(1492);
@@ -15666,6 +15928,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     o.interval = iv;
             }
             o.equidist = tn_equi;
+            o.inside_yes = tn_ans == 1;
             /* 南方向補正 (1326) は 太陽軌跡 (1325) を入れたときだけバーに出て
                効く（初めから点いている。tools/tnbatch.sh の hk_s1 は 1326 が
                点いたまま 1325 なしで、補正は掛かっていない） */

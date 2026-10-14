@@ -181,6 +181,7 @@ int  app_figure_save(unsigned char **out, long *n);
 int  app_coord_save(unsigned char **out, long *n);
 int  app_gaibu_begin(const char *bat, long bn, unsigned char **out, long *n);
 int  app_gaibu_end(const unsigned char *b, long n, char *msg, int cap);
+const char *app_tip(int x, int y);        /* tool tip (UTF-8) of the button there */
 int  app_gaibu_load(const char *bat, long n);
 int  app_gaibu_run_begin(unsigned char **out, long *n, char *args, int acap);
 void app_gaibu_run_end(void);

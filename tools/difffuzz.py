@@ -21,7 +21,7 @@ import sys, os, math, random, subprocess, hashlib, json, re, argparse
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 SH = r'C:\Program Files\Git\usr\bin\sh.exe'
-REPLAY = os.path.join(ROOT, 'tmp', 'replay.exe')
+REPLAY = os.environ.get('JW_REPLAY') or os.path.join(ROOT, 'tmp', 'replay.exe')   # 走らせている間 qtest が作り直せるよう コピーを指せる
 FZ = os.path.join(ROOT, 'tmp', 'fz')
 os.makedirs(os.path.join(FZ, 'orig'), exist_ok=True)
 os.makedirs(os.path.join(FZ, 'port'), exist_ok=True)

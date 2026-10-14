@@ -5721,3 +5721,85 @@ int ui_msgbox_hit(int cw, int ch, int ncancel, int x, int y)
     }
     return 0;
 }
+
+/* はい／いいえ／キャンセル の問い（AfxMessageBox の MB_YESNOCANCEL）。天空図の
+ * 「建物内部に測定点を指示した可能性があります…」（tools/jwdraw.ps1 `top`、2026-10-14）:
+ * 窓 331x166、枠は左右 8・下 6、クライアントは (8,31) から。はい (59,94)・いいえ (143,94)・
+ * キャンセル (225,94)、どれも 75x23、はいが既定。文字は (62,23) から幅 225。 */
+#define MB3_W 331
+#define MB3_H 166
+
+static void mb3_rect(int cw, int ch, rect_t *r)
+{
+    r->w = MB3_W;
+    r->h = MB3_H;
+    r->x = (cw - MB3_W) / 2;
+    r->y = (ch - 42 - MB3_H) / 2;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+void ui_msgbox3(fb_t *fb, const char *title, const char *text)
+{
+    rect_t r;
+    int th = jw_text_height(), y, k = 0;
+    char line[160];
+    const char *p = text;
+
+    mb3_rect(fb->w, fb->h, &r);
+    fb_fill(fb, r.x + 8, r.y, MB3_W - 16, 32, 0xf3f3f3u);
+    fb_fill(fb, r.x + 8, r.y + 32, MB3_W - 16, 83, 0xffffffu);
+    fb_fill(fb, r.x + 8, r.y + 115, MB3_W - 16, 45, 0xf0f0f0u);
+    fb_edge(fb, r.x + 7, r.y, MB3_W - 14, MB3_H - 6, 0x888888u, 0x888888u);
+    jw_text_px(fb, r.x + 17, r.y + (32 - th) / 2, title, 0x000000u);
+    dlg_cross(fb, &r, MB3_W);
+    y = r.y + 31 + 23;
+    while (*p) {
+        k = 0;
+        while (*p && *p != '\n' && k < (int)sizeof line - 3) {
+            int w = jw_is_lead((unsigned char)*p) && p[1] ? 2 : 1;
+
+            memcpy(line + k, p, (size_t)w);
+            line[k + w] = 0;
+            if (k && jw_text_px_w(line) > 225) {
+                line[k] = 0;
+                break;
+            }
+            k += w;
+            p += w;
+        }
+        line[k] = 0;
+        if (*p == '\n')
+            p++;
+        jw_text_px(fb, r.x + 8 + 62, y, line, 0x000000u);
+        y += th + 2;
+    }
+    mb_button(fb, r.x + 8 + 59, r.y + 31 + 94, 75, 23, 1, "\x82\xcd\x82\xa2(Y)");
+    mb_button(fb, r.x + 8 + 143, r.y + 31 + 94, 75, 23, 0, "\x82\xa2\x82\xa2\x82\xa6(N)");
+    mb_button(fb, r.x + 8 + 225, r.y + 31 + 94, 75, 23, 0, "\x83L\x83\x83\x83\x93\x83Z\x83\x8b");
+}
+
+/* 1 はい・3 いいえ・2 キャンセル（閉じる ×）・0 窓の中の別の所・-1 窓の外 */
+int ui_msgbox3_hit(int cw, int ch, int x, int y)
+{
+    rect_t r;
+
+    mb3_rect(cw, ch, &r);
+    if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h)
+        return -1;
+    if (dlg_close_hit(&r, MB3_W, x, y))
+        return 2;
+    x -= r.x + 8;
+    y -= r.y + 31;
+    if (y >= 94 && y < 117) {
+        if (x >= 59 && x < 134)
+            return 1;
+        if (x >= 143 && x < 218)
+            return 3;
+        if (x >= 225 && x < 300)
+            return 2;
+    }
+    return 0;
+}

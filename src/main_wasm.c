@@ -646,3 +646,9 @@ EMSCRIPTEN_KEEPALIVE int jw_modal(void)
 {
     return app_modal();
 }
+
+/* the tool tip for the toolbar button under the pointer (the canvas's own pixels) */
+EMSCRIPTEN_KEEPALIVE const char *jw_tip(int x, int y)
+{
+    return app_tip(x, y - app_chrome_h());
+}

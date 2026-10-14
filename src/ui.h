@@ -372,5 +372,7 @@ int  ui_blktree_menu_hit(int mx, int my, int cw, int ch, int x, int y);
 void ui_msgbox_rect(int cw, int ch, rect_t *r);
 void ui_msgbox(fb_t *fb, const char *title, const char *text, int ncancel);
 int  ui_msgbox_hit(int cw, int ch, int ncancel, int x, int y);
+void ui_msgbox3(fb_t *fb, const char *title, const char *text);   /* はい／いいえ／キャンセル */
+int  ui_msgbox3_hit(int cw, int ch, int x, int y);               /* 1 はい・3 いいえ・2 キャンセル・0・-1 */
 
 #endif

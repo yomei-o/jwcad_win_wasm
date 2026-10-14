@@ -34,7 +34,7 @@ grep -q "plot.h" "tests/$T.c" && EXTRA="$EXTRA src/plot.c src/png.c"
 RUN=tmp/one.$$
 mkdir -p "$RUN"
 trap 'rm -rf "$RUN"' EXIT
-"$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=$SAN \
+"$EMCC" -O1 -g -w -std=c99 -Isrc -Itests -fsanitize=$SAN ${JW_MOVE:+-DJW_ALWAYS_MOVE} \
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=1GB -sMAXIMUM_MEMORY=4GB \
     -sNODERAWFS=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1 \
     -o "$RUN/t.js" "tests/$T.c" $EXTRA $COMMON

@@ -5,6 +5,9 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#2b2b2b">
 <title>Jw_cad for Windows — WASM 移植</title>
 <style>
   html, body { margin: 0; height: 100%; background: #202020; color: #ddd;
@@ -14,7 +17,14 @@
   header a { color: #8cf; }
   #wrap { flex: 1; overflow: auto; }
   canvas { display: block; image-rendering: pixelated; touch-action: none; }
-  #note { padding: 4px 10px; color: #999; }
+  #note { padding: 4px 10px; color: #aaa; }
+  :root { color-scheme: dark; }
+  button, select, input[type=file] { font: inherit; }
+  :focus-visible { outline: 2px solid #8cf; outline-offset: 1px; }
+  canvas:focus-visible { outline-offset: -2px; }
+  header a, #note a { color: #8cf; }
+  @media (prefers-contrast: more) { #note { color: #ddd; } header { border-bottom-color: #fff; } }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
   @media (max-width: 600px) { #note > span:last-of-type { display: none; } }
 </style>
 </head>
@@ -23,17 +33,17 @@
   <b>Jw_cad for Windows 10.03.6</b> — 実行ファイルを逆コンパイルして C に書き直した移植。
   <a href="https://github.com/yomei-o/jwcad_win_wasm">ソース</a>
 </header>
-<div id="wrap"><canvas id="screen" width="1264" height="741"></canvas></div>
+<div id="wrap"><canvas id="screen" width="1264" height="741" tabindex="0" role="application" aria-label="Jw_cad 図面。キーボード: 一文字コマンド、Enter、Esc、Ctrl+Z など"></canvas></div>
 <div id="note">
   <label><input type="file" id="pick" accept=".jww,.dxf,.sfc,.jwc,.jws,.txt,.jwf,.bmp,.png,.jpg,.jpeg"> .jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く（画像は 画像編集 の 画像挿入 で）</label>
-  <input type="file" id="pickimg" accept=".bmp,.png,.jpg,.jpeg,image/bmp,image/png,image/jpeg" hidden>
-  <select id="recent" title="最近のファイル" hidden></select>
+  <input type="file" id="pickimg" aria-label="画像を挿入" accept=".bmp,.png,.jpg,.jpeg,image/bmp,image/png,image/jpeg" hidden>
+  <select id="recent" title="最近のファイル" aria-label="最近のファイル" hidden></select>
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
   <button id="pdf" type="button">PDF で印刷</button>
   <button id="png" type="button">PNG で印刷</button>
-  <span id="msg">—— 図面はここで読むだけで、どこにも送られません。</span>
+  <span id="msg" role="status" aria-live="polite">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、右ドラッグで移動、Home で全体、Ctrl+Z 戻る・Ctrl+Y 進む・Ctrl+S 保存。タッチは 指一本で位置、二本で移動・拡大縮小（二本でちょんと触れると右ボタン）。</span>
 </div>
 <script src="jwcad.js?v=14"></script>
@@ -192,6 +202,7 @@
   // focused: the candidate window then appears where the input is, and what
   // comes back is handed to the port as UTF-16 for it to turn into CP932.
   const ime = document.createElement('input');
+  ime.setAttribute('aria-label', '文字・数値の入力');
   // Not hidden, just invisible: a one pixel transparent box is something
   // browsers will refuse to put an IME on, and without a real editable area
   // under the cursor a conversion has nowhere to happen.  This one sits
@@ -914,6 +925,11 @@
     if (!drag) {
       const [x, y] = at(e);
       if (move(x, y)) present();
+      if (mod._jw_tip) {                /* the original's own words for the button under the pointer */
+        const tp = mod._jw_tip(x, y);
+        const tt = tp ? mod.UTF8ToString(tp) : '';
+        if (canvas.title !== tt) canvas.title = tt;
+      }
       return;
     }
     if (Math.abs(e.clientX - drag.x0) > 3 || Math.abs(e.clientY - drag.y0) > 3)
@@ -1008,6 +1024,12 @@
     window.addEventListener('pagehide', keep);
     document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
   } catch (e) { /* storage not available */ }
+
+  // Works offline once it has been loaded, and can be installed (sw.js,
+  // manifest.webmanifest).  Only over http(s): file: has no service workers.
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* private window, blocked: no harm */ });
+  }
 })();
 </script>
 </body>

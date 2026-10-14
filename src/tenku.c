@@ -108,8 +108,8 @@ int jw_tenku_collect2(const jw_drawing *d, double plane_m, hk_edge3 *e, hk_tenku
             if (end[k] >= 0)
                 found++;
         }
-        if (found < 2)
-            continue;
+        if (found < 1)
+            continue;                   /* 字が片端だけの線も 上端の線を作る（もう一端は 高さ 0、hk_s32） */
         sc = d->group[l->lgroup].scale;
         if (sc <= 0.0)
             sc = 1.0;
@@ -120,7 +120,7 @@ int jw_tenku_collect2(const jw_drawing *d, double plane_m, hk_edge3 *e, hk_tenku
         base = hk_level_from_name(jw_str(d, d->group[l->lgroup].name)) +
                hk_level_from_name(jw_str(d, d->group[l->lgroup].layer_name[l->layer]));
         for (k = 0; k < 2; k++)
-            z[k] = hk_vertex_z_mm(h[k], base, plane_m, sc);
+            z[k] = end[k] >= 0 ? hk_vertex_z_mm(h[k], base, plane_m, sc) : 0.0;
         if (n >= max)
             break;
         e[n].x0 = l->d[0];
@@ -134,7 +134,10 @@ int jw_tenku_collect2(const jw_drawing *d, double plane_m, hk_edge3 *e, hk_tenku
             int w[2];
 
             for (k = 0; k < 2; k++) {
-                if (cnt[k] >= 2) {
+                if (end[k] < 0) {
+                    zb[k] = 0.0;
+                    w[k] = 0;
+                } else if (cnt[k] >= 2) {
                     zb[k] = (h2[k] + base - plane_m) * 1000.0 / sc;
                     w[k] = 1;
                 } else if (h[k] >= 0.0) {
@@ -285,55 +288,71 @@ static int same_xy(const hk_edge3 *a, int ea, const hk_edge3 *b, int eb)
 }
 
 /* the skyline: every edge as a polyline, then the verticals */
-static int skyline(jw_drawing *d, const hk_tenku_opts *o, const hk_edge3 *e, int n,
+/* 一本の辺を 射影した折れ線（方位角が増える向きに 1° ごと）で描く。地面の辺（両端 z ≤ 0）は描かない */
+static int sky_edge(jw_drawing *d, const hk_tenku_opts *o, double px, double py, double cx, double cy,
+                    double x0, double y0, double z0, double x1, double y1, double z1, int *added)
+{
+    double cross = (x0 - px) * (y1 - py) - (y0 - py) * (x1 - px);
+    double a0, a1, span, ax, ay;
+    int seg, s;
+
+    if (z0 <= 1e-7 && z1 <= 1e-7)
+        return 1;                           /* lies on the ground circle */
+    if (cross <= 0.0) {                     /* azimuth must increase; a line pointing
+                                               straight at the point runs far -> near */
+        double t;
+
+        t = x0; x0 = x1; x1 = t;
+        t = y0; y0 = y1; y1 = t;
+        t = z0; z0 = z1; z1 = t;
+    }
+    a0 = az_of(px, py, x0, y0);
+    a1 = az_of(px, py, x1, y1);
+    span = a1 - a0;
+    while (span > PI) span -= 2 * PI;
+    while (span < -PI) span += 2 * PI;
+    span = fabs(span) * 180.0 / PI;
+    seg = (int)(span + 1e-6) + 1;
+    proj(o, px, py, cx, cy, x0, y0, z0, &ax, &ay);
+    for (s = 1; s <= seg; s++) {
+        double t = (double)s / (double)seg, bx, by;
+
+        proj(o, px, py, cx, cy, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t, &bx, &by);
+        if (!add_line(d, ax, ay, bx, by, 0, 0, 0))
+            return -1;
+        (*added)++;
+        ax = bx;
+        ay = by;
+    }
+    return 1;
+}
+
+/* 三次元の線の順は 原典 FUN_0073c0c0 と同じ: 下端（両端に壁があれば）・上端・始点の縦・終点の縦。
+ * 縦は その端の字が初めて出たときだけ（同じ位置の端が前の辺にあれば 引かない）。浮いた建物
+ * （下端 > 0）は 下端の辺と、縦が 下端から上端までになる（hk_s33）。bb が無ければ 地面から立つ壁 */
+static int skyline(jw_drawing *d, const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *bb, int n,
                    double px, double py, double cx, double cy)
 {
     int i, k, added = 0;
 
     for (i = 0; i < n; i++) {
-        double x0 = e[i].x0, y0 = e[i].y0, z0 = e[i].z0;
-        double x1 = e[i].x1, y1 = e[i].y1, z1 = e[i].z1;
-        double cross = (x0 - px) * (y1 - py) - (y0 - py) * (x1 - px);
+        double zb0 = bb ? bb[i].zb0 : 0.0, zb1 = bb ? bb[i].zb1 : 0.0;
+        int w0 = bb ? bb[i].wall0 : 1, w1 = bb ? bb[i].wall1 : 1;
 
-        if (z0 <= 1e-7 && z1 <= 1e-7)
-            goto verticals;                 /* lies on the ground circle */
-        if (cross <= 0.0) {                 /* azimuth must increase; a line pointing
-                                               straight at the point runs far -> near */
-            double t;
-
-            t = x0; x0 = x1; x1 = t;
-            t = y0; y0 = y1; y1 = t;
-            t = z0; z0 = z1; z1 = t;
-        }
-        {
-            double a0 = az_of(px, py, x0, y0), a1 = az_of(px, py, x1, y1);
-            double span = a1 - a0, ax, ay;
-            int seg, s;
-
-            while (span > PI) span -= 2 * PI;
-            while (span < -PI) span += 2 * PI;
-            span = fabs(span) * 180.0 / PI;
-            seg = (int)(span + 1e-6) + 1;
-            proj(o, px, py, cx, cy, x0, y0, z0, &ax, &ay);
-            for (s = 1; s <= seg; s++) {
-                double t = (double)s / (double)seg, bx, by;
-
-                proj(o, px, py, cx, cy, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t,
-                     z0 + (z1 - z0) * t, &bx, &by);
-                if (!add_line(d, ax, ay, bx, by, 0, 0, 0))
-                    return -1;
-                added++;
-                ax = bx;
-                ay = by;
-            }
-        }
-verticals:
+        if (bb && w0 && w1 && sky_edge(d, o, px, py, cx, cy, e[i].x0, e[i].y0, zb0, e[i].x1, e[i].y1, zb1, &added) < 0)
+            return -1;
+        if (sky_edge(d, o, px, py, cx, cy, e[i].x0, e[i].y0, e[i].z0, e[i].x1, e[i].y1, e[i].z1, &added) < 0)
+            return -1;
         for (k = 0; k < 2; k++) {
             double vx = k ? e[i].x1 : e[i].x0, vy = k ? e[i].y1 : e[i].y0;
-            double vz = k ? e[i].z1 : e[i].z0, gx, gy, tx, ty;
+            double vz = k ? e[i].z1 : e[i].z0, vb = k ? zb1 : zb0, gx, gy, tx, ty;
             int j, e2, seen = 0;
 
-            if (vz <= 1e-7)
+            if (bb && !(k ? w1 : w0))
+                continue;
+            if (vz - vb <= 1e-7 && vb - vz <= 1e-7)
+                continue;
+            if (!bb && vz <= 1e-7)
                 continue;
             for (j = 0; j <= i && !seen; j++)
                 for (e2 = 0; e2 < 2; e2++) {
@@ -344,7 +363,7 @@ verticals:
                 }
             if (seen)
                 continue;
-            proj(o, px, py, cx, cy, vx, vy, 0.0, &gx, &gy);
+            proj(o, px, py, cx, cy, vx, vy, vb, &gx, &gy);
             proj(o, px, py, cx, cy, vx, vy, vz, &tx, &ty);
             if (!add_line(d, gx, gy, tx, ty, 0, 0, 0))
                 return -1;
@@ -696,19 +715,12 @@ static int tn_isect(double ex, double ey, const tn_seg *s, double *ox, double *o
     return 1;           /* 原典は線分の外なら 2 を返すが、呼び手は 0 か否かしか見ない */
 }
 
-double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *b, int n,
-                      double px, double py, double cx, double cy,
-                      double *area, double *hidden, double *hx, int maxh, int *nh)
+/* 1. 三次元の線（FUN_0073c0c0 の順: 下端・上端・始点の縦・終点の縦）と
+ * 2. 建物番号（306133〜306178）。1000 を超えると原典は 0x159a を出して止める。建物の数を返す */
+static int tn_build(tn_list3 *L, const hk_edge3 *e, const hk_tenku_base *b, int n)
 {
-    tn_list3 L = { 0, 0, 0 };
-    tn_segs A = { 0, 0, 0 }, B = { 0, 0, 0 };
-    int i, k, nb = 0, N, hstep, bdb8 = o->precise ? 1000 : 100;
-    double dt, bd30, bd50 = 0.0, b8, pct, *mn = 0, *mx = 0;
-    const double becc = 0.017453292519943295;   /* 1°（DAT_00a0bebc が正のとき） */
+    int i, nb = 0;
 
-    if (nh)
-        *nh = 0;
-    /* 1. 三次元の線（FUN_0073c0c0 の順: 下端・上端・始点の縦・終点の縦） */
     for (i = 0; i < n; i++) {
         double zb0 = b ? b[i].zb0 : 0.0, zb1 = b ? b[i].zb1 : 0.0;
         int w0 = b ? b[i].wall0 : 1, w1 = b ? b[i].wall1 : 1;
@@ -717,20 +729,149 @@ double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_
         if (fabs(e[i].x0 - e[i].x1) + fabs(e[i].y0 - e[i].y1) < 1e-7)   /* FUN_0043acd0 < 1e-7 */
             continue;
         if (w0 && w1)
-            tn_add3_split(&L, e[i].x0, e[i].y0, zb0, e[i].x1, e[i].y1, zb1, lay, grp);
-        tn_add3_split(&L, e[i].x0, e[i].y0, e[i].z0, e[i].x1, e[i].y1, e[i].z1, lay, grp);
+            tn_add3_split(L, e[i].x0, e[i].y0, zb0, e[i].x1, e[i].y1, zb1, lay, grp);
+        tn_add3_split(L, e[i].x0, e[i].y0, e[i].z0, e[i].x1, e[i].y1, e[i].z1, lay, grp);
         if (w0 && fabs(e[i].z0 - zb0) > 1e-7)
-            tn_add3(&L, e[i].x0, e[i].y0, e[i].z0, e[i].x0, e[i].y0, zb0, lay, grp);
+            tn_add3(L, e[i].x0, e[i].y0, e[i].z0, e[i].x0, e[i].y0, zb0, lay, grp);
         if (w1 && fabs(e[i].z1 - zb1) > 1e-7)
-            tn_add3(&L, e[i].x1, e[i].y1, e[i].z1, e[i].x1, e[i].y1, zb1, lay, grp);
+            tn_add3(L, e[i].x1, e[i].y1, e[i].z1, e[i].x1, e[i].y1, zb1, lay, grp);
     }
-    /* 2. 建物番号（306133〜306178）。1000 を超えると原典は 0x159a を出して止める */
-    for (i = 0; i < L.nc; i++)
-        if (L.c[i].bno < 1) {
-            L.c[i].bno = ++nb;
-            tn_flood(&L, L.c[i].x0, L.c[i].y0, L.c[i].lay, L.c[i].grp, nb);
-            tn_flood(&L, L.c[i].x1, L.c[i].y1, L.c[i].lay, L.c[i].grp, nb);
+    for (i = 0; i < L->nc; i++)
+        if (L->c[i].bno < 1) {
+            L->c[i].bno = ++nb;
+            tn_flood(L, L->c[i].x0, L->c[i].y0, L->c[i].lay, L->c[i].grp, nb);
+            tn_flood(L, L->c[i].x1, L->c[i].y1, L->c[i].lay, L->c[i].grp, nb);
         }
+    return nb;
+}
+
+/* 測定点が建物の内側か線の上か（FUN_00748da0 306693〜306819）: 建物ごとに その線を順に見て、
+ * 測定点を通る水平線・垂直線との交わりが 両側にそろえば 2（内側）、ちょうど線の上なら 1。
+ * flag[1..nb] に入れ、どれかあれば 1 を返す */
+static int tn_inside_flags(const tn_list3 *L, int nb, double px, double py, int *flag)
+{
+    int k, i, any = 0;
+
+    for (k = 1; k <= nb; k++) {
+        int bd1c = 0, bd20 = 0, st = 0;
+
+        flag[k] = 0;
+        for (i = 0; i < L->nc && !st; i++) {
+            const tn_l3 *c = &L->c[i];
+            double a = c->x0 - px, b = c->y0 - py, cc = c->x1 - px, d = c->y1 - py;
+
+            if (c->bno != k)
+                continue;
+            if (a * cc > 0.0 && b * d > 0.0)
+                continue;
+            if (b * d <= 0.0 && fabs(d) + fabs(b) > 1e-7 && bd1c < 10) {
+                double x = ((cc - a) * fabs(b)) / (fabs(d) + fabs(b)) + a;
+
+                if (fabs(x) < 1e-7) {
+                    st = 1;
+                    break;
+                }
+                if (x > 0.0) {
+                    if (bd1c == 0)
+                        bd1c = 1;
+                    if (bd1c < 0)
+                        bd1c = 11;
+                } else {
+                    if (bd1c == 0)
+                        bd1c = -1;
+                    if (bd1c > 0)
+                        bd1c = 11;
+                }
+            }
+            if (a * cc <= 0.0 && fabs(cc) + fabs(a) > 1e-7 && bd20 < 10) {
+                double y = ((d - b) * fabs(a)) / (fabs(cc) + fabs(a)) + b;
+
+                if (fabs(y) < 1e-7) {
+                    st = 1;
+                    break;
+                }
+                if (y > 0.0) {
+                    if (bd20 == 0)
+                        bd20 = 1;
+                    if (bd20 < 0)
+                        bd20 = 11;
+                } else {
+                    if (bd20 == 0)
+                        bd20 = -1;
+                    if (bd20 > 0)
+                        bd20 = 11;
+                }
+            }
+            if (bd1c >= 10 && bd20 >= 10)
+                st = 2;
+        }
+        flag[k] = st;
+        if (st)
+            any = 1;
+    }
+    return any;
+}
+
+int jw_tenku_inside(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *b, int n,
+                    double px, double py)
+{
+    tn_list3 L = { 0, 0, 0 };
+    int nb, *flag, any = 0;
+
+    (void)o;
+    nb = tn_build(&L, e, b, n);
+    flag = (int *)calloc((size_t)nb + 2, sizeof *flag);
+    if (flag)
+        any = tn_inside_flags(&L, nb, px, py, flag);
+    free(flag);
+    free(L.c);
+    return any;
+}
+
+/* 日影図の 確認 の窓が使う三次元の線（原典 FUN_0073c0c0 の順: 下端・上端・始点の縦・終点の縦）。
+ * out に x0,y0,z0,x1,y1,z1,建物番号 を 7 つずつ（図面の mm）。本数を返す */
+int jw_tenku_lines3(const jw_drawing *d, double plane_m, double *out, int max)
+{
+    static hk_edge3 e[1000];
+    static hk_tenku_base b[1000];
+    tn_list3 L = { 0, 0, 0 };
+    int n = jw_tenku_collect2(d, plane_m, e, b, 1000), i, m = 0;
+
+    if (n < 1)
+        return 0;
+    tn_build(&L, e, b, n);
+    for (i = 0; i < L.nc && m < max; i++, m++) {
+        out[7 * m] = L.c[i].x0;
+        out[7 * m + 1] = L.c[i].y0;
+        out[7 * m + 2] = L.c[i].z0;
+        out[7 * m + 3] = L.c[i].x1;
+        out[7 * m + 4] = L.c[i].y1;
+        out[7 * m + 5] = L.c[i].z1;
+        out[7 * m + 6] = (double)L.c[i].bno;
+    }
+    free(L.c);
+    return m;
+}
+
+double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_base *b, int n,
+                      double px, double py, double cx, double cy,
+                      double *area, double *hidden, double *hx, int maxh, int *nh)
+{
+    tn_list3 L = { 0, 0, 0 };
+    tn_segs A = { 0, 0, 0 }, B = { 0, 0, 0 };
+    int i, k, nb = 0, N, hstep, bdb8 = o->precise ? 1000 : 100;
+    int *inside = 0;
+    double dt, bd30, bd50 = 0.0, b8, pct, *mn = 0, *mx = 0;
+    const double becc = 0.017453292519943295;   /* 1°（DAT_00a0bebc が正のとき） */
+
+    if (nh)
+        *nh = 0;
+    nb = tn_build(&L, e, b, n);
+    if (o->inside_yes) {         /* 測定点が建物の内側で「はい」: その建物の最小半径は 0（原典 0x1659） */
+        inside = (int *)calloc((size_t)nb + 2, sizeof *inside);
+        if (inside)
+            tn_inside_flags(&L, nb, px, py, inside);
+    }
     /* 3. 一本ずつ 射影した折れ線（A: +0x190）と 両端を結ぶ弦（B: +0x21c）。306259〜306503 */
     for (i = 0; i < L.nc; i++) {
         tn_l3 c = L.c[i];
@@ -838,8 +979,9 @@ double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_
         for (k = 1; k <= nb; k++) {
             mx[k] = -9e+20;
             mn[k] = 9e+20;
-            /* 測定点が建物の中（原典 0x1659/0x165a の問い）で「はい」なら mn = 0。
-               問いの判定（306693〜306819）は写していない。原典に確認が要る */
+            /* 測定点が建物の中（原典 0x1659/0x165a の問い）で「はい」なら mn = 0（hk_s29） */
+            if (inside && inside[k])
+                mn[k] = 0.0;
         }
         for (k = 0; k < A.n; k++) {
             const tn_seg *s = &A.s[k];
@@ -927,6 +1069,7 @@ double jw_tenku_ratio(const hk_tenku_opts *o, const hk_edge3 *e, const hk_tenku_
     }
     free(mn);
     free(mx);
+    free(inside);
     free(L.c);
     free(A.s);
     free(B.s);
@@ -1061,7 +1204,7 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
         snprintf(buf, sizeof buf, "%s = %.*f %%", o->equidist ? "[" S_TENKUHI "]" : S_TENKURITSU,
                  o->precise ? 3 : 2, v);
         add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
-        r = skyline(d, o, e, n, px, py, cx, cy);
+        r = skyline(d, o, e, bb, n, px, py, cx, cy);
         if (r < 0) {
             free(hx);
             return -1;
@@ -1069,7 +1212,7 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
     } else {
         /* [hk_s1] circle, skyline, then the texts.  測定点表示 の点と「No.n」は
            skyline のあと、文字の前（原典 hk_s9） */
-        r = skyline(d, o, e, n, px, py, cx, cy);
+        r = skyline(d, o, e, bb, n, px, py, cx, cy);
         if (r < 0) {
             free(hx);
             return -1;

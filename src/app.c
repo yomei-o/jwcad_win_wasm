@@ -14,6 +14,7 @@
 #include "senkigou.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
+#include "gen/tips.h"
 #include "gen/newjww.h"
 #include "gen/pens.h"
 
@@ -502,6 +503,8 @@ static int td_caret_set(int id);
 static void gz_check(void);
 static void mb_close(int ok);
 static int mb_open, mb_kind;
+static int mb3_open;                    /* 天空図の「測定点が建物の内側」の問い（はい／いいえ／キャンセル） */
+#define MB3_TEXT "\x8c\x9a\x95\xa8\x93\xe0\x95\x94\x82\xc9\x91\xaa\x92\xe8\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xbd\x89\xc2\x94\\x90\xab\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb7\x81" "B  \x8ew\x8e\xa6\x82\xb5\x82\xbd\x91\xaa\x92\xe8\x93_\x82\xcc\x8f\xe3\x82\xc9\x94\xdd\x82\xdc\x82\xbd\x82\xcd\x89\xae\x8d\xaa\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb7\x82\xa9\x81H"
 
 static void tgp_tp_open(void);
 static int hk_kind;                     /* 日影の窓の種類（jw_cmd_hikage_ask） */
@@ -512,6 +515,8 @@ static void tgp_check(void)
         if (td_start(348))
             td_caret_set(1411);
     }
+    if (!mb3_open && have_drawing && jw_cmd() == JW_CMD_TENKU && jw_cmd_tenku_ask())
+        mb3_open = 1;
     if (jw_cmd() == JW_CMD_GAZOU) {
         gz_check();
         if (!td_open && !mb_open)
@@ -1094,6 +1099,20 @@ static void gaibu_after(void)
         action = JW_ACT_GAIBU_RUN;
     else if (jw_cmd_gaibu_want_bat())
         action = JW_ACT_GAIBU;
+}
+
+/* The tool tip of the toolbar button under (x, y), in UTF-8: the original's own
+   status text for its command (src/gen/tips.h).  Nought when there is none. */
+const char *app_tip(int x, int y)
+{
+    int k = hit_button(x, y), i;
+
+    if (k < 0 || k >= JW_NBUTTONS)
+        return 0;
+    for (i = 0; i < JW_NTIPS; i++)
+        if (jw_tips[i].id == jw_btn_cmd[k])
+            return jw_tips[i].text;
+    return 0;
 }
 /* 図形登録's 基準点, kept from the press that gave it. */
 static double fig_bx, fig_by;
@@ -3497,6 +3516,16 @@ int app_press(int x, int y, int button)
     int k = hit_button(x, y);
     int id, g, n;
 
+    if (mb3_open) {                     /* はい 1・いいえ 3・キャンセル 2 */
+        int h = ui_msgbox3_hit(fb.w, fb.h, x, y);
+
+        if (h == 1 || h == 2 || h == 3) {
+            mb3_open = 0;
+            if (have_drawing)
+                jw_cmd_tenku_answer(&drawing, h == 1 ? 1 : h == 3 ? 0 : -1);
+        }
+        return 1;
+    }
     if (mb_open) {                      /* modal over everything */
         int h = ui_msgbox_hit(fb.w, fb.h, mb_kind != 2, x, y);
 
@@ -3758,7 +3787,7 @@ static int moji_key(int c)
  * shuts one, the way it shuts any dialog with a cancel button. */
 static int dialog_open(void)
 {
-    return mb_open || zoku_open || moji_open || zsel_open || blk_open || be_open
+    return mb_open || mb3_open || zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
            || sk_open || ld_open || td_open || tgp_open || kj_open;
 }
@@ -3836,6 +3865,15 @@ static void dialog_close(void)
 
 int app_key(int c)
 {
+    if (mb3_open) {
+        if (c == 13 || c == 27 || c == 'y' || c == 'Y' || c == 'n' || c == 'N') {
+            mb3_open = 0;
+            if (have_drawing)
+                jw_cmd_tenku_answer(&drawing, c == 13 || c == 'y' || c == 'Y' ? 1 : c == 27 ? -1 : 0);
+        }
+        app_paint();
+        return 1;
+    }
     if (mb_open) {
         if (c == 13 || c == 27)
             mb_close(c == 13);
@@ -3843,8 +3881,41 @@ int app_key(int c)
         return 1;
     }
     if (tgp_open) {
-        if (c == 27)
+        if (c == 27) {
             tgp_open = 0;
+        } else if (c == 9) {
+            /* Tab: the next catalogue file, which is what a click on its name does */
+            int nf = jw_tgdat_count(tgp_kind);
+
+            if (nf > 0) {
+                tgp_file = (tgp_file + 1) % nf;
+                tgp_page = 0;
+            }
+        } else if (c == 13 || (c >= '1' && c <= '9')) {
+            /* Enter takes the first one on the page, a digit the one that
+               is that far down it -- the keyboard's way to a click on it */
+            int n = c == 13 ? 1 : c - '0';
+            int idx = jw_tgdat_index(tgp_kind, tgp_file);
+            int per = ui_tgp_per_page(fb.w, fb.h, tgp_kind);
+            int total = 0;
+
+            if (tgp_kind == 4) {
+                const jw_senkigou *sg = jw_sk_load(idx);
+
+                total = sg ? sg->nitem : 0;
+            } else {
+                const jw_tategu *t = jw_tategu_load(idx);
+
+                total = t ? t->nitem : 0;
+            }
+            if (tgp_page * per + n <= total) {
+                if (tgp_kind == 4)
+                    jw_cmd_kigou_choose(idx, tgp_page * per + n);
+                else
+                    jw_cmd_tategu_choose(idx, tgp_page * per + n);
+                tgp_open = 0;
+            }
+        }
         app_paint();
         return 1;
     }
@@ -4416,6 +4487,78 @@ static unsigned long long mix(unsigned long long h, const void *p, size_t n)
     return h;
 }
 
+/* 日影図の 確認 の窓（原典 hk_pv1〜pv6）: 作図の領域を白くして 針金（黒の辺・紫の点線の測定面）を描き、
+ * 左上に 方位のしるし（赤い縁の黒い円に 赤い矢）を置く。矢は方位角の向き */
+static void pv_px(int x, int y, unsigned int c)
+{
+    if (x >= 0 && y >= 0 && x < fb.w && y < fb.h)
+        fb.px[(size_t)y * fb.w + x] = c;
+}
+
+static void pv_line(int x0, int y0, int x1, int y1, unsigned int c)
+{
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx - dy;
+
+    for (;;) {
+        int e2;
+
+        pv_px(x0, y0, c);
+        if (x0 == x1 && y0 == y1)
+            break;
+        e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x0 += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+static void pv_compass(double az)
+{
+    /* 原典の画面 (115.5, 114.5) から窓の枠 (8, 51) を引いた位置。円は 縁の幅 1 の赤・中は黒、矢は 先・右・凹み・左 の
+       四つの点（hk_pv3 に合わせた。az = 0 で先が真上、az だけ回す） */
+    const double cx = 107.5, cy = 63.5, R = 19.25;
+    static const double P[4][2] = { { 115.5 - 115.5, 97.0 - 114.5 }, { 125.0 - 115.5, 131.0 - 114.5 },
+                                    { 115.5 - 115.5, 125.0 - 114.5 }, { 106.0 - 115.5, 132.0 - 114.5 } };
+    double a = az * 3.14159265358979323846 / 180.0, ca = cos(a), sa = sin(a);
+    int x, y, i, qx[4], qy[4];
+
+    for (y = (int)(cy - R - 1); y <= (int)(cy + R + 1); y++)
+        for (x = (int)(cx - R - 1); x <= (int)(cx + R + 1); x++) {
+            double dx = x - cx, dy = y - cy, r = sqrt(dx * dx + dy * dy);
+
+            if (r < R - 0.5)
+                pv_px(x, y, 0x000000u);
+            else if (r <= R + 0.5)
+                pv_px(x, y, 0xff0000u);
+        }
+    for (i = 0; i < 4; i++) {
+        qx[i] = (int)floor(cx + P[i][0] * ca - P[i][1] * sa + 0.5);
+        qy[i] = (int)floor(cy + P[i][0] * sa + P[i][1] * ca + 0.5);
+    }
+    for (i = 0; i < 4; i++)
+        pv_line(qx[i], qy[i], qx[(i + 1) % 4], qy[(i + 1) % 4], 0xff0000u);
+}
+
+static void draw_pv(void)
+{
+    const rect_t *r = &view.clip;
+    jw_drawing one = drawing;       /* 層・ペンの表は図面のもの、線だけ別に */
+
+    fb_fill(&fb, r->x, r->y, r->w, r->h, 0xffffffu);
+    one.obj = 0;
+    one.nobj = one.ndrawn = one.cobj = 0;
+    if (jw_cmd_hikage_preview(&drawing, &view, &one) > 0)
+        jw_draw(&fb, &view, &one);
+    free(one.obj);
+    pv_compass(jw_cmd_hikage_pv_az());
+}
+
 static void draw_drawing(void)
 {
     const rect_t *r = &view.clip;
@@ -4511,7 +4654,10 @@ void app_paint(void)
         ui_view_rect(fb.w, fb.h, &view.clip);
         bt_refresh();
         bt_hl();
-        draw_drawing();
+        if (jw_cmd_hikage_pv_on())
+            draw_pv();
+        else
+            draw_drawing();
     }
     {
         /* The element the command is part way through.  The original
@@ -4633,6 +4779,8 @@ void app_paint(void)
         bt_paint();
     if (mb_open)
         ui_msgbox(&fb, "jw_win", mb_kind ? mb_text : MB_TEXT, mb_kind != 2);
+    if (mb3_open)
+        ui_msgbox3(&fb, "jw_win", MB3_TEXT);
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

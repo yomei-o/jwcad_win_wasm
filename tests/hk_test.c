@@ -10,6 +10,8 @@
 #include "../src/ui.h"
 #include "../src/jww.h"
 #include "../src/tategu.h"
+#include "../src/image.h"
+#include "png.h"
 
 static unsigned char *slurp(const char *path, long *n)
 {
@@ -163,6 +165,26 @@ static const sc_t sc[] = {
       "b:10;405,300;595,300;595,500;405,500;B:1064;x:2209=45;500,600;900,300;" },
     { "rg6", 32971, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;",
       "b:10;405,300;595,300;595,500;405,500;B:1064;x:2209=90;500,600;900,300;" },
+    /* 測定点が建物の内側（tools/tnbatch7.sh s29・s30、2026-10-14）: 原典は「庇または屋根がありますか？」と問う */
+    { "s29", 32971, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;",
+      "b:10;405,300;595,300;595,500;405,500;B:1064;500,400;B:1323;900,300;Q:1;" },
+    { "s30", 32971, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;",
+      "b:10;405,300;595,300;595,500;405,500;B:1064;500,400;B:1323;900,300;Q:0;" },
+    { "s31", 32971, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;",
+      "b:10;405,300;595,300;595,500;405,500;B:1064;500,400;B:1323;900,300;Q:-1;" },
+    /* 高さの字が 片端だけの線（tools/tnbatch7.sh s32、2026-10-14）: 対角の二つの端にだけ字 */
+    { "s32", 32971, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;",
+      "b:10;405,300;595,500;B:1064;500,600;B:1323;900,300;" },
+    /* 浮いた建物（高さ「10 , 5」。tools/tnbatch7.sh s33、2026-10-14） */
+    { "s33", 32971, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;",
+      "b:10 , 5;405,300;595,300;595,500;405,500;B:1064;500,600;B:1323;900,300;" },
+    /* 日影図の 確認（針金の窓）。tools/hkpreview.sh の画面 hk_pv1〜pv6.png */
+    { "pv1", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;", "b:10;405,300;595,300;595,500;405,500;B:1067;" },
+    { "pv2", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;", "b:10;405,300;595,300;595,500;405,500;B:1067;B:1123;B:1123;B:1126;B:1126;B:1126;" },
+    { "pv3", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;", "b:10;405,300;595,300;595,500;405,500;B:1067;B:1123;B:1123;B:1126;B:1126;B:1126;B:1084;" },
+    { "pv4", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;", "b:10;405,300;595,300;595,500;405,500;B:1067;B:1123;B:1123;B:1126;B:1126;B:1126;B:1084;B:1129;" },
+    { "pv5", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;650,380;750,380;750,380;750,450;750,450;650,450;650,450;650,380;", "b:10;405,300;595,300;595,500;405,500;b:6;655,380;745,380;745,450;655,450;B:1067;" },
+    { "pv6", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;650,380;750,380;750,380;750,450;750,450;650,450;650,450;650,380;", "b:10;405,300;595,300;595,500;405,500;b:6;655,380;745,380;745,450;655,450;B:1067;B:1123;B:1126;" },
     { "c1", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;300,650;300,600;",
       "b:10;405,300;595,300;595,500;405,500;n:1;300,600;x:2436=1;B:1064;B:1065;" },
     { "c2", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;300,650;300,600;",
@@ -242,6 +264,16 @@ static void clicks(rect_t *r, const char *s)
         }
         if (s[0] == 'B' && s[1] == ':') {       /* バーの釦 */
             jw_cmd_bar((jw_drawing *)app_drawing(), atoi(s + 2));
+            while (*s && *s != ';')
+                s++;
+            while (*s == ';')
+                s++;
+            continue;
+        }
+        if (s[0] == 'Q' && s[1] == ':') {       /* Q:1 はい・Q:0 いいえ・Q:-1 キャンセル（測定点が建物の内側の問い） */
+            if (!jw_cmd_tenku_ask())
+                puts("     問いが出ていない");
+            jw_cmd_tenku_answer((jw_drawing *)app_drawing(), atoi(s + 2));
             while (*s && *s != ';')
                 s++;
             while (*s == ';')
@@ -437,6 +469,70 @@ static int same(const jw_drawing *ref, const jw_drawing *d, const char *name,
     return bad;
 }
 
+/* 日影図の 確認 の窓（原典 decomp/res/hk_pv*.png）: 黒の針金と 紫の測定面の画素を 原典の画面（窓の枠つき）と
+   較べる。作図の領域だけ（コンパスは除く）。差の数を返す。 */
+static int pv_compare(const char *name)
+{
+    char png[96];
+    long n;
+    unsigned char *b;
+    jw_img im;
+    const fb_t *fb;
+    int x, y, bad = 0, theirs_n = 0;
+
+    snprintf(png, sizeof png, "decomp/res/hk_%s.png", name);
+    b = slurp(png, &n);
+    if (!b || !jw_img_decode(b, n, &im)) {
+        printf("BAD  %s: %s が読めません\n", name, png);
+        free(b);
+        return 1;
+    }
+    free(b);
+    app_paint();
+    fb = app_fb();
+    if (getenv("HKPVOUT")) {
+        char o[160];
+
+        snprintf(o, sizeof o, "%s/%s.png", getenv("HKPVOUT"), name);
+        png_rgb(o, fb->w, fb->h, fb->px);
+    }
+    for (y = 110; y < 760; y++)
+        for (x = 140; x < 1190; x++) {
+            const unsigned char *q = im.rgb + ((size_t)y * im.w + x) * 3;
+            unsigned int th = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
+            unsigned int ours = fb->px[(size_t)(y - 51) * fb->w + (x - 8)] & 0xffffffu;
+
+            if (th != 0xffffffu)
+                theirs_n++;
+            if (th != ours)
+                bad++;
+        }
+    {   /* 方位のしるし（左上の円と矢）: 赤い縁と矢は きっちりは合わせていない */
+        int cbad = 0;
+
+        for (y = 95; y < 136; y++)
+            for (x = 96; x < 136; x++) {
+                const unsigned char *q = im.rgb + ((size_t)y * im.w + x) * 3;
+                unsigned int th = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
+                unsigned int ours = fb->px[(size_t)(y - 51) * fb->w + (x - 8)] & 0xffffffu;
+
+                if (th != ours)
+                    cbad++;
+            }
+        if (cbad > 160) {
+            printf("BAD  %s: compass pixels differ %d\n", name, cbad);
+            bad += 100000;
+        }
+    }
+    jw_img_free(&im);
+    if (bad * 20 > theirs_n) {          /* 原典の線の画素の 5% を超えて違う */
+        printf("BAD  %s: 画素が違う %d（原典の線は %d 画素）\n", name, bad, theirs_n);
+        return 1;
+    }
+    printf("ok   %s（違う画素 %d / %d）\n", name, bad, theirs_n);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     int fails = 0;
@@ -453,6 +549,8 @@ int main(int argc, char **argv)
             continue;
         snprintf(path, sizeof path, "decomp/res/hk_%s.jww", sc[k].name);
         rb = slurp(path, &rn);
+        if (sc[k].name[0] == 'p' && sc[k].name[1] == 'v' && b && !rb)
+            rb = slurp("decomp/res/new.jww", &rn);      /* 絵だけ較べる（hk_pv*.png） */
         if (!rb || !b) {
             printf("BAD  %s が読めません\n", path);
             fails++;
@@ -530,6 +628,11 @@ int main(int argc, char **argv)
             jw_cmd_box_put(2210, "");
         }
         clicks(&r, sc[k].post);
+        if (sc[k].name[0] == 'p' && sc[k].name[1] == 'v') {
+            fails += pv_compare(sc[k].name);
+            jw_free(&ref);
+            continue;
+        }
         if (getenv("HKREF")) {
             int q;
 
@@ -596,6 +699,58 @@ int main(int argc, char **argv)
             fails++;
         } else
             printf("ok   天空図 Esc で初めのバー\n");
+    }
+    /* 日影図の 確認: 状態の行（原典「項目を選択してください … -45.000(ﾟ)  30.000(ﾟ)」）と 釦・Esc */
+    {
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const char *st;
+        int ok;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;");
+        app_command(32943);
+        clicks(&r, "b:10;405,300;595,300;595,500;405,500;B:1067;");
+        st = jw_cmd_status((jw_drawing *)app_drawing());
+        ok = jw_cmd_hikage_pv_on() && jw_cmd_bar_check(9005) > 0 && strstr(st, "-45.000") && strstr(st, "30.000");
+        clicks(&r, "B:1123;B:1125;");
+        st = jw_cmd_status((jw_drawing *)app_drawing());
+        ok = ok && strstr(st, "-50.000") && strstr(st, "35.000");
+        clicks(&r, "B:1084;");
+        st = jw_cmd_status((jw_drawing *)app_drawing());
+        ok = ok && strstr(st, "0.000(") && !strstr(st, "-");
+        clicks(&r, "B:1129;");
+        st = jw_cmd_status((jw_drawing *)app_drawing());
+        ok = ok && strstr(st, "-45.000") && strstr(st, "35.264");
+        {   /* 仰角は 0〜90 で止まり、方位角は (−180, 180] に畳む */
+            int q;
+
+            for (q = 0; q < 16; q++)
+                clicks(&r, "B:1125;");
+            st = jw_cmd_status((jw_drawing *)app_drawing());
+            ok = ok && strstr(st, "90.000(");
+            for (q = 0; q < 40; q++)
+                clicks(&r, "B:1123;");
+            st = jw_cmd_status((jw_drawing *)app_drawing());
+            ok = ok && strstr(st, "115.000(");
+        }
+        clicks(&r, "B:1121;");
+        ok = ok && !jw_cmd_hikage_pv_on() && jw_cmd_bar_check(9005) <= 0;
+        clicks(&r, "B:1067;");
+        jw_cmd_esc_key((jw_drawing *)app_drawing());
+        ok = ok && !jw_cmd_hikage_pv_on();
+        if (!ok) {
+            puts("BAD  日影図 確認 の釦（左右上下・０，０・等角・≪・Esc）");
+            fails++;
+        } else
+            puts("ok   日影図 確認 の釦と状態の行");
     }
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);
     return fails != 0;

@@ -571,6 +571,42 @@ int main(int argc, char **argv)
                 if (!settles(app_drawing(), w, who0))
                     bad++;
         }
+        /* JW_CMDFUZZ_EXTREME=1 puts awkward geometry in the drawing first: lines
+           of no length, a pair that is parallel to within 1e-9, circles of
+           radius 0 and 1e10, arcs of no sweep, points on top of each other,
+           and coordinates out near the limit a drawing may hold (1e12).  The
+           walk's presses are aimed at elements of the drawing, so every
+           command meets them. */
+        if (getenv("JW_CMDFUZZ_EXTREME") && app_drawing()) {
+            static const double L[][4] = {
+                { 100, 100, 100, 100 }, { 0, 0, 1000, 0 }, { 0, 1e-9, 1000, 2e-9 },
+                { 0, 5, 1e6, 5.000001 }, { 10, 10, 10 + 1e-12, 10 }, { -9e11, 0, 9e11, 1 },
+                { 5e11, 5e11, 5e11 + 1, 5e11 }, { 200, 200, 200.0000001, 200 },
+                { 300, 100, 300, 400 }, { 300, 100, 300.00001, 400 }
+            };
+            static const double C[][3] = {
+                { 50, 50, 0 }, { 60, 60, 1e-12 }, { 70, 70, 1e10 }, { 5e11, 5e11, 100 },
+                { 80, 80, 1e-300 }, { 90, 90, 25 }, { 90, 90, 25 }
+            };
+            jw_drawing *dx = (jw_drawing *)app_drawing();
+            unsigned k;
+
+            for (k = 0; k < sizeof L / sizeof L[0]; k++) {
+                jw_obj *o = jw_add(dx, JW_SEN);
+                if (o) { o->d[0] = L[k][0]; o->d[1] = L[k][1]; o->d[2] = L[k][2]; o->d[3] = L[k][3]; }
+            }
+            for (k = 0; k < sizeof C / sizeof C[0]; k++) {
+                jw_obj *o = jw_add(dx, JW_ENKO);
+                if (o) {
+                    o->d[0] = C[k][0]; o->d[1] = C[k][1]; o->d[2] = C[k][2];
+                    o->d[3] = 0; o->d[4] = k == 4 ? 0.0 : 6.283185307179586; o->d[5] = 0; o->d[6] = 1;
+                }
+            }
+            for (k = 0; k < 4; k++) {
+                jw_obj *o = jw_add(dx, JW_TEN);
+                if (o) { o->d[0] = 30; o->d[1] = 30; }
+            }
+        }
         /* JW_CMDFUZZ_IMG names picture files (BMP, PNG, JPEG), a comma
            between them: they are put in the drawing first, so that the walk
            has pictures to select, move, trim, copy and erase, and the

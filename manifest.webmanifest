@@ -1,0 +1,17 @@
+{
+  "name": "Jw_cad for Windows (WASM)",
+  "short_name": "Jw_cad",
+  "description": "Jw_cad 10.03.6 を C に書き直して WebAssembly で動かす移植。図面はどこにも送られません。",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#202020",
+  "theme_color": "#2b2b2b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
