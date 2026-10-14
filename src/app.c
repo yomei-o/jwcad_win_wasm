@@ -509,6 +509,7 @@ static int td_caret_set(int id);
 static void gz_check(void);
 static void mb_close(int ok);
 static int mb_open, mb_kind;
+static char mb_text[400];
 static int mb3_open;                    /* 天空図の「測定点が建物の内側」の問い（はい／いいえ／キャンセル） */
 #define MB3_TEXT "\x8c\x9a\x95\xa8\x93\xe0\x95\x94\x82\xc9\x91\xaa\x92\xe8\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xbd\x89\xc2\x94\\x90\xab\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb7\x81" "B  \x8ew\x8e\xa6\x82\xb5\x82\xbd\x91\xaa\x92\xe8\x93_\x82\xcc\x8f\xe3\x82\xc9\x94\xdd\x82\xdc\x82\xbd\x82\xcd\x89\xae\x8d\xaa\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb7\x82\xa9\x81H"
 
@@ -523,6 +524,13 @@ static void tgp_check(void)
     }
     if (!mb3_open && have_drawing && jw_cmd() == JW_CMD_TENKU && jw_cmd_tenku_ask())
         mb3_open = 1;
+    if (!mb_open && have_drawing && jw_cmd() == JW_CMD_TENKU && jw_cmd_tenku_north_ask()) {
+        /* 「真北が設定されていません。」（0x15e2）、OK/キャンセル */
+        strcpy(mb_text, "^kªÝè³êÄ"
+                        "¢Ü¹ñB");
+        mb_kind = 3;
+        mb_open = 1;
+    }
     if (jw_cmd() == JW_CMD_GAZOU) {
         gz_check();
         if (!td_open && !mb_open)
@@ -2491,7 +2499,8 @@ static int bt_trans;
 static int d2d_on, aa_on;
 /* 表示 > ダイアログボックス: the original asks first (AfxMessageBox) */
 static int mb_open;
-/* 0: the dialog-position question above; 1 and 2: 画像編集's (OK and キャンセル,
+/* 0: the dialog-position question above; 3: 天空図の 真北が無いときの問い;
+   1 and 2: 画像編集's (OK and キャンセル,
    OK alone), whose words are mb_text */
 static int mb_kind;
 static char mb_text[400];
@@ -3535,6 +3544,11 @@ static void mb_close(int ok)
     if (kind == 0) {
         if (ok)
             ui_blktree_default(fb.w, fb.h, &bt_win);   /* every dialog back to where it first appears */
+        return;
+    }
+    if (kind == 3) {                    /* 天空図の 真北が無いときの問い */
+        if (have_drawing)
+            jw_cmd_tenku_north_answer(&drawing, ok);
         return;
     }
     if (have_drawing)

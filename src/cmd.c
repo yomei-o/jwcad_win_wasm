@@ -440,6 +440,7 @@ static int hk_tbl_pending;
 #define HK_PV_PROMPT "\x81\xa0\x81\xa0\x81@\x81@\x81@\x8d\x80\x96\xda\x82\xf0\x91I\x91\xf0\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81@\x81@\x81@\x81\xa0\x81\xa0"
 static int hk_pv;                       /* 日影図の 確認 の窓（下の hk_pv_az・hk_pv_el と jw_cmd_hikage_preview） */
 static int tn_mode, tn_equi, tn_count, tn_sansha;
+static int tn_nq = -1, tn_nq_pend;   /* 真北が無いときの問い（0x15e2、OK/キャンセル）: 答え・待ち */
 static int tn_ans = -1, tn_pend, tn_pend_b;   /* 測定点が建物の内側のときの問い: 答え（-1 未回答）・待ち・押したボタン */
 static double tn_pend_x, tn_pend_y;
 static const jw_view *tn_pend_v;
@@ -11243,6 +11244,48 @@ void jw_cmd_tenku_answer(jw_drawing *d, int ans)
     tn_ans = -1;
 }
 
+/* 真北の字（旗 0x40・色 5 の数）を探す。あれば 1 と その角 */
+static int tn_north_of(const jw_drawing *d, double *north)
+{
+    int k, found = 0;
+
+    for (k = 0; k < d->ndrawn; k++)
+        if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
+            d->obj[k].color == 5) {
+            const char *t = jw_str(d, d->obj[k].text);
+
+            if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-') {
+                if (north)
+                    *north = atof(t);
+                found = 1;
+            }
+        }
+    return found;
+}
+
+/* 真北が無いときの問いを出すか（一度だけ 1） */
+int jw_cmd_tenku_north_ask(void)
+{
+    int r = tn_nq_pend == 1 && current == JW_CMD_TENKU;
+
+    if (r)
+        tn_nq_pend = 2;
+    return r;
+}
+
+/* その答え: OK なら 上向きとして 同じ点でもう一度描く。キャンセルなら 何も描かない */
+void jw_cmd_tenku_north_answer(jw_drawing *d, int ok)
+{
+    if (!tn_nq_pend)
+        return;
+    tn_nq_pend = 0;
+    if (!ok || current != JW_CMD_TENKU || !tn_pend_v)
+        return;
+    tn_nq = 1;
+    jw_cmd_point(d, tn_pend_v, tn_pend_x, tn_pend_y, tn_pend_b);
+    tn_nq = -1;
+}
+
 /* 三斜のつまみを初めの状態に戻す（試験用。原典ではコマンドを選び直しても残る） */
 void jw_cmd_sansha_reset(void)
 {
@@ -16291,6 +16334,17 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     return;
                 }
             }
+            if (jw_cmd_bar_check(1325) > 0 && tn_nq < 0 && !tn_north_of(d, 0)) {
+                /* 太陽軌跡 で 真北が無いと 原典は「真北が設定されていません。」（0x15e2、
+                   OK/キャンセル）を出し、OK なら上向きで描く（CZukeiHikage の FUN_004f60a0、
+                   hk_s5）。窓の答えまで この点を取っておく */
+                tn_nq_pend = 1;
+                tn_pend_x = x;
+                tn_pend_y = y;
+                tn_pend_b = button;
+                tn_pend_v = v;
+                return;
+            }
             rec = op_new();
 
             hk_tenku_opts_default(&o);
@@ -16361,15 +16415,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 else if (sb && (!strcmp(sb, "3") || !strcmp(sb, "\x94\x43\x88\xd3\x8e\x9e\x8a\xfa")))
                     o.dec = hk_dec_user;
                 /* 真北（旗 0x40・色 5 の数の字）。無ければ 原典は「真北が設定されていません。」に
-                   OK で 上向き（0°）扱い（hk_s5）。移植は問いを出さずに上向きにする */
-                for (k = 0; k < d->ndrawn; k++)
-                    if (d->obj[k].cls == JW_MOJI && (d->obj[k].flags & 0x40) && d->obj[k].text >= 0 &&
-                        d->obj[k].color == 5) {
-                        const char *t = jw_str(d, d->obj[k].text);
-
-                        if ((t[0] >= '0' && t[0] <= '9') || t[0] == '-')
-                            north = atof(t);
-                    }
+                   OK で 上向き（0°）扱い（hk_s5）。問いは この上で出してある（tn_nq） */
+                (void)k;
+                tn_north_of(d, &north);
                 o.north = north;
                 /* 南方向補正 のときは 建物も 真北 で回る（FUN_00733e40、原典 hk_s18: 真北 −90 で
                    箱が右へ）。補正なしでは建物は回らず、太陽軌跡と方位の字が回る（hk_s21）。

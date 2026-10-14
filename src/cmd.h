@@ -241,7 +241,9 @@ int  jw_cmd_bar(jw_drawing *d, int id);
 /* Whether that button is there to be pressed, for the drawing of the bar. */
 int  jw_cmd_bar_check(int id);
 int  jw_cmd_tenku_ask(void);                     /* 測定点が建物の内側: 問いを出すか（一度だけ 1） */
-void jw_cmd_tenku_answer(jw_drawing *d, int ans);   /* 1 はい・0 いいえ・-1 キャンセル */
+void jw_cmd_tenku_answer(jw_drawing *d, int ans);
+int  jw_cmd_tenku_north_ask(void);               /* 太陽軌跡で真北が無い: 問いを出すか（一度だけ 1） */
+void jw_cmd_tenku_north_answer(jw_drawing *d, int ok);   /* 1 OK（上向きで描く）・0 キャンセル */   /* 1 はい・0 いいえ・-1 キャンセル */
 int  jw_cmd_hikage_pv_on(void);                 /* 日影図の 確認 の窓が開いているか */
 double jw_cmd_hikage_pv_az(void);               /* その方位角（度。コンパスの向き） */
 int  jw_cmd_hikage_preview(const jw_drawing *d, const jw_view *v, jw_drawing *out);   /* 窓の中身（線の数） */
