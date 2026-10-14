@@ -245,7 +245,8 @@ int main(int argc, char **argv)
      * RESUME.md 同日の節、各 bk_* 関数のコメントに番地と式）との突き合わせ。
      * 幾何はその実測と同じものをここに作り直す。 */
     {
-        jw_obj *l1, *l2, *l3, *l4, *ca, *cb, *pt_top, *pt_right;
+        jw_obj *o_;             /* only for the one that has just been made: the array moves */
+        int i0;
         const jw_view *v = app_view();
         int g;
 
@@ -258,16 +259,27 @@ int main(int argc, char **argv)
              (o)->d[4] = 6.283185307179586; (o)->d[5] = 0.0; \
              (o)->d[6] = 1.0; (o)->n = 1; } while (0)
 
-        MKSEN(l1, -155.51, 26.3265, -94.2857, 26.3265);
-        MKSEN(l2, -155.51, -4.28571, -94.2857, -4.28571);
-        MKSEN(l3, 28.1633, 26.3265, 89.3878, 26.3265);
-        MKSEN(l4, -106.531, 56.9388, -106.531, -47.1429);
-        MKENKO(ca, -33.0612, -96.1224, 36.7347);
-        MKENKO(cb, 58.7755, -96.1224, 24.4898);
-        pt_top = jw_add(d, JW_TEN);
-        pt_top->d[0] = -33.0612; pt_top->d[1] = -59.3878; pt_top->n = 0;
-        pt_right = jw_add(d, JW_TEN);
-        pt_right->d[0] = 3.67347; pt_right->d[1] = -96.1224; pt_right->n = 0;
+        MKSEN(o_, -155.51, 26.3265, -94.2857, 26.3265);
+        MKSEN(o_, -155.51, -4.28571, -94.2857, -4.28571);
+        MKSEN(o_, 28.1633, 26.3265, 89.3878, 26.3265);
+        MKSEN(o_, -106.531, 56.9388, -106.531, -47.1429);
+        MKENKO(o_, -33.0612, -96.1224, 36.7347);
+        MKENKO(o_, 58.7755, -96.1224, 24.4898);
+        o_ = jw_add(d, JW_TEN);
+        o_->d[0] = -33.0612; o_->d[1] = -59.3878; o_->n = 0;
+        o_ = jw_add(d, JW_TEN);
+        o_->d[0] = 3.67347; o_->d[1] = -96.1224; o_->n = 0;
+        /* the commands below add elements too, and the array moves when it grows:
+           so the eight are found by their place every time they are used */
+        i0 = d->ndrawn - 8;
+#define l1 (&d->obj[i0 + 0])
+#define l2 (&d->obj[i0 + 1])
+#define l3 (&d->obj[i0 + 2])
+#define l4 (&d->obj[i0 + 3])
+#define ca (&d->obj[i0 + 4])
+#define cb (&d->obj[i0 + 5])
+#define pt_top (&d->obj[i0 + 6])
+#define pt_right (&d->obj[i0 + 7])
 
         /* 始点＋線 Ｂ (L): 点 P=l1 の始点、線 B=l2、n=3 */
         g = d->ndrawn;

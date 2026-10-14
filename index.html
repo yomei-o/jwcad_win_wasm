@@ -533,6 +533,7 @@ if (LANG === 'en') {
     if (cmdid() === 0x8026) setTimeout(aim, 0);
   });
   const moveNow = mod.cwrap('jw_move',  'number', ['number', 'number']);
+  const release = mod._jw_release ? mod.cwrap('jw_release', 'number', ['number', 'number']) : () => 0;
   const save      = mod.cwrap('jw_save', 'number', []);
   const saveDxf   = mod.cwrap('jw_save_dxf', 'number', []);
   const saveSfc   = mod.cwrap('jw_save_sfc', 'number', ['string']);
@@ -1045,6 +1046,10 @@ if (LANG === 'en') {
         leftClick(e, x, y);
       }
       return;
+    }
+    if (e.pointerType !== 'touch' && e.button === 0 && mod._jw_release) {
+      const [x, y] = at(e);          /* 連続線 の 手書線 ends its stroke here */
+      if (release(x, y)) present();
     }
     if (drag && drag.right && !drag.moved) {
       const [x, y] = at(e);

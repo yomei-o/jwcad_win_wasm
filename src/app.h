@@ -96,6 +96,8 @@ int  app_new_count(void);
 int  app_command(int cmd);
 
 int  app_press(int x, int y, int button);
+/* the button coming up (only 連続線's 手書線 uses it); 1 if the picture changed */
+int  app_release(int x, int y, int button);
 int  app_move(int x, int y);
 int  app_take_action(void);
 

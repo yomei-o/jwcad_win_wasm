@@ -30,4 +30,8 @@ int jw_ltype_bit(int ltype, int i);
 unsigned int jw_row_rgb(int row);
 int jw_row_rgb_set(int row, unsigned int rgb);
 
+/* 基本設定 一般: 画像･ソリッドを最初に描画 (2405), 透過属性 (2860) -- see src/draw.c */
+extern int jw_draw_images_first;
+extern int jw_draw_transparent;
+
 #endif

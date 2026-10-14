@@ -2936,7 +2936,7 @@ static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_o
                     continue;
                 q = im->rgb + ((size_t)sr * im->w + sc) * 3;
                 c = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
-                if (c == trans)
+                if (jw_draw_transparent && c == trans)
                     continue;
                 put(fb, &v->clip, x, y, c);
             }
@@ -2984,16 +2984,32 @@ static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_o
                     continue;
                 q = im->rgb + ((size_t)sr * im->w + sc) * 3;
                 c = (unsigned)q[0] << 16 | (unsigned)q[1] << 8 | q[2];
-                if (c == trans)
+                if (jw_draw_transparent && c == trans)
                     continue;
                 put(fb, &v->clip, x, y, c);
             }
     }
 }
 
+/* 基本設定 (一般) の 画像･ソリッドを最初に描画 (2405) and 透過属性 (2860).  Not seen in the
+   original -- it could not be driven for this -- only read from the dialog's words:
+   with the first on, the pictures go down before the lines (with the solids) instead
+   of over everything; with the second off, a picture's 透過色 is not honoured and every
+   pixel of it shows.  The defaults (off, on) are the original's own and draw as before. */
+int jw_draw_images_first = 0;
+int jw_draw_transparent = 1;
+
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
+
+    if (jw_draw_images_first && !jw_draw_kari)
+        for (i = 0; i < d->ndrawn; i++) {
+            const jw_obj *o = &d->obj[i];
+
+            if (o->cls == JW_MOJI && shown(d, o) && jw_is_pic(d, o))
+                pic_draw(fb, v, d, o);
+        }
 
     /* The solids go down first, and everything else on top of them.
      *
@@ -3270,7 +3286,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
         if (o->cls != JW_MOJI || jw_draw_kari || !shown(d, o) || !jw_is_pic(d, o))
             continue;
-        pic_draw(fb, v, d, o);
+        if (!jw_draw_images_first)
+            pic_draw(fb, v, d, o);
         if (o->sel) {
             jw_pic pp;
             double qx[4], qy[4], ppb = pix_per_bit(v);

@@ -32,6 +32,9 @@ static int ms_back, ms_text, ms_after, ms_go;
 /* 外部変形 (0x8091), the steps of a BAT (end of this file) */
 static const char *u8cp(const char *u);
 static int gb_keep, gb_back, gb_state;
+/* 連続線 の 手書線 (1774): the button is held and dragged */
+static int fh_state, fh_made;
+static void fh_press(jw_drawing *d, const jw_view *v, double x, double y);
 static void gb_free(void);
 static void gb_step(jw_drawing *d);
 static const char *gb_prompt(void);
@@ -2611,6 +2614,12 @@ void jw_cmd_set(int id)
     int carry_obj = cut_obj;
 
     prev = current;
+    if (fh_state) {                     /* a stroke does not outlive its command: what it drew stays, as one step */
+        if (fh_made > 0)
+            op_push(fh_made);
+        fh_made = 0;
+        fh_state = 0;
+    }
     if (id == 0x8091 ? !gb_keep : id != JW_CMD_HANI)
         gb_free();                      /* a 外部変形 run does not outlive it */
     ms_text = 0;
@@ -5878,6 +5887,12 @@ static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
     n = bk_read_n(&count);
     if (n <= 0.0)
         return;
+    {   /* 点が線の延長上にあれば 扇は 同じ線の上に重なるだけ: 原典は何も作らない（ファジング s23_21） */
+        double bx = b->d[2] - b->d[0], by = b->d[3] - b->d[1], bl = hypot(bx, by);
+
+        if (bl > 1e-9 && fabs(((px - b->d[0]) * by - (py - b->d[1]) * bx) / bl) < 1e-7)
+            return;
+    }
     for (k = 1; k <= count; k++) {
         double t = (double)k / n;
         jw_obj *o = jw_add(d, JW_SEN);
@@ -15689,6 +15704,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         gb_click(d, v, x, y, button);
         return;
     }
+    if (current == JW_CMD_RENZOKU && d && jw_cmd_bar_check(1774) > 0) {
+        if (button == 0)
+            fh_press(d, v, x, y);
+        return;
+    }
     if (d && ms_text && current == JW_CMD_MOJI) {
         /* a click on the drawing lets the picked texts go (slot 9) */
         sel_clear(d);
@@ -19736,4 +19756,90 @@ int jw_cmd_clip_set(const unsigned char *b, long n)
     clip = c;
     clip_n = n;
     return 1;
+}
+
+/* ---- 手書線 (1774) -------------------------------------------------------------
+   CZukeiRenzokuSen with its flag at +0x780 set (the bar's 手書線 box; FUN_006d7ca0 and
+   FUN_006da8b0 and slot 9, read in decomp/byclass/CZukeiRenzokuSen.c):
+
+     * the left button going down notes the point and where the mouse is on the
+       screen (+0x3f, +0x40 = the pixel), clears the count (+0x3e) and starts the
+       drag (state 3);
+     * every mouse move during it asks FUN_006df0f0 for a segment: if the mouse is
+       5 pixels or more away from where it was last noted, **in x or in y**
+       (|dx| < 5 and |dy| < 5 does nothing), a line goes in from the last point to
+       this one (FUN_00450860 with the write pen), the count goes up and the
+       noted pixel is this one;
+     * the button coming up asks once more, and ends the stroke (state 0).
+
+   So a stroke is a chain of straight lines, one wherever the mouse has gone five
+   pixels -- there is no smoothing or fitting into arcs.  (The original's undo takes
+   what was put in as one step: the port does too.)  Not seen in the original, which
+   could not be driven by a drag: whether the lines join their ends exactly (they do
+   here: each starts where the last one ended) and whether the stroke can be undone
+   in one press. */
+static double fh_px, fh_py;             /* the last point */
+static int fh_sx, fh_sy;                /* the pixel it was noted at */
+static int fh_made;
+
+static void fh_press(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    fh_px = x;
+    fh_py = y;
+    fh_sx = jw_sx(v, x);
+    fh_sy = jw_sy(v, y);
+    fh_made = 0;
+    fh_state = 1;
+    (void)d;
+}
+
+/* FUN_006df0f0: one sample.  Returns 1 if it put a line in. */
+static int fh_sample(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int sx = jw_sx(v, x), sy = jw_sy(v, y);
+    jw_obj *o;
+
+    if (abs(sx - fh_sx) < 5 && abs(sy - fh_sy) < 5)
+        return 0;
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return 0;
+    o->d[0] = fh_px;
+    o->d[1] = fh_py;
+    o->d[2] = x;
+    o->d[3] = y;
+    fh_px = x;
+    fh_py = y;
+    fh_sx = sx;
+    fh_sy = sy;
+    fh_made++;
+    return 1;
+}
+
+int jw_cmd_freehand(void)
+{
+    return fh_state;
+}
+
+/* the mouse moved while the button is down */
+int jw_cmd_drag(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    if (!fh_state || !d || current != JW_CMD_RENZOKU)
+        return 0;
+    return fh_sample(d, v, x, y);
+}
+
+/* the left button came up */
+int jw_cmd_release(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int r;
+
+    if (!fh_state || !d || current != JW_CMD_RENZOKU)
+        return 0;
+    fh_sample(d, v, x, y);
+    fh_state = 0;
+    r = fh_made > 0;
+    op_push(fh_made);
+    fh_made = 0;
+    return r;
 }

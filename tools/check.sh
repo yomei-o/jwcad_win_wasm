@@ -91,6 +91,8 @@ echo "=== 手当たり次第にコマンドを叩く —— 落ちず、数が�
 JW_CMDFUZZ_EXTREME=1 JW_CMDFUZZ_STEPS=1500 ./tests/cmdfuzz_test.exe orig/Test1.jww orig/Test7.jww 2>/dev/null | sed 's/^/    extreme: /'
 # garbage in every number box of every command
 ./tests/boxfuzz_test.exe 2>/dev/null | sed 's/^/    boxes: /'
+# every command: do, undo, redo on random geometry, compared exactly
+./tests/undoall_test.exe 40 2>/dev/null | sed 's/^/    undo: /'
 # the 外部変形 BAT, its answer, coordinate / figure / text files
 ./tests/miscfuzz_test.exe orig/*.BAT orig/Test1.jww 2>/dev/null | sed 's/^/    misc: /'
 # with pictures in the drawing to be selected, moved, trimmed and erased

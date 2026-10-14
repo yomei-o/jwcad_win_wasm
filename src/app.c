@@ -1497,13 +1497,39 @@ int app_kihon_open(void)
     return kh_open;
 }
 
+/* What OK left in the boxes: the dialog comes up again as it was left, not as the
+   original has it on entering.  Only the boxes whose meaning is known go any further
+   (kh_apply). */
+static unsigned char kh_saved[8][256];
+static int kh_have_saved;
+
+/* the state of the box with this id, as OK left it (or the original's default) */
+static int kh_value(int id)
+{
+    int t, i;
+
+    for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
+        for (i = 0; i < ui_kihon_n(t) && i < 256; i++)
+            if (ui_kihon_id(t, i) == id)
+                return kh_have_saved ? kh_saved[t][i] : ui_kihon_on(t, i);
+    return 0;
+}
+
+/* OK: the boxes whose meaning is read from the decompile or the dialog's words:
+   画像･ソリッドを最初に描画 (2405) and 透過属性 (2860), see src/draw.c */
+static void kh_apply(void)
+{
+    jw_draw_images_first = kh_value(2405);
+    jw_draw_transparent = kh_value(2860);
+}
+
 static void kh_start(void)
 {
     int t, i;
 
     for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
         for (i = 0; i < ui_kihon_n(t) && i < 256; i++)
-            kh_on[t][i] = (unsigned char)ui_kihon_on(t, i);
+            kh_on[t][i] = (unsigned char)(kh_have_saved ? kh_saved[t][i] : ui_kihon_on(t, i));
     kh_tab = 0;
     kh_open = 1;
 }
@@ -1579,9 +1605,14 @@ static int press_kihon(int x, int y)
         kh_tab = -id - 1;
         return 1;
     }
+    if (id == 1) {                      /* OK: what is ticked stays, and what is known is applied */
+        memcpy(kh_saved, kh_on, sizeof kh_saved);
+        kh_have_saved = 1;
+        kh_apply();
+    }
     if (id == 1 || id == 2 || id == 9) {
-        /* OK, キャンセル, ヘルプ -- none of them does anything yet: what
-           the boxes mean has not been worked out */
+        /* キャンセル and ヘルプ do nothing; what most of the boxes mean
+           has not been worked out */
         kh_open = 0;
         return 1;
     }
@@ -4226,6 +4257,18 @@ int app_open_env(const unsigned char *b, long n)
     return 1;
 }
 
+/* The left button came up.  Only 連続線's 手書線 cares: the stroke ends there.
+   Returns 1 when the picture changed. */
+int app_release(int x, int y, int button)
+{
+    double mx, my;
+
+    if (button != 0 || !have_drawing || !view_ready || !jw_cmd_freehand())
+        return 0;
+    to_paper(x, y, &mx, &my);
+    return jw_cmd_release(&drawing, &view, mx, my);
+}
+
 int app_move(int x, int y)
 {
     double mx, my;
@@ -4237,6 +4280,8 @@ int app_move(int x, int y)
         return 0;
     to_paper(x, y, &mx, &my);
     jw_cmd_track(mx, my);
+    if (have_drawing && jw_cmd_freehand() && jw_cmd_drag(&drawing, &view, mx, my))
+        return 1;                   /* 手書線: a stroke being drawn */
     {   /* the range box and the selection being dragged both follow the
            mouse, so the window has to be told to paint again */
         double a, b, c, e;

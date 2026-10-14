@@ -42,6 +42,7 @@ const known = {
   'format-jww.md': '.jww の形式',
   'command-coverage.md': '原典のメニュー項目ぜんぶと 移植の対応（tools/mkcoverage.sh が作る）',
   'dogfood-house.md': '二階建ての間取りを作ってみた記録（引っかかりの一覧）',
+  'todo-stubs.md': '「ここでは まだ」と書いた所の仕分け（古い・原典が要る・大きい）',
   'cleanup.md': '整理で 消したもの・消さなかったもの',
 };
 for (const [f, t] of rows) o += '| [' + f + '](' + f + ') | ' + (known[f] || t || '') + ' |' + nl;

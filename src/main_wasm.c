@@ -670,3 +670,13 @@ EMSCRIPTEN_KEEPALIVE void jw_mark_modified(void)
 {
     app_mark_modified();
 }
+
+/* the left button came up (連続線's 手書線 ends its stroke there) */
+EMSCRIPTEN_KEEPALIVE int jw_release(int x, int y)
+{
+    int r = app_release(x, y - app_chrome_h(), 0);
+
+    if (r)
+        app_paint();
+    return r;
+}

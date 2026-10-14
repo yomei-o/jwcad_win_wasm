@@ -319,7 +319,7 @@ class Gen:
 
 
 DRAW = ['line', 'line', 'line', 'rect', 'circle', 'poly', 'arc']
-EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2', 'nisen', 'nisen', 'chushin', 'chushin', 'moji', 'point',
+EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2', 'nisen', 'nisen', 'chushin', 'chushin', 'point',
         'range_erase', 'move', 'copy']
 
 

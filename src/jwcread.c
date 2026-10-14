@@ -33,12 +33,23 @@
 #define JWC_ELEM 0x975
 #define JWC_CSV  0xc8
 
-static double f32(const unsigned char *b)
+/* A coordinate: the float the file holds, brought back to millimetres -- and
+   nudged by the last place or two, if need be, to the double that src/jwcwrite.c
+   turns into that same float again.  Without it the (float)((x + half) * unit)
+   of the writer and the f * unit - half here do not undo each other exactly, and
+   a drawing saved, opened and saved again could change by one bit of a float
+   every trip (tests/cmdfuzz_test.c: "does not settle"). */
+static double jc(const unsigned char *b, double half, double hw)
 {
-    float v;
+    float f;
+    double x, uw = 518.0 / (hw * 2.0);
+    int k;
 
-    memcpy(&v, b, 4);
-    return (double)v;
+    memcpy(&f, b, 4);
+    x = (double)f * (hw * 2.0 / 518.0) - half;
+    for (k = 0; k < 8 && (float)((x + half) * uw) != f; k++)
+        x = nextafter(x, (float)((x + half) * uw) < f ? 1e300 : -1e300);
+    return x;
 }
 
 static int i32(const unsigned char *b)
@@ -65,7 +76,7 @@ static double fold(double deg)
 
 int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
 {
-    double unit, half_w, half_h;
+    double half_w, half_h;
     long at, pool;
     int count[4] = { 0, 0, 0, 0 }, i, k;
     const unsigned char *p;
@@ -98,7 +109,6 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
     half_h = d->paper_hh;
     if (half_w <= 0.0)
         return 0;
-    unit = half_w * 2.0 / 518.0;
 
     while (d->nobj > 0)
         jw_remove(d, d->nobj - 1);
@@ -140,10 +150,10 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
         o = jw_add(d, JW_SEN);
         if (!o)
             return 0;
-        o->d[0] = f32(b + at) * unit - half_w;
-        o->d[1] = f32(b + at + 4) * unit - half_h;
-        o->d[2] = f32(b + at + 8) * unit - half_w;
-        o->d[3] = f32(b + at + 12) * unit - half_h;
+        o->d[0] = jc(b + at, half_w, half_w);
+        o->d[1] = jc(b + at + 4, half_h, half_w);
+        o->d[2] = jc(b + at + 8, half_w, half_w);
+        o->d[3] = jc(b + at + 12, half_h, half_w);
         o->ltype = b[at + 16];
         o->color = b[at + 17];
         o->layer = b[at + 18];
@@ -162,9 +172,9 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
             return 0;
         a0 = (double)i32(b + at + 16);
         a1 = (double)i32(b + at + 20);
-        o->d[0] = f32(b + at) * unit - half_w;
-        o->d[1] = f32(b + at + 4) * unit - half_h;
-        o->d[2] = f32(b + at + 8) * unit;
+        o->d[0] = jc(b + at, half_w, half_w);
+        o->d[1] = jc(b + at + 4, half_h, half_w);
+        o->d[2] = jc(b + at + 8, 0.0, half_w);
         o->d[3] = fold(a0);
         o->d[4] = a1 == a0 ? 2.0 * PI
                 : (a1 - a0 < 0.0 ? a1 - a0 + 360.0 : a1 - a0) * PI / 180.0;
@@ -189,10 +199,10 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
         o = jw_add(d, JW_MOJI);
         if (!o)
             return 0;
-        o->d[0] = f32(b + at) * unit - half_w;
-        o->d[1] = f32(b + at + 4) * unit - half_h;
-        o->d[2] = f32(b + at + 8) * unit - half_w;
-        o->d[3] = f32(b + at + 12) * unit - half_h;
+        o->d[0] = jc(b + at, half_w, half_w);
+        o->d[1] = jc(b + at + 4, half_h, half_w);
+        o->d[2] = jc(b + at + 8, half_w, half_w);
+        o->d[3] = jc(b + at + 12, half_h, half_w);
         /* the low three bytes point into the strings that follow */
         off = (long)(b[at + 16] | (b[at + 17] << 8) | (b[at + 18] << 16));
         style = b[at + 20];
@@ -241,8 +251,8 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
         o = jw_add(d, JW_TEN);
         if (!o)
             return 0;
-        o->d[0] = f32(b + at) * unit - half_w;
-        o->d[1] = f32(b + at + 4) * unit - half_h;
+        o->d[0] = jc(b + at, half_w, half_w);
+        o->d[1] = jc(b + at + 4, half_h, half_w);
         o->n = b[at + 8];
         o->ltype = 1;
         o->color = b[at + 9];

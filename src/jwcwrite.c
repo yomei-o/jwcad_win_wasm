@@ -386,7 +386,14 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
             dy = o->d[3] - o->d[1];
             far = sqrt(dx * dx + dy * dy);
             len = text_len(d, o, st);
-            if (far > 1e-12) {
+            if (far > 1e-12 && fabs(far - len) <= 1e-5 * len + 1e-6) {
+                /* the text already ends where its length says (to within what a float
+                   keeps): write the end it has, so that a JWC read and written again
+                   comes out the same bits -- recomputing it from the direction would
+                   move it by a last place each time round */
+                x1 = o->d[2];
+                y1 = o->d[3];
+            } else if (far > 1e-12) {
                 x1 = o->d[0] + dx / far * len;
                 y1 = o->d[1] + dy / far * len;
             } else {

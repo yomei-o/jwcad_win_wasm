@@ -1629,6 +1629,12 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     }
+    case WM_LBUTTONUP:
+        if (app_release(MX(LOWORD(lp)), MX(HIWORD(lp)), 0)) {
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
+        return 0;
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
         dragging = 1;

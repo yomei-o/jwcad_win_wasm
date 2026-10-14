@@ -2269,7 +2269,7 @@ int ui_blkname_hit(int cw, int ch, int x, int y)
 /* ---------------------------------------------------- ブロック編集 -----
  * The block's name, a button to change it, the two 編集結果を choices and
  * the usual pair.  The name box holds the block's own name and is not typed
- * into here -- ブロック名変更 is what changes it, and that is not done.
+ * into here -- ブロック名変更 is what changes it (jw_cmd_block_rename).
  */
 void ui_blkedit_rect(int cw, int ch, rect_t *r)
 {

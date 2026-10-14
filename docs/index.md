@@ -17,6 +17,7 @@
 | [notes-machine.md](notes-machine.md) | 原典を動かす機械まわり（駆動・撮影・環境） |
 | [notes-pixels.md](notes-pixels.md) | 画素を原典に合わせた記録 |
 | [notes-tests.md](notes-tests.md) | テストの網の説明 |
+| [todo-stubs.md](todo-stubs.md) | 「ここでは まだ」と書いた所の仕分け（古い・原典が要る・大きい） |
 
 ## 参照の材料
 

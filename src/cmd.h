@@ -485,8 +485,8 @@ int  jw_cmd_block_rename(jw_drawing *d, const char *name);
    copy is numbered after the last one and named <name>(<number>). */
 int  jw_cmd_block_split(jw_drawing *d);
 
-/* 寸法's direction: 0 degrees or 90, which the command bar's 0ﾟ/90ﾟ button
-   (id 1059) swaps.  Anything else needs the 傾き box, which is not done. */
+/* 寸法's direction in degrees: what the 傾き box (1411) says, which the command bar's
+   0ﾟ/90ﾟ button (id 1059) swaps between 0 and 90 and a typed number sets to anything. */
 int  jw_cmd_sunpo_angle(void);
 
 /* The boxes on the command bar that can be typed into -- 多角形's 寸法,
@@ -572,5 +572,12 @@ int  jw_cmd_gaibu_preview(const jw_drawing *d, jw_drawing *out);   /* the rubber
 
 int  jw_cmd_clip_get(const unsigned char **b, long *n);
 int  jw_cmd_clip_set(const unsigned char *b, long n);
+
+/* 連続線 の 手書線 (1774): the button down is jw_cmd_point; while it is held, each move
+   goes to jw_cmd_drag (a line for every 5 pixels the mouse has gone) and the button
+   coming up to jw_cmd_release.  Both return 1 when the picture changed. */
+int  jw_cmd_freehand(void);
+int  jw_cmd_drag(jw_drawing *d, const jw_view *v, double x, double y);
+int  jw_cmd_release(jw_drawing *d, const jw_view *v, double x, double y);
 
 #endif
