@@ -99,7 +99,17 @@ static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
 {
     long need, m;
     int off;
+    unsigned char *own = 0;
 
+    /* the text may be one that is in the pool already (a copy of a string): the pool
+       moves when it grows, so take it out first */
+    if (d->pool && n > 0 && (const char *)s >= d->pool && (const char *)s < d->pool + d->cpool) {
+        own = (unsigned char *)malloc((size_t)n);
+        if (!own)
+            return -1;
+        memcpy(own, s, (size_t)n);
+        s = own;
+    }
     m = unicode ? jw_from_utf16(s, n, 0, 0) : n;
     need = m + 2;
     if (d->npool + need > d->cpool) {
@@ -108,8 +118,10 @@ static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
         while (c < d->npool + need)
             c *= 2;
         p = (char *)realloc(d->pool, (size_t)c);
-        if (!p)
+        if (!p) {
+            free(own);
             return -1;
+        }
         d->pool = p;
         d->cpool = c;
     }
@@ -121,6 +133,7 @@ static int pool_put(jw_drawing *d, const unsigned char *s, long n, int unicode)
         memcpy(d->pool + off, s, (size_t)n);
     d->npool = off + (int)m;
     d->pool[d->npool++] = 0;
+    free(own);
     return off;
 }
 

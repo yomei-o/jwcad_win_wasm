@@ -414,6 +414,8 @@ static int be_open, be_all = 1;
 static int jk_open;
 static char jk_angle[16];
 static unsigned char jk_on[32];
+static unsigned char jk_saved[32];       /* what OK left ticked */
+static int jk_have_saved;
 
 int app_jikkaku_open(void)
 {
@@ -431,7 +433,7 @@ static void jk_start(void)
     double a = jw_cmd_axis();
 
     for (i = 0; i < n && i < (int)sizeof jk_on; i++)
-        jk_on[i] = (unsigned char)ui_jikkaku_on(i);
+        jk_on[i] = (unsigned char)(jk_have_saved ? jk_saved[i] : ui_jikkaku_on(i));
     if (a == 0.0)
         strcpy(jk_angle, "0");
     else
@@ -447,6 +449,8 @@ static int press_jikkaku(int x, int y)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1) {                      /* Ok: the angle is applied */
         jw_cmd_set_axis(atof(jk_angle));
+        memcpy(jk_saved, jk_on, sizeof jk_saved);
+        jk_have_saved = 1;
         jk_open = 0;
         return 1;
     }
@@ -470,6 +474,8 @@ static int jk_key(int c)
     }
     if (c == 13) {
         jw_cmd_set_axis(atof(jk_angle));
+        memcpy(jk_saved, jk_on, sizeof jk_saved);
+        jk_have_saved = 1;
         jk_open = 0;
         return 1;
     }
@@ -594,6 +600,8 @@ int app_shakudo_open(void)
 }
 static char sk_num[16] = "1", sk_den[16] = "100";
 static unsigned char sk_on[64];
+static unsigned char sk_saved[64];
+static int sk_have_saved;
 static char sk_list[16][16];
 static const char *sk_listp[16];
 
@@ -628,7 +636,7 @@ static void sk_start(void)
     double sc;
 
     for (i = 0; i < n && i < (int)sizeof sk_on; i++)
-        sk_on[i] = (unsigned char)ui_shakudo_on(i);
+        sk_on[i] = (unsigned char)(sk_have_saved ? sk_saved[i] : ui_shakudo_on(i));
     sk_group = sk_write_group();
     sc = have_drawing ? drawing.group[sk_group].scale : 100.0;
     if (sc <= 0.0)
@@ -648,6 +656,8 @@ static void sk_apply(void)
     double sc;
     int g, all = 0, i, n = ui_shakudo_n();
 
+    memcpy(sk_saved, sk_on, sizeof sk_saved);
+    sk_have_saved = 1;
     for (i = 0; i < n && i < (int)sizeof sk_on; i++)
         if (ui_shakudo_id(i) == 1954)
             all = sk_on[i];
@@ -838,6 +848,9 @@ static int press_layerdlg(int x, int y, int button)
 
 static int sd_open;
 static unsigned char sd_on[128];
+/* what OK left ticked, kept for the next time it is opened (キャンセル drops the changes) */
+static unsigned char sd_saved[128];
+static int sd_have_saved;
 
 int app_sunpodlg_open(void)
 {
@@ -856,7 +869,7 @@ static void sd_start(void)
     int i, n = ui_sunpodlg_n();
 
     for (i = 0; i < n && i < (int)sizeof sd_on; i++)
-        sd_on[i] = (unsigned char)ui_sunpodlg_on(i);
+        sd_on[i] = (unsigned char)(sd_have_saved ? sd_saved[i] : ui_sunpodlg_on(i));
     sd_open = 1;
     sd_caret = 0;                       /* nothing is being typed yet */
     sd_edit[0] = 0;
@@ -907,6 +920,8 @@ static int press_sunpodlg(int x, int y)
         return 0;                       /* outside it: the dialog is modal */
     if (id == 1) {                      /* OK: what was typed is taken */
         sd_commit();
+        memcpy(sd_saved, sd_on, sizeof sd_saved);
+        sd_have_saved = 1;
         sd_open = 0;
         return 1;
     }
@@ -934,6 +949,8 @@ static int press_sunpodlg(int x, int y)
 /* 画面倍率・文字表示 -- 用紙全体表示 fits the sheet, the rest is the picture */
 static int br_open;
 static unsigned char br_on[64];
+static unsigned char br_saved[64];
+static int br_have_saved;
 static char br_zoom[32];
 
 int app_coord_save(unsigned char **out, long *n)
@@ -1190,7 +1207,7 @@ static void br_start(void)
     int i, n = ui_bairitsu_n();
 
     for (i = 0; i < n && i < (int)sizeof br_on; i++)
-        br_on[i] = (unsigned char)ui_bairitsu_on(i);
+        br_on[i] = (unsigned char)(br_have_saved ? br_saved[i] : ui_bairitsu_on(i));
     br_zoom[0] = 0;
     br_open = 1;
 }
@@ -1207,6 +1224,8 @@ static int press_bairitsu(int x, int y)
         return 1;
     }
     if (id == 1 || id == 2 || id == 1933 || id == 1089) {
+        memcpy(br_saved, br_on, sizeof br_saved);
+        br_have_saved = 1;
         /* 指定倍率表示, 倍率 ＝ １．０ and 設定 OK all take it down.  What
            the first two do to the view is not settled: the original's screen
            cannot be captured here. */
@@ -3998,6 +4017,28 @@ int app_key(int c)
            the two that name a block keep their own key handlers above. */
         if (c == 27 && !be_open && !blk_open) {
             dialog_close();
+            app_paint();
+        }
+        /* Enter is the default button, as in any Windows dialog: 基本設定,
+           寸法設定 and 画面倍率・文字表示 take what is set and close */
+        if (c == 13 && !cd_open) {
+            if (kh_open) {
+                memcpy(kh_saved, kh_on, sizeof kh_saved);
+                kh_have_saved = 1;
+                kh_apply();
+                kh_open = 0;
+            } else if (sd_open) {
+                sd_commit();
+                memcpy(sd_saved, sd_on, sizeof sd_saved);
+                sd_have_saved = 1;
+                sd_open = 0;
+            } else if (br_open) {
+                memcpy(br_saved, br_on, sizeof br_saved);
+                br_have_saved = 1;
+                br_open = 0;
+            } else if (ld_open) {
+                ld_open = 0;
+            }
             app_paint();
         }
         return 1;

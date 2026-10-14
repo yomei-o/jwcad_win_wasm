@@ -518,9 +518,16 @@ static int edit_env(void)
     fwrite(b, 1, (size_t)n, f);
     fclose(f);
     free(b);
-    lstrcpyW(cmd, L"notepad.exe \"");
-    lstrcatW(cmd, path);
-    lstrcatW(cmd, L"\"");
+    /* the full path of Notepad: "notepad.exe" alone is looked for in the program's folder and the
+       current folder first (and 外部変形 changes the current folder to the BAT's) */
+    {
+        wchar_t win[MAX_PATH];
+
+        if (!GetWindowsDirectoryW(win, MAX_PATH)) {
+            return 0;
+        }
+        swprintf(cmd, MAX_PATH + 64, L"\"%ls%cNOTEPAD.EXE\" \"%ls\"", win, (wchar_t)92, path);
+    }
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
     if (CreateProcessW(0, cmd, 0, 0, FALSE, 0, 0, 0, &si, &pi)) {
@@ -939,7 +946,7 @@ static int pick_gaibu(HWND wnd)
 
 static int run_gaibu(HWND wnd)
 {
-    wchar_t dir[MAX_PATH], cmd[MAX_PATH + 160], *sl, wargs[160];
+    wchar_t dir[MAX_PATH], home[MAX_PATH], cmd[MAX_PATH + 160], *sl, wargs[160];
     unsigned char *t = 0, *back = 0;
     long tn = 0, kn = 0;
     char args[128], msg[160];
@@ -950,6 +957,13 @@ static int run_gaibu(HWND wnd)
 
     (void)wnd;
     args[0] = 0;
+    /* only a batch file is run, whatever the dialog let through */
+    {
+        size_t bl = wcslen(gaibu_bat);
+
+        if (bl < 5 || (_wcsicmp(gaibu_bat + bl - 4, L".bat") && _wcsicmp(gaibu_bat + bl - 4, L".cmd")))
+            return 0;
+    }
     if (app_gaibu_run_begin(&t, &tn, args, (int)sizeof args) != 1) {
         app_gaibu_run_end();
         return 0;
@@ -958,10 +972,12 @@ static int run_gaibu(HWND wnd)
     sl = wcsrchr(dir, (wchar_t)92);
     if (sl)
         *sl = 0;
+    GetCurrentDirectoryW(MAX_PATH, home);
     SetCurrentDirectoryW(dir);
     f = _wfopen(L"JWC_TEMP.TXT", L"wb");
     if (!f) {
         free(t);
+        SetCurrentDirectoryW(home);
         app_gaibu_run_end();
         return 0;
     }
@@ -969,6 +985,14 @@ static int run_gaibu(HWND wnd)
     fclose(f);
     free(t);
     MultiByteToWideChar(932, 0, args, -1, wargs, 160);
+    wargs[159] = 0;
+    {   /* the typed answers become the batch file's arguments; a line break would end the line */
+        wchar_t *q;
+
+        for (q = wargs; *q; q++)
+            if (*q < 32)
+                *q = L' ';
+    }
     swprintf(cmd, MAX_PATH + 160, L"\"%ls\" %ls", gaibu_bat, wargs);
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
@@ -979,6 +1003,7 @@ static int run_gaibu(HWND wnd)
     }
     f = _wfopen(L"JWC_TEMP.TXT", L"rb");
     if (!f) {
+        SetCurrentDirectoryW(home);
         app_gaibu_run_end();
         return 0;
     }
@@ -992,6 +1017,7 @@ static int run_gaibu(HWND wnd)
         r = -1;
     fclose(f);
     free(back);
+    SetCurrentDirectoryW(home);
     app_gaibu_run_end();
     return r >= 0;
 }

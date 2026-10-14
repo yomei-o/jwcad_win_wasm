@@ -118,6 +118,10 @@ step_fuzz() {
     ./tmp/ci/boxfuzz.exe orig/Test1.jww || rc=1
     gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/undoall.exe tests/undoall_test.c $SRC -lm || return 1
     ./tmp/ci/undoall.exe 12 || rc=1
+    gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/gaibuwalk.exe tests/gaibuwalk_test.c $SRC -lm || return 1
+    ./tmp/ci/gaibuwalk.exe 200 || rc=1
+    gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/mojiwalk.exe tests/mojiwalk_test.c $SRC -lm || return 1
+    ./tmp/ci/mojiwalk.exe 100 || rc=1
     gcc -O2 -w -std=c99 -Isrc -Itests -o tmp/ci/newcode.exe tests/newcode_test.c $SRC -lm || return 1
     ./tmp/ci/newcode.exe tmp/img/dec_rgb.png tmp/img/dec_q95.jpg tmp/img/dec_pal8.bmp || rc=1
     JW_CMDFUZZ_EXTREME=1 JW_CMDFUZZ_STEPS=800 ./tmp/ci/cmdfuzz.exe orig/Test1.jww orig/Test7.jww || rc=1
@@ -163,10 +167,18 @@ run fuzz   gcc    step_fuzz
 step_browser() {
     [ -f tmp/wasmci/jwcad.js ] || { echo "no tmp/wasmci/jwcad.js: run the wasm step first"; return 1; }
     rc=0
-    for t in cdp cdp_lang cdp_freehand cdp_auto cdp_robust cdp_pwa; do
+    for t in cdp cdp_lang cdp_freehand cdp_auto cdp_robust cdp_pwa cdp_input; do
         echo "== $t"
         WASM_DIR=tmp/wasmci CDP_PORT=9433 "$NODE" tools/web/$t.js || rc=1
     done
+    echo "== cdp_bars (quick: every sixth command; the whole walk is node tools/web/cdp_bars.js without the argument, six minutes)"
+    WASM_DIR=tmp/wasmci CDP_PORT=9433 "$NODE" tools/web/cdp_bars.js quick || rc=1
+    echo "== cdp_render (scores the browser canvas like tools/scoreall.sh; needs tmp/refs and python with PIL, else only saves pictures)"
+    WASM_DIR=tmp/wasmci CDP_PORT=9433 "$NODE" tools/web/cdp_render.js || rc=1
+    echo "== cdp_perf (zoom/pan frames and pick latency on the biggest drawings; limits are generous)"
+    WASM_DIR=tmp/wasmci CDP_PORT=9433 "$NODE" tools/web/cdp_perf.js || rc=1
+    echo "== cdp_dialogs (every settings dialog: Esc throws changes away, Enter keeps them)"
+    STEP=9 MAXCTL=16 WASM_DIR=tmp/wasmci CDP_PORT=9433 "$NODE" tools/web/cdp_dialogs.js || rc=1
     ! grep -a "^BAD" tmp/ci/browser.log || rc=1
     return $rc
 }

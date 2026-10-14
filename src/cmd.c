@@ -801,6 +801,9 @@ static struct { unsigned short cmd, id; char t[16]; } box[] = {
     { JW_CMD_HATCH, 1412, "1" },        /* ハッチの線間隔（２線・３線） */
 };
 static int box_focus;
+/* the box was just clicked and nothing typed yet: what is in it counts as selected, so the first key replaces it
+   (a click on a number field does that everywhere else; without it the default 10 had to be backspaced away) */
+static int box_fresh;
 
 /* 寸法 の 小数桁 (1061): how many places the value is written to.  The
  * button cycles them, and the original's own drawings say the cycle is
@@ -2819,7 +2822,8 @@ static int fukusen_selected(jw_drawing *d, double x, double y)
 
                         if (!o)
                             break;
-                        if (fw[head + m]) {
+                        /* つながった開いた鎖は 元の向きの逆に出る（原典の実測）。閉じた鎖・一本は そのまま */
+                        if ((fw[head + m] != 0) != (!closed && len > 1)) {
                             o->d[0] = CX[m]; o->d[1] = CY[m]; o->d[2] = CX[m + 1]; o->d[3] = CY[m + 1];
                         } else {
                             o->d[0] = CX[m + 1]; o->d[1] = CY[m + 1]; o->d[2] = CX[m]; o->d[3] = CY[m];
@@ -12246,6 +12250,7 @@ int jw_cmd_box_focus(void)
 void jw_cmd_box_click(int id)
 {
     box_focus = jw_cmd_box(id) ? id : 0;
+    box_fresh = box_focus != 0;
 }
 
 int jw_cmd_box_key(int ch)
@@ -12259,12 +12264,20 @@ int jw_cmd_box_key(int ch)
             return 1;
         }
         if (ch == 8) {                      /* backspace */
-            if (n)
+            if (box_fresh)
+                t[0] = 0;
+            else if (n)
                 t[n - 1] = 0;
+            box_fresh = 0;
             return 1;
         }
         /* ２線's box holds two numbers with a comma between them */
         if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ',') {
+            if (box_fresh) {
+                t[0] = 0;
+                n = 0;
+            }
+            box_fresh = 0;
             if (n < (int)sizeof box[0].t - 1) {
                 t[n] = (char)ch;
                 t[n + 1] = 0;

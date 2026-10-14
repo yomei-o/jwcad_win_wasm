@@ -195,8 +195,11 @@ if (LANG === 'en') {
 
   function present() {
     const w = width(), h = height();
-    canvas.width = w;
-    canvas.height = h;
+    // assigning a canvas's size, even to what it already is, throws its
+    // backing store away and makes a new one -- not something to do 60 times
+    // a second while the sheet is being dragged
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
     const p = rgba();
     // A view on the heap, not a copy: ALLOW_MEMORY_GROWTH can move the
     // buffer, so it has to be taken again after every call into wasm.
@@ -997,7 +1000,7 @@ if (LANG === 'en') {
       const r = canvas.getBoundingClientRect();
       const k = canvas.width / r.width;
       touches.set(e.pointerId, { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k,
-                                 cx: e.clientX, cy: e.clientY });
+                                 cx: e.clientX, cy: e.clientY, cx0: e.clientX, cy0: e.clientY, t0: Date.now() });
       canvas.setPointerCapture(e.pointerId);
       if (touches.size === 2) {
         gesture = Object.assign(touchPair(), { moved: false, t: Date.now() });
@@ -1008,6 +1011,12 @@ if (LANG === 'en') {
       return;
     }
     const [x, y] = at(e);
+    // Shift-click (or Ctrl-click) is the right button, for a trackpad or a
+    // Mac mouse that has none
+    if (e.button === 0 && (e.shiftKey || e.ctrlKey) && !e.altKey && !e.metaKey) {
+      react(press(x, y, 1));
+      return;
+    }
     if (e.button === 0) {
       leftClick(e, x, y);
       return;
@@ -1080,7 +1089,11 @@ if (LANG === 'en') {
       }
       if (had === 1) {
         const [x, y] = at(e);
-        leftClick(e, x, y);
+        // held in place for over half a second: the right button, for the
+        // places a finger has no second finger to spare (the 文字 range's
+        // second corner, the layer-group squares, "(R)Read")
+        if (Date.now() - t.t0 > 550 && Math.hypot(t.cx - t.cx0, t.cy - t.cy0) < 12) react(press(x, y, 1));
+        else leftClick(e, x, y);
       }
       return;
     }
@@ -1246,12 +1259,14 @@ if (LANG === 'en') {
       ['Left', '左ボタン', 'Point for the command in force', '命令への点'],
       ['Right click', '右クリック', '(R) -- read a point, finish a run', '(R)Read・連続の終わり など'],
       ['Right drag', '右ドラッグ', 'Move the sheet', '用紙を動かす'],
+      ['Shift+click', 'Shift+クリック', 'The right button (no right button on the mouse)', '右ボタン（右ボタンが無いとき）'],
       ['Wheel', 'ホイール', 'Zoom about the pointer', 'ポインタを中心に拡大縮小'],
     ]],
     ['Touch', 'タッチ', [
       ['1 finger', '指一本', 'Moves the cursor; the point goes where it is lifted', '動かすとカーソルが付き、離したところが点'],
       ['2 fingers', '指二本', 'Pinch to zoom, drag to move the sheet', 'つまんで拡大縮小・ドラッグで移動'],
       ['2-finger tap', '二本で軽く触れる', 'The right button', '右ボタン'],
+      ['Long press', '指を置いたまま 0.5 秒', 'The right button (one finger)', '右ボタン（指一本）'],
     ]],
     ['Keys', 'キー', [
       ['Ctrl+Z / Alt+BS', 'Ctrl+Z / Alt+BS', 'Undo (戻る)', '戻る'],
