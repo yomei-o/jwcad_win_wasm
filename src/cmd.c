@@ -3891,6 +3891,18 @@ const char *jw_cmd_status(const jw_drawing *d)
             return buf;
         }
     }
+    /* 接円: 一つ目・二つ目を訊く間（0x14fc・0x14fd）、半径が箱にあれば
+       「    [ r = %.3lf ]」が付く（CZukeiSetuEn。箱の値の絶対値を紙の mm に
+       して 1e-7 を超えるとき、実寸で。三桁区切りはない） */
+    if (current == JW_CMD_SEKIEN && (sek_step == 0 || sek_step == 1) && d) {
+        const char *t = jw_cmd_box(1411);
+        double r = t ? fabs(atof(t)) : 0.0;
+
+        if (r / write_scale(d) > 1e-7) {
+            snprintf(buf, sizeof buf, "%s    [ r = %.3f ]", p, r);
+            return buf;
+        }
+    }
     switch (kind) {
     case 1:
         num3(b, (int)sizeof b, d, vb);

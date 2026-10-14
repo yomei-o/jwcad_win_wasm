@@ -334,6 +334,45 @@ static void fukusen_tail(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 接円: 一つ目・二つ目を訊く間、半径が箱にあれば「    [ r = %.3lf ]」
+   （CZukeiSetuEn の 0x14fc・0x14fd。逆コンパイルの読み） */
+static void sekien_tail(void)
+{
+    const jw_drawing *d;
+    char want[256];
+    int i;
+
+    app_new();
+    d = app_drawing();
+    app_command(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    click(-100.0, 40.0);
+    click(100.0, 40.0);
+    app_command(JW_CMD_SEKIEN);
+    jw_cmd_box_click(1411);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key(13);
+    cksame(jw_cmd_status(d), JW_STR_5372, "接円は半径が空なら末尾なし");
+    jw_cmd_box_click(1411);
+    jw_cmd_box_key('1');
+    jw_cmd_box_key('5');
+    jw_cmd_box_key('0');
+    jw_cmd_box_key('0');
+    jw_cmd_box_key(13);
+    snprintf(want, sizeof want, "%s    [ r = 1500.000 ]", JW_STR_5372);
+    cksame(jw_cmd_status(d), want, "  半径 1500 なら [ r = 1500.000 ]");
+    click(0.0, 40.0);
+    snprintf(want, sizeof want, "%s    [ r = 1500.000 ]", JW_STR_5373);
+    cksame(jw_cmd_status(d), want, "  一つ目を選んだあとも");
+    jw_cmd_box_click(1411);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key(13);
+    app_command(JW_CMD_SEN);
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -425,6 +464,7 @@ int main(void)
 
     prompts_of_the_commands();
     fukusen_tail();
+    sekien_tail();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
