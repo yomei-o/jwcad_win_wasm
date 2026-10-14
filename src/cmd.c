@@ -16228,33 +16228,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         return;
     }
     if (current == JW_CMD_TENKU && tn_cmp && d && button <= 1) {
-        /* 天空率比較計算 (1066)。一つ目・二つ目は字を指示（FUN_0074e1c0、拾いは FUN_004500e0。
-           移植は 点から字の枠までの近さで拾う。原典の拾い方は確認が要る）、三つ目は 結果の位置
-           「(L)free  (R)Read」（0x16a3）。答えは decomp/res/hk_tc1〜tc3（tools/tnbatch4.sh） */
+        /* 天空率比較計算 (1066)。一つ目・二つ目は字を指示（FUN_0074e1c0、拾いは FUN_004500e0
+           = jw_pick_moji）、三つ目は 結果の位置「(L)free  (R)Read」（0x16a3）。答えは
+           decomp/res/hk_tc1〜tc3（tools/tnbatch4.sh） */
         if (tn_cmp <= 2) {
-            int i, best = -1;
-            double bd = jw_pick_tol(v), val;
+            int best = jw_pick_moji(d, v, x, y);
+            double val;
             int dec;
 
-            for (i = 0; i < d->ndrawn; i++) {
-                const jw_obj *o = &d->obj[i];
-                double ux, uy, len, lx, ly, ex, ey, dd;
-
-                if (o->cls != JW_MOJI)
-                    continue;
-                len = hypot(o->d[2] - o->d[0], o->d[3] - o->d[1]);
-                ux = len > 0.0 ? (o->d[2] - o->d[0]) / len : 1.0;
-                uy = len > 0.0 ? (o->d[3] - o->d[1]) / len : 0.0;
-                lx = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
-                ly = -(x - o->d[0]) * uy + (y - o->d[1]) * ux;
-                ex = lx < 0.0 ? -lx : lx > len ? lx - len : 0.0;
-                ey = ly < 0.0 ? -ly : ly > o->d[5] ? ly - o->d[5] : 0.0;
-                dd = hypot(ex, ey);
-                if (dd <= bd) {
-                    bd = dd;
-                    best = i;
-                }
-            }
             if (best < 0 || !jw_tenku_cmp_parse(jw_str(d, d->obj[best].text), &val, &dec,
                                                 &tn_csan))
                 return;             /* 原典は 0x16a4「天空率ではありません」 */

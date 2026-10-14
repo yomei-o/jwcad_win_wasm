@@ -543,6 +543,34 @@ int jw_read(const jw_drawing *d, const jw_view *v, double x, double y,
     return 1;
 }
 
+/* 字だけを拾う。原典の FUN_004500e0（文字を指示する命令の拾い）: 点の回りの箱で
+   CDataMoji の当たり判定（+0x44）を順に呼び、いちばん近いものを残す。寸法の字は
+   見ない（原典はそれでも無ければ寸法図形の字を探す） */
+int jw_pick_moji(const jw_drawing *d, const jw_view *v, double x, double y)
+{
+    box_t b;
+    double tbest = 1e99;
+    int thit = -1, i;
+
+    b.tol = jw_pick_tol(v);
+    b.x0 = x - b.tol;
+    b.x1 = x + b.tol;
+    b.y0 = y - b.tol;
+    b.y1 = y + b.tol;
+    b.d = 1e99;
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        if (o->cls != JW_MOJI || !editable(d, o))
+            continue;
+        if (dist_moji(&b, d, o, x, y) && b.d < tbest) {
+            tbest = b.d;
+            thit = i;
+        }
+    }
+    return thit;
+}
+
 int jw_pick(const jw_drawing *d, const jw_view *v, double x, double y,
             int mode)
 {

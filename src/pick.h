@@ -27,6 +27,8 @@
  * At 96 dpi the dpi step is the identity, so it comes to px / scale.
  */
 double jw_pick_tol(const jw_view *v);
+/* 字だけ、原典の文字を指示する拾い（FUN_004500e0）で。-1 なら無し */
+int jw_pick_moji(const jw_drawing *d, const jw_view *v, double x, double y);
 
 /* The mode is FUN_0044a270's first argument: 0 and 2 let a point win over
    anything else, 1 and 3 do not, and 3 (図形消去's) leaves points to be
