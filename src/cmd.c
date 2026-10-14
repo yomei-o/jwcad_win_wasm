@@ -11901,9 +11901,14 @@ static int bar_press(jw_drawing *d, int id)
             sel_step = 0;
             return 1;
         }
+        /* 全選択: 原典（CZukeiSentaku の 44 番目 FUN_006fc520）は 全部の選択の印を消してから、
+           守られていなくて（FUN_0042dcb0）編集できる（FUN_0042dd10）ものだけに付ける。
+           表示のみ・非表示のレイヤの要素は選ばない */
         for (i = 0; i < d->ndrawn; i++) {
-            d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
-            d->obj[i].sel = 1;
+            int on = jw_pick_editable(d, &d->obj[i]);
+
+            d->obj[i].flags = (unsigned short)(on ? d->obj[i].flags | 2u : d->obj[i].flags & ~2u);
+            d->obj[i].sel = (unsigned char)on;
         }
         sel_step = 2;
         return 1;

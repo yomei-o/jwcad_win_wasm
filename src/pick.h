@@ -27,6 +27,8 @@
  * At 96 dpi the dpi step is the identity, so it comes to px / scale.
  */
 double jw_pick_tol(const jw_view *v);
+/* 拾えるレイヤ（グループとレイヤが編集可）にあって、要素の bit 1 が立っていないか */
+int jw_pick_editable(const jw_drawing *d, const jw_obj *o);
 /* 字だけ、原典の文字を指示する拾い（FUN_004500e0）で。-1 なら無し */
 int jw_pick_moji(const jw_drawing *d, const jw_view *v, double x, double y);
 

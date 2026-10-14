@@ -510,6 +510,41 @@ static void run_dir(const char *path, int presses, int cx, int cy,
     jw_free(&ref);
 }
 
+/* 全選択 (1066) は 編集できるレイヤの要素だけ（原典 CZukeiSentaku の 44 番目 FUN_006fc520:
+   守られていなくて FUN_0042dd10 が 3 と言うもの）。表示のみ・非表示のレイヤのものは選ばない */
+static void select_all_editable(void)
+{
+    jw_drawing *d;
+    int i;
+
+    app_new();
+    app_command(32771);
+    app_press(400, 300, 0);
+    app_press(500, 300, 0);
+    app_press(400, 400, 0);
+    app_press(500, 400, 0);
+    app_press(400, 500, 0);
+    app_press(500, 500, 0);
+    d = (jw_drawing *)app_drawing();
+    if (d->ndrawn < 3) {
+        ck(0, "全選択: 三本の線が引けた");
+        return;
+    }
+    d->obj[1].layer = 1;
+    d->obj[2].layer = 2;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3) {
+            d->group[i].layer[1].state = 1;     /* 表示のみ */
+            d->group[i].layer[2].state = 0;     /* 非表示 */
+        }
+    app_command(32787);
+    jw_cmd_bar(d, 1066);
+    ck(d->obj[0].sel && !d->obj[1].sel && !d->obj[2].sel,
+       "全選択は 編集できるレイヤの線だけ（表示のみ・非表示は選ばない）");
+    ck((d->obj[0].flags & 2) && !(d->obj[1].flags & 2) && !(d->obj[2].flags & 2),
+       "  選択の印も その線だけ");
+}
+
 int main(void)
 {
     if (!read_rect()) {
@@ -534,6 +569,7 @@ int main(void)
             "XY方向 with the taller one:");
     ck(!strcmp(jw_cmd_dir_text(), "XY\x95\xfb\x8c\xfc"),
        "and the button is carrying XY方向 by now");
+    select_all_editable();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

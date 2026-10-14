@@ -292,6 +292,11 @@ static int editable(const jw_drawing *d, const jw_obj *o)
     return (gs & ls) == 3 && !(o->flags & 1);
 }
 
+int jw_pick_editable(const jw_drawing *d, const jw_obj *o)
+{
+    return editable(d, o);
+}
+
 /* One candidate read point, kept if it is the nearest so far.
  *
  * The measure is in screen pixels, not millimetres of paper, and it is
