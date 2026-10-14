@@ -3002,11 +3002,12 @@ int jw_draw_transparent = 1;
    (the original's +0x82b8; its pick order follows the same flag -- the hatch's
    FUN_006715f0 walks backwards with it on).  Off by default. */
 int jw_draw_reverse = 0;
-#define DRAW_AT(i, n) (jw_draw_reverse ? (n) - 1 - (i) : (i))
+#define DRAW_AT(i, n) (rev ? (n) - 1 - (i) : (i))
 
 void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 {
     int i;
+    const int rev = jw_draw_reverse;    /* read once: DRAW_AT is in every pass */
 
     if (jw_draw_images_first && !jw_draw_kari)
         for (i = 0; i < d->ndrawn; i++) {
