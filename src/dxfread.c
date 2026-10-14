@@ -1409,6 +1409,17 @@ static int dxf_read_raw(jw_drawing *d, const unsigned char *b, long n)
             d->group[i >> 4].layer_name[i & 0xf] =
                 jw_add_str(d, r->lay[i].name);
     free(r);
+    /* An entity whose numbers mean nothing (nan, inf, 1e308) is left out and the
+       rest of the file is read: refusing the whole file for one bad line is no help. */
+    for (i = d->nobj - 1; i >= 0; i--) {
+        int k, bad = 0;
+
+        for (k = 0; k < 8; k++)
+            if (!(d->obj[i].d[k] > -1e12 && d->obj[i].d[k] < 1e12))
+                bad = 1;
+        if (bad)
+            jw_remove(d, i);
+    }
     if (!jw_numbers_sane(d)) {
         d->error = "a coordinate that cannot be";
         return 0;

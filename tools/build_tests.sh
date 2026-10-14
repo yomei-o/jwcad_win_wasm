@@ -144,7 +144,7 @@ run "$CC $CFLAGS -o tests/auto_test.exe tests/auto_test.c tests/png.c $COMMON -l
 run "$CC $CFLAGS -o tests/d25_test.exe tests/d25_test.c tests/png.c $COMMON -lm"
 run "$CC $CFLAGS -o tests/senkigou_test.exe tests/senkigou_test.c $COMMON -lm"
 run "$CC $CFLAGS -o tests/auto2_test.exe tests/auto2_test.c $COMMON -lm"
-run "$CC $CFLAGS -o tests/hk_test.exe tests/hk_test.c $COMMON -lm"
+run "$CC $CFLAGS -o tests/hk_test.exe tests/hk_test.c tests/png.c $COMMON -lm"
 run "$CC $CFLAGS -o tests/zokuhen_test.exe tests/zokuhen_test.c $COMMON -lm"
 run "$CC $CFLAGS -o tests/xform_test.exe   tests/xform_test.c   $COMMON -lm"
 run "$CC $CFLAGS -o tests/dxf_test.exe     tests/dxf_test.c     $COMMON -lm"

@@ -32,6 +32,7 @@
 <header>
   <b>Jw_cad for Windows 10.03.6</b> — 実行ファイルを逆コンパイルして C に書き直した移植。
   <a href="https://github.com/yomei-o/jwcad_win_wasm">ソース</a>
+  <a href="?lang=en" id="langen" lang="en">English</a> <a href="?lang=ja" id="langja" lang="ja">日本語</a>
 </header>
 <div id="wrap"><canvas id="screen" width="1264" height="741" tabindex="0" role="application" aria-label="Jw_cad 図面。キーボード: 一文字コマンド、Enter、Esc、Ctrl+Z など"></canvas></div>
 <div id="note">
@@ -46,6 +47,75 @@
   <span id="msg" role="status" aria-live="polite">—— 図面はここで読むだけで、どこにも送られません。</span>
   <span style="color:#777">ホイールで拡大縮小、右ドラッグで移動、Home で全体、Ctrl+Z 戻る・Ctrl+Y 進む・Ctrl+S 保存。タッチは 指一本で位置、二本で移動・拡大縮小（二本でちょんと触れると右ボタン）。</span>
 </div>
+<script>
+// Language of the page chrome (not of the original's own strings): ?lang=en or ja, remembered; Japanese otherwise.
+const LANG = (() => {
+  try {
+    const q = new URLSearchParams(location.search).get('lang');
+    if (q === 'en' || q === 'ja') { localStorage.setItem('jw.lang', q); return q; }
+    return localStorage.getItem('jw.lang') === 'en' ? 'en' : 'ja';
+  } catch (e) { return 'ja'; }
+})();
+const EN = {
+  'メモリが足りません': 'Out of memory',
+  '実行ファイルを逆コンパイルして C に書き直した移植。': 'a port rewritten in C from the decompiled executable.',
+  'ソース': 'Source',
+  '.jww ・ .dxf ・ .sfc ・ .jwc ・ .jws ・座標ファイル を開く（画像は 画像編集 の 画像挿入 で）': 'Open .jww, .dxf, .sfc, .jwc, .jws or a coordinate file (pictures go in with 画像編集 > 画像挿入)',
+  'DXF で保存': 'Save as DXF',
+  'SFC で保存': 'Save as SFC',
+  'JWC で保存': 'Save as JWC',
+  'PDF で印刷': 'Print to PDF',
+  'PNG で印刷': 'Print to PNG',
+  '—— 図面はここで読むだけで、どこにも送られません。': '-- Drawings are read here only and are never sent anywhere.',
+  'ホイールで拡大縮小、右ドラッグで移動、Home で全体、Ctrl+Z 戻る・Ctrl+Y 進む・Ctrl+S 保存。タッチは 指一本で位置、二本で移動・拡大縮小（二本でちょんと触れると右ボタン）。': 'Wheel zooms, right-drag pans, Home fits the sheet, Ctrl+Z undo, Ctrl+Y redo, Ctrl+S save. Touch: one finger points, two fingers pan and pinch (a two-finger tap is the right button).',
+  '文字・数値の入力': 'Text and number input',
+  '画像を挿入': 'Insert a picture',
+  '最近のファイル': 'Recent files',
+  'Jw_cad 図面。キーボード: 一文字コマンド、Enter、Esc、Ctrl+Z など': 'Jw_cad drawing. Keyboard: one-letter commands, Enter, Esc, Ctrl+Z and so on',
+  ' に保存しました': ' saved',
+  '図形の名前': 'Name of the figure',
+  'この wasm には 文字の 範囲選択 の取り出しがありません': 'This wasm has no text range selection exports',
+  '文字を置き換えました': 'Texts replaced',
+  '行がありません': 'No lines',
+  '文書込完了': 'Document written',
+  '外部エディタ — 1 行が 1 文字です。空行は削除、行を足すと文字が増えます': 'External editor -- one line is one text. An empty line deletes it; extra lines make new texts',
+  '取消': 'Cancel',
+  'クリップボードを読めません': 'The clipboard cannot be read',
+  '外部変形はブラウザ版では実行できません（BAT を走らせられないため）。デスクトップ版をお使いください': 'External transform (外部変形) cannot run in the browser because it has to run a batch file. Use the desktop version',
+  '変更を保存していません。破棄して新規作成しますか？': 'There are unsaved changes. Discard them and start a new drawing?',
+  ' — 基準点を指示してください': ' -- specify the base point',
+  ' — 画像を覚えました（図面が名前で呼べます）': ' -- picture remembered (a drawing can call it by name)',
+  ' — 置く点を指示してください': ' -- specify where to put it',
+  ' 個の要素': ' elements',
+  ' を開けません': ' cannot be opened',
+  '保存されていない図面が残っています（': 'An unsaved drawing was left (',
+  '）。': ').',
+  '復元': 'Restore',
+  '破棄': 'Discard',
+  '保存されていない図面を復元しました': 'The unsaved drawing was restored',
+};
+const T = ja => (LANG === 'en' && EN[ja]) || ja;
+// the text nodes and attributes the page starts with
+if (LANG === 'en') {
+  document.documentElement.lang = 'en';
+  document.title = 'Jw_cad for Windows -- WASM port';
+  const walk = el => {
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3) {
+        const whole = n.nodeValue.trim();
+        const stripped = whole.replace(/^[—-]+\s*/, '');
+        if (EN[whole]) n.nodeValue = n.nodeValue.replace(whole, EN[whole]);
+        else if (stripped !== whole && EN[stripped]) n.nodeValue = n.nodeValue.replace(whole, '-- ' + EN[stripped]);
+      } else if (n.nodeType === 1) {
+        for (const a of ['aria-label', 'title'])
+          if (n.hasAttribute(a) && EN[n.getAttribute(a)]) n.setAttribute(a, EN[n.getAttribute(a)]);
+        walk(n);
+      }
+    }
+  };
+  document.addEventListener('DOMContentLoaded', () => walk(document.body));
+}
+</script>
 <script src="jwcad.js?v=14"></script>
 <script>
 (async function () {
@@ -58,6 +128,16 @@
     locateFile: p => p + '?v=' + Date.now()
   });
 
+  // A file is copied into the program's memory.  When there is no room malloc says 0, and
+  // writing there would trample the program: so it is refused with a message instead.
+  const alloc = n => {
+    const p = mod._malloc(Math.max(1, n));
+    if (!p) throw new Error(T('メモリが足りません'));
+    return p;
+  };
+  const showErr = e => {
+    document.getElementById('msg').textContent = String((e && e.message) || e);
+  };
   const resize = mod.cwrap('jw_resize', 'number', ['number', 'number']);
   const width  = mod.cwrap('jw_width',  'number', []);
   const height = mod.cwrap('jw_height', 'number', []);
@@ -81,7 +161,7 @@
         .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
         .then(buf => {
           const bytes = new Uint8Array(buf);
-          const p = mod._malloc(bytes.length);
+          const p = alloc(bytes.length);
           mod.HEAPU8.set(bytes, p);
           const ok = fontPut(p, bytes.length, n);
           mod._free(p);
@@ -186,7 +266,7 @@
   // The caption says what the original's does: the file's name and then
   // " - jw_win".  The name goes over as UTF-16, like typed text does.
   const setName = s => {
-    const p = mod._malloc(Math.max(2, s.length * 2));
+    const p = alloc(Math.max(2, s.length * 2));
     for (let i = 0; i < s.length; i++)
       mod.HEAPU16[(p >> 1) + i] = s.charCodeAt(i);
     mod.ccall('jw_name', null, ['number', 'number'], [p, s.length]);
@@ -202,7 +282,7 @@
   // focused: the candidate window then appears where the input is, and what
   // comes back is handed to the port as UTF-16 for it to turn into CP932.
   const ime = document.createElement('input');
-  ime.setAttribute('aria-label', '文字・数値の入力');
+  ime.setAttribute('aria-label', T('文字・数値の入力'));
   // Not hidden, just invisible: a one pixel transparent box is something
   // browsers will refuse to put an IME on, and without a real editable area
   // under the cursor a conversion has nowhere to happen.  This one sits
@@ -367,7 +447,7 @@
         navigator.clipboard.readText().then(t => {
           if (t && t.startsWith('JWCLIP:')) {
             const bytes = Uint8Array.from(atob(t.slice(7)), c => c.charCodeAt(0));
-            const p = mod._malloc(bytes.length);
+            const p = alloc(bytes.length);
             mod.HEAPU8.set(bytes, p);
             mod._jw_clip_set(p, bytes.length);
             mod._free(p);
@@ -487,7 +567,7 @@
       handles.set(h.name, h);
       recentAdd(h).then(recentShow);
       if (/\.jww$/i.test(h.name)) { openedName = h.name; setName(h.name); }
-      document.getElementById('msg').textContent = h.name + ' に保存しました';
+      document.getElementById('msg').textContent = h.name + T(' に保存しました');
       return true;
     } catch (e) {
       if (e && e.name === 'AbortError') return true;     /* cancelled: say nothing */
@@ -522,7 +602,7 @@
   // 図形登録: the press that gave the 基準点 hands back 4, and the figure
   // is written out as a .jws for the browser to put somewhere.
   function downloadFig() {
-    const name = window.prompt('図形の名前', '図形') || '図形';
+    const name = window.prompt(T('図形の名前'), '図形') || '図形';
     offer(saveFig(), name.replace(/\.[^.]*$/, '') + '.jws');
   }
 
@@ -570,7 +650,7 @@
   // .txt is coded; the lines come back by their BOM, or as CP932.
   function mojiAction(r) {
     const msg = document.getElementById('msg');
-    if (!mod._jw_moji_doc) { msg.textContent = 'この wasm には 文字の 範囲選択 の取り出しがありません'; return; }
+    if (!mod._jw_moji_doc) { msg.textContent = T('この wasm には 文字の 範囲選択 の取り出しがありません'); return; }
     const dec = bytes => {
       const u8 = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
       return new TextDecoder(u8 ? 'utf-8' : 'shift_jis').decode(bytes);
@@ -579,18 +659,18 @@
       const enc = new TextEncoder().encode(str.replace(/\r?\n/g, '\r\n'));
       const bytes = new Uint8Array(enc.length + 3);
       bytes.set([0xef, 0xbb, 0xbf]); bytes.set(enc, 3);
-      const p = mod._malloc(bytes.length);
+      const p = alloc(bytes.length);
       mod.HEAPU8.set(bytes, p);
       const ok = mod._jw_moji_apply(p, bytes.length);
       mod._free(p);
       present();
-      msg.textContent = ok ? '文字を置き換えました' : '行がありません';
+      msg.textContent = ok ? T('文字を置き換えました') : T('行がありません');
     };
     if (r === 13) {
       const p = mod._jw_moji_doc();
       if (!p) return;
       offer(p, curName().replace(/\.[^.]*$/, '') + '.txt');
-      msg.textContent = '文書込完了';
+      msg.textContent = T('文書込完了');
       present();
     } else if (r === 14) {
       const p = mod._jw_moji_edit_text();
@@ -599,9 +679,9 @@
       mod._jw_saved_free();
       const text = dec(bytes);
       const box = document.createElement('dialog');
-      box.innerHTML = '<form method="dialog"><p>外部エディタ — 1 行が 1 文字です。空行は削除、行を足すと文字が増えます</p>'
+      box.innerHTML = '<form method="dialog"><p>' + T('外部エディタ — 1 行が 1 文字です。空行は削除、行を足すと文字が増えます') + '</p>'
         + '<textarea rows="14" cols="60" style="font-family:monospace"></textarea>'
-        + '<p><button value="ok">OK</button> <button value="cancel">取消</button></p></form>';
+        + '<p><button value="ok">OK</button> <button value="cancel">' + T('取消') + '</button></p></form>';
       box.querySelector('textarea').value = text;
       document.body.appendChild(box);
       box.addEventListener('close', () => {
@@ -610,9 +690,9 @@
       });
       box.showModal();
     } else if (navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(give, () => { msg.textContent = 'クリップボードを読めません'; });
+      navigator.clipboard.readText().then(give, () => { msg.textContent = T('クリップボードを読めません'); });
     } else {
-      msg.textContent = 'クリップボードを読めません';
+      msg.textContent = T('クリップボードを読めません');
     }
   }
 
@@ -640,11 +720,11 @@
     else if (r === 13 || r === 14 || r === 15) mojiAction(r);
     else if (r === 12) {
       document.getElementById('msg').textContent =
-        '外部変形はブラウザ版では実行できません（BAT を走らせられないため）。デスクトップ版をお使いください';
+        T('外部変形はブラウザ版では実行できません（BAT を走らせられないため）。デスクトップ版をお使いください');
       present();
     }
     else if (r === 7) {
-      if (confirm('変更を保存していません。破棄して新規作成しますか？')) {
+      if (confirm(T('変更を保存していません。破棄して新規作成しますか？'))) {
         newDrawing();
         curName();
         setName('');
@@ -658,7 +738,7 @@
   function downloadImages() {
     const n = imageOutCount();
     for (let i = 0; i < n; i++) {
-      const nb = mod._malloc(600);
+      const nb = alloc(600);
       const len = imageOutName(i, nb, 300);
       let name = '';
       for (let k = 0; k < len; k++) name += String.fromCharCode(mod.HEAPU16[(nb >> 1) + k]);
@@ -677,17 +757,17 @@
   // no 画像挿入 is waiting, only kept so a drawing that names it finds it)
   async function loadImage(file, insert) {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const p = mod._malloc(bytes.length);
+    const p = alloc(bytes.length);
     mod.HEAPU8.set(bytes, p);
-    const nb = mod._malloc(Math.max(2, file.name.length * 2));
+    const nb = alloc(Math.max(2, file.name.length * 2));
     for (let i = 0; i < file.name.length; i++)
       mod.HEAPU16[(nb >> 1) + i] = file.name.charCodeAt(i);
     const ok = (insert ? imageIn : imageStore)(nb, file.name.length, p, bytes.length);
     mod._free(nb);
     mod._free(p);
     document.getElementById('msg').textContent = insert
-      ? `${file.name} — 基準点を指示してください`
-      : `${file.name} — 画像を覚えました（図面が名前で呼べます）`;
+      ? `${file.name}${LANG === 'en' ? ' -- specify the base point' : ' — 基準点を指示してください'}`
+      : `${file.name}${LANG === 'en' ? T(' — 画像を覚えました（図面が名前で呼べます）') : ' — 画像を覚えました（図面が名前で呼べます）'}`;
     present();
     return ok;
   }
@@ -697,10 +777,10 @@
     // a .jww replaces the drawing that is open; the other formats go into it
     // (or hang on the cursor), which is no reason to ask
     if (!askedText && /\.jww$/i.test(file.name) && modified()
-        && !confirm('変更を保存していません。破棄して「' + file.name + '」を開きますか？'))
+        && !confirm(LANG === 'en' ? 'There are unsaved changes. Discard them and open "' + file.name + '"?' : '変更を保存していません。破棄して「' + file.name + '」を開きますか？'))
       return;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const p = mod._malloc(bytes.length);
+    const p = alloc(bytes.length);
     mod.HEAPU8.set(bytes, p);
     // A .dxf or .sfc is read into the drawing that is open rather than in
     // place of it, which is what the original does with those two.
@@ -729,8 +809,8 @@
     }
     document.getElementById('msg').textContent =
       !ok ? `${file.name}: ${error()}`
-      : fig ? `${file.name} — 置く点を指示してください`
-      : `${file.name} — ${nobj()} 個の要素`;
+      : fig ? `${file.name}${LANG === 'en' ? ' -- specify where to put it' : ' — 置く点を指示してください'}`
+      : `${file.name}${LANG === 'en' ? ' -- ' + nobj() + ' elements' : ' — ' + nobj() + ' 個の要素'}`;
     present();
   }
 
@@ -774,7 +854,7 @@
   async function recentShow() {
     const l = await recentAll();
     recentSel.textContent = '';
-    recentSel.add(new Option('最近のファイル', ''));
+    recentSel.add(new Option(T('最近のファイル'), ''));
     l.forEach(e => recentSel.add(new Option(e.name, e.name)));
     recentSel.hidden = !l.length;
     recentSel.onchange = async () => {
@@ -786,9 +866,9 @@
             && await e.h.requestPermission({ mode: 'readwrite' }) !== 'granted') return;
         const f = await e.h.getFile();
         if (/\.jww$/i.test(f.name)) handles.set(f.name, e.h);
-        load(f);
+        load(f).catch(showErr);
       } catch (err) {
-        document.getElementById('msg').textContent = e.name + ' を開けません';
+        document.getElementById('msg').textContent = e.name + T(' を開けません');
       }
     };
   }
@@ -803,7 +883,7 @@
       const f = await h.getFile();
       if (/\.jww$/i.test(f.name)) handles.set(f.name, h);
       recentAdd(h).then(recentShow);
-      load(f);
+      load(f).catch(showErr);
     } catch (e) {
       if (!e || e.name !== 'AbortError') document.getElementById('pick').click();
     }
@@ -816,12 +896,12 @@
     // Without this, choosing the same file again (to go back to what was
     // saved, say) raises no change event and nothing happens.
     e.target.value = '';
-    if (f) load(f);
+    if (f) load(f).catch(showErr);
   });
   document.addEventListener('dragover', e => e.preventDefault());
   document.addEventListener('drop', e => {
     e.preventDefault();
-    if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]).catch(showErr);
   });
 
   // Wheel zooms about the pointer, dragging moves the sheet, Home refits --
@@ -1002,7 +1082,7 @@
     const saved = localStorage.getItem('jw.env');
     if (saved) {
       const bytes = Uint8Array.from(atob(saved), c => c.charCodeAt(0));
-      const p = mod._malloc(bytes.length);
+      const p = alloc(bytes.length);
       mod.HEAPU8.set(bytes, p);
       openEnv(p, bytes.length);
       mod._free(p);
@@ -1083,13 +1163,13 @@
     bar.id = 'recover';
     bar.setAttribute('role', 'alert');
     bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:5;background:#fd8;color:#000;padding:6px 10px;font:14px sans-serif';
-    bar.append('保存されていない図面が残っています（' + (rec.name || 'drawing.jww') + '、'
-               + new Date(rec.t).toLocaleString() + '）。');
+    bar.append(T('保存されていない図面が残っています（') + (rec.name || 'drawing.jww') + (LANG === 'en' ? ', ' : '、')
+               + new Date(rec.t).toLocaleString() + T('）。'));
     const yes = document.createElement('button'), no = document.createElement('button');
-    yes.textContent = '復元'; no.textContent = '破棄';
+    yes.textContent = T('復元'); no.textContent = T('破棄');
     yes.style.margin = '0 6px'; no.style.margin = '0 6px';
     yes.onclick = () => {
-      const p = mod._malloc(rec.bytes.length || 1);
+      const p = alloc(rec.bytes.length || 1);
       mod.HEAPU8.set(rec.bytes, p);
       const ok = open(p, rec.bytes.length);
       mod._free(p);
@@ -1098,7 +1178,7 @@
         setName(openedName);
         mod._jw_mark_modified();
         autoHad = true;
-        document.getElementById('msg').textContent = '保存されていない図面を復元しました';
+        document.getElementById('msg').textContent = T('保存されていない図面を復元しました');
       }
       present();
       bar.remove();

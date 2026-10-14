@@ -14788,11 +14788,12 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
     o = op_new();
     gid++;
     for (k = 0; k < n; k++) {
-        int q;
+        int q, lcol;
         jw_obj *l = jw_add(d, JW_SEN);
 
         if (!l)
             break;
+        lcol = l->color;    /* jw_tg_text below adds too, and may move the array */
         l->d[0] = seg[k].x0;
         l->d[1] = seg[k].y0;
         l->d[2] = seg[k].x1;
@@ -14830,7 +14831,7 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
             if (nn > 0) {
                 d->obj[d->ndrawn - 1].id = gid;
                 d->obj[d->ndrawn - 1].n = 0;
-                d->obj[d->ndrawn - 1].color = l->color;
+                d->obj[d->ndrawn - 1].color = (unsigned short)lcol;
             }
             made += nn;
             lab = q;
@@ -17464,9 +17465,11 @@ placed:
                     return;
                 }
                 i = jw_pick(d, v, x, y, 3);
-                if (i >= 0 && d->obj[i].cls == JW_ENKO)
+                if (i >= 0 && d->obj[i].cls == JW_ENKO) {
                     bk_full_circle(d, bk_px, bk_py, i, x, y);
-                corner_step = 0;
+                    corner_step = 0;
+                }
+                /* 何も拾えない (R) は 何もしない（始点はそのまま、ファジング s23_6） */
             }
             return;
         }

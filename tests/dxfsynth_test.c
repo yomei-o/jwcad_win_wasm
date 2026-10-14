@@ -140,6 +140,13 @@ int main(void)
     ck(read_dxf(buf, &d), "a block and a turned, scaled reference reads");
     ck(count(&d, JW_SEN) + count(&d, JW_BLOCK) >= 1, "  and something is drawn");
 
+    /* numbers that are not numbers, or too big to mean anything: the entity is skipped, the file is not refused */
+    sprintf(buf, "%s0\nLINE\n8\n0\n10\n0\n20\n0\n11\n10\n21\n0\n"
+                  "0\nLINE\n8\n0\n10\n1e308\n20\n-1e308\n11\nnan\n21\ninf\n"
+                  "0\nLINE\n8\n0\n10\n0\n20\n5\n11\n10\n21\n5\n%s", HEAD, TAIL);
+    ck(read_dxf(buf, &d), "a DXF with a nan/inf/1e308 entity still reads");
+    ck(count(&d, JW_SEN) >= 2, "  and the sound lines on both sides are there");
+
     /* nothing but garbage is not a DXF */
     ck(!read_dxf("this is not a dxf at all", &d), "garbage is refused");
     printf("%s\n", fails ? "FAILED" : "all ok");

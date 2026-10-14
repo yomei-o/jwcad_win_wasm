@@ -269,6 +269,20 @@ class Gen:
         p0, p1 = self.pt(), self.pt()
         return ('chushin', ['cmd:32873', self.S(self.pick(('L', a))), self.S(self.pick(('L', b))), self.S(p0), self.S(p1)])
 
+    def op_moji(self):
+        """文字: 英数字を打って 一点を押す。"""
+        w = ''.join(self.r.choice('ABCDEFGH0123456789') for _ in range(self.r.randint(1, 6)))
+        return ('moji', ['cmd:32806', 'type:' + w, self.S(self.pt())])
+
+    def op_point(self):
+        """点: 一点を押す（線や円の端に近ければ そこに吸い付くかどうかが 原典と合うか）。"""
+        if self.lines and self.r.random() < .5:
+            g = self.r.choice(self.lines)
+            p = (clampi(g[0] + self.r.randint(-6, 6), 0, 1100), clampi(g[1] + self.r.randint(-6, 6), 0, 680))
+        else:
+            p = self.pt()
+        return ('point', ['cmd:32785', self.S(p)])
+
     def rng_box(self):
         es = self.elems()
         if not es:
@@ -305,7 +319,7 @@ class Gen:
 
 
 DRAW = ['line', 'line', 'line', 'rect', 'circle', 'poly', 'arc']
-EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2', 'nisen', 'nisen', 'chushin', 'chushin',
+EDIT = ['erase', 'fukusen', 'fukusen', 'corner', 'corner', 'shinshuku', 'bunkatsu', 'mentori', 'bk2', 'bk2', 'bk2', 'bk2', 'nisen', 'nisen', 'chushin', 'chushin', 'moji', 'point',
         'range_erase', 'move', 'copy']
 
 

@@ -33,6 +33,14 @@ static void sync_doc(void);
 static int uiscale = 1;                 /* see dpi_init */
 static void autosave_clear(void);
 static int print_gdi(HWND wnd);
+/* The words of the program's own boxes (the question about unsaved changes and the like):
+   Japanese on a Japanese Windows, English elsewhere; JW_LANG=en|ja or [ui] lang= in the ini
+   decides otherwise.  The original's menus, bars and prompts are the original's and stay Japanese. */
+static int english;
+static const wchar_t *tr(const wchar_t *ja, const wchar_t *en)
+{
+    return english ? en : ja;
+}
 static int user_closed;                 /* closed on purpose, changes saved or thrown away */
 
 /* Recent files and the one setting the .jwf does not carry, in
@@ -1133,7 +1141,7 @@ static int do_action(HWND wnd)
         break;
     case JW_ACT_PLOT:
         /* a printer, or a file of the sheet (PDF / PNG) */
-        if ((_wgetenv(L"JW_PRINTER") && *_wgetenv(L"JW_PRINTER")) || MessageBoxW(wnd, L"\u30d7\u30ea\u30f3\u30bf\u306b\u5370\u5237\u3057\u307e\u3059\u304b\uff1f\n\uff08\u300c\u3044\u3044\u3048\u300d\u306f PDF / PNG \u30d5\u30a1\u30a4\u30eb\u306b\u3057\u307e\u3059\uff09",
+        if ((_wgetenv(L"JW_PRINTER") && *_wgetenv(L"JW_PRINTER")) || MessageBoxW(wnd, tr(L"\u30d7\u30ea\u30f3\u30bf\u306b\u5370\u5237\u3057\u307e\u3059\u304b\uff1f\n\uff08\u300c\u3044\u3044\u3048\u300d\u306f PDF / PNG \u30d5\u30a1\u30a4\u30eb\u306b\u3057\u307e\u3059\uff09", L"Print on a printer?\n(No: write a PDF / PNG file)"),
                         L"jw_win", MB_YESNO | MB_ICONQUESTION) == IDYES)
             print_gdi(wnd);
         else
@@ -1210,6 +1218,21 @@ static void present(HDC dc)
                       fb->px, &bi, DIB_RGB_COLORS);
 }
 
+static int lang_is_english(void)
+{
+    const wchar_t *e = _wgetenv(L"JW_LANG");
+    wchar_t p[MAX_PATH], v[16];
+
+    if (e && *e)
+        return e[0] == L'e';
+    if (ini_path(p)) {
+        GetPrivateProfileStringW(L"ui", L"lang", L"", v, 16, p);
+        if (v[0])
+            return v[0] == L'e';
+    }
+    return (GetUserDefaultUILanguage() & 0x3ff) != 0x11;      /* LANG_JAPANESE */
+}
+
 /* ---- high DPI -------------------------------------------------------------
    The frame is a bitmap drawn at 96 dpi.  The process says it knows about DPI
    (so Windows does not blur it), and on a screen with more dots the bitmap is
@@ -1256,7 +1279,7 @@ static int ask_save_changes(HWND wnd)
 
     if (!app_modified())
         return 1;
-    r = MessageBoxW(wnd, L"変更を保存しますか？", L"jw_win",
+    r = MessageBoxW(wnd, tr(L"変更を保存しますか？", L"Save the changes?"), L"jw_win",
                     MB_YESNOCANCEL | MB_ICONQUESTION);
     if (r == IDCANCEL)
         return 0;
@@ -1338,7 +1361,7 @@ static void autosave_recover(HWND wnd)
     if (auto_answer)
         yes = auto_answer[0] == L'y';
     else
-        yes = MessageBoxW(wnd, L"前回、保存されていない図面がありました。復元しますか？",
+        yes = MessageBoxW(wnd, tr(L"前回、保存されていない図面がありました。復元しますか？", L"A drawing with unsaved changes was left from the last run. Restore it?"),
                           L"jw_win", MB_YESNO | MB_ICONQUESTION) == IDYES;
     if (!yes) {
         autosave_clear();
@@ -1897,6 +1920,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     }
     jw_outfont_enable(1);               /* IPAex for every face */
     dpi_init();
+    english = lang_is_english();
     app_new();
     ini_load();
     settings_load();
