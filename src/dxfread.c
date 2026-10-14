@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cp932.h"
 #include "jww.h"
 #include "gen/aci.h"
 
@@ -1213,7 +1214,112 @@ static void entities(dxfr *r)
 
 /* ------------------------------------------------------------------ read */
 
-int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
+/* Text in a DXF is CP932 here, as the original reads it.  A DXF from a newer
+   program (AutoCAD 2007 and after, $ACADVER AC1021 up) holds UTF-8 instead,
+   and older ones write what ANSI cannot hold as \U+XXXX; both are turned into
+   CP932 first, so the rest of the reader sees one thing.  `out` is nought when
+   nothing needed changing. */
+static int dxf_hex4(const unsigned char *p)
+{
+    int i, v = 0;
+
+    for (i = 0; i < 4; i++) {
+        int c = p[i];
+
+        v <<= 4;
+        if (c >= '0' && c <= '9') v |= c - '0';
+        else if (c >= 'a' && c <= 'f') v |= c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') v |= c - 'A' + 10;
+        else return -1;
+    }
+    return v;
+}
+
+static long dxf_put_cp(unsigned char *o, unsigned cp)
+{
+    unsigned short w[2];
+    long k;
+    char t[8];
+
+    if (cp >= 0x10000) {
+        cp -= 0x10000;
+        w[0] = (unsigned short)(0xd800 + (cp >> 10));
+        w[1] = (unsigned short)(0xdc00 + (cp & 1023));
+        k = 2;
+    } else {
+        w[0] = (unsigned short)cp;
+        k = 1;
+    }
+    k = jw_from_utf16(w, k, t, sizeof t);
+    if (k <= 0 || k > 2)
+        k = 0;
+    memcpy(o, t, (size_t)k);
+    return k;
+}
+
+static unsigned char *dxf_normalize(const unsigned char *b, long n, long *out_n)
+{
+    long i, k = 0, head = n < 4096 ? n : 4096;
+    int utf8 = 0, any = 0;
+    unsigned char *o;
+
+    for (i = 0; i + 8 < head; i++)
+        if (!memcmp(b + i, "$ACADVER", 8)) {
+            long j = i + 8;
+
+            while (j < head && b[j] != 'A')      /* the AC10xx line */
+                j++;
+            if (j + 6 <= head && !memcmp(b + j, "AC10", 4) && atoi((const char *)b + j + 2) >= 1021)
+                utf8 = 1;
+            break;
+        }
+    for (i = 0; i < n; i++)
+        if ((utf8 && b[i] >= 0x80) || (b[i] == 92 && i + 6 < n && (b[i + 1] == 'U' || b[i + 1] == 'u')
+                                       && b[i + 2] == '+' && dxf_hex4(b + i + 3) >= 0)) {
+            any = 1;
+            break;
+        }
+    *out_n = n;
+    if (!any)
+        return 0;
+    o = (unsigned char *)malloc((size_t)n + 1);
+    if (!o)
+        return 0;
+    for (i = 0; i < n;) {
+        unsigned c = b[i];
+
+        if (c == 92 && i + 6 < n && (b[i + 1] == 'U' || b[i + 1] == 'u') && b[i + 2] == '+'
+            && dxf_hex4(b + i + 3) >= 0) {
+            k += dxf_put_cp(o + k, (unsigned)dxf_hex4(b + i + 3));
+            i += 7;
+        } else if (utf8 && c >= 0xc0) {
+            int more = (c & 0xe0) == 0xc0 ? 1 : (c & 0xf0) == 0xe0 ? 2 : (c & 0xf8) == 0xf0 ? 3 : 0;
+            unsigned v = more == 1 ? c & 31 : more == 2 ? c & 15 : c & 7;
+            int j, ok = more > 0 && i + more < n + 0;
+
+            for (j = 1; ok && j <= more; j++) {
+                if ((b[i + j] & 0xc0) != 0x80)
+                    ok = 0;
+                else
+                    v = (v << 6) | (b[i + j] & 63u);
+            }
+            if (!ok) {
+                o[k++] = (unsigned char)c;       /* not UTF-8 after all: as it is */
+                i++;
+            } else {
+                k += dxf_put_cp(o + k, v);
+                i += more + 1;
+            }
+        } else {
+            o[k++] = (unsigned char)c;
+            i++;
+        }
+    }
+    *out_n = k;
+    return o;
+}
+
+static int dxf_read_raw(jw_drawing *d, const unsigned char *b, long n)
 {
     dxfr *r = (dxfr *)calloc(1, sizeof *r);
     int i;
@@ -1300,4 +1406,26 @@ int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
         return 0;
     }
     return 1;
+}
+
+int jw_dxf_read(jw_drawing *d, const unsigned char *b, long n)
+{
+    long m, i;
+    unsigned char *t;
+    int ok, has = 0;
+
+    /* a DXF has sections; anything else is refused before the drawing is
+       touched (the read throws away what was drawn) */
+    for (i = 0; i + 7 <= n && i < 65536; i++)
+        if (!memcmp(b + i, "SECTION", 7)) {
+            has = 1;
+            break;
+        }
+    if (!has)
+        return 0;
+    t = dxf_normalize(b, n, &m);
+    ok = dxf_read_raw(d, t ? t : b, t ? m : n);
+
+    free(t);
+    return ok;
 }

@@ -710,6 +710,39 @@ int main(void)
             free(rb);
         }
     }
+    {   /* 画像は文字として拾われる（原典 2026-10-14、tmp/p* 消去・範囲選択・複写・移動を叩いた）:
+         * (R) の消去は 画像の基線（文字の枠）を押せば消え、絵の中を押しても消えない。
+         * 範囲選択は 第二点が (L) なら画像を含めず、(R) なら含める（複写・移動も同じ） */
+        double bx, by;
+
+        d = fresh();
+        enter();
+        put_pic(PIC1);
+        click(400, 300);
+        app_command(32794);
+        P(480, 240, &bx, &by);
+        jw_cmd_point(d, app_view(), bx, by, 1);
+        ck(pic_count(d) == 1, "消去 (R): 画像の絵の中を押しても消えない");
+        P(440, 300, &bx, &by);
+        jw_cmd_point(d, app_view(), bx, by, 1);
+        ck(pic_count(d) == 0, "消去 (R): 画像の基線を押すと消える");
+
+        d = fresh();
+        enter();
+        put_pic(PIC1);
+        click(400, 300);
+        app_command(32787);
+        click(380, 320);
+        click(600, 150);
+        app_command(32794);
+        ck(pic_count(d) == 1, "範囲選択の第二点が (L): 画像は含まれず、消去されない");
+        app_command(32787);
+        click(380, 320);
+        P(600, 150, &bx, &by);
+        jw_cmd_point(d, app_view(), bx, by, 1);
+        app_command(32794);
+        ck(pic_count(d) == 0, "範囲選択の第二点が (R): 画像も含まれ、消去される");
+    }
     {   /* gzip: what is written is read by anyone's inflate, and by ours */
         unsigned char data[5000], *g = 0, *u = 0;
         long gn = 0, un = 0, i;

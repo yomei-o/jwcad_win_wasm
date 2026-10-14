@@ -434,6 +434,7 @@ static int hk_iso_step = 60;      /* 精度（秒）: 60・10・4 */
 static int hk_iso_n(jw_drawing *d, double level, double label);
 static int hk_tbl_pending;
 static int tn_mode, tn_equi, tn_count, tn_sansha;
+static int tn_s_plan = 1, tn_s_calc, tn_s_conf;   /* 三斜のバー 9011: 1690 初めから点・1329・2114 */
 /* 天空率比較計算 (1066): 0 でなければ 歩み + 1（原典 CZukeiTenkuu +0x1b0 = 0/1/2）。
    tn_cv・tn_cx/cy は 計画・比較 の字の数値と位置、tn_cdec は 小数の桁の大きいほう（+0x828、2 以上）、
    tn_csan は 三斜計算 の字（+0x82c） */
@@ -1082,7 +1083,10 @@ typedef struct {
     int at;                     /* where it was */
     int removed;                /* 0 changed, 1 taken out of the drawing,
                                    2 taken out of the block definitions past
-                                   it (which go back a different way) */
+                                   it (which go back a different way),
+                                   3 put into a block definition at `at`
+                                   (undo takes that index out again, wherever
+                                   the definition sits) */
     jw_obj was;
 } op_item;
 
@@ -3218,7 +3222,10 @@ void jw_cmd_undo(jw_drawing *d)
     }
     for (i = o->nitem - 1; i >= 0; i--) {
         op_item *it = &o->item[i];
-        if (it->removed == 2) {
+        if (it->removed == 3) {
+            if (it->at < d->nobj)
+                jw_remove(d, it->at);
+        } else if (it->removed == 2) {
             /* a definition, or an element inside one: they were recorded
                backwards so that putting them back in this order gets them
                in their own order again */
@@ -8871,7 +8878,7 @@ int jw_cmd_block_edit_path(jw_drawing *d, const int *path, int n)
 
 void jw_cmd_block_take(jw_drawing *d, int from)
 {
-    int at, n, i;
+    int at, n, i, want_at = -1, first_item = -1, made = 0;
     jw_obj was;
     op_t *rec = nop > 0 ? &op[nop - 1] : 0;
 
@@ -8898,6 +8905,8 @@ void jw_cmd_block_take(jw_drawing *d, int from)
                has to come down from the end of the array to its place */
             int want = at + 1 + d->obj[at].n, last = d->nobj - 1;
 
+            want_at = want;
+
             while (last > want) {
                 jw_obj t = d->obj[last - 1];
 
@@ -8905,6 +8914,11 @@ void jw_cmd_block_take(jw_drawing *d, int from)
                 d->obj[last] = t;
                 last--;
             }
+        }
+        if (rec && op_keep(rec, d, want_at, 3)) {   /* where it went, for 元に戻る */
+            if (first_item < 0)
+                first_item = rec->nitem - 1;
+            made++;
         }
         d->obj[at].n++;
     }
@@ -8914,14 +8928,23 @@ void jw_cmd_block_take(jw_drawing *d, int from)
        the end of the array, which is where they are when the block being
        edited is the last definition: the only case there is an answer for. */
     if (rec) {
-        op_item *it = op_keep(rec, d, at, 0);
+        op_item *it;
+
+        /* each of the next elements taken out of the drawing moved the
+           definitions down by one, so the places noted above are too high
+           by the number of elements that came after them */
+        for (i = 0; i < made; i++)
+            rec->item[first_item + i].at -= made - 1 - i;
+        it = op_keep(rec, d, at, 0);
 
         if (it)
             it->was = was;
         rec->n -= n;
         if (rec->n < 0)
             rec->n = 0;
-        rec->ndef += n;
+        /* (the new elements are recorded one by one above, as items of kind
+           3, so that taking them out does not depend on the block being the
+           last definition) */
     }
 }
 
@@ -10673,6 +10696,12 @@ int jw_cmd_bar_check(int id)
        南方向補正・10分間隔点表示・四季 が出る（9007・9008・9009。等距離は
        1323 の字が「[天空比計算]」の 9015 だが、1325 を入れたものは録って
        いないので 正射影 の 9008・9009 で代える）。 */
+    if (current == JW_CMD_TENKU && tn_sansha && tn_mode == 2) {
+        if (id == 1689) return !tn_s_plan;
+        if (id == 1690) return tn_s_plan;
+        if (id == 1329) return tn_s_calc;
+        if (id == 2114) return tn_s_conf;
+    }
     if (id >= 9005 && id <= 9015 && current == JW_CMD_TENKU) {
         int c = jw_cmd_bar_check(1323) > 0, s = jw_cmd_bar_check(1325) > 0;
 
@@ -11007,6 +11036,14 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_TENKU && id == 1121 && tn_mode > 0) {
         tn_mode--;                  /* ≪: Esc と同じく一段戻る（原典、tools/hkprobe.sh s12） */
+        return 1;
+    }
+    if (current == JW_CMD_TENKU && tn_sansha && tn_mode == 2 &&
+        (id == 1689 || id == 1690 || id == 1329 || id == 2114)) {
+        if (id == 1689) tn_s_plan = 0;
+        else if (id == 1690) tn_s_plan = 1;
+        else if (id == 1329) tn_s_calc = !tn_s_calc;
+        else tn_s_conf = !tn_s_conf;
         return 1;
     }
     if (current == JW_CMD_TENKU && id == 1068) {
@@ -15669,9 +15706,18 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
 
                 hk_sansha_opts_default(&so);
                 so.t = o;
+                /* 三斜 の半径は バーの字「天空図半径(R) = 100」で 100 に決まっている
+                   （箱 1493 は無い。原典 hk_sa1〜sa3） */
+                so.t.R = 100.0;
                 if (md && *md && atof(md) > 0.0)
                     so.maxdiv = atof(md);
-                snprintf(so.name, sizeof so.name, "No.%d", tn_count + 1);
+                /* 点と「No.n」は 測定点表示 の箱 (2216) があるときだけ（hk_sa1: 何も出ない） */
+                if (o.show_point)
+                    snprintf(so.name, sizeof so.name, "No.%d", o.number);
+                else
+                    so.name[0] = 0;
+                hk_sansha_opts_set_mode(&so, tn_s_plan);   /* 初めは《計画建物用》 */
+                so.calc = tn_s_calc;   /* 三斜計算。切なら円と投影の線だけ（hk_sa1） */
                 r = jw_tenku_sansha_draw_ex(d, &so, tn_px, tn_py, px, py, NULL);
             } else
                 r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);

@@ -3170,6 +3170,9 @@ int app_command(int cmd)
             return td_start(TD_CMD[k].tpl);
     /* an action: it runs, and never becomes "the command" */
     switch (cmd) {
+    case 32835:                         /* 全体再表示: the whole sheet in view */
+        app_fit();
+        return 1;
     case 32820: case 32821: case 32822: case 32823: case 32824:
         /* Ａ-０..Ａ-４: the sheet changes and nothing else does */
         if (!have_drawing)

@@ -1510,6 +1510,7 @@ void hk_sansha_opts_default(hk_sansha_opts *o)
     o->t.R = 100.0;
     o->t.show_point = 1;
     o->maxdiv = 10.0;
+    o->calc = 1;
     o->style = HK_SANSHA_EXE;
     hk_sansha_opts_set_mode(o, 0);
     strcpy(o->name, "No.1");
@@ -1575,6 +1576,8 @@ int jw_tenku_sansha_draw_ex(jw_drawing *d, const hk_sansha_opts *o,
         if (ob_text(&c, o->name, px, py, px + 100.0, py, 2) < 0) { ret = -1; goto out; }
     }
 
+    if (!o->calc)
+        goto pieces;                   /* 三斜計算 が切: 円と 投影の線だけ（原典 hk_sa1） */
     w = (sweep *)calloc(1, sizeof *w);
     if (!w) { ret = -1; goto out; }
     w->c = &c;
@@ -1727,6 +1730,7 @@ int jw_tenku_sansha_draw_ex(jw_drawing *d, const hk_sansha_opts *o,
     }
 
     /* the skyline pieces, last (non-ground ones, in creation order) */
+pieces:
     for (i = 0; i < pb.n; i++) {
         const piece *p = &pb.a[i];
         oo *t;
