@@ -580,10 +580,16 @@ int jw_pick_moji(const jw_drawing *d, const jw_view *v, double x, double y)
     return thit;
 }
 
+/* 基本設定 一般(1) 2445「逆順サーチ」: of elements the same distance away the
+   last one is taken instead of the first -- FUN_0044a270 compares with
+   <= best + 1e-07 when the document's +0x82bc is set and with < best - 1e-07
+   otherwise, which is jw_pick_tie's last_wins.  Read off the decompile. */
+int jw_pick_reverse;
+
 int jw_pick(const jw_drawing *d, const jw_view *v, double x, double y,
             int mode)
 {
-    return jw_pick_tie(d, v, x, y, mode, 0);
+    return jw_pick_tie(d, v, x, y, mode, jw_pick_reverse);
 }
 
 int jw_pick_tie(const jw_drawing *d, const jw_view *v, double x, double y,

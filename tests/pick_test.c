@@ -156,6 +156,24 @@ int main(int argc, char **argv)
     ck(fabs(jw_pick_tol(v) * v->scale - 10.0) < 1e-9,
        "the tolerance is the original's ten screen pixels");
 
+    /* 逆順サーチ (基本設定 2445): 同じ所に重ねた二本は ふだん先の線、逆順なら後の線
+       （FUN_0044a270 の +0x82bc） */
+    {
+        jw_drawing *two = (jw_drawing *)d;
+        jw_obj *o;
+        int n0 = two->ndrawn, a, b2;
+
+        o = jw_add(two, JW_SEN);
+        o->d[0] = 9000; o->d[1] = 9000; o->d[2] = 9100; o->d[3] = 9000;
+        o = jw_add(two, JW_SEN);
+        o->d[0] = 9000; o->d[1] = 9000; o->d[2] = 9100; o->d[3] = 9000;
+        a = jw_pick(two, v, 9050.0, 9000.0, 0);
+        jw_pick_reverse = 1;
+        b2 = jw_pick(two, v, 9050.0, 9000.0, 0);
+        jw_pick_reverse = 0;
+        ck(a == n0 && b2 == n0 + 1, "逆順サーチ: 重なった二本の 先の線（ふだん）と 後の線（逆順）");
+    }
+
     printf("%s\n", fails ? "FAILED" : "all ok");
     return fails ? 1 : 0;
 }
