@@ -4198,7 +4198,7 @@ const char *jw_cmd_prompt(void)
         /* CZukeiSetuEn asks for three in turn -- 0x14fc, 0x14fd, 0x14fe --
            and once a radius settles the circle it asks where to put it
            instead, 0x14ff.  (It hangs 「    [ r = %.3lf ]」 off the first
-           two while a radius is in the box; that tail is not added here.) */
+           two while a radius is in the box; jw_cmd_status adds it.) */
         if (sek_step == 0)
             return JW_STR_5372;
         if (sek_step == 1)
