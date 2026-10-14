@@ -19128,8 +19128,8 @@ placed:
          * click on one side of a rectangle in Jw_cad leaves 49 lines of 50,
          * and that side is the one that goes.  The left button takes a piece
          * out of a line instead, through a three-step selection
-         * (CZukeiShoukyo's vtable slot 9, its +0x21c going 0 to 3), which is
-         * not done here.
+         * (CZukeiShoukyo's vtable slot 9, its +0x21c going 0 to 3): the
+         * element, then the two ends of the piece -- cut_step below.
          *
          * Which element: the one the highlight would be on, and that is
          * found with FUN_0044a270's mode 0 (CZukeiShoukyo's slot 11, the one
