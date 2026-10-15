@@ -746,6 +746,12 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_backup(void)
     return saved;
 }
 
+/* how often (minutes) to keep that copy: 基本設定 一般(1) の オートセーブ時間 */
+EMSCRIPTEN_KEEPALIVE int jw_autosave_min(void)
+{
+    return app_autosave_minutes();
+}
+
 /* a drawing brought back from such a copy has not been saved */
 EMSCRIPTEN_KEEPALIVE void jw_mark_modified(void)
 {

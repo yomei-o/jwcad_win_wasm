@@ -2243,8 +2243,11 @@ static int kh_value(int id)
 
 /* OK: the boxes whose meaning is read from the decompile or the dialog's words:
    画像･ソリッドを最初に描画 (2405) and 透過属性 (2860), see src/draw.c */
+static void kh_apply_text(void);
+
 static void kh_apply(void)
 {
+    kh_apply_text();
     jw_draw_images_first = kh_value(2405);
     jw_draw_transparent = kh_value(2860);
     jw_draw_reverse = kh_value(2444);
@@ -2267,11 +2270,17 @@ static void kh_apply(void)
  * 線色 1〜8 と線幅・グレー（print_rgb 9）。文字 の 文字種 1〜10 の 横 縦
  * 間隔 色No.（style[]）。どれも描く・置く ときにそのまま使われる値。
  *
- * それ以外（外部エディタ、画面横寸法、オートセーブ、Undo の回数、
- * 線種のパターンとピッチ、AUTO のクロックメニュー、KEY の割り当て、SXF の
- * 許容差 など）は**表示と保存だけ**: 移植のその働き（線種は src/draw.c の
- * 固定表 LTYPE、キーは app の固定の割り当て、オートセーブ・外部エディタは
- * 無い）がまだ設定を読まないため。 */
+ * **箱の字を移植の働きが読むもの**（kh_apply_text、OK と prefs の読み込みの
+ * あと）: 線種 の 線種 2〜9 のパターン・単位・画面のピッチ（src/draw.c の
+ * LTYPE へ）、一般(1) の Undo の回数（src/cmd.c の 戻る の段数の上限）、
+ * オートセーブ時間・バックアップ数（表側が app_autosave_minutes・
+ * app_backup_gens で読む）。
+ *
+ * それ以外（外部エディタ、画面横寸法、ランダム線・倍長線種、プリンタの
+ * 線種ピッチ、AUTO のクロックメニュー、KEY の割り当て、SXF の
+ * 許容差 など）は**表示と保存だけ**: 移植のその働き（ランダム線・倍長線種は
+ * 実線で描く、キーは app の固定の割り当て、外部エディタは無い）がまだ設定を
+ * 読まないため。 */
 #include "gen/kihonval.h"
 #define KH_TXT 48
 static char kh_txt[8][256][KH_TXT];
@@ -2680,6 +2689,132 @@ static void kh_txt_default(int tab, int i, char *o)
         strncpy(o, v->text, KH_TXT - 1);
         o[KH_TXT - 1] = 0;
     }
+}
+
+/* ---------------------------- 箱の字を移植の働きへ（kh_apply_text） ---
+ *
+ * OK が残した字（無ければ既定の字）を読む。数の箱は原典の DDX と同じく
+ * double で読んで int に切り、DDV の範囲の外や数でない字なら**前の値の
+ * まま**（原典は OK を通さないが、移植の窓は止めないので効かせないだけ）。 */
+static int kh_autosave_min = 30;    /* AutoSave\Time（分）、DAT_00a0cb04 */
+static int kh_backup = 1;           /* AutoSave\Back（-9〜9）、DAT_00a0cb18 */
+
+static const char *kh_ok_text(int tab, int id, int nth, char *buf)
+{
+    int i = kh_find(tab, id, nth, 1);
+
+    if (i < 0)
+        return 0;
+    if (kh_txt_have)
+        return kh_txt_saved[tab][i];
+    kh_txt_default(tab, i, buf);
+    return buf;
+}
+
+static int kh_ok_int(int tab, int id, int nth, int lo, int hi, int *out)
+{
+    char buf[KH_TXT], *e;
+    const char *t = kh_ok_text(tab, id, nth, buf);
+    double v;
+
+    if (!t)
+        return 0;
+    while (*t == ' ')
+        t++;
+    if (!*t)
+        return 0;
+    v = strtod(t, &e);
+    while (*e == ' ')
+        e++;
+    if (*e || !(v >= lo && v <= hi))
+        return 0;
+    *out = (int)v;
+    return 1;
+}
+
+/* 線種の箱の字からパターン: 原典の FUN_005c2670 と同じく、頭の字から
+   上の桁へ 32 字、空白・カンマ・字の終わりでなければ 1。原典の字は
+   UTF-16 なので、二バイトの字は一字に数える */
+static unsigned int kh_pattern(const char *t)
+{
+    unsigned int r = 0;
+    int k;
+
+    for (k = 0; k < 32; k++) {
+        unsigned char c = (unsigned char)*t;
+
+        r <<= 1;
+        if (c && c != ' ' && c != ',')
+            r |= 1;
+        if (c) {
+            t += jw_is_lead(c) && t[1] ? 2 : 1;
+        }
+    }
+    return r;
+}
+
+static void kh_apply_text(void)
+{
+    int k, n;
+
+    /* 線種 タブ: 線種 2〜9（1001 の何番目 1〜8）、単位 1777..、画面
+       ピッチ 1652..。三つのどれかが読めなければその線種はそのまま */
+    for (k = 2; k <= 9; k++) {
+        char buf[KH_TXT];
+        const char *t = kh_ok_text(3, 1001, k - 1, buf);
+        int unit, pitch;
+
+        if (t && kh_ok_int(3, 1775 + k, 0, 1, 32, &unit)
+            && kh_ok_int(3, 1650 + k, 0, 1, 16, &pitch))
+            jw_ltype_set(k, kh_pattern(t), unit, pitch);
+    }
+    /* 一般(1): Undo 1934（1〜100、FUN_005ce2a0 の DDV）、オートセーブ 1049
+       （1〜1000 分）、バックアップ 1055（-9〜9） */
+    if (kh_ok_int(0, 1934, 0, 1, 100, &n))
+        jw_cmd_undo_limit(n);
+    if (kh_ok_int(0, 1049, 0, 1, 1000, &n))
+        kh_autosave_min = n;
+    if (kh_ok_int(0, 1055, 0, -9, 9, &n))
+        kh_backup = n;
+}
+
+int app_autosave_minutes(void)
+{
+    return kh_autosave_min;
+}
+
+/* 上書き保存の前に残す控えの世代の数。原典の保存の手前 FUN_004be3a0 の
+ * 読み（DAT_00a0cb18 の枝。A: などの字は 0x95eb1c.. の "A:" "a:" "B:" "b:"
+ * を Left(2) と比べる FUN_00447310・FUN_004b4f10）:
+ *   0                 控えを作らない
+ *   負                A: B: のドライブ（フロッピー）なら作らない
+ *   |n| が 2 以上     A: B: でなければ n 世代（.BAK・.BK2 … .BK<n>）、
+ *                     A: B: なら .BAK の一つだけ
+ * floppy は保存先が A:・a:・B:・b: で始まるか */
+int app_backup_gens(int floppy)
+{
+    int n = kh_backup < 0 ? -kh_backup : kh_backup;
+
+    if (n == 0 || (kh_backup < 0 && floppy))
+        return 0;
+    return floppy ? 1 : n;
+}
+
+/* k 世代目の控えの拡張子（拡張子の三字をこれに替える）: 1 は BAK、
+   2 から BK2 … BK9 */
+const char *app_backup_ext(int k)
+{
+    static char e[4];
+
+    if (k <= 1)
+        return "BAK";
+    if (k > 9)
+        k = 9;
+    e[0] = 'B';
+    e[1] = 'K';
+    e[2] = (char)('0' + k);
+    e[3] = 0;
+    return e;
 }
 
 typedef struct { char *b; size_t n, cap; int bad; } pf_out;
@@ -5133,6 +5268,7 @@ int app_command(int cmd)
         if (jw_cmd_midway()
             && jw_cmd_back(have_drawing ? &drawing : 0))
             return 1;           /* 0 なら原典と同じく図面の 戻る へ */
+        jw_cmd_undo_trim();     /* Undo の回数より古い段はもう戻れない */
         if (!jw_cmd_can_undo())
             return 0;
         jw_cmd_undo(have_drawing ? &drawing : 0);
