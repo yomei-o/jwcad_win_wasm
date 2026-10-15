@@ -3,7 +3,7 @@
 // * 文字を範囲選択して Ctrl+C: 字が text/plain でクリップボードへ（原典の
 //   CF_UNICODETEXT。図形は web のカスタム形式で横に）
 // * メニューの コピー（キーでなく jw_command）でも同じ
-// * Ctrl+P（印刷）で PDF が出る、メニューの DXF形式で保存 で .dxf が出る
+// * Ctrl+P（印刷）で印刷の命令に入り、(L) 印刷 で PDF が出る、メニューの DXF形式で保存 で .dxf が出る
 // * 文字 の 連 で画面をダブルクリック: 移動（LL) に入る（5311）
 // Serves the repo root (WASM_DIR= for a wasm built elsewhere) and drives
 // Chrome/Edge over the DevTools protocol, like the other cdp_*.js.
@@ -119,10 +119,23 @@ const server = http.createServer((req, res) => {
 
     // ---- Ctrl+P と メニューの DXF形式で保存
     await load();
+    // Ctrl+P は 印刷範囲を設定 (0x8053) の命令に入って枠を出すだけ（段 0 の
+    // 5334「(L)印刷 (R)変更」）。図面の上の (L) で刷られ PDF が出る
     await key('p', 'KeyP', 80, 2);
     await sleep(500);
     let dl = await ev('window.__dl');
-    check(dl.some(n => /\.pdf$/.test(n)), 'Ctrl+P で PDF (' + dl.join(',') + ')');
+    const pp = await prompt();
+    check(dl.length === 0 && /印刷範囲を確認/.test(pp), 'Ctrl+P で印刷の命令に入る（まだ刷らない） (' + pp + ' / ' + dl.join(',') + ')');
+    h = await ch();
+    {
+      const [x, y] = await at(600, 400 + h);
+      await mouse('mouseMoved', x, y, { button: 'none', clickCount: 0 });
+      await mouse('mousePressed', x, y);
+      await mouse('mouseReleased', x, y);
+    }
+    await sleep(800);
+    dl = await ev('window.__dl');
+    check(dl.some(n => /\.pdf$/.test(n)), 'Ctrl+P → (L) 印刷 で PDF (' + dl.join(',') + ')');
     await ev(`(() => { window.__dl.length = 0; return 1; })()`);
     const rc = await ev('window.__jw._jw_command(32961)');
     check(rc === 17, 'DXF形式で保存 (32961) は 17 を返す');
