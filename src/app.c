@@ -828,31 +828,107 @@ static void sk_start(void)
     sk_open = 1;
 }
 
+/* 実寸固定 (1704) で縮尺が変わったときの要素の倍率（CScaleDialog の OnOK
+   FUN_005ba3c0 → FUN_00449b30）: グループの要素を 原点まわりに 旧縮尺/新縮尺
+   倍して、実寸を保つ。要素ごとの FUN_00465c40 は 文字サイズ変更 (1955,
+   DAT_00a0cb58) が無ければ 文字の大きさを保ち（FUN_00466e30 → FUN_00465f40）、
+   点マーカサイズ変更 (1956, DAT_00a0cb5c) があれば 点の +0x78（マーカの
+   大きさ）も掛ける（FUN_00469fa0）。ブロックは挿入点と 倍率 x・y を掛ける
+   （FUN_00464870）ので jw_obj_xform の原点まわりと同じ。倍率が 1e-5〜1e5 の
+   外なら どれも何もしない。逆コンパイルの読み、原典では押していない。
+   大きさを保つ文字は 移植は始点を動かして向きと長さを保つ（原典の
+   FUN_00465f40 は字の基点まわりで取り直していて、そこは読み切っていない）。
+   寸法図形は部品ごとに同じ扱い（FUN_00469060 は読んでいない）。元に戻す
+   には積まない（残し）。 */
+static void sk_xf(jw_obj *o, double s, int moji, int ten)
+{
+    if (o->cls == JW_MOJI && !moji) {
+        double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+
+        o->d[0] *= s;
+        o->d[1] *= s;
+        o->d[2] = o->d[0] + dx;
+        o->d[3] = o->d[1] + dy;
+        return;
+    }
+    jw_obj_xform(o, 0.0, 0.0, s, 0.0, 0.0, 0.0);
+    if (o->cls == JW_TEN && ten && o->size != 0.0)
+        o->size *= s;
+}
+
+/* 0 なら何もしていない。移植の守り: 掛けた先が図面の持てる数
+   （jw_numbers_sane の ±1e12）を超える要素が一つでもあれば、縮尺も
+   要素も変えない（tests/boxfuzz_test.c の 5e11 の線を 1/100 → 1/1 で） */
+static int sk_rescale(int g, double old, double nw, int moji, int ten)
+{
+    double s;
+    int i, k, pass;
+
+    if (!(old > 0.0) || !(nw > 0.0) || old == nw)
+        return 1;
+    s = old / nw;
+    if (!(s >= 1e-5 && s <= 1e5))
+        return 1;
+    for (pass = 0; pass < 2; pass++)
+        for (i = 0; i < drawing.ndrawn && i < drawing.nobj; i++) {
+            jw_obj t = drawing.obj[i];
+
+            if (t.lgroup != g)
+                continue;
+            sk_xf(&t, s, moji, ten);
+            if (pass) {
+                drawing.obj[i] = t;
+                continue;
+            }
+            for (k = 0; k < 8; k++)
+                if (!(t.d[k] > -1e12 && t.d[k] < 1e12))
+                    return 0;
+        }
+    return 1;
+}
+
+/* 縮尺を入れる。実寸固定 なら要素も（上） */
+static void sk_set(int g, double sc, int jitsu, int moji, int ten)
+{
+    double old = drawing.group[g].scale;
+
+    if (jitsu && old != sc && !sk_rescale(g, old, sc, moji, ten))
+        return;
+    drawing.group[g].scale = sc;
+}
+
 /* Ok: the two boxes become the group's scale.  1/200 is kept as the 200 the
    file carries, so a numerator of anything but 1 divides into it. */
 static void sk_apply(void)
 {
     double num = atof(sk_num), den = atof(sk_den);
     double sc;
-    int g, all = 0, i, n = ui_shakudo_n();
+    int g, all = 0, jitsu = 0, moji = 0, ten = 0, i, n = ui_shakudo_n();
 
     memcpy(sk_saved, sk_on, sizeof sk_saved);
     sk_have_saved = 1;
-    for (i = 0; i < n && i < (int)sizeof sk_on; i++)
+    for (i = 0; i < n && i < (int)sizeof sk_on; i++) {
         if (ui_shakudo_id(i) == 1954)
             all = sk_on[i];
+        if (ui_shakudo_id(i) == 1704)   /* 実寸固定（図寸固定 1705 と二択） */
+            jitsu = sk_on[i];
+        if (ui_shakudo_id(i) == 1955)   /* 文字サイズ変更 */
+            moji = sk_on[i];
+        if (ui_shakudo_id(i) == 1956)   /* 点マーカサイズ変更 */
+            ten = sk_on[i];
+    }
     if (!have_drawing || num == 0.0 || den <= 0.0)
         return;
     sc = den / num;
     if (sc <= 0.0)
         return;
     if (!all) {
-        drawing.group[sk_group].scale = sc;
+        sk_set(sk_group, sc, jitsu, moji, ten);
         return;
     }
     for (g = 0; g < 16; g++)
         if (drawing.group[g].state == 1 || drawing.group[g].state == 3)
-            drawing.group[g].scale = sc;
+            sk_set(g, sc, jitsu, moji, ten);
 }
 
 static int press_shakudo(int x, int y)
@@ -1232,12 +1308,171 @@ static int press_sunpodlg(int x, int y)
     return 1;
 }
 
-/* 画面倍率・文字表示 -- 用紙全体表示 fits the sheet, the rest is the picture */
+/* 画面倍率・文字表示 (32811) と 前倍率 の控え。
+ *
+ * 原典は画面を doc の 倍率 +0x1728（用紙全体表示 が 1）と 画面の真ん中に
+ * 来る用紙の点 +0x7a18 で持つ（CGamenBairitsuDialog の OnInitDialog
+ * FUN_004c6530 は 倍率 が 1、点が (0,0) なら 表示範囲記憶・記憶解除 を殺す）。
+ * 移植の view は ミリ毎画素 と 留めた点 (ox, oy) なので、行き来は vw_get /
+ * vw_set（倍率 = 用紙全体の ミリ毎画素 / いまの ミリ毎画素）。控えは三つ:
+ *   前倍率      +0x7a38・+0x7a28  OK と両ボタンドラッグの 範囲拡大・縮小・全体
+ *                                 が変える前の画面を置く（CZoom の後始末）
+ *   表示範囲記憶 +0x7a68・+0x7a58  全体 の行き先。記憶解除 で 1・(0,0) に
+ *   マークジャンプ +0x7a70+n*8・+0x7ac0+n*16・+0x7b60+n*4（グループ、-1 は無し）
+ * どれも逆コンパイルの読み、原典では押していない。原典はこれらを .jww の
+ * 頭にも書く（版 200 から）が、移植は読まずに開くたび初めに戻す（残し）。 */
+typedef struct { double z, x, y; } vw_t;
+static const vw_t VW_ONE = { 1.0, 0.0, 0.0 };
+static vw_t vw_prev = { 1.0, 0.0, 0.0 };
+static vw_t vw_mem = { 1.0, 0.0, 0.0 };
+static vw_t vw_mark[4] = { { 1.0, 0.0, 0.0 }, { 1.0, 0.0, 0.0 },
+                           { 1.0, 0.0, 0.0 }, { 1.0, 0.0, 0.0 } };
+static int vw_mark_g[4] = { -1, -1, -1, -1 };
+
 static int br_open;
 static unsigned char br_on[64];
-static unsigned char br_saved[64];
-static int br_have_saved;
+static unsigned char br_en[64];      /* 押せるか（OnInitDialog が決める） */
 static char br_zoom[32];
+static int br_sel;                   /* 箱の字が選ばれている（打てば替わる） */
+/* 指定倍率 (+0x178)。作り手 FUN_004c5c20 が 2、窓は view と一緒に生きる
+   ので次に開いても残る */
+static double br_val = 2.0;
+static int br_lgroup;   /* レイヤグループ同時登録 (1327) DAT_00a0d8d0 */
+static int br_textframe; /* 【文字枠】を表示する (2104) DAT_00a0c794 */
+static int br_textspace; /* 文字のスペースを表示する (2103) DAT_00a0c790 */
+
+static double vw_fit_mmpp(void)
+{
+    jw_view t;
+    rect_t r;
+
+    ui_view_rect(fb.w, fb.h, &r);
+    jw_view_fit(&t, &r, have_drawing ? drawing.paper_hw : 297.0,
+                have_drawing ? drawing.paper_hh : 210.0);
+    return t.mmpp;
+}
+
+static vw_t vw_get(void)
+{
+    vw_t c;
+
+    c.z = view_ready && view.mmpp > 0.0 ? vw_fit_mmpp() / view.mmpp : 1.0;
+    c.x = view_ready ? view.ox - jw_fit_dx : 0.0;
+    c.y = view_ready ? view.oy - jw_fit_dy : 0.0;
+    return c;
+}
+
+/* 倍率 1・点 (0,0) は app_fit とちょうど同じ画面になる */
+static void vw_set(vw_t c)
+{
+    double m;
+
+    if (!fb.px)
+        return;
+    app_fit();
+    if (!(c.z > 0.0))
+        return;
+    m = view.mmpp / c.z;
+    if (!(m > 1e-300 && m < 1e300))
+        return;
+    if (c.z != 1.0) {
+        view.mmpp = m;
+        view.scale = 1.0 / m;
+    }
+    view.ox = c.x + jw_fit_dx;
+    view.oy = c.y + jw_fit_dy;
+}
+
+static void vw_reset(void)
+{
+    int k;
+
+    vw_prev = vw_mem = VW_ONE;
+    for (k = 0; k < 4; k++) {
+        vw_mark[k] = VW_ONE;
+        vw_mark_g[k] = -1;
+    }
+}
+
+/* 前倍率 を置いてから行く（CGamenBairitsuDialog の OnOK、CZoom の 1・2・4） */
+static void vw_go(vw_t c)
+{
+    vw_prev = vw_get();
+    vw_set(c);
+}
+
+/* 両ボタンドラッグの 範囲拡大 (CZoom の 1): 囲んだ画素の箱が窓いっぱいに
+   なるよう倍率を掛け（縦横の小さいほう、幅 0 は 1 に）、箱の真ん中を
+   真ん中へ。倍率 100000 を超えれば 100000 に */
+void app_zoom_rect(int x0, int y0, int x1, int y1)
+{
+    vw_t c;
+    rect_t r;
+    double k, ky;
+    int w = x1 - x0, h = y1 - y0;
+
+    if (!view_ready)
+        return;
+    ui_view_rect(fb.w, fb.h, &r);
+    if (w == 0)
+        w = 1;
+    if (h == 0)
+        h = 1;
+    k = (double)r.w / w;
+    ky = (double)r.h / h;
+    if (ky < k)
+        k = ky;
+    if (k < 0)
+        k = -k;
+    c = vw_get();
+    to_paper((x0 + x1) / 2, (y0 + y1) / 2, &c.x, &c.y);
+    c.x -= jw_fit_dx;
+    c.y -= jw_fit_dy;
+    c.z *= k;
+    /* 倍率の表示（view.scale × JW_SCREEN_MM_PER_PX）で 100000 まで */
+    if (c.z * JW_SCREEN_MM_PER_PX / vw_fit_mmpp() > 100000.0)
+        c.z = 100000.0 * vw_fit_mmpp() / JW_SCREEN_MM_PER_PX;
+    vw_go(c);
+}
+
+/* 縮小 (CZoom の 2): 押した点を真ん中に、倍率を半分に。0.5 より下へは
+   行かない */
+void app_zoom_out(int sx, int sy)
+{
+    vw_t c;
+
+    if (!view_ready)
+        return;
+    c = vw_get();
+    to_paper(sx, sy, &c.x, &c.y);
+    c.x -= jw_fit_dx;
+    c.y -= jw_fit_dy;
+    c.z *= 0.5;
+    if (c.z < 0.5)
+        c.z = 0.5;
+    vw_go(c);
+}
+
+/* 前倍率 (CZoom の 3): いまの画面と控えを入れ替える。二度で戻る */
+void app_zoom_prev(void)
+{
+    vw_t c;
+
+    if (!view_ready)
+        return;
+    c = vw_get();
+    vw_set(vw_prev);
+    vw_prev = c;
+}
+
+/* 全体 (CZoom の 4): 表示範囲記憶 があればそこへ（記憶解除 のあとは
+   用紙全体）。paper が 0 でなければ記憶によらず用紙全体（CZoom の +0x24） */
+void app_zoom_all(int paper)
+{
+    if (!view_ready)
+        return;
+    vw_go(paper ? VW_ONE : vw_mem);
+}
 
 int app_coord_save(unsigned char **out, long *n)
 {
@@ -1488,40 +1723,210 @@ int app_bairitsu_open(void)
     return br_open;
 }
 
-static void br_start(void)
+static int br_idx(int id)
 {
     int i, n = ui_bairitsu_n();
 
     for (i = 0; i < n && i < (int)sizeof br_on; i++)
-        br_on[i] = (unsigned char)(br_have_saved ? br_saved[i] : ui_bairitsu_on(i));
-    br_zoom[0] = 0;
+        if (ui_bairitsu_id(i) == id)
+            return i;
+    return -1;
+}
+
+static void br_set(unsigned char *a, int id, int v)
+{
+    int i = br_idx(id);
+
+    if (i >= 0)
+        a[i] = (unsigned char)(v != 0);
+}
+
+static int br_get(const unsigned char *a, int id)
+{
+    int i = br_idx(id);
+
+    return i >= 0 && a[i];
+}
+
+/* 登録されているか: 倍率が 1 でないか、点が (0,0) でないか、グループを
+   持つか（OnInitDialog の 1323〜1326 の印） */
+static int br_marked(int k)
+{
+    return vw_mark[k].z != 1.0 || vw_mark[k].x != 0.0 || vw_mark[k].y != 0.0
+           || vw_mark_g[k] >= 0;
+}
+
+/* OnInitDialog (FUN_004c6530) */
+static void br_start(void)
+{
+    int i, k, n = ui_bairitsu_n();
+    vw_t c = vw_get();
+
+    for (i = 0; i < n && i < (int)sizeof br_on; i++) {
+        br_on[i] = (unsigned char)ui_bairitsu_on(i);
+        br_en[i] = 1;
+    }
+    /* 目盛 表示最小倍率 は 目盛 が無ければ死ぬ（doc+0x7984 == 0）。
+       表示範囲記憶・記憶解除 は 倍率 1・点 (0,0) のとき死ぬ */
+    br_set(br_en, 1090, have_drawing && drawing.mesh_mode != 0);
+    k = !(fabs(c.z - 1.0) <= 1e-7 && fabs(c.x) <= 1e-7 && fabs(c.y) <= 1e-7);
+    br_set(br_en, 1068, k);
+    br_set(br_en, 1069, k);
+    for (k = 0; k < 4; k++)
+        br_set(br_on, 1323 + k, br_marked(k));
+    br_set(br_on, 1327, br_lgroup);
+    br_set(br_on, 2104, br_textframe);
+    br_set(br_on, 2103, br_textspace);
+    /* DDX_Text の double は %.15g、開いた時は箱の字が選ばれている
+       （docs/ref_bairitsu.png の「2」） */
+    snprintf(br_zoom, sizeof br_zoom, "%.15g", br_val);
+    br_sel = 1;
     br_open = 1;
+}
+
+/* 書込みグループを替える（OnOK の +0xb8 の枝: 前は 2、新しいのは 3） */
+static void br_group(int g)
+{
+    int wg = sk_write_group();
+
+    if (!have_drawing || g < 0 || g > 15)
+        return;
+    drawing.group[wg].state = 2;
+    drawing.group[g].state = 3;
+}
+
+/* マークジャンプ・用紙全体表示 が OnOK に渡すグループ (+0xf0)。作り手が
+   -1、マークジャンプ が書き、用紙全体表示 は書かない —— 同じ窓で前に
+   マークジャンプ した後の 用紙全体表示 もそのグループへ替える（読みのまま） */
+static int br_jump_g = -1;
+
+/* OnOK (FUN_004c6a90)。kind: 1 指定倍率表示、1089 倍率＝1.0、
+   1090 目盛表示最小倍率、1091 用紙全体表示、1064〜1067 マークジャンプ */
+static void br_ok(int kind)
+{
+    vw_t c = vw_get();
+    double fit = vw_fit_mmpp(), v;
+    char *end;
+
+    /* UpdateData: 数として読めれば箱の値に（DDV の 0.01〜100000 を外れても
+       値は入り、倍率は変わらない） */
+    v = strtod(br_zoom, &end);
+    if (end != br_zoom && *end == 0)
+        br_val = v;
+    vw_prev = c;
+    if (kind == 1089) {
+        /* 倍率の表示 1.0: doc[6000] / (doc[0x1778] / |doc[0x1780]|) */
+        c.z = fit / JW_SCREEN_MM_PER_PX;
+        vw_set(c);
+    } else if (kind == 1090) {
+        if (have_drawing && drawing.mesh_mode != 0) {
+            double s = drawing.mesh_ix < drawing.mesh_iy ? drawing.mesh_ix
+                                                         : drawing.mesh_iy;
+
+            s /= drawing.mesh_mode;
+            if (s > 1e-6 && drawing.mesh_min > 0.0) {
+                c.z = drawing.mesh_min * fit / s + 0.001;
+                vw_set(c);
+            }
+        }
+    } else if (kind == 1091 || (kind >= 1064 && kind <= 1067)) {
+        if (kind == 1091) {
+            vw_set(VW_ONE);
+        } else {
+            vw_set(vw_mark[kind - 1064]);
+            br_jump_g = vw_mark_g[kind - 1064];
+        }
+        br_group(br_jump_g);
+    } else if (br_val >= 0.01 && br_val <= 100000.0) {
+        c.z = br_val * fit / JW_SCREEN_MM_PER_PX;
+        vw_set(c);
+    }
+    br_lgroup = br_get(br_on, 1327);
+    br_open = 0;
 }
 
 static int press_bairitsu(int x, int y)
 {
-    int id = ui_bairitsu_hit(fb.w, fb.h, x, y), i, n = ui_bairitsu_n();
+    int id = ui_bairitsu_hit(fb.w, fb.h, x, y, br_en), i;
 
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
-    if (id == 1091) {                   /* 用紙全体表示 */
-        app_fit();
+    if (id == 1 || id == 1089 || id == 1090 || id == 1091
+        || (id >= 1064 && id <= 1067)) {
+        br_ok(id);
+        return 1;
+    }
+    if (id == 1068) {                   /* 表示範囲記憶 (FUN_004c72b0) */
+        vw_mem = vw_get();
         br_open = 0;
         return 1;
     }
-    if (id == 1 || id == 2 || id == 1933 || id == 1089) {
-        memcpy(br_saved, br_on, sizeof br_saved);
-        br_have_saved = 1;
-        /* 指定倍率表示, 倍率 ＝ １．０ and 設定 OK all take it down.  What
-           the first two do to the view is not settled: the original's screen
-           cannot be captured here. */
+    if (id == 1069) {                   /* 記憶解除 (FUN_004c7350) */
+        vw_mem = VW_ONE;
         br_open = 0;
         return 1;
     }
-    for (i = 0; i < n && i < (int)sizeof br_on; i++)
-        if (ui_bairitsu_id(i) == id)
-            br_on[i] = (unsigned char)!br_on[i];
+    if (id == 1933) {                   /* 設定 OK (FUN_004c73f0) */
+        br_textframe = br_get(br_on, 2104);
+        br_textspace = br_get(br_on, 2103);
+        br_open = 0;
+        return 1;
+    }
+    if (id == 2) {                      /* 見出しの ×: OnCancel、何も変えない */
+        br_open = 0;
+        return 1;
+    }
+    if (id == 1470) {                   /* 箱を押すと選びが外れる */
+        br_sel = 0;
+        return 1;
+    }
+    i = br_idx(id);
+    if (i < 0)
+        return 1;
+    br_on[i] = (unsigned char)!br_on[i];
+    if (id >= 1323 && id <= 1326) {     /* 登録 (FUN_004c7480) */
+        int k = id - 1323;
+
+        vw_mark_g[k] = -1;
+        if (br_on[i]) {
+            vw_mark[k] = vw_get();
+            if (br_lgroup)
+                vw_mark_g[k] = sk_write_group();
+        } else {
+            vw_mark[k] = VW_ONE;
+        }
+    } else if (id == 1327) {            /* FUN_004c64f0: すぐ効く */
+        br_lgroup = br_on[i];
+    }
     return 1;
+}
+
+/* 指定倍率 の箱 (1470)。選ばれていれば打った字で置き換わる */
+static int br_key(int c)
+{
+    size_t n;
+
+    if (c == 8) {
+        if (br_sel)
+            br_zoom[0] = 0;
+        n = strlen(br_zoom);
+        if (n)
+            br_zoom[n - 1] = 0;
+        br_sel = 0;
+        return 1;
+    }
+    if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+        if (br_sel)
+            br_zoom[0] = 0;
+        br_sel = 0;
+        n = strlen(br_zoom);
+        if (n + 1 < sizeof br_zoom) {
+            br_zoom[n] = (char)c;
+            br_zoom[n + 1] = 0;
+        }
+        return 1;
+    }
+    return 0;
 }
 
 /* 文字基点設定 -- the 文字 bar's 基点 (1064).  Only the
@@ -5073,6 +5478,10 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (br_open && br_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (dialog_open()) {
         /* modal: the drawing and its command bar hear nothing.  Esc shuts
            it without applying what was typed, as a cancel button would;
@@ -5092,9 +5501,7 @@ int app_key(int c)
                 sd_have_saved = 1;
                 sd_open = 0;
             } else if (br_open) {
-                memcpy(br_saved, br_on, sizeof br_saved);
-                br_have_saved = 1;
-                br_open = 0;
+                br_ok(1);               /* IDOK = 指定倍率表示 */
             } else if (ld_open) {
                 ld_ok();
             }
@@ -5531,6 +5938,7 @@ void app_new(void)
     new_count++;
     app_title("");              /* 無題 */
     app_fit();
+    vw_reset();             /* 前倍率・記憶・マークジャンプ も初めに */
 }
 
 int app_new_count(void)
@@ -5561,6 +5969,7 @@ int app_open(const unsigned char *b, long n)
     jw_cmd_reset();
     clean_stamp = 0;
     app_fit();
+    vw_reset();             /* 前倍率・記憶・マークジャンプ も初めに */
     return 1;
 }
 
@@ -5583,6 +5992,7 @@ int app_open_dxf(const unsigned char *b, long n)
     jw_cmd_reset();
     clean_stamp = ~0u;          /* read into the drawing: not what any file holds */
     app_fit();
+    vw_reset();             /* 前倍率・記憶・マークジャンプ も初めに */
     return 1;
 }
 
@@ -5603,6 +6013,7 @@ int app_open_sfc(const unsigned char *b, long n)
     jw_cmd_reset();
     clean_stamp = ~0u;          /* read into the drawing: not what any file holds */
     app_fit();
+    vw_reset();             /* 前倍率・記憶・マークジャンプ も初めに */
     return 1;
 }
 
@@ -5622,6 +6033,7 @@ int app_open_jwc(const unsigned char *b, long n)
     jw_cmd_reset();
     clean_stamp = ~0u;          /* read into the drawing: not what any file holds */
     app_fit();
+    vw_reset();             /* 前倍率・記憶・マークジャンプ も初めに */
     return 1;
 }
 
@@ -5782,6 +6194,7 @@ static void draw_drawing(void)
     h = mix(h, &jw_draw_transparent, sizeof jw_draw_transparent);
     h = mix(h, &jw_draw_reverse, sizeof jw_draw_reverse);
     h = mix(h, &jw_draw_texts_last, sizeof jw_draw_texts_last);
+    h = mix(h, &jw_draw_textframe, sizeof jw_draw_textframe);   /* 【文字枠】 */
     {   /* an outline font arriving changes how its texts come out */
         int fg = jw_outfont_gen();
 
@@ -5856,8 +6269,11 @@ void app_paint(void)
         bt_hl();
         if (jw_cmd_hikage_pv_on())
             draw_pv();
-        else
+        else {
+            jw_draw_textframe = br_textframe;   /* 画面だけ（印刷は描かない） */
             draw_drawing();
+            jw_draw_textframe = 0;
+        }
     }
     {
         /* The element the command is part way through.  The original
@@ -5972,7 +6388,7 @@ void app_paint(void)
     if (sd_open)
         ui_sunpodlg(&fb, sd_on, sd_caret, sd_edit);
     if (br_open)
-        ui_bairitsu(&fb, br_zoom, br_on);
+        ui_bairitsu(&fb, br_zoom, br_on, br_en, br_sel);
     if (mk_open)
         ui_mojikijun(&fb, jw_cmd_moji_base_now(), mk_caret);
     if (sk_open) {

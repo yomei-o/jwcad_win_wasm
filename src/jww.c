@@ -215,7 +215,13 @@ static void read_header(ar_t *a, jw_drawing *d)
         ar_l(a);
     }
     if (v > 0x3d) {
-        ar_l(a);
+        int mm = ar_l(a);
+
+        if (mm < 0)
+            mm = -(mm + 1);     /* -v-1、INT_MIN でもあふれない形で */
+        if (mm >= 10)
+            mm -= 10;
+        d->mesh_mode = mm;
         /* 目盛: the least spacing it will draw at, across, down, and where
            the grid starts.  See jw_drawing. */
         d->mesh_min = ar_d(a);

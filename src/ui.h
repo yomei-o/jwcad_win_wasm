@@ -322,12 +322,13 @@ int  ui_sunpodlg_id(int i);
 int  ui_sunpodlg_on(int i);
 
 /* 画面倍率・文字表示 -- the dialog 32811 puts up.  `zoom` is what its 指定倍率
-   edit holds, `on` one byte per control of src/gen/bairitsu.h.  Only
-   用紙全体表示 does anything: the rest change the view, and a view cannot be
-   scored against the original here. */
+   edit holds, `on` one byte per control of src/gen/bairitsu.h, `en` whether
+   each can be pressed (OnInitDialog が決める; 0 なら写しのまま), `sel` the
+   edit's text is selected.  What the buttons do is app.c's press_bairitsu. */
 void ui_bairitsu_rect(int cw, int ch, rect_t *r);
-void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on);
-int  ui_bairitsu_hit(int cw, int ch, int x, int y);
+void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on,
+                 const unsigned char *en, int sel);
+int  ui_bairitsu_hit(int cw, int ch, int x, int y, const unsigned char *en);
 int  ui_bairitsu_n(void);
 int  ui_bairitsu_id(int i);
 int  ui_bairitsu_on(int i);

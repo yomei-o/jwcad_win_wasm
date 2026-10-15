@@ -4135,10 +4135,10 @@ int ui_sunpodlg_hit(int cw, int ch, int x, int y)
 
 /* -------------------------------------------- 画面倍率・文字表示 -------
  * 32811's dialog: the zoom, four mark-jump registers and two toggles for
- * what a text draws with it.  Only 用紙全体表示 is wired up (it fits the
- * sheet, which is what the port does when it opens a drawing) -- everything
- * else here moves the view, and this machine cannot capture the original's
- * screen, so there would be nothing to score it against.
+ * what a text draws with it.  What each control does is src/app.c's
+ * press_bairitsu (CGamenBairitsuDialog の逆コンパイルの読み、原典では押して
+ * いない); here it is only drawn, with which can be pressed decided there
+ * as the original's OnInitDialog does.
  */
 void ui_bairitsu_rect(int cw, int ch, rect_t *r)
 {
@@ -4204,7 +4204,8 @@ static void br_label(fb_t *fb, int x, int y, int w, int h, const char *t,
 #undef BR_TX
 }
 
-void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
+void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on,
+                 const unsigned char *en, int sel)
 {
     rect_t r;
     int cx, cy, i, th = jw_text_height();
@@ -4221,7 +4222,8 @@ void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
     for (i = 0; i < JW_NBAIRITSU; i++) {
         const jw_br_t *z = &jw_bairitsu[i];
         int x = cx + z->x, y = cy + z->y;
-        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+        int live = en ? en[i] : z->enabled;
+        unsigned int col = live ? C_BTNTEXT : C_BTNSHADOW;
 
         switch (z->kind) {
         case JW_BR_OK:
@@ -4243,7 +4245,7 @@ void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
             int lit = on ? on[i] : z->on;
 
             paint_checkbox(fb, x, by, lit);
-            if (!z->enabled) {
+            if (!live) {
                 fb_fill(fb, x + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
                         C_BTNFACE);
                 if (lit)
@@ -4257,9 +4259,16 @@ void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
         }
         case JW_BR_EDIT:
             mj_sunken(fb, x, y, z->w, z->h);
-            if (zoom && *zoom)
+            if (zoom && *zoom) {
+                /* 開いた時は字が選ばれている（docs/ref_bairitsu.png の「2」） */
+                if (sel) {
+                    int tw = jw_text_px_fit_w(zoom, z->w - 6);
+
+                    fb_fill(fb, x + 3, y + (z->h - th) / 2, tw, th, C_HILIGHT);
+                }
                 zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6, zoom,
-                        C_BTNTEXT);
+                        sel ? C_BTNHILIGHT : C_BTNTEXT);
+            }
             break;
         case JW_BR_COMBO:
             mj_sunken(fb, x, y, z->w, z->h);
@@ -4284,7 +4293,7 @@ void ui_bairitsu(fb_t *fb, const char *zoom, const unsigned char *on)
     }
 }
 
-int ui_bairitsu_hit(int cw, int ch, int x, int y)
+int ui_bairitsu_hit(int cw, int ch, int x, int y, const unsigned char *en)
 {
     rect_t r;
     int i;
@@ -4299,7 +4308,8 @@ int ui_bairitsu_hit(int cw, int ch, int x, int y)
     for (i = 0; i < JW_NBAIRITSU; i++) {
         const jw_br_t *z = &jw_bairitsu[i];
 
-        if (z->kind == JW_BR_STATIC || z->kind == JW_BR_GROUP || !z->enabled)
+        if (z->kind == JW_BR_STATIC || z->kind == JW_BR_GROUP
+            || !(en ? en[i] : z->enabled))
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;
