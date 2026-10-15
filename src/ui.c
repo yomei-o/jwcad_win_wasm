@@ -897,14 +897,35 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
                     /* a group cell carries a black box round its digit only
                      * while the group can be drawn on: 表示のみ and 非表示
                      * ones show the bar that says they hold something and
-                     * nothing else (Test6.jww has three of them) */
+                     * nothing else (Test6.jww has three of them).  A layer
+                     * cell carries a black ring the same way. */
                     if (g == 1 && d && d->group[n].state >= 2)
                         fb_edge(fb, x + 1, y + 3, 16, 16,
                                 C_BTNTEXT, C_BTNTEXT);
+                    if (g == 0 && d && d->group[write[1]].layer[n].state >= 2)
+                        for (j = 0; j < 16; j++)
+                            for (i = 0; i < 16; i++)
+                                if (circle16[j] & (1 << i))
+                                    fb_fill(fb, x + 1 + i, y + 3 + j, 1, 1,
+                                            C_BTNTEXT);
                     if (used[g][n])
                         fb_fill(fb, x + 1, y + 1, BAR_L, 2, C_HASDATA);
                     if (text[g][n])
                         fb_fill(fb, x + 9, y + 1, BAR_R, 2, C_HASDATA);
+                }
+                {
+                    /* the digit, 0..F, in the middle of the ring or box
+                     * (docs/ref_start.png): the cell being written to has
+                     * its mark one pixel further in */
+                    char lab[2];
+                    int on = n == write[g], bx = x + (on ? 2 : 1),
+                        by = y + (on ? 4 : 3);
+
+                    lab[0] = "0123456789ABCDEF"[n];
+                    lab[1] = 0;
+                    jw_text_px(fb, bx + (16 - jw_text_px_w(lab)) / 2,
+                               by + (17 - jw_text_height()) / 2, lab,
+                               C_BTNTEXT);
                 }
             }
         }
@@ -4588,6 +4609,20 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
             int y = small_buttons[k].y;
             button_frame(fb, x, y, SMALL_W, SMALL_H, 0);
             fb_fill(fb, x + 2, y + 2, SMALL_W - 4, SMALL_H - 4, C_BTNFACE);
+            if (k == 3) {
+                /* the X: two strokes corner to corner, inside the face */
+                int i;
+
+                for (i = 0; i < 11; i++) {
+                    fb_fill(fb, x + 7 + i, y + 5 + i, 1, 1, C_BTNTEXT);
+                    fb_fill(fb, x + 17 - i, y + 5 + i, 1, 1, C_BTNTEXT);
+                }
+            } else {
+                const char *t = k == 1 ? "0" : "All";
+
+                jw_text_px(fb, x + (SMALL_W - jw_text_px_w(t)) / 2,
+                           y + (SMALL_H - jw_text_height()) / 2, t, C_BTNTEXT);
+            }
         }
     }
 }
