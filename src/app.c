@@ -13,6 +13,7 @@
 #include "cmd.h"
 #include "pick.h"
 #include "plot.h"
+#include "umekomi.h"
 #include "d25view.h"
 #include "tategu.h"
 #include "senkigou.h"
@@ -2286,6 +2287,11 @@ static void kh_apply(void)
     /* 2532 用紙枠を表示する → DAT_00a0c78c（CSonotaPage の OK FUN_005cd940 が
        +0xbc0 から）。src/draw.c の jw_draw_frame と pick.c の jw_read */
     jw_draw_paper_frame = kh_value(2532);
+    /* 一般(2) 2531 埋め込み文字を画面にも → DAT_00a0bc40（CSonotaPage1 の DDX
+       0x5d0f72 が +0x59c、OK FUN_005d02e0 が in_ECX[0x167] から）。読み手は
+       字の描き手 FUN_00481d50 の 0x485797。src/umekomi.c */
+    jw_umekomi_screen = kh_value_tab(1, 2531);
+    jw_draw_text_subst = jw_umekomi_screen ? jw_umekomi_screen_hook : 0;
     /* 2094 複線の Enter で連続複線 → DAT_00a0cb20（+0x718）。src/cmd.c */
     jw_cmd_fukusen_enter_on(kh_value_tab(0, 2094));
     /* 一般(2) 2362 矢印キーで画面移動… → DAT_00a0d864（CSonotaPage1 の OK
@@ -6590,6 +6596,7 @@ int app_save(unsigned char **out, long *n)
     if (!ok)
         return 0;
     clean_stamp = jw_cmd_edit_stamp();
+    jw_umekomi_saved(time(0));          /* 埋め込み文字の =F ほか: 保存日時 */
     return 1;
 }
 
@@ -6606,9 +6613,11 @@ int app_modified(void)
 int app_save_backup(unsigned char **out, long *n)
 {
     unsigned keep = clean_stamp;
+    time_t keep_t = jw_umekomi_saved_at();
     int ok = app_save(out, n);
 
     clean_stamp = keep;
+    jw_umekomi_saved(keep_t);
     return ok;
 }
 
@@ -6620,9 +6629,16 @@ void app_mark_modified(void)
 /* The same drawing as DXF, which is what 「DXF形式で保存」 writes. */
 int app_save_dxf(unsigned char **out, long *n)
 {
+    jw_dxf_opt opt;
+
     if (!have_drawing)
         return 0;
-    return jw_dxf_write(&drawing, out, n);
+    /* 基本設定 DXF・SXF・JWC の DXF書出し（CDxfPage の OK FUN_004a9a90:
+       2202 → DAT_00a0eed4、2203 → eed0、2214 → eee0）。src/dxf.c の注 */
+    opt.point_circle = kh_value_tab(7, 2202);
+    opt.layer_number = kh_value_tab(7, 2203);
+    opt.utf8 = kh_value_tab(7, 2214);
+    return jw_dxf_write_opt(&drawing, &opt, out, n);
 }
 
 /* 「SFC形式で保存」 (src/sfcwrite.c).  The header carries the name it is
@@ -6765,6 +6781,8 @@ void app_title(const char *name)
             nm[m - 4] = 0;
         jw_cmd_gazou_doc(doc_dir, nm);
     }
+    /* 埋め込み文字のファイル名（doc+0x16d8） */
+    jw_umekomi_doc(doc_dir, name ? name : "");
     if (!name || !*name) {
         /* 無題, the way the original starts */
         strcpy(title, "\x96\xb3\x91\xe8 - jw_win");
@@ -6823,6 +6841,7 @@ void app_new(void)
     jw_drawing d;
 
     ll_pend = ll_start = 0;
+    jw_umekomi_saved(0);                /* 埋め込み文字: 保存日時は無い */
 
     bt_close();
     ly_reset();
@@ -6860,6 +6879,7 @@ int app_open(const unsigned char *b, long n)
     jw_drawing d;
 
     ll_pend = ll_start = 0;
+    jw_umekomi_saved(0);                /* 開いたファイルの日時は表側が知る */
 
     bt_close();
     ly_reset();

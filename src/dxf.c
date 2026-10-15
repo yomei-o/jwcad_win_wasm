@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "cp932.h"
 #include "text.h"
 #include "gen/dxf.h"
 
@@ -34,6 +35,7 @@ typedef struct {
     unsigned char *b;
     long n, cap;
     int bad;
+    int utf8;                   /* 2214: 字を UTF-8 で（下の str_）       */
 } buf_t;
 
 static void put(buf_t *o, const void *p, long n)
@@ -74,10 +76,58 @@ static void code(buf_t *o, int c)
     puts_(o, t);
 }
 
+/* 2214 UTF-8: 原典の字の書き手 FUN_004a7e90 は DAT_00a0eee0 が立っていれば
+   符号頁を 0 (CP_ACP = Shift-JIS) から 0xfde9 (65001 = UTF-8) に替えて
+   WideCharToMultiByte する（0x4a7ed2）。字ごとに 1000 バイトまで */
+static void put_utf8(buf_t *o, const char *v)
+{
+    long n = (long)strlen(v), m, i;
+    unsigned short *w;
+
+    m = jw_to_utf16(v, n, 0, 0);
+    w = (unsigned short *)malloc((size_t)(m > 0 ? m : 1) * sizeof *w);
+    if (!w) {
+        o->bad = 1;
+        return;
+    }
+    m = jw_to_utf16(v, n, w, m);
+    for (i = 0; i < m; i++) {
+        unsigned long u = w[i];
+        unsigned char t[4];
+        int k = 0;
+
+        if (u >= 0xd800 && u < 0xdc00 && i + 1 < m && w[i + 1] >= 0xdc00 &&
+            w[i + 1] < 0xe000) {
+            u = 0x10000 + ((u - 0xd800) << 10) + (w[i + 1] - 0xdc00);
+            i++;
+        }
+        if (u < 0x80)
+            t[k++] = (unsigned char)u;
+        else if (u < 0x800) {
+            t[k++] = (unsigned char)(0xc0 | (u >> 6));
+            t[k++] = (unsigned char)(0x80 | (u & 0x3f));
+        } else if (u < 0x10000) {
+            t[k++] = (unsigned char)(0xe0 | (u >> 12));
+            t[k++] = (unsigned char)(0x80 | ((u >> 6) & 0x3f));
+            t[k++] = (unsigned char)(0x80 | (u & 0x3f));
+        } else {
+            t[k++] = (unsigned char)(0xf0 | (u >> 18));
+            t[k++] = (unsigned char)(0x80 | ((u >> 12) & 0x3f));
+            t[k++] = (unsigned char)(0x80 | ((u >> 6) & 0x3f));
+            t[k++] = (unsigned char)(0x80 | (u & 0x3f));
+        }
+        put(o, t, k);
+    }
+    free(w);
+}
+
 static void str_(buf_t *o, int c, const char *v)
 {
     code(o, c);
-    puts_(o, v);
+    if (o->utf8)
+        put_utf8(o, v);
+    else
+        puts_(o, v);
     puts_(o, "\r\n");
 }
 
@@ -251,12 +301,9 @@ static int colour_of(const jw_obj *o)
  * that is the only change: the original left the 中黒 of 「測定位置・表示枠」
  * and the 全角ハイフン of 「計画建物－天空率」 alone, while 「　屋 根」 came out
  * as `__屋_根`. */
-static void layer_name(const jw_drawing *d, int g, int l, char *out, int n)
+static void name_conv(const char *nm, char *out, int k, int n)
 {
-    const char *nm = jw_str(d, d->group[g].layer_name[l]);
-    int k;
-
-    k = sprintf(out, "_%x-%x_", g & 15, l & 15);
+    out[k] = 0;
     if (!nm)
         return;
     while (*nm && k < n - 2) {
@@ -279,17 +326,76 @@ static void layer_name(const jw_drawing *d, int g, int l, char *out, int n)
     out[k] = 0;
 }
 
+/* 2203 レイヤ名に番号を付加する（DAT_00a0eed0、CDxfPage +0xcc）。原典の
+ * レイヤ名の作り FUN_0049dea0: 番号を付けないのは、切で しかも 名前（直した
+ * あと）が空でなく、グループ順に それより前の 16×16 のどのレイヤ（物の無い
+ * ものも）とも同じ名前でないとき（0x49e044。比べは FUN_00414010）。そう
+ * でなければ「_%1x-%1x_」を頭に。直し方は FUN_0049d480 で、全角・半角の
+ * 空白と **( )** を '_' にする。移植の直し方（name_conv）は ( ) をそのまま
+ * にしている（既定の書き出しを変えないため、ここでは触らない）。 */
+static void layer_name(const jw_drawing *d, int g, int l, char *out, int n,
+                       int numbered)
+{
+    char mine[128], other[128];
+    int g2, l2, dup = 0;
+
+    name_conv(jw_str(d, d->group[g].layer_name[l]), mine, 0, (int)sizeof mine);
+    if (!numbered && mine[0]) {
+        for (g2 = 0; g2 <= g && !dup; g2++)
+            for (l2 = 0; l2 < 16; l2++) {
+                if (g2 == g && l2 == l)
+                    break;
+                name_conv(jw_str(d, d->group[g2].layer_name[l2]), other, 0,
+                          (int)sizeof other);
+                if (!strcmp(other, mine)) {
+                    dup = 1;
+                    break;
+                }
+            }
+        if (!dup) {
+            snprintf(out, (size_t)n, "%s", mine);
+            return;
+        }
+    }
+    name_conv(jw_str(d, d->group[g].layer_name[l]), out,
+              sprintf(out, "_%x-%x_", g & 15, l & 15), n);
+}
+
+/* 既定（原典の既定の箱）: 番号 入・点を円で 切・Shift-JIS */
 int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
+{
+    jw_dxf_opt opt;
+
+    opt.point_circle = 0;
+    opt.layer_number = 1;
+    opt.utf8 = 0;
+    return jw_dxf_write_opt(d, &opt, out, n);
+}
+
+/* 基本設定 DXF・SXF・JWC タブ（CDxfPage、DDX FUN_004a9d90・OK FUN_004a9a90）
+ * の箱のうち DXF 書き出し（点 FUN_00429a10・レイヤ名 FUN_0049dea0・字の
+ * 書き手 FUN_004a7e90）が読むのは
+ * 2202（DAT_00a0eed4）・2203（eed0）・2214（eee0）の三つだけ。
+ * 2205 Shift-JIS（eedc）は 2214 の対の印で、書き手は読まない。
+ * 2200 図面範囲を読取る（eec8）・2199 色を初期化する（eee4）は DXF 読込み、
+ * 2207 背景色と同じ色を反転（eee8）は SXF 読込み、2208 補助線を出力しない
+ * （eeec）は SXF 書き出し FUN_005e6670（0x5e72b0）が読むもので、DXF の
+ * 書き出しは読まない（補助線は いつも ADD_LINE に出る）。
+ * 2204 JWW2DXFConv.dll は 外の DLL に任せる道で 移植には無い。 */
+int jw_dxf_write_opt(const jw_drawing *d, const jw_dxf_opt *opt,
+                     unsigned char **out, long *n)
 {
     buf_t o;
     double hw, hh, sc;
-    int i, g, l, wg, nlayer = 0;
+    int i, g, l, wg, nlayer = 0, numbered;
     char name[128];
     char used[16][16];
 
-    if (!d || !out || !n)
+    if (!d || !out || !n || !opt)
         return 0;
     memset(&o, 0, sizeof o);
+    o.utf8 = opt->utf8 != 0;
+    numbered = opt->layer_number != 0;
     hw = d->paper_hw;
     hh = d->paper_hh;
     wg = write_group(d);
@@ -341,7 +447,7 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
         for (l = 0; l < 16; l++) {
             if (!used[g][l])
                 continue;
-            layer_name(d, g, l, name, (int)sizeof name);
+            layer_name(d, g, l, name, (int)sizeof name, numbered);
             str_(&o, 0, "LAYER");
             str_(&o, 2, name);
             int5(&o, 70, 64);
@@ -384,7 +490,7 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
             strcpy(name, "ADD_LINE");
         else
             layer_name(d, e->lgroup & 15, e->layer & 15, name,
-                       (int)sizeof name);
+                       (int)sizeof name, numbered);
         x0 = (e->d[0] + hw) * s;
         y0 = (e->d[1] + hh) * s;
         x1 = (e->d[2] + hw) * s;
@@ -494,11 +600,16 @@ int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
             break;
         }
         case JW_TEN:
-            str_(&o, 0, "POINT");
+            /* 2202 点を円で出力する（DAT_00a0eed4）: 点の書き手
+               FUN_00429a10 は「POINT」の代わりに「CIRCLE」と書き、同じ
+               8・62・10・20 のあとに 40 = 0.4 × 縮尺（FUN_004a93a0） */
+            str_(&o, 0, opt->point_circle ? "CIRCLE" : "POINT");
             str_(&o, 8, name);
             int5(&o, 62, colour_of(e));
             real(&o, 10, x0);
             real(&o, 20, y0);
+            if (opt->point_circle)
+                real(&o, 40, 0.4 * s);
             break;
         case JW_MOJI: {
             double dx = e->d[2] - e->d[0], dy = e->d[3] - e->d[1];

@@ -45,6 +45,10 @@ extern int jw_draw_texts_last;   /* 1887 文字を最後に描画 (on by default
 /* 画面倍率・文字表示 の【文字枠】を表示する (2104, DAT_00a0c794): 文字の
    字に加えて その枠も描く。画面だけで、印刷は描かない（app が描く間だけ立てる） */
 extern int jw_draw_textframe;
+/* 埋め込み文字（src/umekomi.h）: 0 でなければ 字を描く前にこれを通す。
+   plot.c が刷る間と、app が 基本設定 2531 の入っているとき入れる */
+extern const char *(*jw_draw_text_subst)(const jw_drawing *, const jw_obj *,
+                                         const char *);
 /* 基本設定 一般(1) 2532「用紙枠を表示する」(DAT_00a0c78c): 用紙の四辺を 線色 2 の
    実線で、要素より先に描く（app が画面を描くときだけ jw_draw_frame を呼ぶ）。
    読取り点（jw_read）も その四隅を拾う。 */

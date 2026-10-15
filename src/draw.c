@@ -3069,6 +3069,8 @@ int jw_draw_reverse = 0;
    jw_draw, before the pictures.  Off, they go down in element order. */
 int jw_draw_texts_last = 1;
 int jw_draw_textframe;
+const char *(*jw_draw_text_subst)(const jw_drawing *, const jw_obj *,
+                                  const char *);
 
 /* 用紙枠 (2532)。原典の描画本体 FUN_0044b760 は、画面に描くとき（DC が刷りでなく
    +0x8558・DAT_00a0c784・DAT_00a0b3d0 が立っていない）DAT_00a0c78c が立って
@@ -3361,7 +3363,11 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                      jw_ux(v, ax), jw_uy(v, ay), col, wide, 1, ppb, 0);
             }
             if (!jw_draw_kari) {
-                jw_text_run_face(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
+                const char *ts = jw_str(d, o->text);
+
+                if (jw_draw_text_subst)     /* 埋め込み文字 (src/umekomi.c) */
+                    ts = jw_draw_text_subst(d, o, ts);
+                jw_text_run_face(fb, v, ts, o->d[0], o->d[1],
                                  o->d[2], o->d[3], o->d[4], o->d[5], col,
                                  (o->flags & 0x20) != 0,
                                  o->face >= 0 ? jw_str(d, o->face) : 0,
