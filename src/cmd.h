@@ -399,7 +399,8 @@ int  jw_cmd_figure_base(double *x, double *y);
  */
 /* 33016 中心点取得, 33028 円周1/4点取得 (the nearest of the picked circle's
  * four quarter points) and 33017 線上点 (pick a line, then the next point is
- * dropped onto it at right angles -- its 交点 half is not done).
+ * dropped onto it at right angles; (L) on another line or circle gives
+ * their crossing, (R) a read point -- FUN_0076fae0, read off the decompile).
  */
 void jw_cmd_read_mode(int mode);
 int  jw_cmd_read_mode_now(void);

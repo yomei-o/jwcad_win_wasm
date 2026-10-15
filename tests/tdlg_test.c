@@ -774,6 +774,93 @@ static void bars_against_templates(void)
     ck(bad == 0, msg);
 }
 
+/* 線上点・交点取得 (33017) の二つ目（CSunpouZukeiKa の 20 番目 FUN_0076fae0、
+   逆コンパイルの読み -- 原典では押していない): (L) で拾った別の線・円との
+   交点（クリックに近い方）、(R) は読取点。どちらも最初の要素へ落とす */
+static int seg_is(const jw_obj *o, double x0, double y0, double x1, double y1)
+{
+    return o->cls == JW_SEN && nearq(o->d[0], x0) && nearq(o->d[1], y0)
+           && nearq(o->d[2], x1) && nearq(o->d[3], y1);
+}
+
+static void senjou_cross(void)
+{
+    const double P = 3.141592653589793;
+    jw_drawing *d;
+    jw_obj *o;
+    int n;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_SEN);
+    o->d[0] = -100; o->d[1] = 0; o->d[2] = 100; o->d[3] = 0;
+    add_arc(d, 0, 0, 50, 0, 2 * P)->n = 1;
+    app_fit();
+    app_command(0x8003);
+    n = d->ndrawn;
+    jw_cmd_point(d, app_view(), 50, 80, 0);
+    app_command(33017);
+    jw_cmd_point(d, app_view(), 80, 0, 0);
+    jw_cmd_point(d, app_view(), 50 * cos(P / 9), 50 * sin(P / 9), 0);
+    ck(d->ndrawn == n + 1 && seg_is(&d->obj[n], 50, 80, 50, 0),
+       "線上点 (L) 円の上: 線と円の交点のうちクリックに近い (50,0)");
+    app_command(33017);
+    jw_cmd_point(d, app_view(), 80, 0, 0);
+    jw_cmd_point(d, app_view(), 50, 80, 1);
+    jw_cmd_point(d, app_view(), 50, -80, 0);
+    ck(d->ndrawn == n + 2 && seg_is(&d->obj[n + 1], 50, 0, 50, -80),
+       "  (R) は読取点 (50,80) を線へ落として (50,0)");
+    app_command(33017);
+    jw_cmd_point(d, app_view(), 0, 50, 0);
+    jw_cmd_point(d, app_view(), -30, 0, 0);
+    jw_cmd_point(d, app_view(), -50, -80, 0);
+    if (!(d->ndrawn == n + 3 && seg_is(&d->obj[n + 2], -50, 0, -50, -80)))
+        printf("     %d %g,%g-%g,%g\n", d->ndrawn - n, d->obj[d->ndrawn - 1].d[0],
+               d->obj[d->ndrawn - 1].d[1], d->obj[d->ndrawn - 1].d[2], d->obj[d->ndrawn - 1].d[3]);
+    ck(d->ndrawn == n + 3 && seg_is(&d->obj[n + 2], -50, 0, -50, -80),
+       "  円を拾って (L) 線の上: 交点 (-50,0)");
+}
+
+/* 中心線の 中心線寸法 (1412): 箱があれば 始点から箱の長さ（÷縮尺）だけ、
+   終点の側へ（FUN_0063cc50 の読み、原典では押していない） */
+static void chushin_len(void)
+{
+    jw_drawing *d;
+    jw_obj *o;
+    double s = 1.0, len;
+    int i, n;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_SEN);
+    o->d[0] = 0; o->d[1] = 0; o->d[2] = 200; o->d[3] = 0;
+    o = jw_add(d, JW_SEN);
+    o->d[0] = 0; o->d[1] = 100; o->d[2] = 200; o->d[3] = 100;
+    app_fit();
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state == 3 && d->group[i].scale > 0.0)
+            s = d->group[i].scale;
+    len = 30.0 / s;
+    app_command(0x8069);
+    jw_cmd_box_put(1412, "-30");
+    n = d->ndrawn;
+    jw_cmd_point(d, app_view(), 100, 0, 0);
+    jw_cmd_point(d, app_view(), 100, 100, 0);
+    jw_cmd_point(d, app_view(), 20, 50, 0);
+    jw_cmd_point(d, app_view(), 150, 50, 0);
+    ck(d->ndrawn == n + 1 && seg_is(&d->obj[n], 20, 50, 20 + len, 50),
+       "中心線寸法 -30: 始点から 30÷縮尺 だけ 終点の側へ");
+    jw_cmd_point(d, app_view(), 20, 50, 0);
+    jw_cmd_point(d, app_view(), 10, 50, 0);
+    ck(d->ndrawn == n + 2 && seg_is(&d->obj[n + 1], 20, 50, 20 - len, 50),
+       "  終点が逆なら 逆へ");
+    jw_cmd_box_put(1412, "");
+    jw_cmd_point(d, app_view(), 20, 50, 0);
+    jw_cmd_point(d, app_view(), 150, 50, 0);
+    ck(d->ndrawn == n + 3 && seg_is(&d->obj[n + 2], 20, 50, 150, 50),
+       "  空なら 終点まで（従来どおり）");
+}
+
 int main(void)
 {
     static const struct { const char *name; int tpl; } CAP[] = {
@@ -806,6 +893,8 @@ int main(void)
     free_two_then_undo();
     corner_cut();
     corner_arcs();
+    senjou_cross();
+    chushin_len();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
