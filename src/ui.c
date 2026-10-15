@@ -3977,7 +3977,9 @@ int ui_sunpodlg_hit(int cw, int ch, int x, int y)
     for (i = 0; i < JW_NSUNPODLG; i++) {
         const jw_sd_t *z = &jw_sunpodlg[i];
 
-        if (z->kind == JW_SD_STATIC || z->kind == JW_SD_GROUP)
+        /* 押せない部品（WS_DISABLED: 2084 小数点以下桁数・1323 度(゜)単位追加）
+           は押しを受けない */
+        if (z->kind == JW_SD_STATIC || z->kind == JW_SD_GROUP || !z->enabled)
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;
@@ -4579,10 +4581,11 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                 /* 寸法 の 端部: the label says which it is, and the
                    original writes the arrow as the two characters ->
                    rather than a glyph (read off its own bar after a
-                   press: 「端部 ->」). */
+                   press: 「端部 ->」).  逆矢印 is「-<」(0x9746e0). */
                 char t[32];
+                int ar = jw_cmd_sunpo_arrows();
                 sprintf(t, "\x92[\x95\x94 %s",
-                        jw_cmd_sunpo_arrows() ? "->" : "\x81\x9c");
+                        ar == 2 ? "-<" : ar ? "->" : "\x81\x9c");
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1843 && d) {

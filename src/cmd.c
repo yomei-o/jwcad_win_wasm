@@ -945,6 +945,33 @@ static int    sun_sencol  = JW_SUN_SEN_COLOR;
 static int    sun_hikicol = JW_SUN_HIKI_COLOR;
 static int    sun_tencol  = JW_SUN_TEN_COLOR;
 
+/* 寸法設定の残りの箱。原典の既定はレジストリ HKCU\Software\Jw_cad\jw_win\SUNPO
+ * と RUISHINSUNPO（tools/refenv.reg、src/gen/sunpo.h）、箱と大域の繋ぎは
+ * CSunpoSetteiDialg の DDX `FUN_005d2b30` と OK の `FUN_005d34b0`:
+ *
+ *   2080 逆矢印の寸法線突出寸法  +0x5a0 -> DAT_00a0bd18  GYAKUDE    5
+ *   1482 指定1 引出線位置        +0x7f8 -> DAT_00a0bd60  HIKIDASHI1 5
+ *   1483 指定1 寸法線位置        +0x880 -> DAT_00a0bd68  SUNPOSEN1  10
+ *   1484 指定2 引出線位置        +0x908 -> DAT_00a0bd70  HIKIDASHI2 0
+ *   1485 指定2 寸法線位置        +0x990 -> DAT_00a0bd78  SUNPOSEN2  5
+ *   1486 指示点からの引出線位置  +0xa18 -> DAT_00a0bd80  HIKIDASHI3 3
+ *   2082 累進 基点円の円半径     +0xa28 -> DAT_00a0bd50  StartENR   0.75
+ *   2084 角度の小数点以下桁数    +0x6e8 -> DAT_00a0bd9c  DEGKETA    4（押せない箱）
+ *
+ * 作図に効くのは 2080 だけ（端部 が 逆矢印 のとき、sunpo_make）。1482〜1486
+ * は バーの ＝ (1060) が使う値で、移植は ＝ を入れていない
+ * （docs/notes-commands.md「＝ (1060) の受け手」）。2082 は 累進 の 基点円
+ * (2417) が使い、移植の 累進 は基点円を描かない。2084 は 角度単位 が 度 の
+ * ときの桁で、移植の角度は 度分秒 だけ。どれも表示と保存だけ。 */
+static double sun_gyaku   = JW_SUN_GYAKUDE;
+static double sun_hiki1   = JW_SUN_HIKIDASHI1;
+static double sun_sen1    = JW_SUN_SUNPOSEN1;
+static double sun_hiki2   = JW_SUN_HIKIDASHI2;
+static double sun_sen2    = JW_SUN_SUNPOSEN2;
+static double sun_hiki3   = JW_SUN_HIKIDASHI3;
+static double sun_startr  = JW_SUN_STARTENR;
+static int    sun_degketa = JW_SUN_DEGKETA;
+
 /* how many places the value is written to, for whoever draws the button */
 int jw_cmd_sunpo_decimals(void);
 
@@ -963,8 +990,28 @@ int jw_cmd_sunpo_box(int id, char *out, int n)
     case 1477: snprintf(out, (size_t)n, "%g", sun_yalen);    return 1;
     case 1479: snprintf(out, (size_t)n, "%g", sun_tsuki);    return 1;
     case 1481: snprintf(out, (size_t)n, "%g", sun_yaang);    return 1;
+    case 2080: snprintf(out, (size_t)n, "%g", sun_gyaku);    return 1;
+    case 1482: snprintf(out, (size_t)n, "%g", sun_hiki1);    return 1;
+    case 1483: snprintf(out, (size_t)n, "%g", sun_sen1);     return 1;
+    case 1484: snprintf(out, (size_t)n, "%g", sun_hiki2);    return 1;
+    case 1485: snprintf(out, (size_t)n, "%g", sun_sen2);     return 1;
+    case 1486: snprintf(out, (size_t)n, "%g", sun_hiki3);    return 1;
+    case 2082: snprintf(out, (size_t)n, "%g", sun_startr);   return 1;
+    case 2084: snprintf(out, (size_t)n, "%d", sun_degketa);  return 1;
     }
     return 0;
+}
+
+/* 原典の OK（CSunpoSetteiDialg `FUN_005d34b0`）が箱の値を大域へ写す前に
+   掛ける丸め。lo より小さければ lo、hi より大きければ to_hi（1483 だけは
+   上限 100 を超えると 200 を入れる —— 原典のまま） */
+static double sun_clamp(double v, double lo, double hi, double to_hi)
+{
+    if (v < lo)
+        return lo;
+    if (v > hi)
+        return to_hi;
+    return v;
 }
 
 void jw_cmd_sunpo_box_set(int id, const char *t)
@@ -989,6 +1036,14 @@ void jw_cmd_sunpo_box_set(int id, const char *t)
     case 1477: sun_yalen   = v;      break;     /* 矢印の長さ */
     case 1479: sun_tsuki   = v;      break;     /* 引出線の突出寸法 */
     case 1481: sun_yaang   = v;      break;     /* 矢印の角度 */
+    case 2080: sun_gyaku   = v;      break;     /* 逆矢印の寸法線突出寸法（丸めなし） */
+    case 1482: sun_hiki1 = sun_clamp(v, -100.0, 200.0, 200.0); break;
+    case 1483: sun_sen1  = sun_clamp(v, -100.0, 100.0, 200.0); break;
+    case 1484: sun_hiki2 = sun_clamp(v, -100.0, 200.0, 200.0); break;
+    case 1485: sun_sen2  = sun_clamp(v, -100.0, 200.0, 200.0); break;
+    case 1486: sun_hiki3 = sun_clamp(v, 0.0, 200.0, 200.0);    break;
+    case 2082: sun_startr = sun_clamp(v, 0.1, 100.0, 100.0);   break;
+    /* 2084 は押せない箱（style 0x58030081、WS_DISABLED）なので受けない */
     }
 }
 
@@ -1069,8 +1124,11 @@ static int sun_chi_done;
 static int sun_enshu;
 static double sun_er;           /* the radius of the circle indicated */
 
-/* 寸法 の 端部 (1062): a point at each end of the dimension line, or an
- * arrowhead.  The button turns it over. */
+/* 寸法 の 端部 (1062): a point at each end of the dimension line (0), an
+ * arrowhead pointing in (1), or one pointing out (2, 逆矢印).  The button
+ * goes round 0 -> 1 -> 2 -> 0 (`FUN_005d9350`: DAT_00a0bccc に ±1、0〜2 で
+ * 回す。バーの字は 0 が 5190「端部 ●」、1 が「->」、2 が「-<」——
+ * 0x9746d8・0x9746e0 の字）。 */
 static int sun_arrow = -1;
 
 static int sun_arrows(void)
@@ -1078,8 +1136,8 @@ static int sun_arrows(void)
     return sun_arrow < 0 ? JW_SUN_ARROW : sun_arrow;
 }
 
-/* whether 端部 is arrowheads rather than points, for the button that
-   says so on the bar */
+/* 端部 as it stands -- 0 points, 1 arrowheads, 2 逆矢印 -- for the button
+   that says so on the bar */
 int jw_cmd_sunpo_arrows(void)
 {
     return sun_arrows();
@@ -2576,8 +2634,18 @@ static int moji_kijun = 2;              /* 左下 */
  * under the three columns, three beside the three rows) and the two runs
  * above; a run with the other column's box filled was not done.
  */
+/* 原典の既定はレジストリ HKCU\Software\Jw_cad\jw_win\MOJI の OfstOn=0、
+ * OfstX1..3 = -1 0 1、OfstY1..3 = -1 0 1（tools/refenv.reg、書き手は
+ * FUN_004894cd の塊）。箱と大域の繋ぎは CKjiJunTenDialog の DDX と OK
+ * `FUN_00550f70`: 2004/2005/2006 -> DAT_00a0b9d0/d8/e0（X1..3）、
+ * 2007/2008/2009 -> DAT_00a0ba20/28/30（Y1..3）。だから 下 (2007) が
+ * Y1 = -1、上 (2009) が Y3 = 1 —— docs/ref_mojikijun.png の 縦ずれ 1 0 -1
+ * （上から）と 横ずれ -1 0 1 そのもの。ずれ使用 が切れているので
+ * 効かないが、入れれば 上の基点は 1 下へ、左の基点は 1 右へ（字が線から
+ * 離れる向き）。DDX の範囲は ±1000（FUN_0079f95a）。 */
 static int moji_zure;
-static double moji_zx[3], moji_zy[3];   /* 左中右 across, 上中下 down */
+static double moji_zx[3] = { -1.0, 0.0, 1.0 };  /* 左中右 across */
+static double moji_zy[3] = { 1.0, 0.0, -1.0 };  /* 上中下 down */
 static int moji_under, moji_over, moji_side;   /* 1327, 1328, 1329 */
 
 void jw_cmd_moji_rule(int which, int on)
@@ -2619,7 +2687,7 @@ int jw_cmd_moji_zure_now(void)
  * 左, 2005 中, 2006 右 across; 2009 上, 2008 中, 2007 下 down --
  * which is how the original was driven when the numbers were measured,
  * tools/probe67.sh). */
-static char moji_ztext[6][16];
+static char moji_ztext[6][16] = { "-1", "0", "1", "1", "0", "-1" };
 
 static int zure_ix(int id)
 {
@@ -2638,10 +2706,8 @@ static void zure_text(int ix, double v)
 {
     if (ix < 0 || ix > 5)
         return;
-    if (v == 0.0)
-        moji_ztext[ix][0] = 0;
-    else
-        sprintf(moji_ztext[ix], "%g", v);
+    /* 0 も「0」と見せる（DDX_Text は double をそのまま書く。写しの 0） */
+    sprintf(moji_ztext[ix], "%g", v);
 }
 
 const char *jw_cmd_moji_zure_box(int id)
@@ -15175,7 +15241,7 @@ static int bar_press(jw_drawing *d, int id)
             return 1;
         }
         if (id == 1062) {       /* 端部: a point or an arrowhead */
-            sun_arrow = !sun_arrows();
+            sun_arrow = (sun_arrows() + 1) % 3;
             return 1;
         }
         if (id == 1065) {       /* 半径 */
@@ -17742,6 +17808,29 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         if (d->group[i].state == 3)
             wg = i;
 
+    /* 逆矢印 (端部 2): before the dimension line, a line from each end on
+     * outwards by 逆矢印の寸法線突出寸法 (2080).  CZukeiSunpo の作図
+     * （`FUN_00783730` の 0x784977〜）:DAT_00a0bccc == 2、二点目が一点目より先（local_71a8 > 0、
+     * 逆向きに測ると出さない）、累進でない（+0x1c4 != 0x1a）、
+     * DAT_00a0bd18 >= 0.1 のとき、寸法線と同じ線（色・0x2000）で
+     * 始点 -> 始点 - 向き*突出、終点 -> 終点 + 向き*突出 の順。 */
+    if (sun_arrows() == 2 && !sun_prog && s1 > s0 && sun_gyaku >= 0.1) {
+        for (i = 0; i < 2; i++) {
+            double ex = i ? x1 : x0, ey = i ? y1 : y0, k = i ? 1.0 : -1.0;
+            o = jw_add(d, JW_SEN);
+            if (!o)
+                return;
+            o->color = sun_sencol;
+            o->ltype = 1;
+            o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+            o->d[0] = ex;
+            o->d[1] = ey;
+            o->d[2] = ex + k * sun_gyaku * ux;
+            o->d[3] = ey + k * sun_gyaku * uy;
+            made++;
+        }
+    }
+
     /* 寸法線 */
     o = jw_add(d, JW_SEN);
     if (!o)
@@ -17816,6 +17905,13 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             double wl = sqrt(wx * wx + wy * wy), k;
             if (wl <= 0.0)
                 break;
+            /* 逆矢印: the point the arrow is aimed at is the other end
+               reflected through this one (0x784e85〜 の local_544・local_534)
+               -- so it points out, and FUN_00473d00 draws it as before */
+            if (sun_arrows() == 2) {
+                wx = -wx;
+                wy = -wy;
+            }
             wx /= wl;
             wy /= wl;
             for (k = 1.0; k >= -1.0; k -= 2.0) {

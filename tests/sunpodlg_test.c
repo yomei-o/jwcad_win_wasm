@@ -31,6 +31,11 @@
 
 static int fails;
 
+static int near(double a, double b)
+{
+    return a - b < 1e-6 && b - a < 1e-6;
+}
+
 static void ck(int ok, const char *what)
 {
     printf("%-4s %s\n", ok ? "ok" : "BAD", what);
@@ -174,6 +179,122 @@ int main(int argc, char **argv)
                    "寸法線は打ち込んだ色 4");
             jw_cmd_set(0);
         }
+    }
+
+    /* ------------------------------ 残りの箱: 原典の既定と OK の丸め ---
+       既定はレジストリ SUNPO・RUISHINSUNPO（tools/refenv.reg）、写し
+       docs/ref_sunpodlg.png の 5・5 10・0 5・3・0.75・4。丸めは
+       CSunpoSetteiDialg の OK `FUN_005d34b0` */
+    {
+        static const struct { int id; const char *v; } DEF[] = {
+            { 2080, "5" }, { 1482, "5" }, { 1483, "10" }, { 1484, "0" },
+            { 1485, "5" }, { 1486, "3" }, { 2082, "0.75" }, { 2084, "4" }
+        };
+        char t[32], what[80];
+        int k;
+
+        for (k = 0; k < (int)(sizeof DEF / sizeof DEF[0]); k++) {
+            sprintf(what, "%d は原典の既定 %s", DEF[k].id, DEF[k].v);
+            ck(jw_cmd_sunpo_box(DEF[k].id, t, sizeof t)
+               && !strcmp(t, DEF[k].v), what);
+        }
+        app_command(32925);
+        ctl(1483, &x, &y);
+        app_press(x, y, 0);
+        app_key('1');
+        app_key('5');
+        app_key('0');
+        app_key('\r');
+        ck(jw_cmd_sunpo_box(1483, t, sizeof t) && !strcmp(t, "200"),
+           "1483 は 100 を超えると 200（原典の丸めのまま）");
+        ctl(1486, &x, &y);
+        app_press(x, y, 0);
+        app_key('-');
+        app_key('2');
+        app_key('\r');
+        ck(jw_cmd_sunpo_box(1486, t, sizeof t) && !strcmp(t, "0"),
+           "1486 は 0 より小さくならない");
+        ctl(2082, &x, &y);
+        app_press(x, y, 0);
+        app_key('0');
+        app_key('\r');
+        ck(jw_cmd_sunpo_box(2082, t, sizeof t) && !strcmp(t, "0.1"),
+           "2082 は 0.1 より小さくならない");
+        ctl(2080, &x, &y);
+        app_press(x, y, 0);
+        app_key('7');
+        app_key('\r');
+        ck(jw_cmd_sunpo_box(2080, t, sizeof t) && !strcmp(t, "7"),
+           "逆矢印の突出寸法を 7 に");
+        ctl(2084, &x, &y);
+        app_press(x, y, 0);
+        app_key('2');
+        app_key('\r');
+        ck(jw_cmd_sunpo_box(2084, t, sizeof t) && !strcmp(t, "4"),
+           "2084 は押せない箱なので打てない");
+        ctl(1, &x, &y);
+        app_press(x, y, 0);
+        ck(!app_sunpodlg_open(), "OK で閉じる");
+        ck(jw_cmd_sunpo_box(1483, t, sizeof t) && !strcmp(t, "200")
+           && jw_cmd_sunpo_box(2080, t, sizeof t) && !strcmp(t, "7"),
+           "OK のあとも残る");
+    }
+
+    /* ------------------------------------------ 端部 の 逆矢印 -------
+       端部 (1062) は 0 点 → 1 矢印 → 2 逆矢印 → 0 と回る（FUN_005d9350）。
+       逆矢印は 寸法線の前に 両端から外へ 突出寸法 の線を二本、矢印は
+       外向き（FUN_00783730 の 0x784977・0x784e85） */
+    {
+        jw_drawing *dz = (jw_drawing *)app_drawing();
+        int b0, k, ok;
+        const jw_obj *o;
+
+        jw_cmd_set(JW_CMD_SUNPO);
+        ck(jw_cmd_sunpo_arrows() == 0, "端部 は 点 から");
+        jw_cmd_bar(dz, 1062);
+        ck(jw_cmd_sunpo_arrows() == 1, "  一回で 矢印");
+        jw_cmd_bar(dz, 1062);
+        ck(jw_cmd_sunpo_arrows() == 2, "  二回で 逆矢印");
+        b0 = dz->ndrawn;
+        jw_cmd_point(dz, app_view(), 100.0, 120.0, 0);
+        jw_cmd_point(dz, app_view(), 100.0, 110.0, 0);
+        jw_cmd_point(dz, app_view(), 100.0, 100.0, 0);
+        jw_cmd_point(dz, app_view(), 200.0, 100.0, 0);
+        ck(dz->ndrawn == b0 + 10,
+           "  突出二本・寸法線・矢印四本・引出線二本・値");
+        if (dz->ndrawn == b0 + 10) {
+            o = &dz->obj[b0];
+            ck(o->cls == JW_SEN && o->color == 4 && (o->flags & 0x2000)
+               && near(o->d[0], 100.0) && near(o->d[1], 110.0)
+               && near(o->d[2], 93.0) && near(o->d[3], 110.0),
+               "  一本目は始点から外へ 7");
+            o = &dz->obj[b0 + 1];
+            ck(near(o->d[0], 200.0) && near(o->d[2], 207.0)
+               && near(o->d[3], 110.0), "  二本目は終点から外へ 7");
+            o = &dz->obj[b0 + 2];
+            ck(near(o->d[0], 100.0) && near(o->d[2], 200.0),
+               "  そのあと寸法線");
+            ok = 1;
+            for (k = 0; k < 4; k++) {
+                o = &dz->obj[b0 + 3 + k];
+                /* 始点の矢印は左へ、終点の矢印は右へ開く */
+                if (k < 2 ? !(o->d[2] < o->d[0]) : !(o->d[2] > o->d[0]))
+                    ok = 0;
+            }
+            ck(ok, "  矢印は外向き");
+        }
+        /* 逆向き（二点目が一点目より手前）に測ると突出の線は出ない */
+        jw_cmd_set(0);                  /* 次の寸法は一から */
+        jw_cmd_set(JW_CMD_SUNPO);
+        b0 = dz->ndrawn;
+        jw_cmd_point(dz, app_view(), 200.0, 120.0, 0);
+        jw_cmd_point(dz, app_view(), 200.0, 110.0, 0);
+        jw_cmd_point(dz, app_view(), 200.0, 100.0, 0);
+        jw_cmd_point(dz, app_view(), 100.0, 100.0, 0);
+        ck(dz->ndrawn == b0 + 8, "  逆向きに測ると突出の線は無い（local_71a8）");
+        jw_cmd_bar(dz, 1062);
+        ck(jw_cmd_sunpo_arrows() == 0, "  三回で 点 に戻る");
+        jw_cmd_set(0);
     }
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");

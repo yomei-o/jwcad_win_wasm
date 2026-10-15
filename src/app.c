@@ -1256,6 +1256,10 @@ static int press_bairitsu(int x, int y)
 static int mk_open;
 /* which of the six ずれ boxes is being typed into, or 0 */
 static int mk_caret;
+/* the box was just clicked: the first character typed replaces what is in it
+   (the boxes now come up holding the original's -1 0 1, and typing after
+   them would make -15) -- the bar's boxes do the same, see box_fresh */
+static int mk_fresh;
 
 int app_mojikijun_open(void)
 {
@@ -1291,6 +1295,7 @@ static int press_mojikijun(int x, int y)
        (tools/probe70.sh). */
     if (jw_cmd_moji_zure_box(id) && jw_cmd_moji_zure_now()) {
         mk_caret = id;
+        mk_fresh = 1;
         return 1;
     }
     mk_caret = 0;
@@ -1303,6 +1308,16 @@ static int mk_key(int c)
         mk_caret = 0;
         return 1;
     }
+    if (mk_fresh && c != 8 && mk_caret) {
+        const char *t;
+        int guard = 32;
+
+        if (!((c >= '0' && c <= '9') || c == '.' || c == '-'))
+            return 0;
+        while ((t = jw_cmd_moji_zure_box(mk_caret)) && *t && guard-- > 0)
+            jw_cmd_moji_zure_key(mk_caret, 8);
+    }
+    mk_fresh = 0;
     return jw_cmd_moji_zure_key(mk_caret, c);
 }
 

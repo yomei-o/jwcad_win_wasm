@@ -814,7 +814,8 @@ static void dim_arrows(void)
         }
         ck(ok, "  every one of them where the original put it");
     }
-    jw_cmd_bar(d, 1062);
+    while (jw_cmd_sunpo_arrows())   /* 端部 は 0->1->2 と回る */
+        jw_cmd_bar(d, 1062);
     jw_free(&ref);
 }
 

@@ -66,6 +66,24 @@ def main():
         o.write('#define JW_SUN_COMMA       %d\n' % d('ShowComma'))
         o.write('#define JW_SUN_ZERO        %d\n' % d('ShowZero'))
         o.write('#define JW_SUN_UNIT        %d\n' % d('ShowUnit'))
+        # 寸法設定の残りの箱（CSunpoSetteiDialg の DDX FUN_005d2b30 と
+        # OK の FUN_005d34b0 が繋ぐ大域。レジストリの書き手は FUN_004894cd の
+        # 塊の SUNPO\... ）
+        o.write('/* gyaku-yajirushi: how far the dimension line runs on (2080, DAT_00a0bd18) */\n')
+        o.write('#define JW_SUN_GYAKUDE     %g\n' % f('GYAKUDE'))
+        o.write('/* extension / dimension line positions: =(1) 1482/1483 (bd60/bd68),\n'
+                '   =(2) 1484/1485 (bd70/bd78), - from the point 1486 (bd80) */\n')
+        o.write('#define JW_SUN_HIKIDASHI1  %g\n' % f('HIKIDASHI1'))
+        o.write('#define JW_SUN_SUNPOSEN1   %g\n' % f('SUNPOSEN1'))
+        o.write('#define JW_SUN_HIKIDASHI2  %g\n' % f('HIKIDASHI2'))
+        o.write('#define JW_SUN_SUNPOSEN2   %g\n' % f('SUNPOSEN2'))
+        o.write('#define JW_SUN_HIKIDASHI3  %g\n' % f('HIKIDASHI3'))
+        o.write('/* places of an angle in degrees (2084, bd9c) */\n')
+        o.write('#define JW_SUN_DEGKETA     %d\n' % d('DEGKETA'))
+        r = read()['RUISHINSUNPO']
+        o.write('/* ruishin: the base circle (2417, bd48) and its radius (2082, bd50) */\n')
+        o.write('#define JW_SUN_STARTEN     %d\n' % int(val(r['StartEN'])))
+        o.write('#define JW_SUN_STARTENR    %g\n' % float(val(r['StartENR'])))
         o.write('\n/* The flags the original puts on each part (+0x44).  Read\n'
                 '   back out of a dimension it drew. */\n')
         o.write('#define JW_SUN_LINE_FLAGS  0x2000u\n')

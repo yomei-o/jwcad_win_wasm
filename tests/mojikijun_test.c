@@ -157,8 +157,28 @@ int main(int argc, char **argv)
         ctl(2004, &x, &y);
         app_press(x, y, 0);
         app_key('5');
-        ck(jw_cmd_moji_zure_get(1, 0) == 0.0,
-           "  ずれ使用 の前は打ち込めない");
+        ck(jw_cmd_moji_zure_get(1, 0) == -1.0,
+           "  ずれ使用 の前は打ち込めない（原典の既定 -1 のまま）");
+        {   /* 六つの箱は原典の既定（MOJI\OfstX1..3・OfstY1..3、写しの数） */
+            static const struct { int id; const char *v; } D[6] = {
+                { 2004, "-1" }, { 2005, "0" }, { 2006, "1" },
+                { 2009, "1" }, { 2008, "0" }, { 2007, "-1" }
+            };
+            const char *t;
+
+            for (k = 0; k < 6; k++) {
+                char what[64];
+
+                t = jw_cmd_moji_zure_box(D[k].id);
+                sprintf(what, "  %d は原典の既定 %s", D[k].id, D[k].v);
+                ck(t && !strcmp(t, D[k].v), what);
+            }
+            ck(jw_cmd_moji_zure_get(1, 0) == -1.0
+               && jw_cmd_moji_zure_get(1, 2) == 1.0
+               && jw_cmd_moji_zure_get(0, 0) == 1.0
+               && jw_cmd_moji_zure_get(0, 2) == -1.0,
+               "  数もその通り（左 -1 右 1、上 1 下 -1）");
+        }
         ctl(1323, &x, &y);
         app_press(x, y, 0);
         ck(jw_cmd_moji_zure_now() != 0, "ずれ使用 を入れる");
@@ -177,9 +197,12 @@ int main(int argc, char **argv)
                && jw_cmd_moji_zure_get(Z[k].across, Z[k].n) == atof(Z[k].v),
                what);
         }
-        /* backspace rubs one out, and the number follows */
+        /* clicked again, the first key replaces it; the next ones go on
+           the end; backspace rubs one out, and the number follows */
         ctl(2004, &x, &y);
         app_press(x, y, 0);
+        app_key('5');
+        ck(jw_cmd_moji_zure_get(1, 0) == 5.0, "  押し直すと打ち直し");
         app_key('0');
         ck(jw_cmd_moji_zure_get(1, 0) == 50.0, "  打ち足せる");
         app_key(8);
