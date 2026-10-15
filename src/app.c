@@ -19,6 +19,7 @@
 #include "gen/tips.h"
 #include "gen/newjww.h"
 #include "gen/pens.h"
+#include "gen/prompts.h"
 
 static fb_t fb;
 /* the caption and menu bar, painted above the client for the build that has
@@ -3428,6 +3429,48 @@ static void paper_popup(int x, int y)
     ui_popup_open_at(32820, mark, x, y, fb.w, fb.h);
 }
 
+/* ２線 の 基準線変更 (LL) を、画面の (L) 二つから作る。
+ *
+ * 原典の CZukei2Sen は始点・終点の (L) を受けるとすぐには書かず、マウスが
+ * x か y で 2 画素以上動くまで待ちます（state 4・5、FUN_00629330）。その
+ * あいだにダブルクリック（slot 12、FUN_00624fa0）が来れば 基準線変更 です。
+ * 二つ目の (L) は左 (slot 9, FUN_00625680) の state 4・5 の枝が受けて
+ * 基準線変更 にします。移植の jw_cmd_point は (L) をその場で済ませ、(LL) は
+ * jw_cmd_point_ll と別の入口なのに、どの表（ネイティブ・ブラウザ）も
+ * 呼んでいなかったので、画面からは角を回れませんでした。そこでここで:
+ *
+ *   始点の (L)  その場で渡す（原典も始点は覚えて state 4 に居る。案内は
+ *               終点のもの）。2 画素未満でもう一度 (L) が来たら、始点を
+ *               jw_cmd_back で取り消して (LL)
+ *   終点の (L)  原典は動くまで書かないので預かる。2 画素以上動くか、
+ *               ほかの押し・キー・命令が来たらその (L) として渡し、
+ *               2 画素未満でもう一度 (L) が来たら (LL)
+ *
+ * 逆コンパイルの読み、原典では押していない。tests/workflow_test.c */
+static int ll_pend, ll_start, ll_x, ll_y;
+static double ll_mx, ll_my;
+
+static int ll_wanted(int button)
+{
+    return button == 0 && have_drawing && jw_cmd() == JW_CMD_NISEN && jw_cmd_midway();
+}
+
+static void ll_flush(void)
+{
+    int was;
+
+    ll_start = 0;
+    if (!ll_pend)
+        return;
+    ll_pend = 0;
+    if (!have_drawing || jw_cmd() != JW_CMD_NISEN)
+        return;
+    was = drawing.ndrawn;
+    jw_cmd_point(&drawing, &view, ll_mx, ll_my, 0);
+    if (jw_cmd_block_editing() && drawing.ndrawn > was)
+        jw_cmd_block_take(&drawing, was);
+}
+
 /* One command, however it was asked for: a toolbar button, or the menu the
  * native build hands to Windows (both send the same ids -- they are the
  * original's own, out of its resources).  Returns 1 when the window wants
@@ -3436,6 +3479,8 @@ static void paper_popup(int x, int y)
 int app_command(int cmd)
 {
     int k;
+
+    ll_flush();
 
     for (k = 0; k < JW_NBUTTONS; k++)
         if (jw_btn_cmd[k] == cmd)
@@ -3797,8 +3842,24 @@ static void gz_check(void)
 
 int app_press(int x, int y, int button)
 {
-    int k = hit_button(x, y);
-    int id, g, n;
+    int k, id, g, n;
+
+    if (ll_pend || ll_start) {
+        if (button == 0 && abs(x - ll_x) < 2 && abs(y - ll_y) < 2
+            && have_drawing && jw_cmd() == JW_CMD_NISEN) {
+            int was = drawing.ndrawn;
+
+            if (ll_start)
+                jw_cmd_back(&drawing);  /* 始点を取り消して 始点待ち に */
+            ll_pend = ll_start = 0;
+            jw_cmd_point_ll(&drawing, &view, ll_mx, ll_my);
+            if (jw_cmd_block_editing() && drawing.ndrawn > was)
+                jw_cmd_block_take(&drawing, was);
+            return 1;
+        }
+        ll_flush();
+    }
+    k = hit_button(x, y);
 
     if (mb3_open) {                     /* はい 1・いいえ 3・キャンセル 2 */
         int h = ui_msgbox3_hit(fb.w, fb.h, x, y);
@@ -4019,6 +4080,18 @@ int app_press(int x, int y, int button)
         bt_close();                     /* a press in the drawing */
         jw_cmd_box_click(0);            /* the caret leaves the bar */
         to_paper(x, y, &mx, &my);
+        if (ll_wanted(button)) {        /* ２線: (LL) かどうか */
+            ll_x = x;
+            ll_y = y;
+            ll_mx = mx;
+            ll_my = my;
+            if (strcmp(jw_cmd_prompt(), JW_STR_5401) == 0) {
+                jw_cmd_point(&drawing, &view, mx, my, 0);
+                ll_start = 1;           /* 始点は渡して、取り消せるように */
+            } else
+                ll_pend = 1;            /* 終点は動くまで預かる */
+            return 1;
+        }
         {   /* While ブロック編集 is on, whatever a click makes goes into
                the block's definition rather than into the drawing -- see
                jw_cmd_block_take. */
@@ -4151,6 +4224,7 @@ static void dialog_close(void)
 
 int app_key(int c)
 {
+    ll_flush();
     if (mb3_open) {
         if (c == 13 || c == 27 || c == 'y' || c == 'Y' || c == 'n' || c == 'N') {
             mb3_open = 0;
@@ -4392,6 +4466,7 @@ int app_key(int c)
 
 int app_shift_enter(void)
 {
+    ll_flush();
     if (!have_drawing || !jw_cmd_shift_enter_key(&drawing))
         return 0;
     app_paint();
@@ -4425,6 +4500,7 @@ int app_save(unsigned char **out, long *n)
 {
     int added = 0, i, ok;
 
+    ll_flush();                         /* ２線の預かった終点を先に */
     if (!have_drawing)
         return 0;
     /* A drawing begun with 新規 does not hold the six hidden settings records
@@ -4556,6 +4632,9 @@ int app_move(int x, int y)
     double mx, my;
     jw_obj o[JW_CMD_MAXFIG];
 
+    if ((ll_pend || ll_start) && (abs(x - ll_x) >= 2 || abs(y - ll_y) >= 2))
+        ll_flush();
+
     if (ui_popup_up())
         return ui_popup_move(x, y);
     if (!view_ready || !in_view(x, y))
@@ -4670,6 +4749,8 @@ void app_new(void)
 {
     jw_drawing d;
 
+    ll_pend = ll_start = 0;
+
     bt_close();
 
     if (!jw_parse(&d, jw_new_jww, jw_new_jww_len)) {
@@ -4702,6 +4783,8 @@ int app_new_count(void)
 int app_open(const unsigned char *b, long n)
 {
     jw_drawing d;
+
+    ll_pend = ll_start = 0;
 
     bt_close();
 

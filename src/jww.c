@@ -187,15 +187,18 @@ static void read_header(ar_t *a, jw_drawing *d)
         /* Straight out of the original's own tables, at 0x009ffbb8 (width)
          * and 0x009ffc58 (height), indexed by this very field: A0..A4, then
          * B4..B6, then 2A..5A, then the three metric rolls. */
+        d->off_paper = a->o;
         jw_paper_set(d, ar_l(a));
         ar_l(a);
         for (g = 0; g < 16; g++) {
             jw_group *gr = &d->group[g];
+            d->off_group[g] = a->o;
             gr->state = ar_l(a);
             gr->write_layer = ar_l(a);
             d->off_scale[g] = a->o;
             gr->scale = ar_d(a);
             gr->c = v > 0xd3 ? ar_l(a) : 0;
+            d->off_layer[g] = a->o;
             for (l = 0; l < 16; l++) {
                 gr->layer[l].state = ar_l(a);
                 gr->layer[l].state2 = v > 0xd3 ? ar_l(a) : 0;

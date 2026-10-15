@@ -353,6 +353,7 @@ static void ika_run(jw_drawing *d);
 static double sun_hx, sun_hy;   /* 引出し線の始点                          */
 static double sun_lx, sun_ly;   /* 寸法線の位置                            */
 static double sun_sx, sun_sy;   /* 寸法の始点, once it has been read       */
+static double sun_ex, sun_ey;   /* the last one's end: 連続入力 (R) starts there */
 /* 寸法's 傾き: any angle, not just the two.  The bar's 0ﾟ/90ﾟ button (1059)
    only writes 0 or 90 into the box -- read out of the original with
    tools/jwdraw.ps1's `read:1411` while pressing it -- so the box is the one
@@ -12932,6 +12933,13 @@ int jw_cmd_numpos_enter(jw_drawing *d)
 {
     double ox, oy;
 
+    /* パラメトリック変形 も同じ道: 箱の Enter が CZukeiParametric の
+       仮想関数 36 番目 FUN_006cd8a0 に届いて 数値位置 で変形する。移植は
+       jw_cmd_enter_key（箱の外の Enter）でしか変形せず、箱に打って Enter
+       では何も起きなかった。逆コンパイルの読み、原典では押していない。
+       tests/workflow_test.c */
+    if (d && current == JW_CMD_PARAM && sel_step == 3)
+        return param_enter(d);
     if (!d || sel_step != 3 || sel_n <= 0
         || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU)
         || sel_flip || sel_base_wait || !sel_numpos(d, &ox, &oy))
@@ -20478,6 +20486,19 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         /* the two measured points have to be read ones */
         if (!jw_read(d, v, x, y, &rx, &ry))
             return;
+        if (sun_step == 2 && sun_made && button != 0 && !sun_kaku && !sun_enshu) {
+            /* 連続入力の終点 (R)（案内 5333）: 前の寸法の終点から、読んだ点
+               まで。原典の右 (CZukeiSunpo slot 11, FUN_00780a70) の終わりの枝が
+               始点に前の終点 (+0x5a8..) を置き、読んだ点を終点にして
+               FUN_00783730 で作る。移植は (R) も次の始点にしていた。
+               逆コンパイルの読み、原典では押していない。tests/workflow_test.c */
+            sun_sx = sun_ex;
+            sun_sy = sun_ey;
+            sunpo_make(d, rx, ry);
+            sun_ex = rx;
+            sun_ey = ry;
+            return;
+        }
         if (sun_step == 2) {
             sun_sx = rx;
             sun_sy = ry;
@@ -20489,6 +20510,8 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             sunpo_angle(d, rx, ry);
         else
             sunpo_make(d, rx, ry);
+        sun_ex = rx;
+        sun_ey = ry;
         sun_step = 2;           /* ready for the next one */
         sun_made = 1;
         return;
@@ -21787,6 +21810,20 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             sel_box(d, button != 0);
             shk_sel = jw_cmd_sel_count(d) > 0 ? 3 : 1;
             return;
+        }
+        if (button == 1 && cut_step > 0) {
+            /* 部分消しの始点・終点の (R)Read（案内 10112・10113）。原典の右
+               (slot 11, FUN_0070f880) は 線を拾ったあと（+0x86 != 0）は
+               FUN_00451eb0 で点を読み、読めれば左 (slot 9) にその点を渡す。
+               読めなければ何もしない。移植は拾った線を消していた。
+               逆コンパイルの読み、原典では押していない。tests/workflow_test.c */
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            x = rx;
+            y = ry;
+            button = 0;
         }
         if (button == 1) {
             i = jw_pick(d, v, x, y, 0);
