@@ -623,6 +623,99 @@ static void corner_cut(void)
     (void)n;
 }
 
+/* コーナー (L)(L) に円弧 (FUN_0046abe0 → FUN_0045fa30 / FUN_0044cfb0、
+   逆コンパイルの読み -- 原典では押していない): 線と弧、弧と弧が 拾った側を
+   残して交点まで切れる／伸びる。全円は拾わない。戻るで二つとも戻る */
+static int nearq(double a, double b) { return fabs(a - b) < 1e-6; }
+
+static jw_obj *add_arc(jw_drawing *d, double cx, double cy, double r, double st, double sw)
+{
+    jw_obj *o = jw_add(d, JW_ENKO);
+    o->d[0] = cx; o->d[1] = cy; o->d[2] = r; o->d[3] = st; o->d[4] = sw;
+    o->d[5] = 0; o->d[6] = 1;
+    return o;
+}
+
+static void corner_arcs(void)
+{
+    const double P = 3.141592653589793;
+    jw_drawing *d;
+    jw_obj *o, was[3];
+    int ok;
+
+    /* 線 と 弧: 線の先 (40,30) で弧の始点が動く（拾った 45° 側が残る） */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_SEN);
+    o->d[0] = -200; o->d[1] = 30; o->d[2] = -100; o->d[3] = 30;
+    add_arc(d, 0, 0, 50, 0, P / 2);
+    app_fit();
+    app_command(32786);
+    memcpy(was, d->obj, 2 * sizeof *was);
+    jw_cmd_point(d, app_view(), -110, 30, 0);
+    jw_cmd_point(d, app_view(), 50 * cos(P / 4), 50 * sin(P / 4), 0);
+    ok = nearq(d->obj[0].d[0], -200) && nearq(d->obj[0].d[2], 40) && nearq(d->obj[0].d[3], 30)
+         && nearq(d->obj[1].d[3], atan2(30, 40)) && nearq(d->obj[1].d[4], P / 2 - atan2(30, 40));
+    if (!ok)
+        printf("     line %g,%g-%g,%g arc %.9f %.9f\n", d->obj[0].d[0], d->obj[0].d[1],
+               d->obj[0].d[2], d->obj[0].d[3], d->obj[1].d[3], d->obj[1].d[4]);
+    ck(ok, "コーナー 線と弧: 線は (40,30) まで伸び 弧は始点がそこへ");
+    jw_cmd_undo(d);
+    ck(!memcmp(d->obj, was, 2 * sizeof *was), "  戻るで 線も弧も戻る");
+
+    /* 弧の終わりの先の交点: 終わりに近い所を拾えば 終わりが伸びる */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    add_arc(d, 0, 0, 50, 0, P / 4);
+    o = jw_add(d, JW_SEN);
+    o->d[0] = 0; o->d[1] = 100; o->d[2] = 0; o->d[3] = 200;
+    app_fit();
+    app_command(32786);
+    jw_cmd_point(d, app_view(), 50 * cos(P * 40 / 180), 50 * sin(P * 40 / 180), 0);
+    jw_cmd_point(d, app_view(), 0, 110, 0);
+    ok = nearq(d->obj[0].d[3], 0) && nearq(d->obj[0].d[4], P / 2)
+         && nearq(d->obj[1].d[1], 50) && nearq(d->obj[1].d[3], 200);
+    if (!ok)
+        printf("     arc %.9f %.9f line %g,%g-%g,%g\n", d->obj[0].d[3], d->obj[0].d[4],
+               d->obj[1].d[0], d->obj[1].d[1], d->obj[1].d[2], d->obj[1].d[3]);
+    ck(ok, "  弧が先から: 弧の終わりが 90° まで伸び 線は (0,50) から");
+
+    /* 弧 と 弧: 二つの拾いの中点に近い (30,40) */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    add_arc(d, 0, 0, 50, 0, P);
+    add_arc(d, 60, 0, 50, 0, P);
+    app_fit();
+    app_command(32786);
+    memcpy(was, d->obj, 2 * sizeof *was);
+    jw_cmd_point(d, app_view(), 50 * cos(P * 5 / 6), 50 * sin(P * 5 / 6), 0);
+    jw_cmd_point(d, app_view(), 60 + 50 * cos(P / 6), 50 * sin(P / 6), 0);
+    ok = nearq(d->obj[0].d[3], atan2(40, 30)) && nearq(d->obj[0].d[4], P - atan2(40, 30))
+         && nearq(d->obj[1].d[3], 0) && nearq(d->obj[1].d[4], atan2(40, -30));
+    if (!ok)
+        printf("     arcs %.9f %.9f / %.9f %.9f\n", d->obj[0].d[3], d->obj[0].d[4],
+               d->obj[1].d[3], d->obj[1].d[4]);
+    ck(ok, "  弧と弧: どちらも (30,40) まで、拾った側が残る");
+    jw_cmd_undo(d);
+    ck(!memcmp(d->obj, was, 2 * sizeof *was), "  戻るで 弧が二つとも戻る");
+
+    /* 全円は 線【A】にも【B】にもならない */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    add_arc(d, 0, 0, 50, 0, 2 * P)->n = 1;
+    o = jw_add(d, JW_SEN);
+    o->d[0] = -200; o->d[1] = 30; o->d[2] = -100; o->d[3] = 30;
+    app_fit();
+    app_command(32786);
+    memcpy(was, d->obj, 2 * sizeof *was);
+    jw_cmd_point(d, app_view(), 50, 0, 0);
+    jw_cmd_point(d, app_view(), -110, 30, 0);
+    jw_cmd_point(d, app_view(), 0, 50, 0);
+    ok = !memcmp(d->obj, was, 2 * sizeof *was);
+    jw_cmd_escape();
+    ck(ok, "  全円は拾わない（5207 円です。切断で弧にしてください。）");
+}
+
 /* The command bars, against their templates.  A bar is a child dialog 462
    units wide, laid out by the same sum, and the strip puts it 6 pixels in
    and 5 down.  For every bar the port read off the original
@@ -712,6 +805,7 @@ int main(void)
     block_name_narrows();
     free_two_then_undo();
     corner_cut();
+    corner_arcs();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
