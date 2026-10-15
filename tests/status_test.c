@@ -472,6 +472,123 @@ static void fukusen_rest(void)
     jw_cmd_set(JW_CMD_SEN);
 }
 
+/* 複線の 連続線選択 (1066): 拾った線から つながった線をまとめて選び、
+   それを複線の元にする（CZukeiFukusen の slot 27 FUN_0065b780 → FUN_0040f830
+   → FUN_00659200 の読み、原典では押していない） */
+static void fukusen_chain(void)
+{
+    jw_drawing *d;
+    const jw_view *v;
+    char ten[32], dir[256];
+    int n, k;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    v = app_view();
+    snprintf(ten, sizeof ten, "%g", 10.0 * scale_of(d));
+    snprintf(dir, sizeof dir, "%s%s", JW_STR_5310, JW_STR_5708);
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, v, 0.0, 0.0, 0);
+    jw_cmd_point(d, v, 50.0, 0.0, 0);
+    jw_cmd_point(d, v, 50.0, 0.0, 0);
+    jw_cmd_point(d, v, 50.0, 30.0, 0);
+    jw_cmd_point(d, v, 100.0, 100.0, 0);
+    jw_cmd_point(d, v, 150.0, 100.0, 0);
+    ck(fk_has_line(d, 0, 0, 50, 0) && fk_has_line(d, 50, 0, 50, 30)
+       && fk_has_line(d, 100, 100, 150, 100), "連続線選択: L 字と離れた線");
+
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    fk_box(1411, ten);
+    ck(jw_cmd_bar_enabled(d, 1066) == 0, "  線を拾う前は死んでいる");
+    jw_cmd_point(d, v, 25.0, 0.0, 0);
+    ck(jw_cmd_bar_enabled(d, 1066) == 1, "  線を拾うと生きる");
+    ck(jw_cmd_bar(d, 1066) == 1, "  押せる");
+    ck(jw_cmd_sel_count(d) == 2, "  つながった二本が選ばれ、離れた線は入らない");
+    cksame(jw_cmd_status(d), dir, "  箱の間隔で 方向を訊く段");
+    n = d->ndrawn;
+    jw_cmd_point(d, v, 25.0, -3.0, 0);
+    ck(d->ndrawn == n + 2, "  一度のクリックで二本");
+    ck(fk_has_line(d, 0, -10, 60, -10) && fk_has_line(d, 60, -10, 60, 30),
+       "  角を延ばして つないだ外側の複線");
+
+    /* 全円は端点が無いので連続線にならず、線を選ぶ段に戻る */
+    {
+        jw_obj *o = jw_add(d, JW_ENKO);
+
+        o->d[0] = 0.0;
+        o->d[1] = 200.0;
+        o->d[2] = 20.0;
+        o->d[3] = 0.0;
+        o->d[4] = 2.0 * PI;
+        o->d[5] = 0.0;
+        o->d[6] = 1.0;
+        for (k = 0; k < d->ndrawn; k++)
+            d->obj[k].sel = 0, d->obj[k].flags &= (unsigned short)~2u;
+    }
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    jw_cmd_point(d, v, 20.0, 200.0, 0);
+    ck(jw_cmd_bar_enabled(d, 1066) == 1, "  円を拾っても生きる");
+    ck(jw_cmd_bar(d, 1066) == 1, "  押すと");
+    cksame(jw_cmd_status(d), JW_STR_5305, "  円は鎖にならず 線を選ぶ段へ");
+    ck(jw_cmd_bar_enabled(d, 1066) == 0, "  そこでは死んでいる");
+    jw_cmd_set(JW_CMD_SEN);
+}
+
+/* 範囲選択の 選択図形登録 (1068): 選んだものが ハッチの 図形 (1693) の型になる
+   （CZukeiSentaku の 29 番目 FUN_006fb760 の読み、原典では押していない） */
+static void hani_figreg(void)
+{
+    jw_drawing *d;
+    const jw_view *v;
+    char p[32];
+    int n, k, hatched = 0;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    v = app_view();
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, v, -100.0, -60.0, 0);
+    jw_cmd_point(d, v, 100.0, -60.0, 0);
+    jw_cmd_point(d, v, 100.0, -60.0, 0);
+    jw_cmd_point(d, v, 100.0, 60.0, 0);
+    jw_cmd_point(d, v, 100.0, 60.0, 0);
+    jw_cmd_point(d, v, -100.0, 60.0, 0);
+    jw_cmd_point(d, v, -100.0, 60.0, 0);
+    jw_cmd_point(d, v, -100.0, -60.0, 0);
+    jw_cmd_point(d, v, -10.0, -10.0, 0);
+    jw_cmd_point(d, v, 10.0, -10.0, 0);
+    jw_cmd_point(d, v, 10.0, -10.0, 0);
+    jw_cmd_point(d, v, 10.0, 10.0, 0);
+
+    jw_cmd_set(JW_CMD_HANI);
+    ck(jw_cmd_bar_enabled(d, 1068) == 0, "選択図形登録: 範囲の前は死んでいる");
+    jw_cmd_point(d, v, -20.0, -20.0, 0);
+    jw_cmd_point(d, v, 20.0, 20.0, 0);
+    ck(jw_cmd_sel_count(d) == 2, "  枠で L 字の二本");
+    ck(jw_cmd_bar_enabled(d, 1068) == 1, "  範囲が決まると生きる");
+    ck(jw_cmd_bar(d, 1068) == 1, "  押せる");
+    ck(jw_cmd_sel_count(d) == 2, "  選択はそのまま残る");
+    for (k = 0; k < d->ndrawn; k++)     /* ハッチの試験（hatchfig）と同じく選択なしで */
+        d->obj[k].sel = 0, d->obj[k].flags &= (unsigned short)~2u;
+
+    jw_cmd_set(JW_CMD_HATCH);
+    ck(jw_cmd_bar(d, 1693) == 1, "  ハッチの 図形 に");
+    snprintf(p, sizeof p, "%g", 40.0 * scale_of(d));
+    fk_box(1419, "0");
+    fk_box(1411, p);
+    fk_box(1412, p);
+    n = d->ndrawn;
+    jw_cmd_point(d, v, 0.0, -60.0, 1);
+    ck(jw_cmd_bar(d, 1148) == 1, "  実行");
+    for (k = n; k < d->ndrawn; k++)
+        if ((d->obj[k].flags & 0x20) && d->obj[k].cls == JW_SEN
+            && fabs(hypot(d->obj[k].d[2] - d->obj[k].d[0],
+                          d->obj[k].d[3] - d->obj[k].d[1]) - 20.0) < 1e-6)
+            hatched++;
+    ck(hatched > 0, "  登録した L 字の写しで敷き詰める");
+    jw_cmd_set(JW_CMD_SEN);
+}
+
 /* 接円: 一つ目・二つ目を訊く間、半径が箱にあれば「    [ r = %.3lf ]」
    （CZukeiSetuEn の 0x14fc・0x14fd。逆コンパイルの読み） */
 static void sekien_tail(void)
@@ -778,6 +895,8 @@ int main(void)
     prompts_of_the_commands();
     fukusen_tail();
     fukusen_rest();
+    fukusen_chain();
+    hani_figreg();
     sekien_tail();
     box_sums();
     moji_point_first();

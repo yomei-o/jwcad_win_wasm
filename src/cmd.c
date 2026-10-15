@@ -2985,6 +2985,45 @@ static int fk_dir_wait(const jw_drawing *d)
                                   || fk_rprev > 0.0));
 }
 
+/* 連続線選択 (1066、slot 27 FUN_0065b780)。原典は (L) で拾ったものを選択の一覧
+ * (+0x174) に入れ、拾った位置を要素の +0x30 に置き（FUN_00657f10 の FUN_00455870）、
+ * FUN_00659200 で鎖に並べる（+0x21c 鎖の数、円弧が二つ以上なら +0x24c）。slot 27 は
+ * 状態 (+0x204) が 0 でなく、+0x24c が 0 で、選択がちょうど一つのとき、その +0x30 の点
+ * （FUN_0046b9d0）で FUN_0040f830 を呼んで（選択は先に FUN_0044c830 で落とす）連続線を
+ * 選び、受けたら FUN_00659200（選んだ鎖が複線の元 = fk_selmode）、受けなければ状態 0。
+ * 端点指定は落とす（+0x284 = 0）。移植は拾い直さず 拾った要素そのものから歩く
+ * （chain_walk、範囲選択の (R) と同じ）。釦は slot 6 が +0x21c == 1 && +0x24c != 1 で
+ * 生かす（鎖が一つ）が、移植は押して効くとき（拾った一つ、または選択が一つ）だけ生かす。
+ * 選んだ鎖の円弧（全円でないもの）は fukusen_selected が写さない（未）。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int chain_walk(jw_drawing *d, int k, int clear);
+
+static int fk_one_sel(const jw_drawing *d)
+{
+    int i, k = -1;
+
+    if (!d)
+        return -1;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel) {
+            if (k >= 0)
+                return -1;
+            k = i;
+        }
+    return k;
+}
+
+static int fk_chain_ok(const jw_drawing *d)
+{
+    int k;
+
+    if (!d || para_step < 1)
+        return 0;
+    k = fk_selmode ? fk_one_sel(d) : para_obj;
+    return k >= 0 && k < d->ndrawn && d->obj[k].id == 0
+           && (d->obj[k].cls == JW_SEN || d->obj[k].cls == JW_ENKO);
+}
+
 /* 範囲選択 (1067) の確定: 複線に戻して箱を戻す（slot 34）。選択が残れば fk_selmode */
 static void fk_back_go(jw_drawing *d)
 {
@@ -10637,9 +10676,8 @@ static void chain_mark(jw_obj *o, int off)
 static int sel_rpick(jw_drawing *d, const jw_view *v, double x, double y,
                      int clear)
 {
-    double sx[2], sy[2], cx, cy, tx, ty;
-    char *seen;
-    int k, i, n, off, first = 1, steps = 0, found = 1;
+    double sx[2], sy[2];
+    int k, i, off;
 
     if (!d)
         return 0;
@@ -10661,6 +10699,22 @@ static int sel_rpick(jw_drawing *d, const jw_view *v, double x, double y,
     }
     k = jw_pick(d, v, x, y, 3);
     if (k < 0 || k >= d->ndrawn
+        || (d->obj[k].cls != JW_SEN && d->obj[k].cls != JW_ENKO
+            && d->obj[k].cls != JW_SOLID)
+        || chain_ends(&d->obj[k], sx, sy) < 2)
+        return 0;
+    return chain_walk(d, k, clear);
+}
+
+/* FUN_0040f830 の拾い直しから先: k から連続線をたどって選ぶ（外す）。
+   複線の 連続線選択 (1066) も使う */
+static int chain_walk(jw_drawing *d, int k, int clear)
+{
+    double sx[2], sy[2], cx, cy, tx, ty;
+    char *seen;
+    int i, n, off, first = 1, steps = 0, found = 1;
+
+    if (!d || k < 0 || k >= d->ndrawn
         || (d->obj[k].cls != JW_SEN && d->obj[k].cls != JW_ENKO
             && d->obj[k].cls != JW_SOLID)
         || chain_ends(&d->obj[k], sx, sy) < 2)
@@ -13912,14 +13966,21 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     }
     if (current == JW_CMD_FUKUSEN && (id == 1065 || id == 1066 || id == 1067)) {
         /* slot 6 (FUN_00656f10): 端点指定 (+0x2c8) は状態 3 で一本の線のとき。
-           連続線選択 (+0x248) は原典では線を拾うと生きるが、この移植はまだ
-           していないので死なせておく。範囲選択はいつも生きている */
+           連続線選択 (+0x248) は線を拾うと生きる（fk_chain_ok）。範囲選択は
+           いつも生きている */
         if (id == 1065)
             return d && !fk_selmode && !fk_ten && para_obj >= 0
                    && para_obj < d->ndrawn && d->obj[para_obj].cls == JW_SEN
                    && fk_dir_wait(d);
+        if (id == 1066)
+            return fk_chain_ok(d);
         return id == 1067;
     }
+    if (current == JW_CMD_HANI && id == 1068)
+        /* 選択図形登録: CSentakuDialog の FUN_005c8120 は 範囲が決まった段
+           (param != 0) の 範囲選択 (+0xcc == 0) で 1068〜1071 を生かし、
+           切取り選択 (+0x1e8)・範囲外選択 (+0x1ec) なら殺す */
+        return sel_step == 2 && !sel_cut && !sel_outside;
     if (current == JW_CMD_PARAM && sel_step == 3 && id == 1069)
         return 1;                   /* 二枚目の 1069 は 再選択 */
     switch (id) {
@@ -14589,6 +14650,23 @@ int jw_cmd_bar(jw_drawing *d, int id)
         fk_back_go(d);
         return 1;
     }
+    if (current == JW_CMD_HANI && id == 1068) {
+        /* 選択図形登録: 範囲選択のバーの 1068 は FUN_00418c30 で 0x1405 →
+           CZukeiSentaku の 29 番目 FUN_006fb760。+0xb0（追加・除外範囲）を 0 に、
+           選択が空なら 5201「図形がありません」、でなければ 登録の一覧を空けて
+           （FUN_00454900）選んだものの写しを入れ、10038「《図形登録》」。範囲も
+           選択もそのまま残る。ハッチの 選択図形登録（CZukeiHachi の 29 番目
+           FUN_00674450）も同じ FUN_006fb760 を呼ぶので、入れ先は ハッチの 図形
+           (1693) が使う ht_pat（hatch_register、文字は入れない）。札は移植に
+           出す所がないので出さない。逆コンパイルの読み、原典では押していない */
+        if (!d || sel_step != 2 || sel_cut || sel_outside)
+            return 0;
+        sel_keep = sel_sub = 0;
+        if (jw_cmd_sel_count(d) <= 0)
+            return 1;
+        hatch_register(d);
+        return 1;
+    }
     if (current == JW_CMD_FUKUSEN && id == 1067) {
         snprintf(fk_back_box, sizeof fk_back_box, "%s",
                  jw_cmd_box(1411) ? jw_cmd_box(1411) : "");
@@ -14603,6 +14681,27 @@ int jw_cmd_bar(jw_drawing *d, int id)
             return 0;
         fk_ten = 3;
         tracking = 0;
+        return 1;
+    }
+    if (current == JW_CMD_FUKUSEN && id == 1066) {
+        /* 連続線選択: slot 27 FUN_0065b780（fk_chain_ok の注） */
+        int k = fk_selmode ? fk_one_sel(d) : para_obj;
+
+        if (!fk_chain_ok(d))
+            return 0;
+        fk_ten = 0;             /* +0x284 = 0 */
+        tracking = 0;
+        if (chain_walk(d, k, 1)) {
+            fk_selmode = 1;     /* FUN_00659200: 選んだ鎖が元 */
+            fk_sel_used = 0;
+            fk_rprev = 0.0;
+            para_step = 1;
+            para_obj = -1;
+        } else {                /* 全円など: +0x204 = 0（線を選ぶ段へ） */
+            sel_clear(d);
+            para_step = 0;
+            para_obj = -1;
+        }
         return 1;
     }
 
