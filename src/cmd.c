@@ -627,6 +627,7 @@ static double tk_ax, tk_ay;
 /* 接円: the two elements picked, then a click that says which of the four
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
+static double sek_ax, sek_ay, sek_bx, sek_by;  /* where each was picked */
 /* 曲線: the points clicked so far, kept until 作図実行 is pressed. */
 #define CV_MAX 64
 static double cv_x[CV_MAX], cv_y[CV_MAX];
@@ -8453,7 +8454,9 @@ static int sek_elem(const jw_obj *o, sek_el *e)
         e->k = e->nx * o->d[0] + e->ny * o->d[1];
         return 1;
     }
-    if (o->cls == JW_ENKO && o->d[2] > 0.0) {
+    /* an ellipse is turned away when it is picked, 「楕円は計算できません。」
+       (0x145e, the flatness checked against 1 in FUN_00707130) */
+    if (o->cls == JW_ENKO && o->d[2] > 0.0 && fabs(o->d[6] - 1.0) < 1e-7) {
         e->circle = 1;
         e->cx = o->d[0];
         e->cy = o->d[1];
@@ -8626,75 +8629,182 @@ static void sekien(jw_drawing *d, int a, int b, double x, double y)
 }
 
 /* 接円, three elements and an empty 半径 box: the circle that touches all
- * three.  With three lines that is the one inside the triangle they make, and
- * the original draws it the moment the third is picked -- no placing click,
- * and where each line was picked makes no difference (three runs pointed at
- * quite different parts of the same three lines all came back with the same
- * circle, decomp/res/sek3.jww).  Of the four circles that touch three lines
- * the inside one is the smallest, which is what this takes.
+ * three, drawn the moment the third is picked -- no placing click.
+ *
+ * The original does not solve for it; it walks to it from where the three
+ * were picked (FUN_00709940, by reading the decompilation -- the original was
+ * not driven for the circle cases).  Each element keeps a touch point, which
+ * starts as its pick point, and each round
+ *
+ *   - puts every touch point back on its element (FUN_0045b6c0: the foot of
+ *     the perpendicular on a line, straight out from the centre on a circle),
+ *   - takes the circle through the three (FUN_0070ae60), and
+ *   - moves every touch point to the middle of the chord that circle cuts
+ *     from its element (FUN_0070ace0 over FUN_0045fa30, lines taken as
+ *     endless and circles whole).
+ *
+ * It stops when no touch point moved by 1e-7 in either direction, and gives
+ * up past 50 rounds, or if a circle cannot be made or misses an element --
+ * 「計算できません」 then.  So which of the circles that touch all three comes
+ * out is the one the pick points lead to; for three lines that has been the
+ * one inside them however they were picked (three runs pointed at quite
+ * different parts of the same three lines came back with the same circle,
+ * decomp/res/sek3.jww), and with circles among them the side of each circle
+ * that was picked decides (not driven in the original).
+ *
+ * The original also takes a point read with the right button in place of an
+ * element (the circle then passes through it, and FUN_0070b8f0 checks for one
+ * read off another of the picked elements); the port's picks are elements
+ * only, so that is not here.
  */
+static int sek_onto(const sek_el *e, double *tx, double *ty)
+{
+    double dx, dy, L;
+
+    if (!e->circle) {
+        double s = e->nx * *tx + e->ny * *ty - e->k;
+
+        *tx -= s * e->nx;
+        *ty -= s * e->ny;
+        return 1;
+    }
+    dx = *tx - e->cx;
+    dy = *ty - e->cy;
+    if (fabs(dx) + fabs(dy) < 1e-7)
+        return 0;               /* at the centre: no way out from it */
+    L = sqrt(dx * dx + dy * dy);
+    *tx = e->cx + e->r * dx / L;
+    *ty = e->cy + e->r * dy / L;
+    return 1;
+}
+
+/* the middle of the chord the circle (ox, oy, R) cuts from the element */
+static int sek_chord(const sek_el *e, double ox, double oy, double R,
+                     double *tx, double *ty)
+{
+    double ex, ey, L, a;
+
+    if (!e->circle) {
+        double s = e->nx * ox + e->ny * oy - e->k;
+
+        if (fabs(s) - R > 1e-7)
+            return 0;
+        *tx = ox - s * e->nx;
+        *ty = oy - s * e->ny;
+        return 1;
+    }
+    /* FUN_00460710's two circles: none if apart or one inside the other,
+       and a touch counts within 1e-7 */
+    ex = ox - e->cx;
+    ey = oy - e->cy;
+    L = ex * ex + ey * ey;
+    if (L < 1e-7)
+        return 0;
+    L = sqrt(L);
+    if (L > e->r + R + 1e-7 || L < fabs(e->r - R) - 1e-7)
+        return 0;
+    if (L >= e->r + R - 1e-7 || L <= fabs(e->r - R) + 1e-7)
+        a = (L <= fabs(e->r - R) + 1e-7 && e->r < R) ? -e->r : e->r;
+    else
+        a = (e->r * e->r - R * R + L * L) / (2 * L);
+    *tx = e->cx + a * ex / L;
+    *ty = e->cy + a * ey / L;
+    return 1;
+}
+
+/* FUN_0070ae60: the circle through three points; two of them the same and it
+ * is the one with the other two across it */
+static int sek_circ3(const double *px, const double *py,
+                     double *ox, double *oy, double *R)
+{
+    double qx = px[1], qy = py[1], ux, uy, d, x3, y3, cx, cy;
+    int same = 0;
+
+#define SEK_EQ(ax, ay, bx, by) (fabs((ax) - (bx)) < 1e-7 && fabs((ay) - (by)) < 1e-7)
+    if (SEK_EQ(px[0], py[0], px[1], py[1])
+        && SEK_EQ(px[1], py[1], px[2], py[2]))
+        return 0;
+    if (SEK_EQ(px[0], py[0], px[1], py[1])) {
+        same = 1;
+        qx = px[2];
+        qy = py[2];
+    }
+    if (SEK_EQ(qx, qy, px[2], py[2]) || SEK_EQ(px[2], py[2], px[0], py[0]))
+        same = 1;
+#undef SEK_EQ
+    if (same) {
+        double hx = qx - px[0], hy = qy - py[0];
+
+        *ox = px[0] + hx / 2;
+        *oy = py[0] + hy / 2;
+        *R = sqrt(hx * hx + hy * hy) / 2;
+        return *R >= 1e-7;
+    }
+    /* in a frame at the first point, its x along to the second */
+    ux = px[1] - px[0];
+    uy = py[1] - py[0];
+    d = sqrt(ux * ux + uy * uy);
+    ux /= d;
+    uy /= d;
+    x3 = ux * (px[2] - px[0]) + uy * (py[2] - py[0]);
+    y3 = ux * (py[2] - py[0]) - uy * (px[2] - px[0]);
+    if (fabs(y3) < 1e-7)
+        return 0;               /* in a row */
+    cx = d / 2;
+    cy = (x3 * x3 - 2 * x3 * cx + y3 * y3) / (2 * y3);
+    *R = sqrt(cx * cx + cy * cy);
+    if (*R < 1e-7)
+        return 0;
+    *ox = px[0] + ux * cx - uy * cy;
+    *oy = py[0] + uy * cx + ux * cy;
+    return 1;
+}
+
 static void sekien3(jw_drawing *d, int a, int b, int c, double x, double y)
 {
     sek_el e[3];
-    double best = 0, bx = 0, by = 0;
-    int i, s1, s2, s3, have = 0;
+    double tx[3], ty[3], ox = 0, oy = 0, R = 0;
+    int i, k;
 
-    (void)x;
-    (void)y;
     if (a < 0 || b < 0 || c < 0 || a >= d->nobj || b >= d->nobj
         || c >= d->nobj || a == b || b == c || a == c)
         return;
     if (!sek_elem(&d->obj[a], &e[0]) || !sek_elem(&d->obj[b], &e[1])
         || !sek_elem(&d->obj[c], &e[2]))
         return;
-    for (i = 0; i < 3; i++)
-        if (e[i].circle)
-            return;             /* circles are not done here */
-    /* n_i.C - s_i r = k_i, three equations in Cx, Cy and r */
-    for (s1 = -1; s1 <= 1; s1 += 2)
-        for (s2 = -1; s2 <= 1; s2 += 2)
-            for (s3 = -1; s3 <= 1; s3 += 2) {
-                double m[3][4], t;
-                int row, col, piv;
+    tx[0] = sek_ax;
+    ty[0] = sek_ay;
+    tx[1] = sek_bx;
+    ty[1] = sek_by;
+    tx[2] = x;
+    ty[2] = y;
+    for (k = 1; k < 60; k++) {
+        double was_x[3], was_y[3];
+        int moved = 0;
 
-                m[0][0] = e[0].nx; m[0][1] = e[0].ny; m[0][2] = -(double)s1;
-                m[1][0] = e[1].nx; m[1][1] = e[1].ny; m[1][2] = -(double)s2;
-                m[2][0] = e[2].nx; m[2][1] = e[2].ny; m[2][2] = -(double)s3;
-                m[0][3] = e[0].k; m[1][3] = e[1].k; m[2][3] = e[2].k;
-                for (col = 0; col < 3; col++) {
-                    piv = col;
-                    for (row = col + 1; row < 3; row++)
-                        if (fabs(m[row][col]) > fabs(m[piv][col]))
-                            piv = row;
-                    if (fabs(m[piv][col]) < 1e-12)
-                        break;
-                    if (piv != col)
-                        for (i = 0; i < 4; i++) {
-                            t = m[col][i];
-                            m[col][i] = m[piv][i];
-                            m[piv][i] = t;
-                        }
-                    for (row = 0; row < 3; row++) {
-                        if (row == col)
-                            continue;
-                        t = m[row][col] / m[col][col];
-                        for (i = col; i < 4; i++)
-                            m[row][i] -= t * m[col][i];
-                    }
-                }
-                if (col < 3)
-                    continue;   /* two of them are parallel */
-                t = m[2][3] / m[2][2];          /* the radius */
-                if (t <= 1e-9 || (have && t >= best))
-                    continue;
-                have = 1;
-                best = t;
-                bx = m[0][3] / m[0][0];
-                by = m[1][3] / m[1][1];
-            }
-    if (!have)
+        for (i = 0; i < 3; i++) {
+            was_x[i] = tx[i];
+            was_y[i] = ty[i];
+            if (!sek_onto(&e[i], &tx[i], &ty[i]))
+                return;
+        }
+        if (!sek_circ3(tx, ty, &ox, &oy, &R))
+            return;
+        for (i = 0; i < 3; i++)
+            if (!sek_chord(&e[i], ox, oy, R, &tx[i], &ty[i]))
+                return;
+        for (i = 0; i < 3; i++)
+            if (fabs(tx[i] - was_x[i]) >= 1e-7
+                || fabs(ty[i] - was_y[i]) >= 1e-7)
+                moved = 1;
+        if (!moved)
+            break;
+        if (k > 50)
+            return;             /* 計算できません */
+    }
+    if (!sek_circ3(tx, ty, &ox, &oy, &R))
         return;
-    i = sek_draw(d, bx, by, best);
+    i = sek_draw(d, ox, oy, R);
     if (i)
         op_push(i);
 }
@@ -18648,6 +18758,8 @@ placed:
             if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
                 return;
             sek_a = i;
+            sek_ax = x;
+            sek_ay = y;
             sek_step = 1;
             return;
         }
@@ -18657,6 +18769,8 @@ placed:
                 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
                 return;
             sek_b = i;
+            sek_bx = x;
+            sek_by = y;
             sek_step = 2;
             return;
         }

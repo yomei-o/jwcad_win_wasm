@@ -317,6 +317,167 @@ static void run_el(const char *path, const char *radius, int want, int mult,
     jw_free(&ref);
 }
 
+/* Three elements with circles among them and an empty 半径.
+ *
+ * The original walks to the circle from the three pick points (FUN_00709940:
+ * put each touch point on its element, take the circle through the three,
+ * move each to the middle of the chord it cuts, until nothing moves).  None
+ * of these were driven in the original -- they follow the decompilation's
+ * reading -- so what is checked is that the circle touches all three the way
+ * the picks lead to, not digits read back from it.
+ *
+ * Each element is given as a line (x1,y1,x2,y2) or a circle (cx,cy,r,-1) and
+ * picked at (px,py); `side[i]` says how the answer must touch element i: for
+ * a circle +1 outside it (centres R + r apart), -1 around it (R - r); a line
+ * just has to be R away.
+ */
+typedef struct {
+    double v[4], px, py;
+    int side;
+} el3;
+
+static double ans_r;            /* the radius the last run3 came out with */
+
+static void run3(const el3 *el, const char *what)
+{
+    jw_drawing *d;
+    int i, before;
+
+    printf("%s\n", what);
+    ans_r = 0;
+    app_resize(1264, 741);
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    for (i = 0; i < 3; i++) {
+        jw_obj *o = jw_add(d, el[i].v[3] < 0 ? JW_ENKO : JW_SEN);
+
+        if (el[i].v[3] < 0) {
+            o->d[0] = el[i].v[0];
+            o->d[1] = el[i].v[1];
+            o->d[2] = el[i].v[2];
+            o->d[3] = 0.0;
+            o->d[4] = 6.283185307179586;
+            o->d[5] = 0.0;
+            o->d[6] = 1.0;
+            o->n = 1;
+        } else {
+            o->d[0] = el[i].v[0];
+            o->d[1] = el[i].v[1];
+            o->d[2] = el[i].v[2];
+            o->d[3] = el[i].v[3];
+        }
+    }
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SEKIEN);
+    type_box(1411, "");
+    type_box(1417, "");
+    jw_cmd_set(JW_CMD_SEKIEN);
+    for (i = 0; i < 3; i++)
+        jw_cmd_point(d, app_view(), el[i].px, el[i].py, 0);
+    ck(d->ndrawn == before + 1, "  the third pick draws one circle");
+    if (d->ndrawn != before + 1)
+        return;
+    {
+        const jw_obj *o = &d->obj[before];
+        double R = o->d[2];
+        int good = R > 0;
+
+        for (i = 0; i < 3; i++) {
+            const jw_obj *e = &d->obj[before - 3 + i];
+
+            if (e->cls == JW_SEN)
+                good = good && fabs(off(e, o->d[0], o->d[1]) - R) < 1e-6;
+            else {
+                double dx = o->d[0] - e->d[0], dy = o->d[1] - e->d[1];
+                double L = sqrt(dx * dx + dy * dy);
+
+                good = good && fabs(L - fabs(R + el[i].side * e->d[2])) < 1e-6;
+            }
+        }
+        if (!good)
+            printf("     ours %.6f,%.6f r=%.6f\n", o->d[0], o->d[1], R);
+        ck(good, "  touching all three, the way the picks lead");
+        ans_r = R;
+    }
+    jw_cmd_undo(d);
+    ck(d->ndrawn == before, "  元に戻る takes it back");
+}
+
+static void circles3(void)
+{
+    /* the two axes and a circle r 30 at (100,100), all picked on the sides
+       facing the corner: the small circle in it that the circle stands
+       outside, R = (100 sqrt2 - 30) / (sqrt2 + 1) */
+    static const el3 llc[3] = {
+        { { 0, 0, 300, 0 }, 40, 0, 0 },
+        { { 0, 0, 0, 300 }, 0, 40, 0 },
+        { { 100, 100, 30, -1 }, 100 - 21.2132, 100 - 21.2132, 1 },
+    };
+    /* three circles r 10, picked on the sides facing each other: the one in
+       the gap between them, outside all three */
+    static const el3 ccc_in[3] = {
+        { { 0, 0, 10, -1 }, 8, 6, 1 },
+        { { 100, 0, 10, -1 }, 92, 6, 1 },
+        { { 50, 80, 10, -1 }, 50, 70, 1 },
+    };
+    /* the same three picked on their far sides: the one round all three */
+    static const el3 ccc_out[3] = {
+        { { 0, 0, 10, -1 }, -8, -6, -1 },
+        { { 100, 0, 10, -1 }, 108, -6, -1 },
+        { { 50, 80, 10, -1 }, 50, 90, -1 },
+    };
+    /* a line and two circles r 20 standing on it, picked between them */
+    static const el3 lcc[3] = {
+        { { -100, 0, 200, 0 }, 50, 0, 0 },
+        { { 0, 20, 20, -1 }, 20, 20, 1 },
+        { { 100, 20, 20, -1 }, 80, 20, 1 },
+    };
+    jw_drawing *d;
+    int before;
+
+    run3(llc, "two lines and a circle, an empty 半径, picked toward the corner:");
+    ck(fabs(ans_r - (100 * sqrt(2.0) - 30) / (sqrt(2.0) + 1)) < 1e-6,
+       "  the small one in the corner");
+    run3(ccc_in, "three circles, picked on the sides facing each other:");
+    ck(ans_r > 0 && ans_r < 50, "  the small one in the gap");
+    run3(ccc_out, "the same three, picked on their far sides:");
+    ck(ans_r > 50, "  the big one round them");
+    run3(lcc, "a line and two circles standing on it, picked between them:");
+    /* centre (50, R) and 50^2 + (R - 20)^2 = (R + 20)^2: R = 2500 / 80 */
+    ck(fabs(ans_r - 2500.0 / 80) < 1e-6, "  the one sitting on the line between");
+
+    /* an ellipse is turned away when it is picked, 「楕円は計算できません。」 */
+    printf("an ellipse among them:\n");
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 300; o->d[3] = 0;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 0; o->d[3] = 300;
+        o = jw_add(d, JW_ENKO);
+        o->d[0] = 100; o->d[1] = 100; o->d[2] = 30; o->d[3] = 0;
+        o->d[4] = 6.283185307179586; o->d[5] = 0; o->d[6] = 0.5; o->n = 1;
+    }
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_SEKIEN);
+    type_box(1411, "");
+    jw_cmd_set(JW_CMD_SEKIEN);
+    jw_cmd_point(d, app_view(), 40, 0, 0);
+    jw_cmd_point(d, app_view(), 0, 40, 0);
+    jw_cmd_point(d, app_view(), 70, 100, 0);
+    ck(d->ndrawn == before, "  nothing is drawn");
+    d->obj[before - 1].d[6] = 1.0;      /* made round, the same picks do */
+    jw_cmd_set(JW_CMD_SEKIEN);
+    jw_cmd_point(d, app_view(), 40, 0, 0);
+    jw_cmd_point(d, app_view(), 0, 40, 0);
+    jw_cmd_point(d, app_view(), 70, 100, 0);
+    ck(d->ndrawn == before + 1, "  where the same picks over a circle draw one");
+}
+
 int main(void)
 {
     run("decomp/res/sekien_l.jww", "the circle placed to the left:");
@@ -337,6 +498,7 @@ int main(void)
            "two lines and 多重円 3 -- r, 2r/3 and r/3:");
     run_el("decomp/res/sekmul_b.jww", "", 3, 3,
            "three lines and 多重円 3, the same way:");
+    circles3();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
