@@ -436,7 +436,7 @@ if (LANG === 'en') {
       if (Date.now() - bsAt > 120 && key(8)) present();
       e.preventDefault();
     } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
-      if (key(13)) present();
+      react(key(13));
       e.preventDefault();
     }
   }));
@@ -481,34 +481,14 @@ if (LANG === 'en') {
       } else if (e.altKey && !e.ctrlKey && e.key === 'Backspace') id = 57643;
       else if (!e.ctrlKey && !e.altKey && !e.metaKey && !typing && k === 'Delete')
         id = e.shiftKey ? 57635 : 32794;
-      if (id === 57637 && navigator.clipboard && navigator.clipboard.readText && mod._jw_clip_set) {
+      if (id === 57637 && navigator.clipboard && mod._jw_clip_set) {
         /* a copy made in another window comes by way of the system clipboard */
         e.preventDefault();
-        navigator.clipboard.readText().then(t => {
-          if (t && t.startsWith('JWCLIP:')) {
-            const bytes = Uint8Array.from(atob(t.slice(7)), c => c.charCodeAt(0));
-            const p = alloc(bytes.length);
-            mod.HEAPU8.set(bytes, p);
-            mod._jw_clip_set(p, bytes.length);
-            mod._free(p);
-          }
-        }).catch(() => {}).then(() => react(command(id)));
+        clipTake().then(() => react(command(id)));
         return;
       }
       if (id) {
-        const r = command(id);
-        react(r);
-        if ((id === 57634 || id === 57635) && r && mod._jw_clip_get && navigator.clipboard) {
-          const p = mod._jw_clip_get();
-          if (p) {
-            const bytes = mod.HEAPU8.slice(p, p + savedLen());
-            savedFree();
-            let s = '';
-            for (let i = 0; i < bytes.length; i += 4096)
-              s += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
-            navigator.clipboard.writeText('JWCLIP:' + btoa(s)).catch(() => {});
-          }
-        }
+        react(command(id));     /* コピー・切り取りは 16 で返り、react が clipPut */
         e.preventDefault();
         return;
       }
@@ -541,13 +521,13 @@ if (LANG === 'en') {
          so there is no GetKeyState to read here. */
       const took = e.key === 'Enter' && e.shiftKey ? shiftEnter()
                  : key(e.key === 'Enter' ? 13 : 9);
-      if (took) { present(); e.preventDefault(); }
+      if (took) { react(took); e.preventDefault(); }   /* Enter が 外部エディタ を頼むことも */
       return;
     }
     if (cmdid() !== 0x8026 && !boxfocus()) {
       if (e.key.length === 1 && e.key.charCodeAt(0) >= 0x20
           && e.key.charCodeAt(0) < 0x80) {
-        if (key(e.key.charCodeAt(0))) present();
+        react(key(e.key.charCodeAt(0)));
         e.preventDefault();
         /* the letter may have been a (a, the 文字 command), and a conversion
            needs the input box focused before the first key of it */
@@ -731,15 +711,87 @@ if (LANG === 'en') {
       });
       box.showModal();
     } else if (navigator.clipboard && navigator.clipboard.readText) {
-      navigator.clipboard.readText().then(give, () => { msg.textContent = T('クリップボードを読めません'); });
+      navigator.clipboard.readText().then(t => {
+        /* this page's own 図形 is not lines of text */
+        if (t && t.startsWith('JWCLIP:')) { msg.textContent = T('行がありません'); return; }
+        give(t);
+      }, () => { msg.textContent = T('クリップボードを読めません'); });
     } else {
       msg.textContent = T('クリップボードを読めません');
+    }
+  }
+
+  // コピー・切り取り (16): the 図形 goes on the system clipboard as JWCLIP:
+  // base64, so another window of this page can paste it, and the texts that
+  // were picked go as text/plain -- the original puts them on as
+  // CF_UNICODETEXT next to its own format (FUN_004fb140), so they paste into
+  // an editor.  With both, the 図形 rides in a web custom format beside the
+  // text; a browser without those gets the text alone.
+  const CLIP_MIME = 'web application/x-jwclip';
+  function heapOut(p) {
+    const b = mod.HEAPU8.slice(p, p + savedLen());
+    savedFree();
+    return b;
+  }
+  function clipPut() {
+    if (!navigator.clipboard || !mod._jw_clip_get) return;
+    const pf = mod._jw_clip_get();
+    let fig = '';
+    if (pf) {
+      const bytes = heapOut(pf);
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 4096)
+        s += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+      fig = 'JWCLIP:' + btoa(s);
+    }
+    let text = '';
+    if (mod._jw_moji_clip_get) {
+      const pm = mod._jw_moji_clip_get();
+      if (pm) text = new TextDecoder('utf-8').decode(heapOut(pm));     /* BOM は落ちる */
+    }
+    if (!fig && !text) return;
+    if (text && fig && window.ClipboardItem && navigator.clipboard.write
+        && (!ClipboardItem.supports || ClipboardItem.supports(CLIP_MIME))) {
+      let item = null;
+      try {
+        item = new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }),
+                                   [CLIP_MIME]: new Blob([fig], { type: CLIP_MIME }) });
+      } catch (e) { /* the custom format is refused: the text alone below */ }
+      if (item) {
+        navigator.clipboard.write([item]).catch(() => navigator.clipboard.writeText(text).catch(() => {}));
+        return;
+      }
+    }
+    navigator.clipboard.writeText(text || fig).catch(() => {});
+  }
+  // and back: a JWCLIP: from the custom format or the text, into the port's clipboard
+  async function clipTake() {
+    let t = '';
+    try {
+      if (navigator.clipboard.read)
+        for (const it of await navigator.clipboard.read())
+          if (it.types.includes(CLIP_MIME)) { t = await (await it.getType(CLIP_MIME)).text(); break; }
+    } catch (e) { /* no permission, or no custom formats */ }
+    if (!t && navigator.clipboard.readText) {
+      try { t = await navigator.clipboard.readText(); } catch (e) { /* nothing to read */ }
+    }
+    if (t && t.startsWith('JWCLIP:')) {
+      const bytes = Uint8Array.from(atob(t.slice(7)), c => c.charCodeAt(0));
+      const p = alloc(bytes.length);
+      mod.HEAPU8.set(bytes, p);
+      mod._jw_clip_set(p, bytes.length);
+      mod._free(p);
     }
   }
 
   // What a press or a command came back asking for (see finish() in
   // src/main_wasm.c): a file to open or write, or just a repaint.
   function react(r) {
+    if (r === 16) { clipPut(); present(); return; }
+    if (r === 17) { downloadDxf(); return; }
+    if (r === 18) { downloadSfc(); return; }
+    if (r === 19) { downloadJwc(); return; }
+    if (r === 20) { downloadPlot(false); return; }
     if (r === 2) pickFile();
     else if (r === 3) download();
     else if (r === 4) downloadFig();
