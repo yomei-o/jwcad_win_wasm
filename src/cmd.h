@@ -456,6 +456,17 @@ void jw_cmd_any_color_set(unsigned int rgb);
 
 int  jw_cmd_sunpo_box(int id, char *out, int n);
 void jw_cmd_sunpo_box_set(int id, const char *t);
+/* 寸法設定 のチェックボックスとラジオ。jw_cmd_sunpo_chk は 点いていれば 1、
+   消えていれば 0、繋いでいない id は -1。ラジオは選ばれているかどうか。
+   jw_cmd_sunpo_chk_set はラジオなら on のときだけ その一つを選ぶ。
+   jw_cmd_sunpo_radio_group はラジオの組の頭の id（ラジオでなければ 0） */
+int  jw_cmd_sunpo_chk(int id);
+void jw_cmd_sunpo_chk_set(int id, int on);
+int  jw_cmd_sunpo_radio_group(int id);
+/* 寸法 の ＝ (1060): 0 ふつう、1 ＝(1)、2 ＝(2)、3 －。jw_cmd_sunpo_move は
+   基準点のあとの「ﾏｳｽ移動で確定」をマウスの動きで進め、進めば 1 */
+int  jw_cmd_sunpo_eq(void);
+int  jw_cmd_sunpo_move(const jw_view *v, double x, double y);
 int  jw_cmd_get_kata(double *deg);
 int  jw_cmd_get_naga(double *mm);
 /* 間隔取得 (32948): the perpendicular distance from a point to a line,

@@ -122,6 +122,8 @@ WANT = [
     (5402, 'and where it ends'),
     (5420, 'which cleanup to run, once a selection is settled'),
     (5409, 'a picture read: where its lower left goes'),
+    (5407, 'dimension = (1060): (LL)(RR) turns the spacing over'),
+    (5408, 'dimension = (1060): move the mouse to settle, same point to turn over'),
     (10147, 'trim: the first corner of the part to keep'),
     (10148, 'trim: the opposite corner'),
     (10149, 'fit: the first point on the picture'),

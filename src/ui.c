@@ -4727,6 +4727,18 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                         jw_cmd_sunpo_decimals());
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
+            } else if (c[i].id == 1060 && jw_cmd() == 0x804f
+                       && jw_cmd_sunpo_eq() != 0) {
+                /* 寸法 の ＝: 名札は FUN_005da770 —— 6155「＝」に " (1)"・
+                   " (2)"、3 は 6214「－」。0 は取り込んだ「＝」のまま */
+                int k = jw_cmd_sunpo_eq();
+                char t[16];
+                if (k == 3)
+                    sprintf(t, "\x81\x7c");
+                else
+                    sprintf(t, "\x81\x81 (%d)", k);
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1070 && jw_cmd() == 0x8081) {
                 /* 測定 の 小数桁: the label carries the number and the
                    capture baked in the 3 the original was at.  Pressing it

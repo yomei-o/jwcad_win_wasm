@@ -1228,12 +1228,28 @@ int app_sunpodlg_open(void)
 static int sd_caret;
 static char sd_edit[32];
 
-static void sd_start(void)
+/* チェックボックスとラジオの値は命令（jw_cmd_sunpo_chk）が持つ。OK で
+   点き具合を渡し、開くときはそこから読む（バーの 小数桁 が 桁 を変える
+   ので）。繋いでいない id は窓の中の sd_on だけ */
+static void sd_apply(const unsigned char *on)
 {
     int i, n = ui_sunpodlg_n();
 
     for (i = 0; i < n && i < (int)sizeof sd_on; i++)
+        if (jw_cmd_sunpo_chk(ui_sunpodlg_id(i)) >= 0)
+            jw_cmd_sunpo_chk_set(ui_sunpodlg_id(i), on[i]);
+}
+
+static void sd_start(void)
+{
+    int i, n = ui_sunpodlg_n(), v;
+
+    for (i = 0; i < n && i < (int)sizeof sd_on; i++) {
         sd_on[i] = (unsigned char)(sd_have_saved ? sd_saved[i] : ui_sunpodlg_on(i));
+        v = jw_cmd_sunpo_chk(ui_sunpodlg_id(i));
+        if (v >= 0)
+            sd_on[i] = (unsigned char)v;
+    }
     sd_open = 1;
     sd_caret = 0;                       /* nothing is being typed yet */
     sd_edit[0] = 0;
@@ -1286,6 +1302,7 @@ static int press_sunpodlg(int x, int y)
         sd_commit();
         memcpy(sd_saved, sd_on, sizeof sd_saved);
         sd_have_saved = 1;
+        sd_apply(sd_on);
         sd_open = 0;
         return 1;
     }
@@ -1304,6 +1321,18 @@ static int press_sunpodlg(int x, int y)
         return 1;
     }
     sd_commit();
+    if (jw_cmd_sunpo_radio_group(id)) {
+        /* ラジオ（BS_AUTORADIOBUTTON）: 押したものだけが点き、同じ組の
+           ほかは消える */
+        int g = jw_cmd_sunpo_radio_group(id);
+
+        for (i = 0; i < n && i < (int)sizeof sd_on; i++)
+            if (jw_cmd_sunpo_radio_group(ui_sunpodlg_id(i)) == g)
+                sd_on[i] = (unsigned char)(ui_sunpodlg_id(i) == id);
+        return 1;
+    }
+    if (id == 1323)                     /* 押せない（WS_DISABLED） */
+        return 1;
     for (i = 0; i < n && i < (int)sizeof sd_on; i++)
         if (ui_sunpodlg_id(i) == id)
             sd_on[i] = (unsigned char)!sd_on[i];
@@ -3211,6 +3240,7 @@ int app_prefs_read(const unsigned char *b, long n)
     if (sd_any) {
         memcpy(sd_saved, son, sizeof sd_saved);
         sd_have_saved = 1;
+        sd_apply(sd_saved);             /* OK と同じく作図に効かせる */
     }
     return taken;
 }
@@ -6403,6 +6433,7 @@ int app_key(int c)
                 sd_commit();
                 memcpy(sd_saved, sd_on, sizeof sd_saved);
                 sd_have_saved = 1;
+                sd_apply(sd_on);
                 sd_open = 0;
             } else if (br_open) {
                 br_ok(1);               /* IDOK = 指定倍率表示 */
@@ -6729,6 +6760,8 @@ int app_move(int x, int y)
         return 1;                   /* 手書線: a stroke being drawn */
     if (have_drawing && jw_cmd_stretch_move(&drawing, &view, mx, my))
         return 1;                   /* 伸縮の (R) 線切断 */
+    if (jw_cmd_sunpo_move(&view, mx, my))
+        return 1;                   /* 寸法 ＝ の「ﾏｳｽ移動で確定」 */
     {   /* the range box and the selection being dragged both follow the
            mouse, so the window has to be told to paint again */
         double a, b, c, e;

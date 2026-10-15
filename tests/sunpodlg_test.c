@@ -16,7 +16,8 @@
  *   1477 矢印の長さ / 1481 矢印の角度（矢印を出していないと見えない）
  *
  * 2084 小数桁 は原典でも使えない状態（enabled=0）なので触りません。
- * 残りの押し釦は絵だけで、押すと凹むところまでです。
+ * チェックボックスとラジオは命令が持ち（jw_cmd_sunpo_chk）、OK で効きます
+ * （末尾の節。逆コンパイルの読み、原典では押していない）。
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,7 @@
 #include "../src/ui.h"
 #include "../src/jww.h"
 #include "../src/gen/sunpodlg.h"
+#include "../src/gen/sunpo.h"
 #include "png.h"
 
 static int fails;
@@ -295,6 +297,165 @@ int main(int argc, char **argv)
         jw_cmd_bar(dz, 1062);
         ck(jw_cmd_sunpo_arrows() == 0, "  三回で 点 に戻る");
         jw_cmd_set(0);
+    }
+
+    /* ------------------------- チェックボックスとラジオ（2026-10-16）---
+       DDX FUN_005d2b30・OK FUN_005d34b0 の繋ぎ、値の書き方 FUN_0045a220、
+       単位 FUN_00786cf0、全角 FUN_00473110、+0x2c FUN_004782d0、斜体太字
+       FUN_00479550、R・φ FUN_007891b0。逆コンパイルの読み、原典では押して
+       いない（照らす原典の答えは無い） */
+    {
+        jw_drawing *dz = (jw_drawing *)app_drawing();
+        double sc = 1.0;
+        int k, wg = 0;
+        char want[64];
+
+        for (k = 0; k < 16; k++)
+            if (dz->group[k].state == 3)
+                wg = k;
+        sc = dz->group[wg].scale;
+
+        /* 既定は 原典の窓のまま */
+        ck(jw_cmd_sunpo_chk(2332) == 1 && jw_cmd_sunpo_chk(2333) == 0
+           && jw_cmd_sunpo_chk(1708) == 1 && jw_cmd_sunpo_chk(2487) == 1
+           && jw_cmd_sunpo_chk(1710) == 1 && jw_cmd_sunpo_chk(2489) == 1
+           && jw_cmd_sunpo_chk(1718) == 1 && jw_cmd_sunpo_chk(1716) == 1
+           && jw_cmd_sunpo_chk(2420) == 0 && jw_cmd_sunpo_chk(1801) == 0,
+           "ラジオとチェックの既定は窓の初め（2桁・(，)有・0表示無・前付・四捨五入・mm・単位無）");
+        ck(jw_cmd_sunpo_chk(1488) == -1, "箱は チェックではない");
+        ck(jw_cmd_sunpo_radio_group(2331) == 2330
+           && jw_cmd_sunpo_radio_group(2420) == 0, "組の頭");
+
+        /* 窓で 3桁・0表示 有・(，)表示 無・切上・斜体 を押して OK */
+        app_command(32925);
+        ctl(2333, &x, &y); app_press(x, y, 0);
+        ctl(2488, &x, &y); app_press(x, y, 0);
+        ctl(1707, &x, &y); app_press(x, y, 0);
+        ctl(2491, &x, &y); app_press(x, y, 0);
+        ctl(2420, &x, &y); app_press(x, y, 0);
+        ck(jw_cmd_sunpo_chk(2333) == 0, "  押しただけでは効かない（OK まで）");
+        ctl(1, &x, &y); app_press(x, y, 0);
+        ck(jw_cmd_sunpo_chk(2333) == 1 && jw_cmd_sunpo_chk(2332) == 0
+           && jw_cmd_sunpo_decimals() == 3, "  OK で 3桁（同じ組の 2桁 は消える、バーの 小数桁 と同じ）");
+        ck(jw_cmd_sunpo_chk(2488) == 1 && jw_cmd_sunpo_chk(1707) == 1
+           && jw_cmd_sunpo_chk(2491) == 1 && jw_cmd_sunpo_chk(2420) == 1,
+           "  0表示 有・(，) 無・切上・斜体");
+        {
+            /* 100/3 の線: 切上 3桁、0 を残し、, は無い */
+            int b0 = dz->ndrawn, t = -1;
+            double v = 100.0 / 3.0 * sc;
+            jw_obj *ln = jw_add(dz, JW_SEN);    /* 測る点は読んだ点でないといけない */
+
+            ln->d[0] = 100.0;
+            ln->d[1] = 50.0;
+            ln->d[2] = 100.0 + 100.0 / 3.0;
+            ln->d[3] = 100.0;
+            b0 = dz->ndrawn;
+            jw_cmd_set(JW_CMD_SUNPO);
+            jw_cmd_point(dz, app_view(), 100.0, 120.0, 0);
+            jw_cmd_point(dz, app_view(), 100.0, 110.0, 0);
+            jw_cmd_point(dz, app_view(), 100.0, 100.0, 0);
+            jw_cmd_point(dz, app_view(), 100.0 + 100.0 / 3.0, 100.0, 0);
+            for (k = b0; k < dz->ndrawn; k++)
+                if (dz->obj[k].cls == JW_MOJI)
+                    t = k;
+            /* "%lf" の六桁を三桁で切って、先に 0 より大きい字があれば一つ上げる */
+            {
+                char f[64];
+                int dot;
+                sprintf(f, "%f", v);
+                dot = (int)(strchr(f, '.') - f);
+                f[dot + 4] = 0;
+                {
+                    double q = atof(f) + (v - atof(f) > 1e-9 ? 0.001 : 0.0);
+                    sprintf(want, "%.3f", q);
+                }
+            }
+            ck(t >= 0 && !strcmp(jw_str(dz, dz->obj[t].text), want),
+               "  値は 切上 3桁 で 0 を残し , 無し");
+            printf("     port [%s]  want [%s]  (%d 個)\n",
+                   t >= 0 ? jw_str(dz, dz->obj[t].text) : "", want,
+                   dz->ndrawn - b0);
+            ck(t >= 0 && dz->obj[t].width == (3u | 0x80u | 0x200u | (3u << 12)),
+               "  +0x2c は 0表示 0x80・切上 0x200・桁 3、(，) の 0x40 は無い");
+            ck(t >= 0 && dz->obj[t].n == JW_SUN_MOJINO + 10000, "  斜体は n に 10000");
+            jw_cmd_set(0);
+        }
+
+        /* 全角・(，)全角・ｍ・単位表示 有 に、0表示 無・(，)表示 有・四捨五入・2桁 に戻して */
+        app_command(32925);
+        ctl(2332, &x, &y); app_press(x, y, 0);
+        ctl(2487, &x, &y); app_press(x, y, 0);
+        ctl(1708, &x, &y); app_press(x, y, 0);
+        ctl(2489, &x, &y); app_press(x, y, 0);
+        ctl(2420, &x, &y); app_press(x, y, 0);
+        ctl(1801, &x, &y); app_press(x, y, 0);
+        ctl(1346, &x, &y); app_press(x, y, 0);
+        ctl(1719, &x, &y); app_press(x, y, 0);
+        ctl(1717, &x, &y); app_press(x, y, 0);
+        app_key('\r');                  /* Enter も OK */
+        ck(!app_sunpodlg_open() && jw_cmd_sunpo_chk(1719) == 1
+           && jw_cmd_sunpo_chk(1717) == 1 && jw_cmd_sunpo_chk(1801) == 1
+           && jw_cmd_sunpo_chk(2420) == 0, "Enter で 全角・ｍ・単位表示 有");
+        {
+            int b0 = dz->ndrawn, t = -1;
+            const char *s;
+            jw_cmd_set(JW_CMD_SUNPO);
+            jw_cmd_point(dz, app_view(), 100.0, 120.0, 0);
+            jw_cmd_point(dz, app_view(), 100.0, 110.0, 0);
+            jw_cmd_point(dz, app_view(), 100.0, 100.0, 0);
+            jw_cmd_point(dz, app_view(), 200.0, 100.0, 0);
+            for (k = b0; k < dz->ndrawn; k++)
+                if (dz->obj[k].cls == JW_MOJI)
+                    t = k;
+            s = t >= 0 ? jw_str(dz, dz->obj[t].text) : "";
+            printf("     port [%s]\n", s);
+            /* 値は 100*sc/1000 ｍ。数字は全角（82 4f〜）、終わりは ｍ（82 8d） */
+            ck(t >= 0 && (unsigned char)s[0] == 0x82
+               && (unsigned char)s[1] >= 0x4f && (unsigned char)s[1] <= 0x58,
+               "  数字は全角");
+            k = (int)strlen(s);
+            ck(k >= 2 && (unsigned char)s[k - 2] == 0x82
+               && (unsigned char)s[k - 1] == 0x8d, "  単位は ｍ（R_STR0_00 の既定）");
+            ck(t >= 0 && dz->obj[t].width
+                   == (3u | 0x08u | 0x10u | 0x20u | 0x40u | (2u << 12)),
+               "  +0x2c は 全角 8・ｍ 0x10・単位 0x20・(，) 0x40・桁 2");
+            ck(t >= 0 && dz->obj[t].n == JW_SUN_MOJINO, "  斜体を消せば n は文字種だけ");
+            jw_cmd_set(0);
+        }
+
+        /* 半径の R・φ 後付、全角を消し mm に戻して */
+        app_command(32925);
+        ctl(1801, &x, &y); app_press(x, y, 0);
+        ctl(1346, &x, &y); app_press(x, y, 0);
+        ctl(1718, &x, &y); app_press(x, y, 0);
+        ctl(1716, &x, &y); app_press(x, y, 0);
+        ctl(1711, &x, &y); app_press(x, y, 0);
+        ctl(1, &x, &y); app_press(x, y, 0);
+        ck(jw_cmd_sunpo_chk(1711) == 1 && jw_cmd_sunpo_chk(1710) == 0, "後付 を選ぶ");
+        {
+            jw_obj *c = jw_add(dz, JW_ENKO);
+            int b0, t = -1;
+            const char *s;
+            c->d[0] = 300.0; c->d[1] = 300.0; c->d[2] = 20.0;
+            c->d[4] = 6.283185307179586; c->d[6] = 1;
+            app_fit();
+            b0 = dz->ndrawn;
+            jw_cmd_set(JW_CMD_SUNPO);
+            jw_cmd_bar(dz, 1065);
+            jw_cmd_point(dz, app_view(), 320.0, 300.0, 0);
+            for (k = b0; k < dz->ndrawn; k++)
+                if (dz->obj[k].cls == JW_MOJI)
+                    t = k;
+            s = t >= 0 ? jw_str(dz, dz->obj[t].text) : "";
+            printf("     port [%s]\n", s);
+            k = (int)strlen(s);
+            ck(t >= 0 && k > 1 && s[k - 1] == 'R' && s[0] != 'R', "  半径の R は後ろ");
+            ck(t >= 0 && (dz->obj[t].width & 0x0c00u) == 0x0800u, "  +0x2c は 後付 0x800");
+            jw_cmd_set(0);
+        }
+        /* 元に戻す（ほかの試験に響かないように） */
+        jw_cmd_sunpo_chk_set(1710, 1);
     }
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
