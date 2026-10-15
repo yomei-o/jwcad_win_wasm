@@ -47,11 +47,17 @@ void jw_text(fb_t *fb, const jw_view *v, const char *s,
 void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
                  double x0, double y0, double x1, double y1,
                  double cw, double ch, unsigned int col, int tate);
+/* jw_text_run with the text's 10000s digit: 1 斜体, 2 太字 (0 is
+   jw_text_run, pixel for pixel) */
+void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
+                       double x0, double y0, double x1, double y1,
+                       double cw, double ch, unsigned int col, int tate,
+                       int style);
 
 /* jw_text_run for a text that names its face (CP932; NULL or "" for none).
    If it is one of the outline fonts (src/outfont.h) the text is set in that;
    anything else is the bitmap font, as jw_text_run has it.  `style` is the
-   text's 10000s digit: 1 italic, 2 bold (outline fonts only). */
+   text's 10000s digit: 1 italic, 2 bold (jw_text_run_style). */
 void jw_text_run_face(fb_t *fb, const jw_view *v, const char *s,
                       double x0, double y0, double x1, double y1,
                       double cw, double ch, unsigned int col, int tate,

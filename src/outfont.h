@@ -26,6 +26,13 @@
 
 #define JW_NOUTFONT 3
 
+/* 斜体: a point h above the baseline moves h * JW_TEXT_ITALIC along the run
+   (the 0.3256 FUN_00481d50 widens an italic text's box by).  太字: the
+   letters are thickened across by the height * JW_TEXT_BOLD.  Both fonts,
+   outline and bitmap, use them (src/outfont.c has the reading). */
+#define JW_TEXT_ITALIC 0.3256
+#define JW_TEXT_BOLD (1.0 / 24.0)
+
 int jw_outfont_count(void);
 /* the face name as a drawing stores it (CP932, in fact ASCII) */
 const char *jw_outfont_name(int i);
@@ -68,8 +75,13 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int i, const char *s,
    default; the browser and native front ends (main_wasm.c, main_win32.c)
    switch it on.  On, ＭＳ ゴシック, ＭＳ Ｐゴシック, a text with no face and
    anything unknown is IPAexGothic, and 明朝 faces are IPAexMincho; a Ｐ face
-   sets each letter at its own advance (*prop).  The bitmap font still draws
-   while the file is loading or if it cannot be had. */
+   sets each letter at its own advance (*prop bit 0).  BIZ UD… faces are BIZ
+   UDGothic.  Arial, Times New Roman, Century and a few more Latin faces are
+   two fonts that are never listed (index JW_NOUTFONT, JW_NOUTFONT + 1:
+   fonts/jwsubsans.ttf, jwsubserif.ttf), sized the way Windows sizes the
+   face, with IPAex for their Japanese letters; *prop then also says which
+   face (bits 8 and up) and must be handed to jw_outfont_run as it is.  The
+   bitmap font still draws while a file is loading or if it cannot be had. */
 void jw_outfont_enable(int on);
 int jw_outfont_enabled(void);
 /* the outline font a stored face is drawn with, or -1 for the bitmap one */

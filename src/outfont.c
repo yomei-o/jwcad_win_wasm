@@ -26,13 +26,23 @@ typedef struct {
     unsigned char *data;
     stbtt_fontinfo info;
     int asc, desc;      /* font units; asc - desc is the em the cell maps to */
+    int upem;           /* units per em (head) */
 } ofont_t;
 
+/* The three a drawing can name (JW_NOUTFONT, listed in the 文字種 dialog),
+   then two that are never listed: the Latin stand-ins for Arial and Times
+   New Roman / Century (JW_OF_SANS, JW_OF_SERIF; see jw_outfont_resolve). */
+#define NF (JW_NOUTFONT + 2)
+#define JW_OF_SANS JW_NOUTFONT
+#define JW_OF_SERIF (JW_NOUTFONT + 1)
+
 /* the aliases are CP932: ゴシック = 83 53 83 56 83 62 83 4E, 明朝 = 96 BE 92 A9 */
-static ofont_t F[JW_NOUTFONT] = {
+static ofont_t F[NF] = {
     { "IPAexGothic",  "IPAex\x83\x53\x83\x56\x83\x62\x83\x4e", "jwsubgothic.ttf", 0 },
     { "IPAexMincho",  "IPAex\x96\xbe\x92\xa9",                 "jwsubmincho.ttf", 0 },
     { "BIZ UDGothic", "BIZ UD\x83\x53\x83\x56\x83\x62\x83\x4e", "bizudgothic-sub.ttf", 0 },
+    { "JwSubSans",    "",                                      "jwsubsans.ttf", 0 },
+    { "JwSubSerif",   "",                                      "jwsubserif.ttf", 0 },
 };
 static int fgen;
 static char fdir[260];
@@ -41,12 +51,12 @@ int jw_outfont_count(void) { return JW_NOUTFONT; }
 
 const char *jw_outfont_name(int i)
 {
-    return i >= 0 && i < JW_NOUTFONT ? F[i].name : "";
+    return i >= 0 && i < NF ? F[i].name : "";
 }
 
 const char *jw_outfont_file(int i)
 {
-    return i >= 0 && i < JW_NOUTFONT ? F[i].file : "";
+    return i >= 0 && i < NF ? F[i].file : "";
 }
 
 int jw_outfont_gen(void) { return fgen; }
@@ -86,7 +96,7 @@ int jw_outfont_put(int i, const unsigned char *data, long len)
     unsigned char *copy;
     int off;
 
-    if (i < 0 || i >= JW_NOUTFONT || F[i].state == 2)
+    if (i < 0 || i >= NF || F[i].state == 2)
         return 0;
     F[i].state = 3;
     if (!data || len < 64)
@@ -104,7 +114,9 @@ int jw_outfont_put(int i, const unsigned char *data, long len)
         return 0;
     }
     stbtt_GetFontVMetrics(&F[i].info, &F[i].asc, &F[i].desc, &off);
-    if (F[i].asc - F[i].desc <= 0) {
+    F[i].upem = (int)(1.0 / stbtt_ScaleForMappingEmToPixels(&F[i].info, 1.0f)
+                      + 0.5);
+    if (F[i].asc - F[i].desc <= 0 || F[i].upem <= 0) {
         free(copy);
         return 0;
     }
@@ -116,7 +128,7 @@ int jw_outfont_put(int i, const unsigned char *data, long len)
 
 void jw_outfont_fail(int i)
 {
-    if (i >= 0 && i < JW_NOUTFONT && F[i].state != 2)
+    if (i >= 0 && i < NF && F[i].state != 2)
         F[i].state = 3;
 }
 
@@ -124,7 +136,7 @@ int jw_outfont_pending(void)
 {
     int i;
 
-    for (i = 0; i < JW_NOUTFONT; i++)
+    for (i = 0; i < NF; i++)
         if (F[i].state == 1) {
             F[i].state = 4;
             return i;
@@ -183,7 +195,7 @@ static int read_file(int i)
 
 int jw_outfont_ready(int i)
 {
-    if (i < 0 || i >= JW_NOUTFONT)
+    if (i < 0 || i >= NF)
         return 0;
     if (F[i].state == 2)
         return 1;
@@ -433,8 +445,47 @@ static int is_lead(unsigned char c)
  * is set in IPAex as well: ゴシック (and anything unknown, the default
  * included) in the gothic, 明朝 in the mincho.  A face with a full-width Ｐ
  * (ＭＳ Ｐゴシック, ＭＳ Ｐ明朝) is the proportional one: each letter takes
- * its own advance.  The tests that score against the original leave this off
- * (they link no main), so their pixels are the bitmap font's. */
+ * its own advance.  BIZ UDＰゴシック and the like are BIZ UD Gothic.
+ *
+ * The Latin faces a drawing often names (LATIN below) are set in a stand-in
+ * with the same advances: Liberation Sans for Arial, Liberation Serif for
+ * Times New Roman (fonts/jwsubsans.ttf, jwsubserif.ttf; font/PROVENANCE.md).
+ * The original asks Windows for the face itself, FUN_0048b130:
+ *
+ *     CreateFontW(-高さ, 幅/2, 0, 0, 太字 ? 700 : 400, 斜体, …, 字の名前)
+ *
+ * (lfHeight is minus the height in pixels -- the em, not the cell -- and
+ * lfWidth half the text's width, FUN_00481d50 local_784 / local_808), and
+ * Windows scales a face so that its average width, OS/2 xAvgCharWidth, is
+ * lfWidth.  So a Latin face is set with the em at the text's height and
+ * squeezed or stretched across until the average of the face it stands for
+ * (avg, per 2048 of the em, read from that face's file) is half the width;
+ * `wide` is how much wider that face's ASCII is than the stand-in's (1 for
+ * the two Liberation was drawn to match).  A letter the stand-in does not
+ * have -- kana, kanji, the full-width forms -- is IPAex: Windows' font
+ * association sets a Japanese letter of a Latin face in ＭＳ ゴシック, or
+ * ＭＳ 明朝 for a roman one, at the cell the fixed-pitch face would give it.
+ *
+ * The tests that score against the original leave this off (they link no
+ * main), so their pixels are the bitmap font's. */
+static const struct {
+    const char *face;
+    int font;           /* JW_OF_SANS or JW_OF_SERIF */
+    int avg;            /* the face's xAvgCharWidth per 2048 of the em */
+    double wide;        /* its 0x20..0x7e advances / the stand-in's */
+} LATIN[] = {
+    { "Arial",             JW_OF_SANS,  904, 1.0 },
+    { "Arial Narrow",      JW_OF_SANS,  741, 0.8200 },
+    { "Century Gothic",    JW_OF_SANS,  995, 1.0385 },
+    { "Tahoma",            JW_OF_SANS,  910, 1.0158 },
+    { "Verdana",           JW_OF_SANS, 1041, 1.1675 },
+    { "Times New Roman",   JW_OF_SERIF, 821, 1.0 },
+    { "Century",           JW_OF_SERIF, 951, 1.0937 },
+    { "Georgia",           JW_OF_SERIF, 901, 1.0780 },
+    { "Bookman Old Style", JW_OF_SERIF, 1008, 1.1243 },
+};
+#define NLATIN ((int)(sizeof LATIN / sizeof LATIN[0]))
+
 static int enabled;
 
 void jw_outfont_enable(int on) { enabled = on != 0; }
@@ -459,15 +510,41 @@ int jw_outfont_resolve(const char *face, int *prop)
     i = jw_outfont_find(face);
     if (i >= 0 || !enabled)
         return i;
+    if (face)
+        for (i = 0; i < NLATIN; i++)
+            if (same(face, LATIN[i].face)) {
+                if (prop)
+                    *prop = 1 | (i + 1) << 8;
+                return LATIN[i].font;
+            }
     if (face && prop && (has(face, "\x82\x6f") || has(face, "MS P")
-                         || has(face, "PGothic") || has(face, "PMincho")))
+                         || has(face, "PGothic") || has(face, "PMincho")
+                         || has(face, "UDP")))
         *prop = 1;
+    if (face && has(face, "BIZ UD"))
+        return 2;
     if (face && (has(face, "\x96\xbe\x92\xa9") || has(face, "Mincho")
                  || has(face, "MINCHO") || has(face, "mincho")
                  || has(face, "Serif")))
         return 1;
     return 0;
 }
+
+/* How the original slants an italic text: FUN_00481d50 widens a text's box
+   for 斜体 (+0xdc bit 0) by 0.3256 of the height it rises, e.g.
+   `高さ * 0.8 * 0.3256` at the top and `* 0.1 * 0.3256` / `* 0.9 * 0.3256`
+   at 0.1 and 0.9 of the height for the part of the box it fills by the
+   fractions at +0xe0 / +0xe8.  That is taken as the slant Windows gives the lfItalic the
+   original asks for; the letters lean about the baseline, as an outline does
+   when it is sheared (the original's box measures from the cell's foot, a
+   few hundredths of the height away -- not followed).  ＭＳ ゴシック has no
+   italic of its own, so Windows slants the upright letters too. */
+#define ITALIC JW_TEXT_ITALIC
+/* lfWeight 700 on a face with no bold of its own (ＭＳ ゴシック has none):
+   Windows thickens the letters.  How much is not in the original (it only
+   asks); this follows the usual model of it (Wine's fake bold: the em in
+   pixels / 24), as a smear across. */
+#define BOLD JW_TEXT_BOLD
 
 int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
                    double x0, double y0, double x1, double y1,
@@ -476,14 +553,27 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
 {
     enum { MAXC = 1024 };
     static double cell[MAXC];
-    static int gl[MAXC], wide[MAXC];
+    static int gl[MAXC], wide[MAXC], fo[MAXC];
     double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy);
     double ux, uy, vx, vy, W = 0.0, units = 0.0, sp = 0.0, pen = 0.0;
-    double em, hx, hy, base, shear = (style & 1) ? 0.2 : 0.0;
+    double hx[2], hy[2], base[2], bold = 0.0;
     const unsigned char *p;
-    int n = 0, i;
+    int n = 0, i, lat = (prop >> 8) - 1, fj = fi, passes = 1;
 
-    if (!jw_outfont_ready(fi))
+    prop &= 1;
+    if (fi == JW_OF_SANS || fi == JW_OF_SERIF) {
+        /* the IPAex that sets what the stand-in has not got */
+        fj = fi == JW_OF_SERIF ? 1 : 0;
+        if (lat < 0 || lat >= NLATIN || LATIN[lat].font != fi)
+            for (lat = 0; lat < NLATIN && LATIN[lat].font != fi; lat++)
+                ;
+        prop = 1;
+        if (!jw_outfont_ready(fj))
+            fj = -1;
+    } else {
+        lat = -1;
+    }
+    if (!jw_outfont_ready(fi) || fj < 0)
         return 0;
     if (!(ch > 0.0) || !(cw > 0.0) || !s)
         return 1;
@@ -491,10 +581,18 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
         for (i = 0; i < 256; i++)
             boost[i] = (unsigned char)(255.0 * pow(i / 255.0, 0.8) + 0.5);
     }
-    em = F[fi].asc - F[fi].desc;
-    hx = cw / em;
-    hy = ch / em;
-    base = -F[fi].desc * hy;
+    /* [0]: the IPAex (or BIZ UD) way, the em the whole cell; [1]: a Latin
+       face, the em the height and its average half the width */
+    hx[0] = cw / (F[fj].asc - F[fj].desc);
+    hy[0] = ch / (F[fj].asc - F[fj].desc);
+    base[0] = -F[fj].desc * hy[0];
+    hx[1] = hy[1] = base[1] = 0.0;
+    if (lat >= 0) {
+        hx[1] = cw / 2 * LATIN[lat].wide
+                / (LATIN[lat].avg * (double)F[fi].upem / 2048.0);
+        hy[1] = ch / F[fi].upem;
+        base[1] = -F[fi].desc * hy[1];
+    }
     if (len < 1e-9) {
         ux = 1.0;
         uy = 0.0;
@@ -506,17 +604,24 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
     vx = -uy;
     vy = ux;
     for (p = (const unsigned char *)s; *p && n < MAXC; n++) {
-        int w = is_lead(p[0]) && p[1], adv, lsb;
+        int w = is_lead(p[0]) && p[1], adv, lsb, k;
         unsigned short u[2];
         long m = jw_to_utf16((const char *)p, w ? 2 : 1, u, 2);
 
-        gl[n] = m > 0 && u[0] != 0xfffd
-                ? stbtt_FindGlyphIndex(&F[fi].info, u[0]) : 0;
+        gl[n] = 0;
+        fo[n] = fj;
+        if (m > 0 && u[0] != 0xfffd) {
+            if (lat >= 0 && (gl[n] = stbtt_FindGlyphIndex(&F[fi].info, u[0])))
+                fo[n] = fi;
+            else
+                gl[n] = stbtt_FindGlyphIndex(&F[fj].info, u[0]);
+        }
+        k = fo[n] == fj ? 0 : 1;
         wide[n] = w;
         cell[n] = w ? cw : cw / 2;
-        if (prop && gl[n]) {
-            stbtt_GetGlyphHMetrics(&F[fi].info, gl[n], &adv, &lsb);
-            cell[n] = adv * hx;
+        if (gl[n] && (k || (prop && lat < 0))) {
+            stbtt_GetGlyphHMetrics(&F[fo[n]].info, gl[n], &adv, &lsb);
+            cell[n] = adv * hx[k];
             if (cell[n] < cw / 8)
                 cell[n] = cw / 8;
         }
@@ -527,34 +632,46 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
     }
     if (len > 0.0 && units > 0.0)
         sp = (len - W) / units;         /* the gap the file's ends leave */
+    if (style & 2) {
+        double px = ch * BOLD / v->mmpp;
+
+        bold = ch * BOLD;
+        passes = (int)ceil(px) + 1;
+        if (passes < 2)
+            passes = 2;
+        if (passes > 24)
+            passes = 24;
+    }
     for (i = 0; i < n; i++) {
-        int g = gl[i], adv, lsb, pass;
+        int g = gl[i], adv, lsb, pass, k = fo[i] == fj ? 0 : 1;
         double sq = 1.0, xo = 0.0, gap, gx, gy;
 
         gap = i ? (wide[i] ? sp : sp / 2) : 0.0;
         pen += gap;
         if (g) {
-            double a;
+            double a, shear = (style & 1) ? ITALIC * hy[k] / hx[k] : 0.0;
 
-            stbtt_GetGlyphHMetrics(&F[fi].info, g, &adv, &lsb);
-            a = adv * hx;
-            if (prop)
+            stbtt_GetGlyphHMetrics(&F[fo[i]].info, g, &adv, &lsb);
+            a = adv * hx[k];
+            if (k || (prop && lat < 0))
                 xo = 0.0;
             else if (a > cell[i] * 1.0001 && a > 0.0)
                 sq = cell[i] / a;       /* too wide for its cell: squeeze */
             else
                 xo = (cell[i] - a) / 2; /* otherwise centre it */
+            if (shear != 0.0)
+                shear /= sq;            /* the same lean however squeezed */
             /* the run goes its way even when the letters stay upright */
             gx = x0 + ux * (pen + xo);
             gy = y0 + uy * (pen + xo);
-            for (pass = 0; pass < ((style & 2) ? 2 : 1); pass++) {
-                double bx = pass ? 0.025 * cw : 0.0;
+            for (pass = 0; pass < passes; pass++) {
+                double bx = passes > 1 ? bold * pass / (passes - 1) : 0.0;
                 double ex = tate ? 1.0 : ux, ey2 = tate ? 0.0 : uy;
                 double fvx = tate ? 0.0 : vx, fvy = tate ? 1.0 : vy;
 
-                glyph(fb, v, fi, g,
-                      gx + ex * bx + fvx * base, gy + ey2 * bx + fvy * base,
-                      ex, ey2, fvx, fvy, hx * sq, hy, shear, col);
+                glyph(fb, v, fo[i], g,
+                      gx + ex * bx + fvx * base[k], gy + ey2 * bx + fvy * base[k],
+                      ex, ey2, fvx, fvy, hx[k] * sq, hy[k], shear, col);
             }
         }
         pen += cell[i];
