@@ -29915,6 +29915,38 @@ int jw_cmd_clip_set(const unsigned char *b, long n)
     return 1;
 }
 
+/* 図面情報コピー (32987): 原典 FUN_0044a020 は EmptyClipboard してから
+   CF_UNICODETEXT だけを置く。移植は字を jw_cmd_moji_clip の控え（UTF-8、BOM
+   付き）に入れ、図形の控えは捨てる。表側は JW_ACT_CLIP_PUT で出す */
+int jw_cmd_text_clip(const char *s)
+{
+    long sl = s ? (long)strlen(s) : 0, len = 0;
+    unsigned short *w;
+    unsigned char *b;
+
+    if (!s)
+        return 0;
+    w = (unsigned short *)malloc((size_t)(sl + 1) * 2);
+    b = (unsigned char *)malloc((size_t)sl * 3 + 4);
+    if (!w || !b) {
+        free(w);
+        free(b);
+        return 0;
+    }
+    b[len++] = 0xef;
+    b[len++] = 0xbb;
+    b[len++] = 0xbf;
+    len += ms_put8(b + len, w, jw_to_utf16(s, sl, w, sl + 1));
+    free(w);
+    free(ms_clip);
+    ms_clip = b;
+    ms_clip_n = len;
+    free(clip);
+    clip = 0;
+    clip_n = 0;
+    return 1;
+}
+
 /* ---- 手書線 (1774) -------------------------------------------------------------
    CZukeiRenzokuSen with its flag at +0x780 set (the bar's 手書線 box; FUN_006d7ca0 and
    FUN_006da8b0 and slot 9, read in decomp/byclass/CZukeiRenzokuSen.c):

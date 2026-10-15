@@ -397,4 +397,12 @@ int  ui_msgbox3_hit(int cw, int ch, int x, int y);               /* 1 はい・3
 void ui_notice_rect(int cw, int ch, int x, int y, const char *s, rect_t *r);
 void ui_notice(fb_t *fb, int x, int y, const char *s);
 
+/* 囲み・見出し・× だけの窓とその中の飾り（レイヤ一覧、src/fileops.h）。
+   r は窓全体、中は (r.x+8, r.y+31) から */
+void ui_win_frame(fb_t *fb, const rect_t *r, const char *title);
+int  ui_win_close_hit(const rect_t *r, int x, int y);
+void ui_win_check(fb_t *fb, int x, int y, int h, const char *s, int grey);
+void ui_win_edit(fb_t *fb, int x, int y, int w, int h, const char *s);
+void ui_win_dlgframe(fb_t *fb, int x, int y, int w, int h);  /* WS_DLGFRAME */
+
 #endif

@@ -6264,3 +6264,44 @@ void ui_notice(fb_t *fb, int x, int y, const char *s)
     fb_edge(fb, r.x, r.y, r.w, r.h, 0x000000u, 0x000000u);
     jw_text_px(fb, r.x + 2, r.y + 2, s, 0x000000u);
 }
+/* ---- 囲み・見出し・× だけの窓（レイヤ一覧 32917・レイヤグループ一覧
+   32916、src/fileops.h）。形は ui_tdlg と同じ dlg_chrome・dlg_cross */
+void ui_win_frame(fb_t *fb, const rect_t *r, const char *title)
+{
+    int cw = r->w - 2 * DLG_BORDER, ch = r->h - DLG_CAPTION - DLG_BORDER;
+    int th = jw_text_height();
+
+    dlg_chrome(fb, r, cw, ch);
+    jw_text_px(fb, r->x + 9, r->y + (DLG_CAPTION - th) / 2, title, C_BTNTEXT);
+    dlg_cross(fb, r, r->w);
+    fb_fill(fb, r->x + DLG_BORDER, r->y + DLG_CAPTION, cw, ch, C_BTNFACE);
+}
+
+int ui_win_close_hit(const rect_t *r, int x, int y)
+{
+    return dlg_close_hit(r, r->w, x, y);
+}
+
+void ui_win_check(fb_t *fb, int x, int y, int h, const char *s, int grey)
+{
+    int th = jw_text_height();
+
+    paint_checkbox(fb, x, y + (h - CHECK_H) / 2, 0);
+    jw_text_px(fb, x + CHECK_W + 3, y + (h - th) / 2, s,
+               grey ? C_GRAYTEXT : C_BTNTEXT);
+}
+
+void ui_win_edit(fb_t *fb, int x, int y, int w, int h, const char *s)
+{
+    int th = jw_text_height();
+
+    mj_sunken(fb, x, y, w, h);
+    jw_text_px_fit(fb, x + 3, y + (h - th) / 2, s, C_BTNTEXT, w - 6);
+}
+
+void ui_win_dlgframe(fb_t *fb, int x, int y, int w, int h)
+{
+    fb_edge(fb, x, y, w, h, C_3DLIGHT, C_3DDKSHADOW);
+    fb_edge(fb, x + 1, y + 1, w - 2, h - 2, C_BTNHILIGHT, C_BTNSHADOW);
+    fb_edge(fb, x + 2, y + 2, w - 4, h - 4, C_BTNFACE, C_BTNFACE);
+}
