@@ -1954,7 +1954,10 @@ static int press_mojikijun(int x, int y)
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
     if (id >= 1689 && id <= 1697) {
-        jw_cmd_moji_base(id - 1689);
+        if (mk_open == 2)               /* 範囲選択の 文字位置･集計 の 基点 (1072) */
+            jw_cmd_mp_base(id - 1689);
+        else
+            jw_cmd_moji_base(id - 1689);
         return 1;
     }
     if (id == 1323) {                   /* ずれ使用 */
@@ -3245,6 +3248,81 @@ static int td_caret_set(int id)
     return 1;
 }
 
+/* 文字集計設定 (351, CMojiSeiriDialog): 範囲選択の 文字位置･集計 の
+   集計書込 (1121) が出す（FUN_005ca030）。値は jw_cmd_mp_sum_cfg、OK
+   （FUN_0057d7b0）で書き戻して集計書込を入れる。逆コンパイルの読み、
+   原典では押していない。OnInitDialog（FUN_0057d670）の 押せる・押せない の
+   切り替えは入れていない */
+static const int MS_RADIO[3] = { 1689, 1690, 1691 };
+
+static void ms_text_set(int id, const char *t)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    if (i >= 0 && i < TD_MAX)
+        snprintf(td_txt[i], sizeof td_txt[i], "%s", t);
+}
+
+static void ms_tick(int id, int on)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    if (i >= 0 && i < TD_MAX)
+        td_on[i] = (unsigned char)(on != 0);
+}
+
+static int ms_ticked(int id)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    return i >= 0 && i < TD_MAX && td_on[i];
+}
+
+static const char *ms_text(int id)
+{
+    int i = ui_tdlg_index(td_t, id);
+
+    return i >= 0 && i < TD_MAX ? td_txt[i] : "";
+}
+
+static void ms_open(void)
+{
+    int shu, tab, sort, block, back, non, k;
+    const char *pre, *post;
+    char t[16];
+
+    if (!td_start(351))
+        return;
+    jw_cmd_mp_sum_cfg(&shu, &tab, &sort, &block, &back, &non, &pre, &post);
+    snprintf(t, sizeof t, "%d", shu);
+    ms_text_set(1491, t);
+    ms_text_set(1492, pre);
+    ms_text_set(1493, post);
+    ms_tick(2469, sort);
+    ms_tick(2467, block);
+    ms_tick(2468, back);
+    ms_tick(1531, non);
+    for (k = 0; k < 3; k++)
+        ms_tick(MS_RADIO[k], k == tab);
+    td_caret = 1491;
+}
+
+static void ms_close(int ok)
+{
+    int k, tab = -1;
+
+    td_open = 0;
+    if (!ok)
+        return;
+    for (k = 0; k < 3; k++)
+        if (ms_ticked(MS_RADIO[k]))
+            tab = k;
+    jw_cmd_mp_sum_cfg_set((int)atof(ms_text(1491)), tab, ms_ticked(2469),
+                          ms_ticked(2467), ms_ticked(2468), ms_ticked(1531),
+                          ms_text(1492), ms_text(1493));
+    jw_cmd_mp_sum_set(1);
+}
+
 /* 作図時間の窓 (348) を閉じる。OK なら 入れた時間で影を描く */
 static int bt_alpha;
 static void tr_close(int ok)
@@ -3502,6 +3580,10 @@ static int press_tdlg(int x, int y)
     }
     if (td_tpl == 384 && (id == 1 || id == 2)) {
         tr_close(id == 1);
+        return 1;
+    }
+    if (td_tpl == 351 && (id == 1 || id == 2)) {
+        ms_close(id == 1);
         return 1;
     }
     if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
@@ -3966,6 +4048,10 @@ static int td_key(int c)
     }
     if ((c == 13 || c == 27) && td_tpl == 384) {
         tr_close(c == 13);
+        return 1;
+    }
+    if ((c == 13 || c == 27) && td_tpl == 351) {
+        ms_close(c == 13);
         return 1;
     }
     if (c == 13 && td_tpl == 314) {     /* 数値入力's OK writes back */
@@ -5449,6 +5535,18 @@ int app_press(int x, int y, int button)
         return 1;
     }
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
+        /* 範囲選択の 文字位置･集計 のバー: 基点 (1072) は FUN_005ca230 が
+           文字基点設定 の窓をバーの基点で、集計書込 (1121) は FUN_005ca030 が
+           切れていれば 文字集計設定 を出す（入っていれば命令の側が切る） */
+        if (id == 1072 && jw_cmd_mp_on()) {
+            mk_open = 2;
+            mk_caret = 0;
+            return 1;
+        }
+        if (id == 1121 && jw_cmd_mp_on() && !jw_cmd_mp_sum()) {
+            ms_open();
+            return 1;
+        }
         /* 文字 with texts picked: 文書, 外部エディタ and 貼付 are the front end's */
         if (jw_cmd_moji_ready() && id == 1069) {
             jw_moji_sjis_toggle();          /* 1092, drawn where 文読 is */
@@ -6744,7 +6842,8 @@ void app_paint(void)
     if (br_open)
         ui_bairitsu(&fb, br_zoom, br_on, br_en, br_sel);
     if (mk_open)
-        ui_mojikijun(&fb, jw_cmd_moji_base_now(), mk_caret);
+        ui_mojikijun(&fb, mk_open == 2 ? jw_cmd_mp_base_now()
+                                       : jw_cmd_moji_base_now(), mk_caret);
     if (sk_open) {
         sk_fill();
         ui_shakudo(&fb, sk_num, sk_den, sk_listp, sk_group, sk_on, sk_caret);

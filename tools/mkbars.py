@@ -38,7 +38,9 @@ import re
 # bars, which are the same two dialogs.  See the file's own head.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
        'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt',
-       'decomp/res/bars7.txt', 'decomp/res/bars8.txt']
+       'decomp/res/bars7.txt', 'decomp/res/bars8.txt', 'decomp/res/bars9.txt']
+# bars9.txt is 範囲選択's bar after 文字位置･集計 (1071), likewise DIALOG 278
+# laid out by that rule, with the controls FUN_005c9c30(1) shows.
 # bars8.txt is the print command's bar (印刷範囲を設定 32851), likewise not
 # read out of the original: it is DIALOG 291 laid out with the dialog-unit
 # rule the captured bars bear out.  See the file's own head.
