@@ -24,6 +24,13 @@ void jw_draw_box(fb_t *fb, const jw_view *v,
 /* one bit of a line type's pattern, for drawing a sample of it */
 int jw_ltype_bit(int ltype, int i);
 
+/* 基本設定 の 線種 タブ（線種 2〜9）: パターンはレジストリ・タブの字と同じ
+   上の桁から（Line\Type_0n の値そのまま）、単位 1〜32 ドット、画面のピッチ
+   1〜16。範囲の外は 0 を返して何も変えない。jw_ltype_get は今の値（線種 1
+   は 0xffffffff・32・1 のまま変えられない） */
+int jw_ltype_set(int ltype, unsigned int pattern, int unit, int pitch);
+void jw_ltype_get(int ltype, unsigned int *pattern, int *unit, int *pitch);
+
 /* 基本設定 の 色・画面 の、図面に属さない色の行（13 グレー・
    15 選択色・16 仮表示色）。行番号は原典の CGamenPage の受け手
    FUN_004c4af0 に渡るものと同じです。 */

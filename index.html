@@ -1226,11 +1226,18 @@ if (LANG === 'en') {
   } catch (e) { /* storage not available */ }
 
   // Autosave and recovery.  While the drawing is changed and not saved, a copy
-  // goes into IndexedDB every half minute (and when the tab is hidden); a
+  // goes into IndexedDB every 基本設定 一般(1) の オートセーブ時間 (minutes,
+  // 30 by default; the clock starts again when the setting changes, as the
+  // original sets its timer again) and when the tab is hidden; a
   // saved or discarded drawing takes it out.  If one is found at the start
   // the tab died or was closed with work in it, and a bar offers it back.
-  // `?autosave=N` sets the interval in seconds (the tests use 1).
-  const autoSecs = +(new URLSearchParams(location.search).get('autosave')) || 30;
+  // `?autosave=N` sets the interval in seconds instead (the tests use 1).
+  const autoOver = +(new URLSearchParams(location.search).get('autosave')) || 0;
+  const autoSecs = () => {
+    if (autoOver > 0) return autoOver;
+    const m = mod._jw_autosave_min ? mod._jw_autosave_min() : 30;
+    return (m > 0 ? m : 30) * 60;
+  };
   const autoDB = () => new Promise((ok, no) => {
     const q = indexedDB.open('jw_autosave', 1);
     q.onupgradeneeded = () => q.result.createObjectStore('d');
@@ -1273,7 +1280,12 @@ if (LANG === 'en') {
     autoHad = true;
     autoPut({ bytes, name: openedName, t: Date.now() });
   };
-  setInterval(autoSave, autoSecs * 1000);
+  let autoPeriod = autoSecs(), autoGone = 0;
+  setInterval(() => {
+    const p = autoSecs();
+    if (p !== autoPeriod) { autoPeriod = p; autoGone = 0; }
+    if (++autoGone >= autoPeriod) { autoGone = 0; autoSave(); }
+  }, 1000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) autoSave(); });
   window.addEventListener('pagehide', autoSave);
   (async () => {

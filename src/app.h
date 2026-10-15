@@ -265,6 +265,12 @@ int  app_open_env(const unsigned char *b, long n);
    back puts it where OK would have.  src/app.c (app_prefs_write) */
 int  app_prefs_write(unsigned char **out, long *n);
 int  app_prefs_read(const unsigned char *b, long n);
+/* 基本設定 一般(1) の オートセーブ時間（分、1〜1000、既定 30）と
+   バックアップ数: 上書き保存の前に残す世代の数（floppy は保存先が A: B: か。
+   0 なら残さない）と k 世代目の拡張子（BAK、BK2 … BK9）。src/app.c */
+int  app_autosave_minutes(void);
+int  app_backup_gens(int floppy);
+const char *app_backup_ext(int k);
 /* a DXF read into what is open (src/dxfread.c) */
 int  app_open_dxf(const unsigned char *b, long n);
 /* and an SFC (src/sfcread.c) */

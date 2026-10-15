@@ -1395,6 +1395,59 @@ static void op_drop(op_t *o)
     memset(o, 0, sizeof *o);
 }
 
+/* 戻る の段数の上限（基本設定 一般(1) の Undo 1934、既定 100）。原典は
+ * 一手を積んだあと（FUN_004fd150）と OnIdle の 100 回ごと（FUN_004e8ca0）に
+ * FUN_004e1290 を呼び、積んだ段（FUN_004d1ed0 が数える |値| < 900 のもの）が
+ * DAT_00a0ef60（.jwf の S_COMM_6 の一つ目・1〜100、基本設定 の OnOK が
+ * 箱から入れる）を超えていれば**いちばん古い一段**を捨てる（RemoveHead と、
+ * それに続く |値| >= 901 の印）。移植も積んだあとに捨てる: クリック一つ
+ * （jw_cmd_point）を済ませたあとと、表側の 戻る の前（jw_cmd_undo_trim）。
+ * **op_new の中では捨てない** —— 一手を積んだかを「nop が増えたか」で見る
+ * 所がたくさんあり（jw_cmd_point の図面が持てない数の取り消しなど）、上限で
+ * nop が増えなくなるとそれが効かなくなる（tests/fail_test.c で分かった）。
+ * まとめて一手（op_batch）の間は捨てない。段の番号を持ち越す所（sk_op_at・
+ * nisen_rnop）はずらす。op_trimmed は捨てた段の数で、段の深さで記録を取る
+ * 所（param_sync）が使う。 */
+static int op_max = 100;
+static unsigned op_trimmed;
+static op_t *op_batch;          /* （下の op_get の所に説明） */
+
+static void op_trim(int keep)
+{
+    int k = 0;
+
+    if (op_batch)
+        return;
+    while (nop - k > keep && nop - k > 0)
+        op_drop(&op[k++]);
+    if (k > 0) {
+        memmove(op, op + k, (size_t)(ntop - k) * sizeof *op);
+        memset(op + ntop - k, 0, (size_t)k * sizeof *op);
+        nop -= k;
+        ntop -= k;
+        op_trimmed += (unsigned)k;
+        sk_op_at = sk_op_at >= k ? sk_op_at - k : -1;
+        nisen_rnop = nisen_rnop >= k ? nisen_rnop - k : 0;
+    }
+}
+
+void jw_cmd_undo_trim(void)
+{
+    op_trim(op_max);
+}
+
+void jw_cmd_undo_limit(int n)
+{
+    if (n < 1 || n > 100)
+        return;
+    op_max = n;
+}
+
+int jw_cmd_undo_limit_get(void)
+{
+    return op_max;
+}
+
 static op_t *op_new(void)
 {
     while (ntop > nop)
@@ -1424,8 +1477,8 @@ static void op_push(int n)
         o->n = n;
 }
 
-/* まとめて一手にする間（一括処理の実行）はその一手、ほかは新しい一手 */
-static op_t *op_batch;
+/* まとめて一手にする間（一括処理の実行）はその一手、ほかは新しい一手
+   （op_batch は op_trim の前に置いた） */
 
 static op_t *op_get(void)
 {
@@ -15825,7 +15878,8 @@ static void param_box(jw_drawing *d, double x0, double y0, double x1,
 /* 戻る が一手ぶん取り消したら、その一手の前の 基準点 に戻す */
 static void param_sync(void)
 {
-    int depth = jw_cmd_undo_depth();
+    /* 捨てた段（op_trim）も数えた深さで比べる */
+    int depth = jw_cmd_undo_depth() + (int)op_trimmed;
 
     while (pm_nh > 0 && depth < pm_hist[pm_nh - 1].depth) {
         pm_nh--;
@@ -15923,7 +15977,7 @@ static int param_apply(jw_drawing *d, double dx, double dy)
     if (pm_nh < (int)(sizeof pm_hist / sizeof pm_hist[0])) {
         pm_hist[pm_nh].x = base_x;
         pm_hist[pm_nh].y = base_y;
-        pm_hist[pm_nh].depth = jw_cmd_undo_depth();
+        pm_hist[pm_nh].depth = jw_cmd_undo_depth() + (int)op_trimmed;
         pm_nh++;
     }
     base_x += dx;               /* 基準点 は移動先へ（+0x228 ← +0xfc78） */
@@ -22817,6 +22871,7 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         jw_cmd_undo(d);
         ntop = nop;                 /* and not to be redone */
     }
+    op_trim(op_max);                /* Undo の回数（op_max の注） */
     au_back_check();
 }
 

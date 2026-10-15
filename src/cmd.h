@@ -200,6 +200,13 @@ void jw_cmd_undo(jw_drawing *d);
  * two lines and then three (tools/probe107.sh). */
 int  jw_cmd_can_redo(void);
 int  jw_cmd_undo_depth(void);   /* how many steps 戻る can take back */
+/* 基本設定 一般(1) の Undo の回数（1〜100、既定 100）: 戻る で戻れる段の
+   上限。超えた分は古いほうから捨てる（範囲外は何もしない）。捨てるのは
+   クリック（jw_cmd_point）のあとと jw_cmd_undo_trim（表側が 戻る の前に
+   呼ぶ）。src/cmd.c */
+void jw_cmd_undo_limit(int n);
+int  jw_cmd_undo_limit_get(void);
+void jw_cmd_undo_trim(void);
 unsigned jw_cmd_edit_stamp(void);   /* 0 untouched; else the last step done */
 int  jw_cmd_midway(void);       /* a point down or an element picked */
 /* 戻る taken by the command itself.  It answers 1 when it took the

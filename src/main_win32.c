@@ -149,6 +149,51 @@ static int load_file(const wchar_t *path)
     return ok;
 }
 
+/* 上書きする前に、そこにあったものを控えに残す（基本設定 一般(1) の
+ * バックアップ数、app_backup_gens）。原典 FUN_004be3a0 と同じ名前の付け方:
+ * 拡張子の三字を BAK に（Test1.jww → Test1.BAK）、二世代目から BK2 … BK<n>。
+ * 世代を送るときは、BAK から順に有るものを数え（全部有れば n）、そこから
+ * 下へ BK<i-1>（i=2 なら BAK）を BK<i> へ（有れば消してから）移す。最後に
+ * いまのファイルを BAK へ。原典は元のファイルを名前替えで BAK にするが、
+ * 移植は写す（書き込みに失敗しても元が残る）。 */
+static void backup_keep(const wchar_t *path)
+{
+    wchar_t src[MAX_PATH], dst[MAX_PATH];
+    size_t len = wcslen(path);
+    int floppy, gens, top, i;
+
+    if (len < 4 || len >= MAX_PATH || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES)
+        return;
+    floppy = (path[0] == L'A' || path[0] == L'a' || path[0] == L'B' || path[0] == L'b')
+             && path[1] == L':';
+    gens = app_backup_gens(floppy);
+    if (gens <= 0)
+        return;
+#define BK_NAME(buf, k) do { const char *e_ = app_backup_ext(k); \
+        wcscpy(buf, path); buf[len - 3] = (wchar_t)e_[0]; buf[len - 2] = (wchar_t)e_[1]; \
+        buf[len - 1] = (wchar_t)e_[2]; } while (0)
+    if (gens >= 2) {
+        for (top = 1; top <= gens; top++) {
+            BK_NAME(src, top);
+            if (GetFileAttributesW(src) == INVALID_FILE_ATTRIBUTES)
+                break;
+        }
+        if (top > gens)
+            top = gens;
+        for (i = top; i > 1; i--) {
+            BK_NAME(src, i - 1);
+            BK_NAME(dst, i);
+            if (GetFileAttributesW(src) != INVALID_FILE_ATTRIBUTES) {
+                DeleteFileW(dst);
+                MoveFileW(src, dst);
+            }
+        }
+    }
+    BK_NAME(dst, 1);
+#undef BK_NAME
+    CopyFileW(path, dst, FALSE);
+}
+
 static int save_file(const wchar_t *path)
 {
     unsigned char *b;
@@ -158,14 +203,7 @@ static int save_file(const wchar_t *path)
 
     if (!app_save(&b, &n))
         return 0;
-    {   /* what was there is kept one save back, as a .bak beside it */
-        wchar_t bak[MAX_PATH + 8];
-
-        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) {
-            swprintf(bak, MAX_PATH + 8, L"%ls.bak", path);
-            CopyFileW(path, bak, FALSE);
-        }
-    }
+    backup_keep(path);
     f = _wfopen(path, L"wb");
     if (!f) {
         free(b);
@@ -1375,10 +1413,34 @@ static int ask_save_changes(HWND wnd)
 
 /* ---- autosave and recovery -------------------------------------------------
    While the drawing is changed and not saved, a copy of it goes to
-   %APPDATA%\jw_port\autosave.jww every couple of minutes (JW_AUTOSAVE_SEC
-   changes that), with the name it came from beside it.  A clean close or a save
+   %APPDATA%\jw_port\autosave.jww every 基本設定 一般(1) の オートセーブ時間
+   (minutes, 30 by default -- the original sets its timer 3 to
+   DAT_00a0cb04 * 60000 at the start, FUN_004d2820, and again when 基本設定
+   changes it, FUN_00507990; the timer's work is in FUN_0050faf0's
+   `param_1 == 3` branch.  JW_AUTOSAVE_SEC overrides it in seconds), with
+   the name it came from beside it.  What the original writes is its own
+   numbered file (AutoSave\Numbar), which this does not copy.  A clean close or a save
    takes the copy away.  If one is found at the start the program died, and it
    offers to bring it back. */
+static UINT autosave_ms;
+
+/* (re)start timer 1 when the interval is not the one it runs at */
+static void autosave_arm(HWND wnd)
+{
+    const wchar_t *sec = _wgetenv(L"JW_AUTOSAVE_SEC");
+    int secs = sec ? _wtoi(sec) : 0;
+    UINT ms;
+
+    if (secs <= 0)
+        secs = app_autosave_minutes() * 60;
+    if (secs <= 0)
+        secs = 30 * 60;
+    ms = (UINT)secs * 1000u;
+    if (ms != autosave_ms) {
+        autosave_ms = ms;
+        SetTimer(wnd, 1, ms, NULL);
+    }
+}
 static int autosave_paths(wchar_t *jww, wchar_t *txt)
 {
     wchar_t dir[MAX_PATH];
@@ -1890,6 +1952,8 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_TIMER:
         if (wp == 1)
             autosave_write();
+        else if (wp == 2)
+            autosave_arm(wnd);
         return 0;
     case WM_DROPFILES: {
         wchar_t dropped[MAX_PATH];
@@ -2102,12 +2166,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     DragAcceptFiles(wnd, TRUE);
     show = placement_restore(wnd, show);
     ShowWindow(wnd, show);
-    {
-        const wchar_t *sec = _wgetenv(L"JW_AUTOSAVE_SEC");
-        int secs = sec ? _wtoi(sec) : 120;
-
-        SetTimer(wnd, 1, (UINT)((secs > 0 ? secs : 120) * 1000), NULL);
-    }
+    autosave_arm(wnd);
+    SetTimer(wnd, 2, 2000, NULL);       /* 基本設定 で時間が変わったかを見る */
     autosave_recover(wnd);
 
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {

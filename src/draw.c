@@ -40,19 +40,66 @@ static void put(fb_t *fb, const rect_t *c, int x, int y, unsigned int col)
 /* The nine line types, as Jw_cad keeps them: a 32-bit pattern and how many
  * of its bits make one repeat.  One bit is one pixel along the line.  These
  * are the defaults out of HKCU\Software\Jw_cad\jw_win\Line (Type_01..09,
- * Unit_01..09); a drawing can carry its own set, which is not read yet. */
-static const struct { unsigned int bits; int unit; } LTYPE[10] = {
-    { 0xffffffffu, 32 },        /* 0: unused, treated as solid */
-    { 0xffffffffu, 32 },        /* 1 実線       */
-    { 0x99999999u,  4 },        /* 2 点線1      */
-    { 0xc3c3c3c3u,  8 },        /* 3 点線2      */
-    { 0xe7e7e7e7u,  8 },        /* 4 点線3      */
-    { 0xf99ff99fu, 16 },        /* 5 一点鎖1    */
-    { 0xfff99fffu, 32 },        /* 6 一点鎖2    */
-    { 0xf24ff24fu, 16 },        /* 7 二点鎖1    */
-    { 0xfff24fffu, 32 },        /* 8 二点鎖2    */
-    { 0x44444444u,  4 },        /* 9 補助線     */
+ * Unit_01..09); a drawing can carry its own set, which is not read yet.
+ *
+ * `bits` is the pattern **turned round**: bit i here is the i-th bit the
+ * line walks, and the original walks from the top -- FUN_004bbef0 tests
+ * `*param_4 & 0x80000000` and rotates the register left one bit per step,
+ * all 32 of it.  So the registry's 0x22222222 for 補助線 is 0x44444444 here
+ * (the others read the same either way round).  `pitch` is how many pixels
+ * one bit covers on the screen: FUN_004bbef0's local_10 = doc+0x5058[type]
+ * (Line\Pitch0n, 1 for all nine).  基本設定 の 線種 タブ sets the three
+ * (jw_ltype_set, from src/app.c). */
+static struct { unsigned int bits; int unit; int pitch; } LTYPE[10] = {
+    { 0xffffffffu, 32, 1 },     /* 0: unused, treated as solid */
+    { 0xffffffffu, 32, 1 },     /* 1 実線       */
+    { 0x99999999u,  4, 1 },     /* 2 点線1      */
+    { 0xc3c3c3c3u,  8, 1 },     /* 3 点線2      */
+    { 0xe7e7e7e7u,  8, 1 },     /* 4 点線3      */
+    { 0xf99ff99fu, 16, 1 },     /* 5 一点鎖1    */
+    { 0xfff99fffu, 32, 1 },     /* 6 一点鎖2    */
+    { 0xf24ff24fu, 16, 1 },     /* 7 二点鎖1    */
+    { 0xfff24fffu, 32, 1 },     /* 8 二点鎖2    */
+    { 0x44444444u,  4, 1 },     /* 9 補助線     */
 };
+
+static unsigned int bit_turn(unsigned int v)
+{
+    unsigned int r = 0;
+    int k;
+
+    for (k = 0; k < 32; k++)
+        if (v & (1u << k))
+            r |= 1u << (31 - k);
+    return r;
+}
+
+/* 線種 タブの OK（原典は CSenPage の後始末 FUN_005bf9d0 が doc+0x2fc4・
+ * +0x4d40・+0x5058 の 2..20 へ書く）。範囲は DDX の DDV（FUN_005c0310:
+ * 1776.. の単位 1〜32、1651.. の画面ピッチ 1〜16）。線種 1 は原典も
+ * 書かない（レジストリを読むとき doc+0x2fc8 を -1 にし、後始末は 2 から） */
+int jw_ltype_set(int ltype, unsigned int pattern, int unit, int pitch)
+{
+    if (ltype < 2 || ltype > 9 || unit < 1 || unit > 32 || pitch < 1
+        || pitch > 16)
+        return 0;
+    LTYPE[ltype].bits = bit_turn(pattern);
+    LTYPE[ltype].unit = unit;
+    LTYPE[ltype].pitch = pitch;
+    return 1;
+}
+
+void jw_ltype_get(int ltype, unsigned int *pattern, int *unit, int *pitch)
+{
+    if (ltype < 0 || ltype > 9)
+        ltype = 1;
+    if (pattern)
+        *pattern = bit_turn(LTYPE[ltype].bits);
+    if (unit)
+        *unit = LTYPE[ltype].unit;
+    if (pitch)
+        *pitch = LTYPE[ltype].pitch;
+}
 
 /* One bit of a line type pattern is one pixel along the line.
  *
@@ -92,7 +139,7 @@ int jw_ltype_bit(int ltype, int i)
         ltype = 1;
     if (i < 0)
         i = 0;
-    return (LTYPE[ltype].bits & (1u << (i % LTYPE[ltype].unit))) != 0;
+    return (LTYPE[ltype].bits & (1u << (i % 32))) != 0;
 }
 
 static int bits_set(int ltype, double step, double ppb)
@@ -101,7 +148,7 @@ static int bits_set(int ltype, double step, double ppb)
 
     if (i < 0)
         i = 0;
-    return (LTYPE[ltype].bits & (1u << (i % LTYPE[ltype].unit))) != 0;
+    return (LTYPE[ltype].bits & (1u << (i % 32))) != 0;
 }
 
 /* Cut the line down to what is on screen before anything is rounded.  The
@@ -576,12 +623,12 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
                 if (m1 > m0 ? m0 + tm >= m1 : m0 + tm <= m1)
                     break;
             }
-            if (!(bits & (1u << ((base + i) % unit)))) {
+            if (!(bits & (1u << ((base + i) % 32)))) {
                 i++;
                 continue;
             }
             b = i;
-            while (b < nbits && (bits & (1u << ((base + b + 1) % unit))))
+            while (b < nbits && (bits & (1u << ((base + b + 1) % 32))))
                 b++;
             {
                 int tm, tn;
@@ -628,6 +675,18 @@ static double pix_per_bit(const jw_view *v)
 {
     double p = jw_mm_per_bit > 0.0 ? jw_mm_per_bit * v->scale : 1.0;
     return p < 1.0 ? 1.0 : p;
+}
+
+/* the same for a line of this type: on the screen one bit is the type's
+   pitch in pixels (FUN_004bbef0's local_10, Line\Pitch0n -- 1 by default,
+   so this is pix_per_bit as it was).  The printed picture (jw_mm_per_bit
+   set by src/plot.c) keeps its own size: the original's printer side
+   (PrPit0n, local_10 = PrPit / dots per mm) is not read here. */
+static double ltype_ppb(const jw_view *v, int lt)
+{
+    if (jw_mm_per_bit > 0.0 || lt < 0 || lt > 9)
+        return pix_per_bit(v);
+    return (double)LTYPE[lt].pitch;
 }
 
 static int line_type(const jw_obj *o)
@@ -1967,7 +2026,7 @@ static void arc(fb_t *fb, const jw_view *v, const jw_drawing *d,
     int wide = obj_wide(d, o);
     double sweep, ct, st;
     int lt = line_type(o);
-    double phase = 0.0, ppb = pix_per_bit(v);
+    double phase = 0.0, ppb = ltype_ppb(v, lt);
     int idx;
     double px = 0, py = 0;
     int chord_only = 0;
@@ -3085,7 +3144,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 break;
 #endif
             line(fb, v, u0, w0, u1, w1, col, wide,
-                 line_type(o), pix_per_bit(v), 0);
+                 line_type(o), ltype_ppb(v, line_type(o)), 0);
             break;
         }
         case JW_ENKO:
