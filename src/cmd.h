@@ -591,4 +591,8 @@ int  jw_cmd_freehand(void);
 int  jw_cmd_drag(jw_drawing *d, const jw_view *v, double x, double y);
 int  jw_cmd_release(jw_drawing *d, const jw_view *v, double x, double y);
 
+/* 伸縮: the right pressed once on a line or arc, the mouse moving more than 2
+   pixels cuts it there (線切断).  1 when the drawing changed. */
+int  jw_cmd_stretch_move(jw_drawing *d, const jw_view *v, double x, double y);
+
 #endif
