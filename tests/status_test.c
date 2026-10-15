@@ -481,6 +481,73 @@ static void moji_point_first(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 文字 5316「文字を入力するか、移動・変更(L)、複写(R)で文字を指示して下さい」:
+   入力欄が空のとき (L) で既存の文字を拾うと字が入力欄に入り、次のクリックで
+   そこへ動く（元は消える）。(R) は複写。書き換えて Enter は元の基点の所。
+   CZukeiMoji の FUN_006c71f0・FUN_006c7ae0・FUN_006c6160・FUN_006c83a0。
+   逆コンパイルの読み、原典では押していない */
+static void moji_pick_move(void)
+{
+    jw_drawing *d;
+    const jw_obj *o;
+    int n, k;
+    double mx, my, x0, y0;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    app_command(JW_CMD_MOJI);
+    app_key('A');
+    app_key('B');
+    click(-40.0, 25.0);
+    n = d->ndrawn;
+    o = &d->obj[n - 1];
+    ck(o->cls == JW_MOJI && o->ltype == 1, "置いた字の線種 byte は 基点 左下 = 1");
+    x0 = o->d[0];
+    y0 = o->d[1];
+    mx = (o->d[0] + o->d[2]) / 2.0;
+    my = o->d[1] + o->d[5] * 0.3;
+    d->obj[n - 1].layer = 3;            /* 拾った字のレイヤで置き直される */
+    click(mx, my);
+    ck(d->ndrawn == n && strcmp(jw_cmd_line(), "AB") == 0,
+       "入力欄が空の (L): 字を拾って入力欄へ、何も置かない");
+    click(10.0, 10.0);
+    k = d->ndrawn - 1;
+    ck(d->ndrawn == n && d->obj[k].cls == JW_MOJI
+       && fabs(d->obj[k].d[0] - 10.0) < 1.0 && fabs(d->obj[k].d[1] - 10.0) < 1.0
+       && d->obj[k].layer == 3 && strcmp(jw_str(d, d->obj[k].text), "AB") == 0,
+       "  次のクリックへ移動（元は消える、レイヤは拾った字のまま）");
+    ck(jw_cmd_line()[0] == 0, "  置いたら入力欄は空");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == n && fabs(d->obj[n - 1].d[0] - x0) < 1e-6
+       && fabs(d->obj[n - 1].d[1] - y0) < 1e-6, "  戻るで元の所に戻る");
+
+    /* (R) は複写: 元が残る。置くのは (L) の free で */
+    o = &d->obj[n - 1];
+    mx = (o->d[0] + o->d[2]) / 2.0;
+    my = o->d[1] + o->d[5] * 0.3;
+    app_press(jw_sx(app_view(), mx), jw_sy(app_view(), my), 1);
+    ck(d->ndrawn == n && strcmp(jw_cmd_line(), "AB") == 0, "入力欄が空の (R): 字を拾う");
+    click(10.0, 10.0);
+    ck(d->ndrawn == n + 1 && fabs(d->obj[n - 1].d[0] - x0) < 1e-6
+       && fabs(d->obj[n].d[0] - 10.0) < 1.0, "  次のクリックへ複写（元は残る）");
+
+    /* 書き換えて Enter: 最初の一打が全部を置き換え、元の基点の所へ */
+    o = &d->obj[n];
+    x0 = o->d[0];
+    y0 = o->d[1];
+    mx = (o->d[0] + o->d[2]) / 2.0;
+    my = o->d[1] + o->d[5] * 0.3;
+    click(mx, my);
+    app_key('C');
+    ck(strcmp(jw_cmd_line(), "C") == 0, "拾った直後の一打は 入力欄の字を置き換える");
+    app_key(13);
+    k = d->ndrawn - 1;
+    ck(d->ndrawn == n + 1 && strcmp(jw_str(d, d->obj[k].text), "C") == 0
+       && fabs(d->obj[k].d[0] - x0) < 1e-6 && fabs(d->obj[k].d[1] - y0) < 1e-6,
+       "  Enter で 元の基点の所に 書き換わる（変更）");
+    app_command(JW_CMD_SEN);
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -575,6 +642,7 @@ int main(void)
     sekien_tail();
     box_sums();
     moji_point_first();
+    moji_pick_move();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;

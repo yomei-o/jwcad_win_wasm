@@ -160,6 +160,12 @@ static char line_buf[256];
 static int line_n;
 static int line_lead_next;      /* the last byte taken was a lead byte */
 static int line_drop_trail;     /* a lead byte was refused: drop its trail */
+/* 文字: 入力が空のとき (L)/(R) で拾った既存の文字（下の moji_got_pick）。
+   1 = 移動・変更（+0x5c4 = 1）、2 = 複写（+0x5c4 = 2）。moji_got_all は
+   拾った直後の「全部選んだ」入力欄（FUN_0057f820(0,999)）で、最初の一打が
+   全部を置き換える */
+static int moji_got, moji_got_i, moji_got_all;
+static jw_obj moji_got_was;
 /* 斜体 and 太字 from the dialog, which are not part of a 文字種: they go
    into the text's trailing long as 10000 and 20000. */
 static int moji_italic, moji_bold;
@@ -1773,6 +1779,13 @@ void jw_cmd_compose_key(int c)
 void jw_cmd_key(int c)
 {
     line_gen++;
+    if (moji_got_all && current == JW_CMD_MOJI) {
+        moji_got_all = 0;               /* 選ばれた字は打った字で置き換わる */
+        line_n = 0;
+        line_lead_next = line_drop_trail = 0;
+        if (c == 8)
+            return;
+    }
     if (c == 8) {
         line_lead_next = line_drop_trail = 0;
         /* back over a whole character, lead byte and all */
@@ -1833,6 +1846,144 @@ static void moji_place(jw_drawing *d, double x, double y)
         o->face = jw_add_str(d, JW_MOJI_FACE);
         op_push(made + 1);
     }
+    line_n = 0;
+    line_gen++;
+}
+
+/* 文字の「移動・変更(L)、複写(R)」（5316）: 入力欄が空のとき既存の文字を拾う。
+ * 逆コンパイルの読み、原典では押していない。
+ *
+ * CZukeiMoji の (L) は仮想関数 9 番 FUN_006c71f0、(R) は 11 番 FUN_006c7ae0。
+ * どちらも入力欄が空（+0x8560 == 0 で箱が ""）なら FUN_004500e0 で文字を
+ * 一つ拾い、FUN_006c6160 でその字を入力欄に入れる（全部選んだ形、
+ * FUN_0057f820(0,999)）。そのとき文字種を拾った字のものにする:
+ * FUN_00583240 が 大きさ・間隔・色、FUN_00583200 が 角度（字の角度から
+ * 軸角 +0x17c0 を引いたもの）、+0x9f8・+0x9fc を落とし、+0xa00（縦字）は
+ * 字の +0x44 の 0x20。斜体・太字（+0xdc の 1・0x10）も。拾った字の写しは
+ * +0x2e8（置くときの雛形。レイヤや書体はこれのまま、FUN_004552a0 で
+ * いまの設定に戻すのは +0x5c4 == 0 のときだけ）と +0x3d8 に入る。
+ *
+ * (L) は +0x5c4 = 1 で字を選択に入れ（FUN_00447b90）、置くとき
+ * （FUN_006c83a0）選択が残っているので元の字が消えて新しい字が入る
+ * ＝ 移動・変更。(R) は +0x5c4 = 2 で選択を放す（FUN_0044c830）ので、
+ * 元は残る ＝ 複写。次のクリック（どちらのボタンでも）が置く位置。
+ *
+ * カーソルは拾った字の基点の上へ動かされる（FUN_004fd520 = SetCursorPos、
+ * +0x200 − +0x210）ので、字を書き換えて Enter すると元の基点の所に
+ * 置かれる。基点はいまの文字基点のまま（DAT_00a0bbb0 が立っていれば字の
+ * 線種 byte の基点に替わるが、その切り替えはこの移植に無い）。 */
+static void moji_got_pick(jw_drawing *d, const jw_view *v, double x, double y,
+                          int button)
+{
+    int k = jw_pick_moji(d, v, x, y), n;
+    const jw_obj *o;
+    const char *t;
+
+    if (k < 0)
+        return;
+    o = &d->obj[k];
+    t = jw_str(d, o->text);
+    n = t ? (int)strlen(t) : 0;
+    if (n <= 0)
+        return;
+    if (n > (int)sizeof line_buf - 2)
+        n = (int)sizeof line_buf - 2;
+    memcpy(line_buf, t, (size_t)n);
+    line_n = n;
+    line_lead_next = line_drop_trail = 0;
+    line_gen++;
+    /* 文字種 */
+    d->cur_style.w = o->d[4];
+    d->cur_style.h = o->d[5];
+    d->cur_style.sp = o->d[6];
+    d->cur_style.color = o->color;
+    moji_italic = (o->n / 10000) % 2 != 0;
+    moji_bold = (o->n / 20000) % 2 != 0;
+    {
+        char a[48];
+        double deg = o->d[7] - jw_cmd_axis();
+        unsigned char *c;
+
+        if (deg == 0.0)
+            a[0] = 0;
+        else
+            snprintf(a, sizeof a, "%.10g", deg);
+        box_put(1411, a);
+        if ((c = chk_slot(bar_cmd(), 1324)) != 0)
+            *c = 0;
+        if ((c = chk_slot(bar_cmd(), 1325)) != 0)
+            *c = (o->flags & 0x20u) ? 1 : 0;
+    }
+    moji_got = button != 0 ? 2 : 1;
+    moji_got_i = k;
+    moji_got_was = *o;
+    moji_got_all = 1;
+}
+
+/* 拾った字が まだそこにあるか（拾ったあと図面が動いていれば 消さない） */
+static int moji_got_here(const jw_drawing *d)
+{
+    const jw_obj *o;
+
+    if (moji_got_i < 0 || moji_got_i >= d->ndrawn)
+        return 0;
+    o = &d->obj[moji_got_i];
+    return o->cls == JW_MOJI && o->text == moji_got_was.text
+           && memcmp(o->d, moji_got_was.d, sizeof o->d) == 0;
+}
+
+/* 拾った字の基点（いまの文字基点で数えたもの）: moji() が引き戻す分を足す */
+static void moji_got_base(double *x, double *y)
+{
+    const jw_obj *o = &moji_got_was;
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    double len = sqrt(dx * dx + dy * dy);
+    double a = len > 0.0 ? atan2(dy, dx) : o->d[7] * PI / 180.0;
+    double ux = cos(a), uy = sin(a), vx = -uy, vy = ux;
+    int kj = jw_cmd_moji_base_now();    /* moji() と同じ 基点・ずれ */
+    double along = len * (double)(kj / 3) / 2.0;
+    double across = o->d[5] * (double)(2 - kj % 3) / 2.0;
+
+    *x = o->d[0] + along * ux + across * vx;
+    *y = o->d[1] + along * uy + across * vy;
+    if (jw_cmd_moji_zure_now()) {
+        *x += jw_cmd_moji_zure_get(1, kj / 3);
+        *y += jw_cmd_moji_zure_get(0, kj % 3);
+    }
+}
+
+/* 拾った字を (x, y) へ: 雛形（拾った字）のレイヤ・書体で置き、(L) なら元を消す */
+static void moji_got_place(jw_drawing *d, double x, double y)
+{
+    jw_obj tmp, *o;
+    op_t *op1 = 0;
+    int made, del;
+
+    if (!d || line_n == 0 || !moji(d, &tmp, x, y))
+        return;
+    del = moji_got == 1 && moji_got_here(d);
+    if (del) {
+        op1 = op_new();
+        op_keep(op1, d, moji_got_i, 1);
+    }
+    made = moji_rule(d, &tmp);
+    o = jw_add(d, JW_MOJI);
+    if (o) {
+        tmp.layer = moji_got_was.layer;
+        tmp.lgroup = moji_got_was.lgroup;
+        *o = tmp;
+        o->face = moji_got_was.face >= 0 ? moji_got_was.face
+                                         : jw_add_str(d, JW_MOJI_FACE);
+        made++;
+    }
+    if (del) {
+        jw_remove(d, moji_got_i);
+        if (op1)
+            op1->n = made;
+    } else {
+        op_push(made);
+    }
+    moji_got = moji_got_all = 0;
     line_n = 0;
     line_gen++;
 }
@@ -2458,9 +2609,11 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
             double a = box_num(as, 0.0) * PI / 180.0;
             o->d[2] = x + len * cos(a);
             o->d[3] = y + len * sin(a);
+            o->d[7] = box_num(as, 0.0);
         } else if (jw_cmd_bar_check(1324) > 0) {
             o->d[2] = x;
             o->d[3] = jw_cmd_bar_check(1325) > 0 ? y - len : y + len;
+            o->d[7] = jw_cmd_bar_check(1325) > 0 ? -90.0 : 90.0;
         } else {
             o->d[2] = x + len;
             o->d[3] = y;
@@ -2469,7 +2622,12 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     o->d[4] = cw;
     o->d[5] = ch;
     o->d[6] = sp;
-    o->d[7] = 0.0;
+    /* 角度 (m_dKakudo) は走る向きの度、線種の byte は 基点 の 1..9
+     * （左下 1・中下 2・右下 3 … 左上 7、FUN_006c83a0 が +0x310 =
+     * 横 + 1 + 縦 * 3 を入れる）。decomp/res/moji_k0..k8.jww の字が
+     * 7 4 1 8 5 2 9 6 3、moji_ang 30・moji_vert 90・moji_vert_tate −90。
+     * 角度は上の三つの枝で入れる（blank が 0 にしている） */
+    o->ltype = (unsigned char)(moji_kijun / 3 + 1 + (2 - moji_kijun % 3) * 3);
     o->n = 0;
     for (i = 0; i < 10; i++)
         if (d->style[i].w == cw && d->style[i].h == ch
@@ -2998,6 +3156,7 @@ void jw_cmd_set(int id)
         sel_free();
     }
     ren_step = 0;               /* 文字の 連 is not carried out of the command */
+    moji_got = moji_got_all = 0;   /* 拾った文字も */
     ra_step = ra_have = 0;      /* and neither is a 連続弧 part way through */
     ra_have_pend = 0;
     tk_step = 0;
@@ -3421,7 +3580,7 @@ int jw_cmd_midway(void)
        the second, or the place for it, still to come.  CZukeiMoji's slot
        16 (FUN_006bd270) takes the press while any of its own part-way
        states is up (+0x5d0, +0x5d4, +0x5e0 ...), lowering it. */
-    case JW_CMD_MOJI:      return ren_step >= 2;
+    case JW_CMD_MOJI:      return ren_step >= 2 || moji_got;
     case JW_CMD_HANI:
     case JW_CMD_FUKUSHA:
     case JW_CMD_IDOU:
@@ -3465,6 +3624,14 @@ int jw_cmd_back(jw_drawing *d)
     if (current == JW_CMD_MOJI && ren_step >= 2) {
         ren_step = 1;           /* let go of the text; 連 stays on */
         tracking = 0;
+        return 1;
+    }
+    if (current == JW_CMD_MOJI && moji_got) {
+        /* 拾った文字を放す: FUN_006bd270 は +0x5c4 = 0 にし、入力欄に字が
+           あれば空にして（+0x8560 = 0）押されたことにする */
+        moji_got = moji_got_all = 0;
+        line_n = 0;
+        line_gen++;
         return 1;
     }
     if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
@@ -11211,6 +11378,13 @@ int jw_cmd_enter_key(jw_drawing *d)
         moji_pre = 0;
         return 1;
     }
+    if (d && current == JW_CMD_MOJI && moji_got && line_n > 0 && !ren_step) {
+        double bx, by;          /* 書き換えて Enter: 元の基点の所に */
+
+        moji_got_base(&bx, &by);
+        moji_got_place(d, bx, by);
+        return 1;
+    }
     if (d && gb_back && current == JW_CMD_HANI && sel_step == 2) {
         /* the range a 外部変形 step asked for is settled: on to the next step */
         gb_keep = 1;
@@ -18221,6 +18395,21 @@ placed:
             moji_pre = 1;               /* 2466: the place first, the text after */
             moji_pre_x = x;
             moji_pre_y = y;
+            return;
+        }
+        if (d && moji_got && line_n > 0) {
+            /* 次のクリックが置く位置: (L) は free、(R) は点を読む
+               （FUN_006c7ae0 は FUN_00451eb0 で読めたときだけ 9 番へ渡す） */
+            double rx = x, ry = y;
+
+            if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
+                return;
+            moji_got_place(d, rx, ry);
+            return;
+        }
+        if (d && line_n == 0) {
+            moji_got = moji_got_all = 0;
+            moji_got_pick(d, v, x, y, button);
             return;
         }
         if (button != 0 || !d || line_n == 0)
