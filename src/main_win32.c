@@ -1898,7 +1898,8 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
         }
-        /* 基本設定 2362 が立っていれば 矢印で画面移動、PageUp・PageDown で拡大・縮小 */
+        /* 基本設定 2362 が立っていれば 矢印で画面移動、PageUp・PageDown で拡大・縮小。
+           ２．５D の立体の画面では app_arrow_key が 2.5D の視点に回す */
         if ((wp == VK_LEFT || wp == VK_UP || wp == VK_RIGHT || wp == VK_DOWN
              || wp == VK_PRIOR || wp == VK_NEXT) && app_arrow_key((int)wp)) {
             app_paint();

@@ -2889,11 +2889,17 @@ static double kh_num(int tab, int id, double dflt)
  * 受ける（FUN_0054cae0・0058abc0 などの PreTranslateMessage が DAT_00a0d864 を見る）。
  * 移植は旗が立っているときだけ ←↑→↓ PageUp PageDown を受ける（Home は前から
  * いつも全体表示）。vk は Windows の仮想キー（0x21 PageUp 0x22 PageDown
- * 0x25〜0x28 ←↑→↓）。受けたら 1。逆コンパイルの読み、原典では押していない。 */
+ * 0x25〜0x28 ←↑→↓）。受けたら 1。逆コンパイルの読み、原典では押していない。
+ * ２．５D の立体の画面では 旗に関わらず 2.5D が受ける（view の PreTranslateMessage
+ * 0x4e9a76.. が ← → ↑ ↓ PageUp PageDown を 0x1501..0x1504・0x1506・0x1507 にして
+ * 図形の slot 37〜42 へ。src/d25view.c の jw_d25_key） */
 int app_arrow_key(int vk)
 {
     double w, h, c = 1.0, s = 0.0, mx = 0.0, my = 0.0;
 
+    if (view_ready && have_drawing && !app_modal() && jw_cmd() == JW_CMD_25D
+        && jw_d25_mode())
+        return jw_d25_key(&drawing, vk);
     if (!kh_arrows || !view_ready || !have_drawing || app_modal())
         return 0;
     if (vk == 0x21 || vk == 0x22) {

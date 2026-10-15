@@ -341,6 +341,375 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
     }
 }
 
+/* ---- 円弧の立体（FUN_0061e030）。逆コンパイルの読み、原典では押していない。
+ * 中心に 0.001 以内で置いた同じレイヤの文字（初めの一つ）を
+ * "%lg,…" 十二まで読む（FUN_006208a0 の 3）: v0 高さ、v1 奥行（ここまで ×+0x340）、
+ * v2 刻みの角（度。負なら輪を描かない、1 より小さければ 15、数が二つ未満なら 5）、
+ * v3 v4 上の輪の中心のずれ（×+0x340）、v5 上の輪の半径（×+0x340）、v6 上の輪の
+ * 短径（扁平率は v6/v5、数が 7 以上のとき）、v7 ねじれの角（度、|v7| > 1 で螺旋）、
+ * v8 v9 v10 二本目の螺旋の 半径のずれ・高さのずれ（×+0x340）・角のずれ（度）。
+ * 文字が無く レイヤ名が #lh なら 二つ（高さ #lh、奥行 0）。
+ * 輪は 刻みごとの線（FUN_00621ce0 で底上げを足す）、数が二つ以上なら上の輪と
+ * 刻みごとの縦の線（全円でなければ始めの縦の線も）。アイソメ（段 3、元レイヤの
+ * 旗 +0x338 は移植に無いので 0）で 螺旋でなく 刻みが正なら 輪は 線でなく楕円
+ * （FUN_00619710 → CData3DEnko、描き FUN_0043dd30 は アイソメでだけ描く）。
+ * 入れていないもの: 末尾 g G（kind 10、FUN_0061af10・FUN_00620ef0 の球）と、
+ * 扁平率 0.1 で 高さ ≥ 1000 m の弧（勾配の補助線を仮に作る 0x61e9xx）、勾配の
+ * 補助線の写し（FUN_006109b0） */
+typedef struct {
+    double c[3], r, flat, tilt, a0, sw;     /* 中心・半径・扁平率・傾き・始めの角・開き */
+    int full;
+    unsigned char ltype;
+    unsigned short color, layer, lgroup;
+} d25_ell;
+
+static d25_ell *el;
+static int nel, cel;
+
+static void add_ell(const jw_obj *src, const d25_ell *e)
+{
+    if (nel == cel) {
+        int c = cel ? cel * 2 : 16;
+        d25_ell *q = (d25_ell *)realloc(el, (size_t)c * sizeof *q);
+
+        if (!q)
+            return;
+        el = q;
+        cel = c;
+    }
+    el[nel] = *e;
+    el[nel].ltype = src->ltype;
+    el[nel].color = src->color;
+    el[nel].layer = src->layer;
+    el[nel].lgroup = src->lgroup;
+    nel++;
+}
+
+/* FUN_005f9a30 の回し（ラジアン、0 と ±1 の丸め）と FUN_005f8b60・8c20 の 0 */
+typedef struct {
+    double x, y, c, s;
+} d25_rot;
+
+static void rot_set(d25_rot *t, double x, double y, double rad)
+{
+    t->x = x;
+    t->y = y;
+    t->c = cos(rad);
+    t->s = sin(rad);
+    if (fabs(t->c) < 1e-15 || fabs(t->s) == 1.0)
+        t->c = 0.0;
+    if (fabs(t->s) < 1e-15 || fabs(t->c) == 1.0)
+        t->s = 0.0;
+}
+
+static void rot_pt(const d25_rot *t, double u, double v, double *x, double *y)
+{
+    *x = t->c * u - t->s * v + t->x;
+    *y = t->c * v + t->s * u + t->y;
+}
+
+/* FUN_00621ce0: 底上げを足して線を一本 */
+static void arc_seg(const jw_obj *o, double base, double x1, double y1, double z1, double x2,
+                    double y2, double z2)
+{
+    double p[6];
+
+    p[0] = x1;
+    p[1] = y1;
+    p[2] = z1 + base;
+    p[3] = x2;
+    p[4] = y2;
+    p[5] = z2 + base;
+    add_line(o, p);
+}
+
+static void arc_ell(const jw_obj *o, double base, double cx0, double cy0, double z, double r,
+                    double flat, double tilt, double a0, double sw, int full)
+{
+    d25_ell e;
+
+    e.c[0] = cx0;
+    e.c[1] = cy0;
+    e.c[2] = z + base;
+    e.r = r;
+    e.flat = flat;
+    e.tilt = tilt;
+    e.a0 = a0;
+    e.sw = sw;
+    e.full = full;
+    add_ell(o, &e);
+}
+
+static double wrap_pi(double a)
+{
+    if (a > PI)
+        a -= 2.0 * PI;
+    if (a <= -PI)
+        a += 2.0 * PI;
+    return a;
+}
+
+static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, double lh_h)
+{
+    double v[12], h, dd, step, a0, sw, rb, rt, fb, ft, tcx, tcy, da;
+    d25_rot tb, tt;
+    int n = 0, kind = 0, j, rings, full, cnt, i;
+
+    if (o->d[2] < 1e-07)
+        return;
+    full = o->n == 1;
+    sw = o->d[4];
+    if (fabs(sw) < 1e-07 && !full)
+        return;
+    memset(v, 0, sizeof v);
+    for (j = 0; j < d->ndrawn; j++) {
+        const jw_obj *t = &d->obj[j];
+        double ex, ey;
+
+        if (t->cls != JW_MOJI || t->sub || t->layer != o->layer || t->lgroup != o->lgroup)
+            continue;
+        ex = t->d[0] - o->d[0];
+        ey = t->d[1] - o->d[1];
+        if (sqrt(ex * ex + ey * ey) > 0.001)
+            continue;
+        {
+            const char *s = t->text >= 0 ? jw_str(d, t->text) : "";
+            char buf[512], c;
+            size_t q, m = 0;
+
+            for (q = 0; s[q] && m + 1 < sizeof buf; q++)
+                if (s[q] != ' ')
+                    buf[m++] = s[q];
+            buf[m] = 0;
+            n = scan_list(buf, v, 12);
+            c = m ? buf[m - 1] : 0;
+            if (n > 0 && m > 0 && (c == 'g' || c == 'G'))
+                kind = 10;
+        }
+        break;
+    }
+    if (kind == 10)
+        return;                         /* 球（FUN_0061af10・FUN_00620ef0）は入れていない */
+    if (n < 0)
+        n = 0;
+    v[0] *= k_unit;
+    v[1] *= k_unit;
+    if (n == 0 && lh) {
+        n = 2;
+        v[0] = lh_h;
+        v[1] = 0.0;
+    }
+    h = v[0];
+    dd = v[1];
+    rings = v[2] >= 0.0;
+    step = fabs(v[2]);
+    if (step < 1.0)
+        step = 15.0;
+    if (n < 2)
+        step = 5.0;
+    a0 = o->d[3];
+    if (sw < 0.0) {
+        a0 = wrap_pi(a0 + sw);
+        sw = -sw;
+    }
+    if (full || sw > 6.283185207179586) {
+        full = 1;
+        a0 = 0.0;
+        sw = 2.0 * PI;
+    }
+    rb = rt = o->d[2];
+    fb = ft = o->d[6] > 0.0 ? o->d[6] : 1.0;
+    tcx = o->d[0];
+    tcy = o->d[1];
+    if (n > 3) {
+        tcx += v[3] * k_unit;
+        tcy += v[4] * k_unit;
+    }
+    if (n > 5) {
+        if (n != 6 && v[5] >= 1e-07)
+            ft = v[6] / v[5];
+        rt = v[5] * k_unit;
+    }
+    rot_set(&tb, o->d[0], o->d[1], o->d[5]);
+    rot_set(&tt, tcx, tcy, o->d[5]);
+    if (rings && m_mode == 3 && n < 8) {
+        rings = 0;
+        arc_ell(o, base, o->d[0], o->d[1], h, rb, fb, o->d[5], a0, sw, full);
+        if (n > 1)
+            arc_ell(o, base, tcx, tcy, dd, rt, ft, o->d[5], a0, sw, full);
+    }
+    cnt = (int)(sw / (step * PI / 180.0) + 0.5);
+    if (cnt < 1)
+        cnt = 1;
+    da = sw / cnt;
+    if (fabs(v[7]) > 1.0) {
+        /* 螺旋: 角 v7 を 刻みで割り、高さ・中心・半径・扁平率を 一刻みずつ */
+        double dz, dx, dy, dr, df, R = v[8] * k_unit, Z = v[9] * k_unit;
+        double A = v[10] * PI / 180.0, r = rb, f = fb, ox = 0.0, oy = 0.0, z = h, a = a0;
+
+        cnt = (int)(fabs(v[7]) / step + 0.5);
+        if (cnt < 1)
+            cnt = 1;
+        da = (v[7] / cnt) * PI / 180.0;
+        dz = (dd - h) / cnt;
+        dx = v[3] * k_unit / cnt;
+        dy = v[4] * k_unit / cnt;
+        dr = (rt - rb) / cnt;
+        df = (ft - fb) / cnt;
+        for (i = 1; i <= cnt; i++) {
+            double b = a + da, r2 = r + dr, f2 = f + df, ox2 = ox + dx, oy2 = oy + dy;
+            double z2 = z + dz, px, py, qx, qy, sx, sy, ux, uy;
+
+            rot_pt(&tb, r * cos(a), r * sin(a) * f, &px, &py);
+            rot_pt(&tb, r2 * cos(b), r2 * sin(b) * f2, &qx, &qy);
+            px += ox;
+            py += oy;
+            qx += ox2;
+            qy += oy2;
+            if (rings)
+                arc_seg(o, base, px, py, z, qx, qy, z2);
+            if (n > 8) {
+                rot_pt(&tb, (r + R) * cos(a + A), (r + R) * sin(a + A) * f, &sx, &sy);
+                rot_pt(&tb, (r2 + R) * cos(b + A), (r2 + R) * sin(b + A) * f2, &ux, &uy);
+                sx += ox;
+                sy += oy;
+                ux += ox2;
+                uy += oy2;
+                if (rings)
+                    arc_seg(o, base, sx, sy, z + Z, ux, uy, z2 + Z);
+                if (i == 1 && !full)
+                    arc_seg(o, base, px, py, z, sx, sy, z + Z);
+                arc_seg(o, base, qx, qy, z2, ux, uy, z2 + Z);
+            }
+            a = b;
+            r = r2;
+            f = f2;
+            ox = ox2;
+            oy = oy2;
+            z = z2;
+        }
+        return;
+    }
+    for (i = 1; i <= cnt; i++) {
+        double a = a0, b = a + da, x1, y1, x2, y2, x3, y3, x4, y4;
+
+        a0 = b;                         /* 0x6650 に一刻みずつ足す */
+        rot_pt(&tb, rb * cos(a), rb * sin(a) * fb, &x1, &y1);
+        rot_pt(&tb, rb * cos(b), rb * sin(b) * fb, &x2, &y2);
+        if (rings)
+            arc_seg(o, base, x1, y1, h, x2, y2, h);
+        if (n > 1) {
+            rot_pt(&tt, rt * cos(a), rt * sin(a) * ft, &x3, &y3);
+            rot_pt(&tt, rt * cos(b), rt * sin(b) * ft, &x4, &y4);
+            if (rings)
+                arc_seg(o, base, x3, y3, dd, x4, y4, dd);
+            if (i == 1 && !full)
+                arc_seg(o, base, x1, y1, h, x3, y3, dd);
+            arc_seg(o, base, x2, y2, h, x4, y4, dd);
+        }
+    }
+}
+
+/* ---- ソリッドの面（FUN_00615f90 → CData3DSolid）。逆コンパイルの読み、原典では
+ * 押していない。四隅（+8 +0x18 +0x68 +0x78）それぞれに 0.001 以内で置いた 同じ
+ * レイヤの文字を "%lg,%lg,…"（FUN_006208a0 の 0、v/h の印だけ）で読み、四つとも数が
+ * 二つ以上なら 二段（高さの面と奥行の面）、そうでなければ 高さの面だけ。文字が
+ * 一つも無く レイヤ名が #lh なら 四隅とも 高さ #lh・奥行 0 の二段（#lh が 0 なら
+ * 一段）。面は 底上げを足した 平らでない四角で、色はソリッドの色。
+ * 描き（CData3DSolid の slot 15 → FUN_0043f7a0）は 四隅を線と同じに写し、透視・
+ * 鳥瞰は 奥行 1 で切って（五角になれば 二つ目の (0,3,4,4)）、塗りのソリッドとして
+ * 描く。面は線より先に組まれ 先に描かれるので（リストの後ろへ足す FUN_004142e0）、
+ * 隠れるのは 先の面が 後の面に 塗られるところだけ。裏の面を落とす +0x518 は
+ * ここでは 0。
+ * 入れていないもの: 円ソリッド（線種 100 以上、FUN_0060e6d0）、p3 p4 が p1p2 の上に
+ * 乗るソリッド（FUN_00438f50 が 1、四隅を並べ替えて壁にする 0x6162xx）、
+ * #lh の後ろの字で 上だけ・下だけ にする旗（+0x89e0、FUN_00457e50 の字が読めない）、
+ * 面が平らでないときの 二つ割り（FUN_0061bc30・+0x5d）、勾配の補助線 */
+typedef struct {
+    double p[4][3];
+    unsigned char ltype;
+    unsigned short color, layer, lgroup;
+    int n;
+} d25_face;
+
+static d25_face *fc;
+static int nfc, cfc;
+
+static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh, double lh_h)
+{
+    double hv[4] = { 0 }, dv[4] = { 0 }, cxy[4][2];
+    int cnt[4] = { 0 }, c, j, lvl, i;
+
+    for (c = 0; c < 4; c++) {
+        cxy[c][0] = o->d[2 * c];
+        cxy[c][1] = o->d[2 * c + 1];
+    }
+    {
+        double ax = cxy[1][0] - cxy[0][0], ay = cxy[1][1] - cxy[0][1];
+
+        if (sqrt(ax * ax + ay * ay) < 1e-07)
+            return;
+        /* FUN_00438f50: p3 p4 が p1p2 の線の上（壁にする道は入れていない） */
+        {
+            double l = sqrt(ax * ax + ay * ay);
+            double c3 = ((cxy[2][0] - cxy[0][0]) * ay - (cxy[2][1] - cxy[0][1]) * ax) / l;
+            double c4 = ((cxy[3][0] - cxy[0][0]) * ay - (cxy[3][1] - cxy[0][1]) * ax) / l;
+
+            if (fabs(c3) < 1e-07 && fabs(c4) < 1e-07)
+                return;
+        }
+    }
+    for (j = 0; j < d->ndrawn; j++) {
+        const jw_obj *t = &d->obj[j];
+
+        if (t->cls != JW_MOJI || t->sub || t->layer != o->layer || t->lgroup != o->lgroup)
+            continue;
+        for (c = 0; c < 4; c++) {
+            double ex = t->d[0] - cxy[c][0], ey = t->d[1] - cxy[c][1], hh, dd;
+            int kind;
+
+            if (sqrt(ex * ex + ey * ey) > 0.001)
+                continue;
+            cnt[c] = text_vals(d, t, &hh, &dd, &kind);
+            hv[c] = hh;
+            dv[c] = dd;
+        }
+    }
+    lvl = 1;
+    if (cnt[0] == 0 && cnt[1] == 0 && cnt[2] == 0 && cnt[3] == 0 && lh) {
+        lvl = fabs(lh_h) < 1e-07 ? 1 : 2;
+        for (c = 0; c < 4; c++) {
+            hv[c] = lh_h;
+            dv[c] = 0.0;
+        }
+    } else if (cnt[0] > 1 && cnt[1] > 1 && cnt[2] > 1 && cnt[3] > 1)
+        lvl = 2;
+    for (i = 1; i <= lvl; i++) {
+        d25_face f;
+
+        if (nfc == cfc) {
+            int m = cfc ? cfc * 2 : 16;
+            d25_face *q = (d25_face *)realloc(fc, (size_t)m * sizeof *q);
+
+            if (!q)
+                return;
+            fc = q;
+            cfc = m;
+        }
+        for (c = 0; c < 4; c++) {
+            f.p[c][0] = cxy[c][0];
+            f.p[c][1] = cxy[c][1];
+            f.p[c][2] = (i == 1 ? hv[c] : dv[c]) + base;
+        }
+        f.ltype = o->ltype;
+        f.color = o->color;
+        f.layer = o->layer;
+        f.lgroup = o->lgroup;
+        f.n = o->n;
+        fc[nfc++] = f;
+    }
+}
+
 /* FUN_00617f70: 立体を組み、真ん中と半径を出す。線が無ければ 0 */
 static int build(const jw_drawing *d)
 {
@@ -349,6 +718,8 @@ static int build(const jw_drawing *d)
     unsigned char *used;
 
     nln = 0;
+    nel = 0;
+    nfc = 0;
     take_snap(d, snap);
     k_unit = 1.0 / write_scale(d);
     if (!m_mm)
@@ -373,6 +744,17 @@ static int build(const jw_drawing *d)
             }
         }
     }
+    /* ソリッドが先（0x6188xx）: グループ・レイヤの順に、そのレイヤの書ける要素から */
+    for (g = 0; g < 16; g++)
+        for (l = 0; l < 16; l++)
+            for (i = 0; i < d->ndrawn; i++) {
+                const jw_obj *o = &d->obj[i];
+
+                if (o->cls != JW_SOLID || o->sub || o->lgroup != g || o->layer != l
+                    || !editable(d, o) || o->ltype >= 100)
+                    continue;           /* 円ソリッド（100 以上）は入れていない */
+                one_solid(d, o, base[g][l], lh[g][l], lhh[g][l]);
+            }
     used = (unsigned char *)calloc((size_t)(d->ndrawn > 0 ? d->ndrawn : 1), 1);
     if (!used)
         return 0;
@@ -380,9 +762,14 @@ static int build(const jw_drawing *d)
         const jw_obj *o = &d->obj[i];
         double dx, dy;
 
-        if (o->cls != JW_SEN || o->sub || o->layer > 15 || o->lgroup > 15
-            || o->ltype == 9 || !editable(d, o))
+        if ((o->cls != JW_SEN && o->cls != JW_ENKO) || o->sub || o->layer > 15
+            || o->lgroup > 15 || o->ltype == 9 || !editable(d, o))
             continue;
+        if (o->cls == JW_ENKO) {        /* FUN_0061e030 */
+            one_arc(d, o, base[o->lgroup][o->layer], lh[o->lgroup][o->layer],
+                    lhh[o->lgroup][o->layer]);
+            continue;
+        }
         dx = o->d[2] - o->d[0];
         dy = o->d[3] - o->d[1];
         if (sqrt(dx * dx + dy * dy) < 1e-07)
@@ -391,7 +778,7 @@ static int build(const jw_drawing *d)
                  lhh[o->lgroup][o->layer]);
     }
     free(used);
-    if (!nln)
+    if (!nln && !nel && !nfc)
         return 0;
     cx = cy = cz = 0.0;
     for (i = 0; i < nln; i++) {
@@ -399,11 +786,25 @@ static int build(const jw_drawing *d)
         cy += (ln[i].p[1] + ln[i].p[4]) / 2.0;
         cz += (ln[i].p[2] + ln[i].p[5]) / 2.0;
     }
-    if (nln > 0) {
-        cx /= nln;
-        cy /= nln;
-        cz /= nln;
+    /* 楕円（CData3DEnko）は中心を一つと数える（原典は要素の囲みの真ん中
+       FUN_00498a70。移植は線の中点の平均と同じ扱いにした） */
+    for (i = 0; i < nel; i++) {
+        cx += el[i].c[0];
+        cy += el[i].c[1];
+        cz += el[i].c[2];
     }
+    for (i = 0; i < nfc; i++) {        /* 面は 四隅の平均を一つと数える */
+        int c;
+
+        for (c = 0; c < 4; c++) {
+            cx += fc[i].p[c][0] / 4.0;
+            cy += fc[i].p[c][1] / 4.0;
+            cz += fc[i].p[c][2] / 4.0;
+        }
+    }
+    cx /= nln + nel + nfc;
+    cy /= nln + nel + nfc;
+    cz /= nln + nel + nfc;
     if (m_mode < 3)
         cz = 0.0;
     r_xy = r_z = -1e21;
@@ -416,6 +817,27 @@ static int build(const jw_drawing *d)
 
             if (r > r_xy)
                 r_xy = r;
+            if (z > r_z)
+                r_z = z;
+        }
+    }
+    for (i = 0; i < nel; i++) {
+        double x = el[i].c[0] - cx, y = el[i].c[1] - cy, z = el[i].c[2] - cz;
+        double r = sqrt(x * x + y * y) + el[i].r * (el[i].flat > 1.0 ? el[i].flat : 1.0);
+
+        if (r > r_xy)
+            r_xy = r;
+        if (z > r_z)
+            r_z = z;
+    }
+    for (i = 0; i < nfc; i++) {
+        int c;
+
+        for (c = 0; c < 4; c++) {
+            double x = fc[i].p[c][0] - cx, y = fc[i].p[c][1] - cy, z = fc[i].p[c][2] - cz;
+
+            if (sqrt(x * x + y * y) > r_xy)
+                r_xy = sqrt(x * x + y * y);
             if (z > r_z)
                 r_z = z;
         }
@@ -616,6 +1038,112 @@ static int project(const d25_cam *k, const double *p, double *o)
     return 1;
 }
 
+/* FUN_0043f7a0: 面の四隅を写す。透視・鳥瞰は 奥行 1 で切る（原典は 見える隅から
+   回して 辺ごとに 1 の所へ寄せる 0x44071b..。移植は 同じ結果の 辺ごとの切り）。
+   写した点の数（0 なら見えない、3〜5） */
+static int project_face(const d25_cam *k, const d25_face *f, double o[5][2])
+{
+    double X[4], D[4], Z[4], px[8], pd[8], pz[8], ff;
+    int c, m = 0;
+
+    for (c = 0; c < 4; c++) {
+        double x = f->p[c][0] - cx, y = f->p[c][1] - cy, z = f->p[c][2];
+        double x1 = x * k->c + y * k->s, y1 = y * k->c - x * k->s;
+
+        if (m_mode == 3) {
+            o[c][0] = x1;
+            o[c][1] = (z - cz) * k->pc + y1 * k->ps;
+            continue;
+        }
+        {
+            double ey = k->ey, ez = k->ez;
+
+            if (m_mode == 2) {
+                double a1 = y1 * k->pc - (z - cz) * k->ps, e1 = ey * k->pc - (ez - cz) * k->ps;
+
+                z = (z - cz) * k->pc + y1 * k->ps;
+                ez = (ez - cz) * k->pc + ey * k->ps;
+                y1 = a1;
+                ey = e1;
+            }
+            X[c] = x1;
+            D[c] = y1 - ey;
+            Z[c] = z - ez;
+        }
+    }
+    if (m_mode == 3)
+        return 4;
+    if (D[0] < 1.0 && D[1] < 1.0 && D[2] < 1.0 && D[3] < 1.0)
+        return 0;
+    for (c = 0; c < 4; c++) {
+        int n = (c + 1) & 3;
+
+        if (D[c] >= 1.0) {
+            px[m] = X[c];
+            pd[m] = D[c];
+            pz[m] = Z[c];
+            m++;
+        }
+        if ((D[c] >= 1.0) != (D[n] >= 1.0)) {
+            double dd = D[n] - D[c], t;
+
+            if (fabs(dd) < 1e-12)
+                continue;
+            t = (1.0 - D[c]) / dd;
+            px[m] = X[c] + (X[n] - X[c]) * t;
+            pd[m] = 1.0;
+            pz[m] = Z[c] + (Z[n] - Z[c]) * t;
+            m++;
+        }
+    }
+    if (m < 3)
+        return 0;
+    if (m > 5)
+        m = 5;
+    ff = k->f < 0.0 ? 0.0 : k->f;
+    for (c = 0; c < m; c++) {
+        o[c][0] = (px[c] - k->ex) * (ff / pd[c]);
+        o[c][1] = pz[c] * (ff / pd[c]);
+    }
+    if (m == 3) {
+        o[3][0] = o[2][0];
+        o[3][1] = o[2][1];
+    }
+    return m;
+}
+
+/* 面を塗りのソリッドで（五角は 二つ目に (0,3,4,4)、0x2b8）。足した数 */
+static int put_face(jw_drawing *out, const d25_cam *k, const d25_face *f, int attr)
+{
+    double o[5][2];
+    int m = project_face(k, f, o), made = 0, part;
+
+    if (!m)
+        return 0;
+    for (part = 0; part < (m == 5 ? 2 : 1); part++) {
+        static const int A[2][4] = { { 0, 1, 2, 3 }, { 0, 3, 4, 4 } };
+        jw_obj *s = jw_add(out, JW_SOLID);
+        int c;
+
+        if (!s)
+            break;
+        for (c = 0; c < 4; c++) {
+            s->d[2 * c] = o[A[part][c]][0];
+            s->d[2 * c + 1] = o[A[part][c]][1];
+        }
+        s->ltype = f->ltype;
+        s->color = f->color;
+        s->n = f->n;
+        s->width = 0;
+        if (attr) {
+            s->layer = f->layer;
+            s->lgroup = f->lgroup;
+        }
+        made++;
+    }
+    return made;
+}
+
 static jw_obj *put(jw_drawing *out, double x0, double y0, double x1, double y1)
 {
     jw_obj *o = jw_add(out, JW_SEN);
@@ -630,6 +1158,89 @@ static jw_obj *put(jw_drawing *out, double x0, double y0, double x1, double y1)
     return o;
 }
 
+/* 楕円（CData3DEnko）の写し: 描くのは アイソメだけ（FUN_0043dd30 は 段 1・2 で 0）。
+   原典は 囲みの四隅・端・中心を写して楕円に合わせ直す（FUN_00443fd0）。
+   アイソメの写しは平らな一次の写像なので、移植は 楕円の行列を写して
+   特異値に分けて同じ楕円を出す。潰れたら（短径が 0）線にする（0x490） */
+static jw_obj *put_ell(jw_drawing *out, const d25_cam *k, const d25_ell *e)
+{
+    double ct = cos(e->tilt), st = sin(e->tilt);
+    /* 楕円の点 − 中心 = R(tilt) diag(r, r·flat) (cos t, sin t) を写す */
+    double m00 = k->c, m01 = k->s, m10 = -k->s * k->ps, m11 = k->c * k->ps;
+    double b00 = ct * e->r, b01 = -st * e->r * e->flat, b10 = st * e->r, b11 = ct * e->r * e->flat;
+    double p = m00 * b00 + m01 * b10, q = m00 * b01 + m01 * b11;
+    double r = m10 * b00 + m11 * b10, t = m10 * b01 + m11 * b11;
+    double E = (p + t) / 2, F = (p - t) / 2, G = (r + q) / 2, H = (r - q) / 2;
+    double Q = sqrt(E * E + H * H), R = sqrt(F * F + G * G), sx = Q + R, sy = Q - R;
+    double a1 = atan2(G, F), a2 = atan2(H, E), th = (a2 - a1) / 2, ph = (a2 + a1) / 2;
+    double cp[3], o[4], X, Y, a0;
+    jw_obj *s;
+
+    cp[0] = e->c[0];
+    cp[1] = e->c[1];
+    cp[2] = e->c[2];
+    {
+        double pp[6];
+
+        memcpy(pp, cp, sizeof cp);
+        memcpy(pp + 3, cp, sizeof cp);
+        project(k, pp, o);
+    }
+    X = o[0];
+    Y = o[1];
+    if (sx < 1e-12 || fabs(sy) < sx * 1e-9) {
+        /* 潰れた楕円: 長軸の上の 弧の範囲 */
+        double lo = 1e300, hi = -1e300, u[4];
+        int nu = 0, j;
+
+        if (e->full) {
+            lo = -1.0;
+            hi = 1.0;
+        } else {
+            double b = e->a0 + th, w = e->sw;
+
+            u[nu++] = cos(b);
+            u[nu++] = cos(b + w);
+            for (j = -2; j <= 4; j++) {
+                double z = j * PI;
+
+                if (z > b && z < b + w)
+                    u[nu < 4 ? nu++ : 3] = cos(z);
+            }
+            for (j = 0; j < nu; j++) {
+                if (u[j] < lo)
+                    lo = u[j];
+                if (u[j] > hi)
+                    hi = u[j];
+            }
+        }
+        s = put(out, X + cos(ph) * sx * lo, Y + sin(ph) * sx * lo, X + cos(ph) * sx * hi,
+                Y + sin(ph) * sx * hi);
+    } else {
+        s = jw_add(out, JW_ENKO);
+        if (!s)
+            return 0;
+        if (sy > 0.0)
+            a0 = e->a0 + th;
+        else
+            a0 = -(e->a0 + e->sw + th);
+        s->d[0] = X;
+        s->d[1] = Y;
+        s->d[2] = sx;
+        s->d[3] = e->full ? 0.0 : wrap_pi(a0);
+        s->d[4] = e->sw;
+        s->d[5] = ph;
+        s->d[6] = fabs(sy) / sx;
+        s->n = e->full;
+        s->width = 0;
+    }
+    if (s) {
+        s->ltype = e->ltype;
+        s->color = e->color;
+    }
+    return s;
+}
+
 int jw_d25_view(const jw_drawing *d, jw_drawing *out)
 {
     d25_cam k;
@@ -638,6 +1249,17 @@ int jw_d25_view(const jw_drawing *d, jw_drawing *out)
     if (!m_mode || !d || !out)
         return 0;
     prepare(d, &k);
+    for (i = 0; i < nfc; i++)          /* 面が先（組んだ順に描く） */
+        n += put_face(out, &k, &fc[i], 1);
+    for (i = 0; m_mode == 3 && i < nel; i++) {
+        jw_obj *s = put_ell(out, &k, &el[i]);
+
+        if (!s)
+            break;
+        s->layer = el[i].layer;
+        s->lgroup = el[i].lgroup;
+        n++;
+    }
     for (i = 0; i < nln; i++) {
         double o[4];
         jw_obj *s;
@@ -683,6 +1305,16 @@ static int write_out(jw_drawing *d)
     int i, made = 0, hidden = 0;
 
     prepare(d, &k);
+    for (i = 0; i < nfc; i++) {        /* 面はソリッドで（FUN_006119c0 の 0x6119xx） */
+        int m = put_face(d, &k, &fc[i], 0);
+
+        if (!m && m_mode != 3)
+            hidden = 1;
+        made += m;
+    }
+    for (i = 0; m_mode == 3 && i < nel; i++)  /* 楕円は弧で（FUN_006119c0 の +0x390） */
+        if (put_ell(d, &k, &el[i]))
+            made++;
     for (i = 0; i < nln; i++) {
         double o[4];
         jw_obj *s;
@@ -939,6 +1571,16 @@ const char *jw_d25_prompt(const jw_drawing *d)
 int jw_d25_nline(void)
 {
     return nln;
+}
+
+int jw_d25_nell(void)
+{
+    return nel;
+}
+
+int jw_d25_nface(void)
+{
+    return nfc;
 }
 
 int jw_d25_line(int i, double p[6])
