@@ -13025,9 +13025,11 @@ int jw_cmd_sel_text(const jw_drawing *d, char *out, int cap)
  * 2469 ソート・2467 ブロック名・2468 後に書く・1531 書かない・1492/1493
  * 文頭/文末・1689〜1691 区切り、OK は FUN_0057d7b0。
  *
- * 入れていないもの（読み切っていない）: 文字数 n による折り返し（"^m" での
- * 切り分けと、続く文字を繋げて n 文字ごとに FUN_0047da20 で切る流し込み。
- * 移植は n を見ず一つずつ並べる）、基点の釦の 小数点揃え（+0xc8、"[ . ]"・
+ * 文字数 n による折り返し（"^m" での切り分けと、続く文字を繋げて 2n の幅
+ * ごとに FUN_0047da20 で切る流し込み）は 2026-10-16 に入れた（mp_flow の前の
+ * 注。特殊文字の幅の引き算は無し）。
+ *
+ * 入れていないもの（読み切っていない）: 基点の釦の 小数点揃え（+0xc8、"[ . ]"・
  * FUN_0048c710 の kx = 3 の枝。右押しではなく **Shift を押したまま** の押し:
  * 1072 の FUN_005ca230 は DAT_00a0cc6c〔Shift〕が立っていれば窓を出さずに
  * +0xc8 を切り替える。置き方の枝を読み切っていないので入れていない）、
@@ -13247,9 +13249,212 @@ static void mp_lay(const jw_drawing *d, jw_obj *o, double cx, double cy,
     *acc -= g;
 }
 
+/* 文字数 (1418 の二つ目) の折り返し。逆コンパイルの読み、原典では押して
+ * いない（2026-10-16、FUN_00477000 は objdump で読んだ）。
+ *
+ * 文字数 n が 0 でなければ（FUN_006feba0 は 行間 < 1e-7 なら n = 0）、
+ * 並べ順に並んだ文字それぞれを:
+ *   1. "^m" で切る（0x47746a〜0x47784d: 頭から全角を飛ばしながら "^" "m" を
+ *      探し、あれば "^m" までを一つ、残りをまた同じに。"^m" は前の切れ端の
+ *      末尾に残る。属性は元の文字の写し）
+ *   2. 切れ端を順に繋いで流し込む（0x477a83〜0x47818c）: 持ち越し S に字を
+ *      足し、S が "^m" で終わらず・後ろにまだ切れ端があり・幅
+ *      FUN_00494390(1, S) が 2n 以下なら次の切れ端へ持ち越す。そうでなければ
+ *      幅が 2n を超えるとき FUN_0047da20(S, 2n) の所で切って前を書き、後ろを
+ *      持ち越す。書くのはそのとき手に持つ切れ端の属性で、一つ書くごとに
+ *      行間ぶん下がる。持ち越しが残れば同じことを繰り返す
+ * 幅は全角 2・半角 1（FUN_004f7670）。FUN_00494390 は末尾の "^m" を数えない。
+ * FUN_0047da20 は頭から数え、全角の一つ目で 2n に届いたらその字の前で、
+ * それ以外で届いたらその字の後で切る。ただし次の字が 、。）〕］｝〉》」』】
+ * （0x95b5dc〜0x95b604）ならそれも前に含め、さらに次が "^m" ならそれも含める。
+ * 位置が全角の一つ目かは頭から歩いて見る（FUN_004f0d40、二つ目なら違う）。
+ * 入れていない: 特殊文字（FUN_00493e00 の ^u ^d ^c ^o ^w ^$ など）の幅の
+ * 引き算。移植は特殊文字を持たないので素の字として数える */
+static int mp_lead_at(const char *s, int len, int pos)
+{
+    int p = 0, w;
+
+    while (p < len) {
+        w = jw_is_lead((unsigned char)s[p]) && p + 1 < len ? 2 : 1;
+        if (p == pos)
+            return w == 2;
+        if (p + 1 == pos && w == 2)
+            return 0;
+        p += w;
+    }
+    return 0;
+}
+
+/* "^m" で終わるか（0x477b38〜0x477cd3、FUN_00494390 の頭も同じ） */
+static int mp_end_m(const char *s)
+{
+    int len = (int)strlen(s);
+
+    return len >= 3 && !mp_lead_at(s, len, len - 3) && s[len - 2] == '^'
+        && s[len - 1] == 'm';
+}
+
+/* FUN_00494390(1, S) の特殊文字の無いとき */
+static int mp_width(const char *s)
+{
+    int len = (int)strlen(s);
+
+    return mp_end_m(s) ? len - 2 : len;
+}
+
+/* FUN_0047da20 の特殊文字の無いとき。切る所（0 なら切れない） */
+static int mp_cut(const char *s, int n2)
+{
+    static const char *const K[11] = {
+        "\x81\x41", "\x81\x42", "\x81\x6a", "\x81\x6c", "\x81\x6e", "\x81\x70",
+        "\x81\x72", "\x81\x74", "\x81\x76", "\x81\x78", "\x81\x7a" };
+    int len = (int)strlen(s), cnt = 0, i, k;
+
+    if (len < 1 || len < n2)
+        return 0;
+    for (i = 0; i < len; i++) {
+        cnt++;
+        if (mp_lead_at(s, len, i)) {
+            if (cnt >= n2)
+                return i;
+            i++;
+            cnt++;
+        }
+        if (cnt < n2)
+            continue;
+        if (i + 2 < len && mp_lead_at(s, len, i + 1))
+            for (k = 0; k < 11; k++)
+                if (s[i + 1] == K[k][0] && s[i + 2] == K[k][1]) {
+                    i += 2;
+                    break;
+                }
+        if (i + 2 >= len || mp_lead_at(s, len, i))
+            return i + 1;
+        if (s[i + 1] == '^' && s[i + 2] == 'm')
+            i += 2;
+        return i + 1;
+    }
+    return 0;
+}
+
+typedef struct {
+    int src;                    /* 並べ順での元の文字 */
+    char *s;
+} mp_piece;
+
+/* 並びの末尾に (src, s の頭 len バイト) を足す。足りなければ 0 */
+static int mp_push(mp_piece **arr, int *cnt, int *cap, int src,
+                   const char *s, int len)
+{
+    if (*cnt >= *cap) {
+        int c2 = *cap ? *cap * 2 : 16;
+        mp_piece *t = (mp_piece *)realloc(*arr, (size_t)c2 * sizeof *t);
+
+        if (!t)
+            return 0;
+        *arr = t;
+        *cap = c2;
+    }
+    (*arr)[*cnt].s = (char *)malloc((size_t)len + 1);
+    if (!(*arr)[*cnt].s)
+        return 0;
+    memcpy((*arr)[*cnt].s, s, (size_t)len);
+    (*arr)[*cnt].s[len] = 0;
+    (*arr)[*cnt].src = src;
+    (*cnt)++;
+    return 1;
+}
+
+static void mp_pieces_free(mp_piece *p, int n)
+{
+    int k;
+
+    for (k = 0; k < n; k++)
+        free(p[k].s);
+    free(p);
+}
+
+/* 1・2 を済ませた (属性の元, 字) の並び。数（足りなければ -1） */
+static int mp_flow(const jw_drawing *d, const jw_obj *cp, int n, int nc,
+                   mp_piece **out)
+{
+    mp_piece *a = 0, *b = 0;
+    int na = 0, nb = 0, ca = 0, cb = 0, k, n2 = nc * 2;
+    char *S = 0;
+
+    *out = 0;
+    for (k = 0; k < n; k++) {           /* 1. "^m" で切る */
+        const char *t = cp[k].text >= 0 ? jw_str(d, cp[k].text) : "";
+        int len, i, cut;
+
+        if (!t)
+            t = "";
+        for (;;) {
+            len = (int)strlen(t);
+            cut = len;
+            for (i = 0; i < len - 1; i++) {
+                if (mp_lead_at(t, len, i)) {
+                    i++;
+                    continue;
+                }
+                if (t[i] == '^' && t[i + 1] == 'm') {
+                    cut = i + 2;
+                    break;
+                }
+            }
+            if (!mp_push(&a, &na, &ca, k, t, cut))
+                goto fail;
+            if (cut >= len)
+                break;
+            t += cut;
+        }
+    }
+    S = (char *)calloc(1, 1);
+    if (!S)
+        goto fail;
+    for (k = 0; k < na; k++) {          /* 2. 繋いで流し込む */
+        const char *t = a[k].s;
+
+        for (;;) {
+            size_t ls = strlen(S), lt = strlen(t);
+            char *S2 = (char *)realloc(S, ls + lt + 1);
+            int w, c;
+
+            if (!S2)
+                goto fail;
+            S = S2;
+            memcpy(S + ls, t, lt + 1);
+            w = mp_width(S);
+            if (!mp_end_m(S) && k + 1 < na && w <= n2)
+                break;                  /* 次の切れ端へ持ち越す */
+            c = (int)strlen(S);
+            if (w > n2) {
+                c = mp_cut(S, n2);
+                if (c <= 0)             /* 素の字では来ない */
+                    c = (int)strlen(S);
+            }
+            if (!mp_push(&b, &nb, &cb, a[k].src, S, c))
+                goto fail;
+            memmove(S, S + c, strlen(S + c) + 1);
+            if (!*S)
+                break;
+            t = "";
+        }
+    }
+    free(S);
+    mp_pieces_free(a, na);
+    *out = b;
+    return nb;
+fail:
+    free(S);
+    mp_pieces_free(a, na);
+    mp_pieces_free(b, nb);
+    return -1;
+}
+
 /* mode 0: 選んだ文字を上から並べ直す。並べたものの数 */
 static int mp_pos(jw_drawing *d, double cx, double cy, double g, int kx,
-                  int ky)
+                  int ky, int nc)
 {
     double a = jw_cmd_axis() * PI / 180.0, co = cos(a), sn = sin(a), acc = 0.0;
     int *idx, *used, n = 0, i, k;
@@ -13292,7 +13497,29 @@ static int mp_pos(jw_drawing *d, double cx, double cy, double g, int kx,
         used[best] = 1;
         cp[k] = d->obj[idx[best]];
     }
-    if (n > 0 && (rec = op_new()) != 0) {
+    if (n > 0 && nc > 0) {              /* 文字数の折り返し（mp_flow の前の注） */
+        mp_piece *pc = 0;
+        int np = mp_flow(d, cp, n, nc, &pc);
+
+        if (np >= 0 && (rec = op_new()) != 0) {
+            for (k = n - 1; k >= 0; k--)
+                erase(d, idx[k], rec);
+            for (k = 0; k < np; k++) {
+                jw_obj *o = jw_add(d, JW_MOJI);
+
+                if (!o)
+                    break;
+                *o = cp[pc[k].src];
+                o->text = jw_add_str(d, pc[k].s);
+                o->sel = 0;
+                o->flags = (unsigned short)(o->flags & ~2u);
+                mp_lay(d, o, cx, cy, co, sn, g, kx, ky, &acc);
+            }
+            rec->n = k;
+        }
+        if (np >= 0)
+            mp_pieces_free(pc, np);
+    } else if (n > 0 && (rec = op_new()) != 0) {
         for (k = n - 1; k >= 0; k--)    /* idx は上がり順: 後ろから消す */
             erase(d, idx[k], rec);
         for (k = 0; k < n; k++) {
@@ -13471,7 +13698,6 @@ static void mp_click(jw_drawing *d, const jw_view *v, double x, double y,
         n = 0;
     if (n > 200)
         n = 200;
-    (void)n;                            /* 文字数の折り返しは入れていない */
     if (mp_sum) {
         if (g <= 1e-07)
             g = 5.0;
@@ -13487,7 +13713,7 @@ static void mp_click(jw_drawing *d, const jw_view *v, double x, double y,
             sel_step = 0;
             return;
         }
-        mp_pos(d, cx, cy, g, kx, ky);
+        mp_pos(d, cx, cy, g, kx, ky, n);
     }
     mp_gap = g;
     mp_cnt = v2;
