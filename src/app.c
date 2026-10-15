@@ -3447,6 +3447,8 @@ int app_command(int cmd)
            picks the element to take the pen from. */
         if (have_drawing)
             jw_cmd_flush(&drawing);
+        if (have_drawing)
+            jw_cmd_moji_leave(&drawing, cmd);   /* 文字の選択は種別の違う命令へ持ち越さない */
         jw_cmd_set(cmd);
         bt_close();                     /* setting a command puts it away */
         /* 消去 with a settled range in hand empties it at once */
@@ -3917,6 +3919,9 @@ int app_press(int x, int y, int button)
             jw_moji_sjis_toggle();          /* 1092, drawn where 文読 is */
             return 1;
         }
+        if (jw_cmd_moji_ready() && id == 1065 && have_drawing
+            && jw_cmd_moji_paste(&drawing) >= 0)
+            return 1;                       /* 貼付: コピーの字の控えから */
         if (jw_cmd_moji_ready() && (id == 1070 || id == 1067 || id == 1065)) {
             action = id == 1070 ? JW_ACT_MOJI_DOC
                    : id == 1067 ? JW_ACT_MOJI_EDIT : JW_ACT_MOJI_PASTE;
