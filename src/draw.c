@@ -50,18 +50,43 @@ static void put(fb_t *fb, const rect_t *c, int x, int y, unsigned int col)
  * one bit covers on the screen: FUN_004bbef0's local_10 = doc+0x5058[type]
  * (Line\Pitch0n, 1 for all nine).  基本設定 の 線種 タブ sets the three
  * (jw_ltype_set, from src/app.c). */
-static struct { unsigned int bits; int unit; int pitch; } LTYPE[10] = {
-    { 0xffffffffu, 32, 1 },     /* 0: unused, treated as solid */
-    { 0xffffffffu, 32, 1 },     /* 1 実線       */
-    { 0x99999999u,  4, 1 },     /* 2 点線1      */
-    { 0xc3c3c3c3u,  8, 1 },     /* 3 点線2      */
-    { 0xe7e7e7e7u,  8, 1 },     /* 4 点線3      */
-    { 0xf99ff99fu, 16, 1 },     /* 5 一点鎖1    */
-    { 0xfff99fffu, 32, 1 },     /* 6 一点鎖2    */
-    { 0xf24ff24fu, 16, 1 },     /* 7 二点鎖1    */
-    { 0xfff24fffu, 32, 1 },     /* 8 二点鎖2    */
-    { 0x44444444u,  4, 1 },     /* 9 補助線     */
+/* 10 から先（ランダム線 11〜15・倍長線種 16〜19）は原典の .data の既定の
+ * 表から（0x9fe188 パターン・0x9fe1e0 単位・0x9fe238 振れ幅 RandW・
+ * 0x9fe2e8 画面ピッチ、21 個ずつ。FUN_004bbb50 が doc+0x2fc4.. へ写す）。
+ * `ran` は ランダム線の振れ幅（doc+0x4e48、画面のドット）。同梱の 16 図面が
+ * 持つ表もこれと同じ（線種 2 の PrPit だけ 5 の図面がある）。パターンは
+ * 上と同じく回してある（ccb2b32a -> 54cd4d33 など）。 */
+#define LT_N 21
+static struct { unsigned int bits; int unit; int pitch; int ran; } LTYPE[LT_N] = {
+    { 0xffffffffu, 32, 1, 1 },  /* 0: unused, treated as solid */
+    { 0xffffffffu, 32, 1, 1 },  /* 1 実線       */
+    { 0x99999999u,  4, 1, 1 },  /* 2 点線1      */
+    { 0xc3c3c3c3u,  8, 1, 1 },  /* 3 点線2      */
+    { 0xe7e7e7e7u,  8, 1, 1 },  /* 4 点線3      */
+    { 0xf99ff99fu, 16, 1, 1 },  /* 5 一点鎖1    */
+    { 0xfff99fffu, 32, 1, 1 },  /* 6 一点鎖2    */
+    { 0xf24ff24fu, 16, 1, 1 },  /* 7 二点鎖1    */
+    { 0xfff24fffu, 32, 1, 1 },  /* 8 二点鎖2    */
+    { 0x44444444u,  4, 1, 1 },  /* 9 補助線     */
+    { 0xccccccccu,  4, 2, 1 },  /* 10 (33333333、要素には出てこない) */
+    { 0x54cd4d33u,  1, 3, 1 },  /* 11 ランダム線1 */
+    { 0x54cd4d33u,  1, 4, 1 },  /* 12 ランダム線2 */
+    { 0x54cd4d33u,  2, 5, 2 },  /* 13 ランダム線3 */
+    { 0x54cd4d33u,  2, 6, 2 },  /* 14 ランダム線4 */
+    { 0x54cd4d33u,  2, 7, 2 },  /* 15 ランダム線5 */
+    { 0xfff99fffu, 32, 2, 1 },  /* 16 倍長線種1 */
+    { 0xfff24fffu, 32, 2, 1 },  /* 17 倍長線種2 */
+    { 0xfffe7fffu, 32, 2, 1 },  /* 18 倍長線種3 */
+    { 0xfffe7fffu, 32, 4, 1 },  /* 19 倍長線種4 */
+    { 0x55555555u,  1, 6, 2 },  /* 20 (aaaaaaaa、ランダムの枝に入る) */
 };
+
+/* FUN_004bbef0 の枝分かれ: 11〜15 と 20 は振れ幅つきのジグザグ、ほかは
+   破線（倍長線種 16〜19 も破線の枝で、ピッチが 2・4 なだけ） */
+static int ltype_random(int lt)
+{
+    return (lt >= 11 && lt <= 15) || lt == 20;
+}
 
 static unsigned int bit_turn(unsigned int v)
 {
@@ -89,9 +114,38 @@ int jw_ltype_set(int ltype, unsigned int pattern, int unit, int pitch)
     return 1;
 }
 
+/* 図面が持つ表を入れる。原典は Pen\File（既定 1、GetProfileInt の既定を
+ * 0x4e4289 で 1 と押している）が立っていれば、開いたときに doc+0x2fc4・
+ * +0x4d40・+0x4e48・+0x5058 を図面の値に替える（CMiniDoc の Serialize、
+ * 線色の後ろ）。原典は値を確かめずに入れるが、単位 0 やピッチ 0 は
+ * 描き手が割り算で回らなくなるので、範囲の外の線種はそのままにする
+ * （単位 1〜32 は DDV の範囲、ピッチ・振れ幅は 1000 まで） */
+void jw_ltype_from(const jw_drawing *d)
+{
+    int k;
+
+    if (!d || !d->lt_have)
+        return;
+    for (k = 2; k < 20; k++) {
+        int ran = ltype_random(k);
+
+        if (k == 10 || d->lt[k].pitch < 1 || d->lt[k].pitch > 1000)
+            continue;
+        if (ran ? (d->lt[k].ran < 0 || d->lt[k].ran > 1000)
+                : (d->lt[k].unit < 1 || d->lt[k].unit > 32))
+            continue;
+        LTYPE[k].bits = bit_turn(d->lt[k].pat);
+        LTYPE[k].pitch = d->lt[k].pitch;
+        if (ran)
+            LTYPE[k].ran = d->lt[k].ran;
+        else
+            LTYPE[k].unit = d->lt[k].unit;
+    }
+}
+
 void jw_ltype_get(int ltype, unsigned int *pattern, int *unit, int *pitch)
 {
-    if (ltype < 0 || ltype > 9)
+    if (ltype < 0 || ltype >= LT_N)
         ltype = 1;
     if (pattern)
         *pattern = bit_turn(LTYPE[ltype].bits);
@@ -332,6 +386,82 @@ static void dash_at(int acc, int k, double stepm, double stepn,
     *n = (int)*accn;
 }
 
+/* ランダム線（11〜15、と 20）: FUN_004bbef0 の else の枝。
+ *
+ * パターンを上の桁から一つずつ回し、立っていれば -振れ幅、落ちていれば
+ * +振れ幅だけ短い軸の向きへずらした点へ LineTo を続ける。長い軸の一歩は
+ * 画面ピッチ（local_10、2 より小さければ 2）に (1.41 - 傾き * 0.4) を掛けて
+ * 切り捨てたもの（また 2 より小さければ 2）で、水平・垂直なら 1.41 倍、
+ * 45 度なら 1.01 倍。短い軸は 一歩 * 傾き を ±0.5 から足して切り捨てる。
+ * 終わりを越えた点は終点に替えて止まる。線（phase が無い）なら最後に終点の
+ * 一画素（MoveTo(終点)・LineTo(終点 + 1)）。
+ *
+ * 円弧の弦（phase あり）でも同じで、原典はパターンのレジスタを弦から弦へ
+ * 持ち越すので、何ビット回したかを phase に足す。単位（doc+0x4d40）は
+ * この枝では使わない。 */
+static void random_walk(fb_t *fb, const rect_t *c, int x0, int y0, int x1,
+                        int y1, unsigned int col, int wide, int ltype,
+                        double ppb, double *phase)
+{
+    const unsigned int bits = LTYPE[ltype].bits;
+    const int amp = LTYPE[ltype].ran;
+    const int dx = x1 - x0, dy = y1 - y0;
+    const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    const int ymaj = adx <= ady;            /* 原典も <= で縦の枝 */
+    int base = phase ? (int)*phase : 0, i = 0;
+    int step = ppb < 2.0 ? 2 : ppb > 100000.0 ? 100000 : (int)ppb;
+    int dir = 1, px = x0, py = y0, cx = x0, cy = y0;
+    double r, slope, acc;
+
+    /* 長い軸に対する短い軸の割合。点（0 / 0）は原典では NaN になって
+       一歩が 2 に落ちる。ここでは 0 と見て一歩は step * 1.41 -- どちらでも
+       終点で止まるので描くものは同じ一本 */
+    if (ymaj)
+        r = ady ? (double)adx / ady : 0.0;
+    else
+        r = (double)ady / adx;
+    step = (int)((double)step * (1.41 - r * 0.4));
+    if (step < 2)
+        step = 2;
+    if (ymaj)
+        slope = ady ? (double)step * ((double)dx / ady) : 0.0;
+    else
+        slope = (double)step * ((double)dy / adx);
+    acc = slope >= 0.0 ? 0.5 : -0.5;
+    if (ymaj ? dy < 0 : dx < 0) {
+        step = -step;
+        dir = -1;
+    }
+    do {
+        int off = (bits & (1u << ((unsigned)(base + i) % 32u))) ? -amp : amp;
+
+        i++;
+        acc += slope;
+        if (ymaj) {
+            cy += step;
+            cx = x0 + (int)acc + off;
+            if (dir * y1 <= dir * cy) {
+                cx = x1;
+                cy = y1;
+            }
+        } else {
+            cx += step;
+            cy = y0 + (int)acc + off;
+            if (dir * x1 <= dir * cx) {
+                cx = x1;
+                cy = y1;
+            }
+        }
+        stroke(fb, c, px, py, cx, cy, col, wide, 1);
+        px = cx;
+        py = cy;
+    } while (ymaj ? dir * cy < dir * y1 : dir * cx < dir * x1);
+    if (phase)
+        *phase = base + i;
+    else
+        stroke(fb, c, x1, y1, x1 + 1, y1, col, wide, 1);
+}
+
 static void line(fb_t *fb, const jw_view *v, double u0, double w0,
                  double u1, double w1,
                  unsigned int col, int wide, int ltype, double ppb,
@@ -489,6 +619,12 @@ static void line(fb_t *fb, const jw_view *v, double u0, double w0,
         }
     }
 
+    if (bits != 0xffffffffu && ltype_random(ltype)) {
+        /* 振れ幅だけ線の外へ出るので、両端が同じ側の外でも捨てない
+           （一つずつの区間は stroke が捨てる） */
+        random_walk(fb, c, x0, y0, x1, y1, col, wide, ltype, ppb, phase);
+        return;
+    }
     if (bits == 0xffffffffu) {
         /* a solid line: every pixel of it */
         double step = 0.0;
@@ -684,7 +820,7 @@ static double pix_per_bit(const jw_view *v)
    (PrPit0n, local_10 = PrPit / dots per mm) is not read here. */
 static double ltype_ppb(const jw_view *v, int lt)
 {
-    if (jw_mm_per_bit > 0.0 || lt < 0 || lt > 9)
+    if (jw_mm_per_bit > 0.0 || lt < 0 || lt >= LT_N)
         return pix_per_bit(v);
     return (double)LTYPE[lt].pitch;
 }
@@ -692,7 +828,9 @@ static double ltype_ppb(const jw_view *v, int lt)
 static int line_type(const jw_obj *o)
 {
     int t = o->ltype % 100;
-    return t >= 1 && t <= 9 ? t : 1;
+    /* 1〜20 は原典がそのまま doc+0x2fc4.. の添字にする番号（11〜15
+       ランダム線、16〜19 倍長線種） */
+    return t >= 1 && t < LT_N ? t : 1;
 }
 
 static unsigned int pen_colour(const jw_drawing *d, int pen)
