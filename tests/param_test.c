@@ -234,6 +234,84 @@ int main(void)
     ck(line_is(&d->obj[L1], 0, 0, 90, 0) && line_is(&d->obj[L2], 90, 5, 200, 5),
        "  端点の印は残っている");
 
+    /* 寸法図形（sub 1..8）: 寸法線の端だけ枠に入れば その端の側だけ動き、
+       値を書き直す（FUN_006ce8b0 0x6cedaa〜・FUN_0047e400 の読み） */
+    {
+        int D, q, depth, oldtext;
+        jw_obj ln, want;
+        const char *s;
+        char ws[64];
+
+        ck(d->version > 0x1a3, "  寸法図形は 八つの部品の版");
+        D = d->ndrawn;
+        line(d, 1000, 20, 1100, 20);                    /* 1 寸法線 */
+        jw_add(d, JW_MOJI);                             /* 2 値 */
+        line(d, 1000, 0, 1000, 20);                     /* 3 始点の側の補助線 */
+        line(d, 1100, 0, 1100, 20);                     /* 4 終点の側 */
+        for (q = 0; q < 4; q++) {                       /* 5..8 点 */
+            o = jw_add(d, JW_TEN);
+            o->d[0] = q == 1 || q == 3 ? 1100 : 1000;
+            o->d[1] = q < 2 ? 20 : 0;
+            o->turn = 0.0;
+        }
+        jw_cmd_dim_value(d, &d->obj[D], &d->obj[D + 1]);
+        for (q = 0; q < 8; q++)
+            d->obj[D + q].sub = (unsigned char)(q + 1);
+        oldtext = d->obj[D + 1].text;
+
+        jw_cmd_set(JW_CMD_PARAM);
+        jw_cmd_point(d, v, 1050, -30, 0);
+        jw_cmd_point(d, v, 1150, 40, 0);
+        ck(jw_cmd_sel_count(d) == 8, "  寸法図形は 寸法線の終点だけで 部品八つを拾う");
+        jw_cmd_track(1100, 20);
+        jw_cmd_bar(d, 1120);
+        {
+            jw_drawing pv;
+            int ok = 0;
+
+            jw_cmd_track(1130, 20);
+            if (jw_cmd_param_preview(d, &pv) && pv.ndrawn == 8)
+                for (q = 0; q < 8; q++)
+                    if (pv.obj[q].sub == 1 && line_is(&pv.obj[q], 1000, 20, 1130, 20))
+                        ok = 1;
+            ck(ok, "  仮表示も 寸法線の終点だけ動く");
+        }
+        depth = jw_cmd_undo_depth();
+        jw_cmd_point(d, v, 1130, 20, 0);
+        ck(jw_cmd_undo_depth() == depth + 1, "  一手は 戻る 一つ");
+        ck(line_is(&d->obj[D], 1000, 20, 1130, 20), "  寸法線は 終点だけ伸びる");
+        ck(line_is(&d->obj[D + 2], 1000, 0, 1000, 20)
+           && near(d->obj[D + 4].d[0], 1000) && near(d->obj[D + 6].d[0], 1000),
+           "  始点の側の補助線と点は そのまま");
+        ck(line_is(&d->obj[D + 3], 1130, 0, 1130, 20)
+           && near(d->obj[D + 5].d[0], 1130) && near(d->obj[D + 5].d[1], 20)
+           && near(d->obj[D + 7].d[0], 1130) && near(d->obj[D + 7].d[1], 0),
+           "  終点の側の補助線と点は 一緒に動く");
+        ln = d->obj[D];
+        jw_cmd_dim_value(d, &ln, &want);
+        s = jw_str(d, d->obj[D + 1].text);
+        snprintf(ws, sizeof ws, "%s", jw_str(d, want.text));
+        ck(s && !strcmp(s, ws), "  値は 新しい長さで書き直す");
+        printf("     値 %s\n", s ? s : "(null)");
+        ck(near((d->obj[D + 1].d[0] + d->obj[D + 1].d[2]) / 2, 1065)
+           && near(d->obj[D + 1].d[1], want.d[1]),
+           "  字は 真ん中のまま 新しい寸法線の真ん中へ（高さはそのまま）");
+        jw_cmd_undo(d);
+        ck(line_is(&d->obj[D], 1000, 20, 1100, 20)
+           && d->obj[D + 1].text == oldtext
+           && line_is(&d->obj[D + 3], 1100, 0, 1100, 20), "  戻る で元どおり");
+
+        /* 斜めへ: 点の角が 寸法線の向きの変わりだけ回る */
+        jw_cmd_point(d, v, 1130, 50, 0);
+        ck(line_is(&d->obj[D], 1000, 20, 1130, 50), "  斜めにも 終点だけ");
+        ck(near(d->obj[D + 4].turn, atan2(30.0, 130.0))
+           && near(d->obj[D + 5].turn, atan2(30.0, 130.0)),
+           "  端の点（sub 5・6）の角に 向きの変わりを足す");
+        ck(fabs(d->obj[D + 1].d[7] - atan2(30.0, 130.0) * 180.0 / 3.14159265358979323846)
+           < 1e-9, "  字も新しい寸法線の向き");
+        jw_cmd_undo(d);
+    }
+
     printf(fails ? "%d failed\n" : "all ok\n", fails);
     return fails != 0;
 }

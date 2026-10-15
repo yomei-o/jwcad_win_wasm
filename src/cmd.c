@@ -16779,8 +16779,32 @@ static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
  * （+0x228 ← +0xfc78）、選んだものはそのまま次の一手を待つ。一手ごとの
  * 基準点は +0x238 からの表に積まれ、戻る（16 番目 FUN_006cca80）で一つ戻る。
  *
- * 寸法（移植では部品ごとの要素）の端点だけの伸縮と寸法値の書き直し
- * （FUN_0047e400）は入れていない: 寸法の部品は丸ごと入ったときだけ動く。 */
+ * 寸法図形（CDataSunpou。移植では sub 1..8 の部品の並び、src/jww.c の
+ * read_sunpou）は一つの要素として拾う: 枠の判定は寸法線（+0x68、sub 1）
+ * だけを線として見る（FUN_0040ab00 → FUN_0040f2a0 → FUN_0040cd00）。
+ * 丸ごとなら全部品が移動、寸法線の始点だけ・終点だけなら 印（+0x58 の
+ * bit 1・bit 2）を付けて、一手で（FUN_006ce8b0 0x6cedaa〜、命令で読んだ）
+ *   まず全部品を丸ごと変え、動かない側の端を P（変える前の寸法線の端）へ
+ *   戻すずれ s = P − 変えた端 を求め、寸法線のその端を P に、
+ *   端点の印（+0x398・+0x418 = sub 5・6）の角（点の +0x70）に
+ *   寸法線の向きの変わりを足し、FUN_0047e400 で寸法値を書き直し、
+ *   動かない側の部品（始点だけのとき 補助線 +0x2b0 = sub 4 の両端・
+ *   点 +0x418 = sub 6・+0x318 = sub 8、終点だけのとき +0x1c8 = sub 3・
+ *   +0x398 = sub 5・+0x230 = sub 7）を s だけずらす。
+ * FUN_0047e400（寸法値の書き直し、命令で読んだ）: 変える前の寸法線の座標で
+ * 字の真ん中が 1/3 より手前なら 始点から、2/3 より先なら 終点からの
+ * ずれを保ち、間なら真ん中に。新しい寸法線の座標へ同じ高さで置き直し、
+ * 値は 新しい寸法線の長さ × 字のグループの縮尺。書き方は字の +0xde の語
+ * （移植の width）に bit 2 があればそれを解いて（FUN_00475270、寸法設定の
+ * 2425 現寸法設定に変更 なら今の設定で書き、語も今の設定に）、R・φ は字の
+ * 旗 0x100・0x200 のとき。字は新しい基線の真ん中に（FUN_00479550 の 0）、
+ * 字の向きが寸法線より縦に長かった（|Δy| > |Δx|）ときは 寸法線に近い側の
+ * 端を基線の端に合わせる（0x47ef39〜）。値が 1e-7 未満なら字は触らない。
+ * **読み切れずに入れていないもの**: 仮表示では値を書き直さない（字の
+ * 文字列を毎回足すことになるので。形は合わせる）、FUN_00479550 の
+ * 文字方向補正、doc+0x9050・0x9054（FUN_0040f2a0 で端だけの答えを 0 に
+ * する。範囲の型 3・4 でだけ立つと読んだので見ない）、両端の印が二つとも
+ * 付いたとき（原典は両方の戻しを順に流す。移植は線と同じく丸ごと）。 */
 static unsigned char *pm_mask;  /* 要素ごと: 0 = 丸ごと、bit k = k 番目の点だけ動く */
 static int pm_cap;
 static struct { double x, y; int depth; } pm_hist[256];
@@ -16814,6 +16838,25 @@ static int pm_in(double x, double y, double x0, double y0, double x1,
     return x > x0 && x < x1 && y > y0 && y < y1;
 }
 
+/* 寸法図形の部品の並び（src/jwwrite.c の sun_run と同じ見方）なら その頭
+   （sub 1、寸法線）の番号、そうでなければ -1 */
+static int pm_sun_head(const jw_drawing *d, int i)
+{
+    int nm = d->version > 0x1a3 ? 8 : 2, h, k;
+
+    if (i < 0 || i >= d->nobj || !d->obj[i].sub || d->obj[i].sub > nm)
+        return -1;
+    h = i - (d->obj[i].sub - 1);
+    if (h < 0 || h + nm > d->nobj)
+        return -1;
+    for (k = 0; k < nm; k++)
+        if (d->obj[h + k].sub != (unsigned char)(k + 1)
+            || d->obj[h + k].cls != (k == 1 ? JW_MOJI
+                                     : k >= 4 ? JW_TEN : JW_SEN))
+            return -1;
+    return h;
+}
+
 static void param_box(jw_drawing *d, double x0, double y0, double x1,
                       double y1, int with_text)
 {
@@ -16824,17 +16867,36 @@ static void param_box(jw_drawing *d, double x0, double y0, double x1,
     for (i = 0; i < d->ndrawn; i++) {
         jw_obj *o = &d->obj[i];
         double a, b, c2, e;
-        int whole, m = 0;
+        int whole, m = 0, h = pm_sun_head(d, i);
 
         if (!o->sel)
             pm_mask[i] = 0;
-        if (o->cls == JW_MOJI && !with_text)
-            continue;
-        jw_obj_box(o, &a, &b, &c2, &e);
-        whole = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
+        if (h >= 0) {
+            /* 寸法図形は 寸法線だけで決める（FUN_0040f2a0）。始点だけ・終点
+               だけの印は頭に、ほかの部品は丸ごとの扱いで一緒に拾う */
+            const jw_obj *l = &d->obj[h];
+
+            jw_obj_box(l, &a, &b, &c2, &e);
+            whole = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
+            if (!whole) {
+                int mh = pm_in(l->d[0], l->d[1], x0, y0, x1, y1)
+                       | pm_in(l->d[2], l->d[3], x0, y0, x1, y1) << 1;
+
+                if (!mh)
+                    continue;
+                whole = 1;      /* 下で m を見る */
+                if (i == h)
+                    m = mh;
+            }
+        } else {
+            if (o->cls == JW_MOJI && !with_text)
+                continue;
+            jw_obj_box(o, &a, &b, &c2, &e);
+            whole = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
+        }
         if (!whole) {
             if (o->sub)
-                continue;       /* 寸法の部品は 丸ごとだけ（上の注） */
+                continue;       /* 並びの崩れた寸法の部品は 丸ごとだけ */
             if (o->cls == JW_SEN)
                 m = pm_in(o->d[0], o->d[1], x0, y0, x1, y1)
                   | pm_in(o->d[2], o->d[3], x0, y0, x1, y1) << 1;
@@ -16937,6 +16999,229 @@ static int pm_mask_at(int at)
     return at >= 0 && at < pm_cap ? pm_mask[at] : 0;
 }
 
+static void sunpo_num(char *p, int n, double v);
+static void sun_finish(char *s, int n, int unit);
+static unsigned short sun_width(int rmark);
+
+/* 寸法図形の頭で 始点だけ・終点だけの印が付いているか（1・2、ほかは 0） */
+static int pm_sun_mask(const jw_drawing *d, int at)
+{
+    int m = pm_mask_at(at);
+
+    if ((m != 1 && m != 2) || pm_sun_head(d, at) != at)
+        return 0;
+    return m;
+}
+
+/* 一つの要素に渡す印: 寸法図形の部品はどれも丸ごと変えて あとで直す */
+static int pm_mask_for(const jw_drawing *d, int at)
+{
+    return pm_sun_head(d, at) >= 0 ? 0 : pm_mask_at(at);
+}
+
+/* 字の幅（sen_text と同じ数え方: 全角は 字幅、半角は その半分、間隔も） */
+static double pm_text_w(const char *s, double cw, double sp)
+{
+    double tw = 0.0;
+    int nch = 0;
+
+    while (s && *s) {
+        int wide = jw_is_lead((unsigned char)s[0]) && s[1];
+        if (nch)
+            tw += wide ? sp : sp / 2;
+        tw += wide ? cw : cw / 2;
+        s += wide ? 2 : 1;
+        nch++;
+    }
+    return tw;
+}
+
+/* FUN_0047e400: 寸法値の書き直し。l は直した寸法線、t は（丸ごと変えた）値の
+   字、wl・wt は変える前の寸法線と字。rewrite = 0 なら字はそのまま置き直すだけ
+   （仮表示） */
+static void pm_sun_text(jw_drawing *d, const jw_obj *l, jw_obj *t,
+                        const jw_obj *wl, const jw_obj *wt, int rewrite)
+{
+    double ox = wl->d[0], oy = wl->d[1];
+    double ux = wl->d[2] - ox, uy = wl->d[3] - oy, L0 = sqrt(ux * ux + uy * uy);
+    double nx = l->d[2] - l->d[0], ny = l->d[3] - l->d[1];
+    double L1 = sqrt(nx * nx + ny * ny);
+    double ax, ay, bx, by, cx2, dxT, dyT, mid, off = 0.0, c, w, ex, ey, el;
+    double val, scale = 1.0, t0y, t1y;
+    char txt[160];
+    const char *s;
+    int side = 0, g = l->lgroup < 16 ? l->lgroup : 0;
+
+    if (L0 <= 1e-12 || L1 <= 1e-12)
+        return;
+    ux /= L0;
+    uy /= L0;
+    nx /= L1;
+    ny /= L1;
+    /* 変える前の字の端を 変える前の寸法線の座標へ（FUN_005f92e0） */
+    ax = (wt->d[0] - ox) * ux + (wt->d[1] - oy) * uy;
+    ay = (wt->d[1] - oy) * ux - (wt->d[0] - ox) * uy;
+    bx = (wt->d[2] - ox) * ux + (wt->d[3] - oy) * uy;
+    by = (wt->d[3] - oy) * ux - (wt->d[2] - ox) * uy;
+    dxT = bx - ax;
+    dyT = by - ay;
+    t0y = ay;
+    t1y = by;
+    mid = dxT / 2.0 + ax;
+    if (mid < L0 / 3.0) {
+        side = -1;
+        off = mid;
+    }
+    if (L0 * 2.0 / 3.0 < mid) {
+        side = 1;
+        off = mid - L0;
+    }
+    c = side < 0 ? 0.0 : side > 0 ? L1 : L1 / 2.0;
+    c += off;
+    /* 新しい寸法線の座標から戻す（FUN_005f8ce0） */
+    cx2 = c - dxT / 2.0;
+    ax = nx * cx2 - ny * ay + l->d[0];
+    ay = ny * cx2 + nx * ay + l->d[1];
+    cx2 = c + dxT / 2.0;
+    bx = nx * cx2 - ny * by + l->d[0];
+    by = ny * cx2 + nx * by + l->d[1];
+
+    if (d && d->group[g].scale > 0.0)
+        scale = d->group[g].scale;
+    val = L1 * scale;
+    if (fabs(sun_munit ? val / SUN_M_DIV : val) < 1e-7)
+        return;
+    if (rewrite && d) {
+        /* 書き方は字の語から（FUN_00475270）。語が無いか 2425 なら今の設定 */
+        int zen = sun_zen, mu = sun_munit, us = sun_unitshow, cm = sun_comma;
+        int zr = sun_zero, rd = sun_round, rm = sun_rmark, kt = sun_keta;
+        unsigned wd = t->width;
+        char num[96];
+
+        if (!(wd & 2u) || sun_zukei_chg) {
+            t->width = sun_width(sun_rmark);
+        } else {
+            sun_zen = (wd & 0x08u) != 0;
+            sun_munit = (wd & 0x10u) != 0;
+            sun_unitshow = (wd & 0x20u) != 0;
+            sun_comma = (wd & 0x40u) != 0;
+            sun_zero = (wd & 0x80u) != 0;
+            sun_round = wd & 0x200u ? 2 : wd & 0x100u ? 1 : 0;
+            sun_rmark = wd & 0x800u ? 2 : wd & 0x400u ? 1 : 0;
+            sun_keta = (int)(wd >> 12 & 3u);
+        }
+        sunpo_num(num, (int)sizeof num, val);
+        if ((t->flags & 0x300u) && sun_rmark) {
+            const char *mk = t->flags & 0x200u ? "\x83\xd3" : "R";
+            if (sun_rmark == 1)
+                snprintf(txt, sizeof txt, "%s%s", mk, num);
+            else
+                snprintf(txt, sizeof txt, "%s%s", num, mk);
+        } else {
+            snprintf(txt, sizeof txt, "%s", num);
+        }
+        sun_finish(txt, (int)sizeof txt, 1);
+        sun_zen = zen; sun_munit = mu; sun_unitshow = us; sun_comma = cm;
+        sun_zero = zr; sun_round = rd; sun_rmark = rm; sun_keta = kt;
+        s = txt;
+    } else {
+        s = d ? jw_str(d, t->text) : 0;
+    }
+    /* 基線 a→b の真ん中に（FUN_00479550 の 0） */
+    ex = bx - ax;
+    ey = by - ay;
+    el = sqrt(ex * ex + ey * ey);
+    if (el <= 1e-7)
+        return;
+    ex /= el;
+    ey /= el;
+    w = pm_text_w(s, t->d[4], t->d[6]);
+    {
+        double mx = (ax + bx) / 2.0, my = (ay + by) / 2.0;
+
+        t->d[0] = mx - w / 2.0 * ex;
+        t->d[1] = my - w / 2.0 * ey;
+        t->d[2] = mx + w / 2.0 * ex;
+        t->d[3] = my + w / 2.0 * ey;
+    }
+    t->d[7] = atan2(ey, ex) * 180.0 / PI;
+    if (fabs(dxT) < fabs(dyT)) {
+        /* 字が寸法線に縦: 寸法線に近い側の端を 基線の端に（0x47ef39〜。
+           終点のほうが寸法線から遠ければ 始点から、でなければ 終点から） */
+        if (fabs(t1y) > fabs(t0y)) {
+            t->d[0] = ax;
+            t->d[1] = ay;
+            t->d[2] = ax + w * ex;
+            t->d[3] = ay + w * ey;
+        } else {
+            t->d[0] = bx - w * ex;
+            t->d[1] = by - w * ey;
+            t->d[2] = bx;
+            t->d[3] = by;
+        }
+    }
+    if (rewrite && d)
+        t->text = jw_add_str(d, txt);
+}
+
+/* FUN_006ce8b0 の寸法図形の枝（0x6cedaa〜）。p[k] は sub k+1 の部品（丸ごと
+   変えたあと）、wl・wt は変える前の寸法線と字、mask 1 = 始点だけ動く、
+   2 = 終点だけ動く */
+static void pm_sun_fix(jw_drawing *d, jw_obj **p, int nm, const jw_obj *wl,
+                       const jw_obj *wt, int mask, int rewrite)
+{
+    jw_obj *l = p[0];
+    double p1x = wl->d[0], p1y = wl->d[1], p2x = wl->d[2], p2y = wl->d[3];
+    double a0 = atan2(p2y - p1y, p2x - p1x), da, sx, sy;
+    static const int end_side[3] = { 3, 5, 7 }, start_side[3] = { 2, 4, 6 };
+    const int *mv;
+    int k;
+
+    if (mask == 1) {            /* 0x6cedfb〜: 終点を P2 へ戻す */
+        da = atan2(p2y - l->d[1], p2x - l->d[0]) - a0;
+        sx = p2x - l->d[2];
+        sy = p2y - l->d[3];
+        l->d[2] = p2x;
+        l->d[3] = p2y;
+        mv = end_side;
+    } else {                    /* 0x6cf090〜: 始点を P1 へ戻す */
+        da = atan2(l->d[3] - p1y, l->d[2] - p1x) - a0;
+        sx = p1x - l->d[0];
+        sy = p1y - l->d[1];
+        l->d[0] = p1x;
+        l->d[1] = p1y;
+        mv = start_side;
+    }
+    if (nm >= 8) {
+        p[4]->turn += da;       /* +0x408・+0x488 */
+        p[5]->turn += da;
+    }
+    pm_sun_text(d, l, p[1], wl, wt, rewrite);
+    if (nm < 8)
+        return;
+    for (k = 0; k < 3; k++) {
+        jw_obj *o = p[mv[k]];
+
+        o->d[0] += sx;
+        o->d[1] += sy;
+        if (o->cls == JW_SEN) {
+            o->d[2] += sx;
+            o->d[3] += sy;
+        }
+    }
+}
+
+/* sel_at の中で at を探す（無ければ -1） */
+static int pm_sel_index(int at)
+{
+    int k;
+
+    for (k = 0; k < sel_n; k++)
+        if (sel_at[k] == at)
+            return k;
+    return -1;
+}
+
 static int param_apply(jw_drawing *d, double dx, double dy)
 {
     double sc = sel_scale(), ang = sel_turn();
@@ -16946,15 +17231,45 @@ static int param_apply(jw_drawing *d, double dx, double dy)
     if (!d || sel_n <= 0)
         return 0;
     rec = op_new();
+    for (k = 0; k < sel_n; k++)
+        if (sel_at[k] < d->nobj)
+            op_keep(rec, d, sel_at[k], 0);
     for (k = 0; k < sel_n; k++) {
         int at = sel_at[k];
         jw_obj w;
 
         if (at >= d->nobj)
             continue;
-        op_keep(rec, d, at, 0);
         w = d->obj[at];
-        pm_one(&w, &d->obj[at], pm_mask_at(at), dx, dy, sc, ang);
+        pm_one(&w, &d->obj[at], pm_mask_for(d, at), dx, dy, sc, ang);
+    }
+    /* 寸法図形の 端だけの伸縮（変える前は rec に控えてある） */
+    for (k = 0; rec && k < rec->nitem; k++) {
+        int at = rec->item[k].at, m = pm_sun_mask(d, at), q;
+        int nm = d->version > 0x1a3 ? 8 : 2;
+        jw_obj *p[8];
+        const jw_obj *wt = 0;
+
+        if (!m)
+            continue;
+        for (q = 0; q < nm; q++) {
+            p[q] = &d->obj[at + q];
+            if (pm_sel_index(at + q) < 0)
+                break;
+        }
+        if (q < nm)
+            continue;           /* 部品が欠けて選ばれていれば 丸ごとのまま */
+        for (q = 0; q < rec->nitem; q++)
+            if (rec->item[q].at == at + 1)
+                wt = &rec->item[q].was;
+        if (wt)
+            pm_sun_fix(d, p, nm, &rec->item[k].was, wt, m, 1);
+    }
+    for (k = 0; k < sel_n; k++) {
+        int at = sel_at[k];
+
+        if (at >= d->nobj)
+            continue;
         d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
         d->obj[at].sel = 1;
         sel_was[k] = d->obj[at];
@@ -17045,9 +17360,28 @@ int jw_cmd_param_preview(const jw_drawing *d, jw_drawing *out)
 
         if (at >= d->nobj)
             continue;
-        pm_one(&d->obj[at], &pv[n], pm_mask_at(at), dx, dy, sc, ang);
+        pm_one(&d->obj[at], &pv[n], pm_mask_for(d, at), dx, dy, sc, ang);
         n++;
     }
+    /* 寸法図形の端だけの伸縮も形だけ（値の字は書き直さない） */
+    if (n == sel_n)
+        for (k = 0; k < sel_n; k++) {
+            int at = sel_at[k], m = pm_sun_mask(d, at), q, nm;
+            jw_obj *p[8];
+
+            if (!m)
+                continue;
+            nm = d->version > 0x1a3 ? 8 : 2;
+            for (q = 0; q < nm; q++) {
+                int j = pm_sel_index(at + q);
+                if (j < 0)
+                    break;
+                p[q] = &pv[j];
+            }
+            if (q == nm)
+                pm_sun_fix((jw_drawing *)d, p, nm, &d->obj[at], &d->obj[at + 1],
+                           m, 0);
+        }
     if (!n)
         return 0;
     *out = *d;
