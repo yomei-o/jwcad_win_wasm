@@ -1437,7 +1437,12 @@ void ui_zoku(fb_t *fb, const jw_drawing *d, int colour, int ltype)
                        C_BTNTEXT);
             break;
         case JW_ZK_STATIC:
-            jw_text_px(fb, x, y + (z->h - th) / 2, z->text, C_BTNTEXT);
+            /* 底の「①〜⑤ｷｰ：…」は SS_CENTER（decomp/res/zoku.txt の
+               style 0x50020201、表で x が 0 の一つだけ）。左に寄せて描くと
+               原典より 20 画素ほど左に出ていた */
+            jw_text_px(fb, z->x == 0
+                           ? x + (z->w - jw_text_px_w(z->text)) / 2 : x,
+                       y + (z->h - th) / 2, z->text, C_BTNTEXT);
             break;
         }
     }
@@ -1722,6 +1727,9 @@ static void mj_counts(const jw_drawing *d, int *used)
         }
 }
 
+static void zs_text(fb_t *fb, int x, int y, int w, const char *s,
+                    unsigned int col);
+
 void ui_moji(fb_t *fb, const jw_drawing *d, int style)
 {
     rect_t r;
@@ -1797,6 +1805,22 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
                        y + (z->h - th) / 2, z->text, C_BTNTEXT);
             break;
         case JW_MJ_EDIT:
+            if (z->id == 1001) {
+                /* フォント の combo の中の edit（CBS_DROPDOWN の子）。
+                   枠は無く combo の白の上に字だけ。開いたときはここに
+                   focus があって字が選ばれている（docs/ref_moji.png の
+                   青地に白の「ＭＳ ゴシック」）。箱に打ち始めたら外れる */
+                const char *f = app_moji_font_item(app_moji_font());
+                int tw = jw_text_px_fit_w(f, z->w - 2);
+
+                if (!app_moji_focus()) {
+                    fb_fill(fb, x + 1, y, tw, th, C_HILIGHT);
+                    zs_text(fb, x + 1, y, z->w - 2, f, C_HILIGHTTEXT);
+                } else {
+                    zs_text(fb, x + 1, y, z->w - 2, f, C_BTNTEXT);
+                }
+                break;
+            }
             mj_sunken(fb, x, y, z->w, z->h);
             if (z->id == 1491 || z->id == 1492 || z->id == 1493) {
                 /* what the box holds, which is what has been typed into it
@@ -1822,10 +1846,8 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
             if (z->id == 2358) {
                 sprintf(t, "%d", app_moji_color());
                 jw_text_px(fb, x + 4, y + (z->h - th) / 2, t, C_BTNTEXT);
-            } else if (z->id == 1423) {
-                jw_text_px(fb, x + 4, y + (z->h - th) / 2,
-                           app_moji_font_item(app_moji_font()), C_BTNTEXT);
             }
+            /* 1423 の字は中の edit (1001) が描く */
             break;
         case JW_MJ_STATIC:
             if (z->n >= 1 && z->n <= 10) {
@@ -1835,9 +1857,11 @@ void ui_moji(fb_t *fb, const jw_drawing *d, int style)
                        used[z->n]);
                 jw_text_px(fb, x, y + (z->h - th) / 2, t, C_BTNTEXT);
             } else if (z->id == 1932) {
-                sprintf(t, "%d", used[0]);
-                jw_text_px(fb, x + z->w - jw_text_count(t) * 6,
-                           y + (z->h - th) / 2, t, C_BTNTEXT);
+                /* SS_LEFT の static で、原典が入れる字は「    21」—— 前に
+                   空白を詰めた六桁。右に寄せて描いていたので 25 画素右に
+                   ずれていた（docs/ref_moji.png、各行の使用数と同じ列） */
+                sprintf(t, "%6d", used[0]);
+                jw_text_px(fb, x, y + (z->h - th) / 2, t, C_BTNTEXT);
             } else {
                 jw_text_px(fb, x, y + (z->h - th) / 2, z->text, C_BTNTEXT);
             }
@@ -1946,21 +1970,43 @@ int ui_moji_hit(int cw, int ch, int x, int y)
 static void zs_text(fb_t *fb, int x, int y, int w, const char *s,
                     unsigned int col)
 {
+    /* 入りきらないときは字を詰めてから切る（src/text.c の text_run）。
+       以前は字ごと落としていて、原典では入っている「フォント」「〔1〕」
+       などの終わりが消えていた */
+    jw_text_px_fit(fb, x, y, s, col, w);
+}
+
+/* A push button's caption: the & that marks Windows' mnemonic goes (the
+ * original shows 「適用(A)」 for 「適用(&A)」 -- its keyboard cues are
+ * off, so no underline either), the words are centred in what fits, and a
+ * button that cannot be pressed has them embossed the way Windows draws a
+ * disabled button's text: once in white a pixel down and right, then in
+ * the shadow colour on top (docs/ref_kihon1.png の 適用, ref_start.png の
+ * 線種の見本 ●－－－). */
+static void zs_btext(fb_t *fb, int x, int y, int w, int h, const char *s,
+                     int enabled)
+{
     char t[128];
-    int n = 0;
+    int i = 0, k = 0, room = w - 6, tw, tx, ty = y + (h - jw_text_height()) / 2;
 
-    while (s[n] && n + 3 < (int)sizeof t) {
-        int k = jw_is_lead((unsigned char)s[n]) && s[n + 1] ? 2 : 1;
-
-        memcpy(t, s, (size_t)(n + k));
-        t[n + k] = 0;
-        if (jw_text_px_w(t) > w)
-            break;
-        n += k;
+    while (s[i] && k + 1 < (int)sizeof t) {
+        if (s[i] == '&' && s[i + 1] != '&') {
+            i++;
+            continue;
+        }
+        if (s[i] == '&')
+            i++;
+        t[k++] = s[i++];
     }
-    memcpy(t, s, (size_t)n);
-    t[n] = 0;
-    jw_text_px(fb, x, y, t, col);
+    t[k] = 0;
+    tw = jw_text_px_fit_w(t, room);
+    tx = x + (w - tw) / 2;
+    if (enabled) {
+        zs_text(fb, tx, ty, room, t, C_BTNTEXT);
+    } else {
+        zs_text(fb, tx + 1, ty + 1, room, t, C_BTNHILIGHT);
+        zs_text(fb, tx, ty, room, t, C_BTNSHADOW);
+    }
 }
 
 void ui_zokusel_rect(int cw, int ch, rect_t *r)
@@ -2115,14 +2161,7 @@ void ui_zokuhen(fb_t *fb, const unsigned char *on)
                     C_BTNHILIGHT, C_3DDKSHADOW);
             fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
                     z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
-            {
-                int tw = jw_text_px_w(z->text), tx = x + (z->w - tw) / 2;
-
-                if (tx < x + 3)
-                    tx = x + 3;
-                zs_text(fb, tx, y + (z->h - th) / 2, x + z->w - 3 - tx,
-                        z->text, col);
-            }
+            zs_btext(fb, x, y, z->w, z->h, z->text, z->enabled);
             break;
         }
         case JW_ZH_CHECK: {
@@ -2222,8 +2261,7 @@ void ui_blkname(fb_t *fb, const char *name, int on, int caret, int attr)
                     C_BTNHILIGHT, C_3DDKSHADOW);
             fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
                     z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            zs_btext(fb, x, y, z->w, z->h, z->text, 1);
             break;
         }
         case JW_BN_CHECK:
@@ -2334,8 +2372,7 @@ void ui_blkedit(fb_t *fb, const char *name, int all)
                     C_BTNHILIGHT, C_3DDKSHADOW);
             fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
                     z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            zs_btext(fb, x, y, z->w, z->h, z->text, 1);
             break;
         }
         case JW_BE_CHECK:
@@ -2486,8 +2523,7 @@ void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
                     C_BTNHILIGHT, C_3DDKSHADOW);
             fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
                     z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, col);
+            zs_btext(fb, x, y, z->w, z->h, z->text, col == C_BTNTEXT);
             break;
         }
         case JW_KH_RADIO: {
@@ -2534,6 +2570,39 @@ void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
         }
         case JW_KH_EDIT:
             mj_sunken(fb, x, y, z->w, z->h);
+            /* 押せない箱（WS_DISABLED）は地が面の色（docs/ref_kihon1.png
+               の 画面横ドット数・線数 など） */
+            if (!z->enabled)
+                fb_fill(fb, x + 2, y + 2, z->w - 4, z->h - 4, C_BTNFACE);
+            /* 一般(1) の底の 線数 円数 文字 点数 寸法 ブロック,ソリッド:
+               図面の要素の数。押せない箱で、灰色の字が真ん中に
+               （docs/ref_kihon1.png の 46 0 43 0 0 「0 , 0」） */
+            if (z->id >= 1789 && z->id <= 1794 && app_drawing()) {
+                const jw_drawing *dw = app_drawing();
+                int cnt[JW_SUNPOU + 1] = { 0 }, k;
+                char t[32];
+
+                /* 寸法は部品に開いて並んでいる（jww.h の sub）ので、
+                   その頭 (sub 1) を一つと数え、部品は線や文字に数えない */
+                for (k = 0; k < dw->ndrawn; k++)
+                    if (dw->obj[k].sub)
+                        cnt[JW_SUNPOU] += dw->obj[k].sub == 1;
+                    else if ((int)dw->obj[k].cls < JW_SUNPOU)
+                        cnt[dw->obj[k].cls]++;
+                switch (z->id) {
+                case 1789: sprintf(t, "%d", cnt[JW_SEN]);   break;
+                case 1790: sprintf(t, "%d", cnt[JW_ENKO]);  break;
+                case 1791: sprintf(t, "%d", cnt[JW_MOJI]);  break;
+                case 1792: sprintf(t, "%d", cnt[JW_TEN]);   break;
+                case 1794: sprintf(t, "%d", cnt[JW_SUNPOU]); break;
+                default:
+                    sprintf(t, "%d , %d", cnt[JW_BLOCK], cnt[JW_SOLID]);
+                    break;
+                }
+                zs_text(fb, x + (z->w - jw_text_px_fit_w(t, z->w - 6)) / 2,
+                        y + (z->h - th) / 2, z->w - 6, t,
+                        z->enabled ? C_BTNTEXT : C_GRAYTEXT);
+            }
             break;
         case JW_KH_COMBO:
             mj_sunken(fb, x, y, z->w, z->h);
@@ -2630,6 +2699,8 @@ void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
 {
     rect_t r;
     int cx, cy, i, th = jw_text_height();
+    const jw_drawing *dw = app_drawing();
+    char mesh[64];
 
     ui_jikkaku_rect(fb->w, fb->h, &r);
     dlg_chrome(fb, &r, JW_JK_CW, JW_JK_CH);
@@ -2659,8 +2730,7 @@ void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
                     z->w - 2 * (z->kind == JW_JK_OK) - 2,
                     z->h - 2 * (z->kind == JW_JK_OK) - 2,
                     C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            zs_btext(fb, x, y, z->w, z->h, z->text, 1);
             break;
         case JW_JK_CHECK: {
             int by = y + (z->h - CHECK_W) / 2;
@@ -2674,7 +2744,16 @@ void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
         }
         case JW_JK_COMBO: {
             const char *t = z->id == 1411 ? angle : "";
-            int tw = jw_text_px_w(t ? t : "");
+            int tw;
+
+            if (z->id == 1412 && dw) {
+                /* 目盛間隔: 図面の横と縦の間隔を「5 , 5」と（docs/
+                   ref_jikkaku.png。図面の値は jww.h の mesh_ix/iy） */
+                snprintf(mesh, sizeof mesh, "%g , %g", dw->mesh_ix,
+                         dw->mesh_iy);
+                t = mesh;
+            }
+            tw = jw_text_px_w(t ? t : "");
 
             mj_sunken(fb, x, y, z->w, z->h);
             mj_combo_button(fb, x, y, z->w, z->h);
@@ -2697,6 +2776,12 @@ void ui_jikkaku(fb_t *fb, const char *angle, const unsigned char *on,
         }
         case JW_JK_EDIT:
             mj_sunken(fb, x, y, z->w, z->h);
+            if (z->id == 1830 && dw) {
+                /* 表示最小間隔（ドット）: 図面の mesh_min（原典は 15） */
+                snprintf(mesh, sizeof mesh, "%g", dw->mesh_min);
+                zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6, mesh,
+                        C_BTNTEXT);
+            }
             break;
         case JW_JK_STATIC:
             zs_text(fb, x, y + (z->h - th) / 2, z->w, z->text, C_BTNTEXT);
@@ -3074,8 +3159,7 @@ void ui_shakudo(fb_t *fb, const char *num, const char *den,
             fb_edge(fb, x + (z->id == 1) + 1, y + (z->id == 1) + 1,
                     z->w - 2 * (z->id == 1) - 2, z->h - 2 * (z->id == 1) - 2,
                     C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            zs_btext(fb, x, y, z->w, z->h, z->text, 1);
             break;
         case JW_SK_CHECK: {
             int by = y + (z->h - CHECK_W) / 2;
@@ -3117,12 +3201,14 @@ void ui_shakudo(fb_t *fb, const char *num, const char *den,
 
             if (!t)
                 t = "";
-            tw = jw_text_px_w(t);
+            /* ES_CENTER（decomp/res/shakudo.txt の style 0x81）: 字は真ん中 */
+            tw = jw_text_px_fit_w(t, z->w - 6);
             mj_sunken(fb, x, y, z->w, z->h);
-            zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 6, t, C_BTNTEXT);
+            zs_text(fb, x + (z->w - tw) / 2, y + (z->h - th) / 2, z->w - 6, t,
+                    C_BTNTEXT);
             if (caret == z->id)
-                fb_fill(fb, x + 3 + tw, y + (z->h - th) / 2, 1, th,
-                        C_BTNTEXT);
+                fb_fill(fb, x + (z->w - tw) / 2 + tw, y + (z->h - th) / 2, 1,
+                        th, C_BTNTEXT);
             break;
         }
         case JW_SK_STATIC: {
@@ -3237,8 +3323,7 @@ void ui_sunpodlg(fb_t *fb, const unsigned char *on, int caret,
                     C_BTNHILIGHT, C_3DDKSHADOW);
             fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
                     z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, C_BTNTEXT);
+            zs_btext(fb, x, y, z->w, z->h, z->text, 1);
             break;
         }
         case JW_SD_RADIO: {
@@ -3273,21 +3358,43 @@ void ui_sunpodlg(fb_t *fb, const unsigned char *on, int caret,
         case JW_SD_COMBO:
             mj_sunken(fb, x, y, z->w, z->h);
             mj_combo_button(fb, x, y, z->w, z->h);
+            if (z->id == 1423) {
+                /* フォント: 中の edit (decomp/res/sunpodlg.txt の 1001、
+                   146,33) に書体の名。開いたときは focus があって選ばれて
+                   いる（docs/ref_sunpodlg.png の青地の「ＭＳ ゴシック」）。
+                   移植の寸法はまだ書体を持たないので、原典の既定の名 */
+                const char *f = "\x82l\x82r \x83S\x83V\x83" "b\x83N";
+                int room = z->w - 22, tw = jw_text_px_fit_w(f, room);
+
+                if (!caret) {
+                    fb_fill(fb, x + 3, y + 3, tw, th, C_HILIGHT);
+                    zs_text(fb, x + 3, y + 3, room, f, C_HILIGHTTEXT);
+                } else {
+                    zs_text(fb, x + 3, y + 3, room, f, C_BTNTEXT);
+                }
+            }
             break;
         case JW_SD_EDIT: {
             char t[32];
             int got = jw_cmd_sunpo_box(z->id, t, (int)sizeof t);
             const char *v = t;
+            int tw, tx;
 
             mj_sunken(fb, x, y, z->w, z->h);
+            if (!z->enabled)            /* 押せない箱は地が面の色 */
+                fb_fill(fb, x + 2, y + 2, z->w - 4, z->h - 4, C_BTNFACE);
             if (caret == z->id && edit)
                 v = edit;               /* what is being typed, as typed */
+            /* ES_CENTER（style 0x81）: 字は箱の真ん中 */
+            tw = got ? jw_text_px_w(v) : 0;
+            tx = x + (z->w - tw) / 2;
+            if (tx < x + 3)
+                tx = x + 3;
             if (got)
-                jw_text_px(fb, x + 3, y + (z->h - th) / 2, v,
+                jw_text_px(fb, tx, y + (z->h - th) / 2, v,
                            z->enabled ? C_BTNTEXT : C_GRAYTEXT);
             if (caret == z->id)
-                fb_fill(fb, x + 3 + (got ? jw_text_px_w(v) : 0),
-                        y + (z->h - th) / 2, 1, th, C_BTNTEXT);
+                fb_fill(fb, tx + tw, y + (z->h - th) / 2, 1, th, C_BTNTEXT);
             break;
         }
         case JW_SD_GROUP: {
@@ -3685,6 +3792,10 @@ void ui_colordlg(fb_t *fb, const jw_cd_state *st)
 
         if (y + z->h > cy + JW_CD_CH)
             continue;                   /* clipped off the client */
+        /* ヘルプ(&H) は窓としてはあるが WS_VISIBLE が無い（decomp/res/
+           colordlg.txt の style 0x48030000）。原典の絵にも出ていない */
+        if (z->id == 1038)
+            continue;
         switch (z->kind) {
         case JW_CD_PUSH: {
             int k2 = z->id == 1;        /* BS_DEFPUSHBUTTON on the OK */
@@ -3916,9 +4027,15 @@ static void br_label(fb_t *fb, int x, int y, int w, int h, const char *t,
     int th = jw_text_height();
     const char *sp = 0;
 
+    /* a button that cannot be pressed: the words embossed, white a pixel
+       down and right under the shadow-coloured ones, as Windows draws it
+       (docs/ref_bairitsu.png の 目盛 表示最小倍率) */
+    if (col != C_BTNTEXT && col != C_BTNHILIGHT)
+        br_label(fb, x + 1, y + 1, w, h, t, C_BTNHILIGHT);
+
     /* never past the button's edge rows: the port's letters are wider than
        the original's, and a centred one would else poke out of them */
-#define BR_TX(s) (x + (w - jw_text_px_w(s)) / 2 < x + 3                   ? x + 3 : x + (w - jw_text_px_w(s)) / 2)
+#define BR_TX(s) (x + (w - jw_text_px_fit_w(s, w - 6)) / 2 < x + 3 ? x + 3 : x + (w - jw_text_px_fit_w(s, w - 6)) / 2)
 
     if (h >= 2 * th + 8)
         for (sp = t; *sp && *sp != ' '; sp++)
@@ -4118,8 +4235,7 @@ void ui_mojikijun(fb_t *fb, int base, int caret)
                     C_BTNHILIGHT, C_3DDKSHADOW);
             fb_edge(fb, x + k2 + 1, y + k2 + 1, z->w - 2 * k2 - 2,
                     z->h - 2 * k2 - 2, C_3DLIGHT, C_BTNSHADOW);
-            zs_text(fb, x + (z->w - jw_text_px_w(z->text)) / 2,
-                    y + (z->h - th) / 2, z->w - 6, z->text, col);
+            zs_btext(fb, x, y, z->w, z->h, z->text, col == C_BTNTEXT);
             break;
         }
         case JW_MK_RADIO:
@@ -4154,13 +4270,21 @@ void ui_mojikijun(fb_t *fb, int base, int caret)
             int ty = y + (z->h - th) / 2;
 
             mj_sunken(fb, x, y, z->w, z->h);
-            if (t && *t && mk_live(z)) {
-                zs_text(fb, x + 3, ty, z->w - 6, t, C_BTNTEXT);
+            /* ずれ使用 が切れている間も箱は数を見せている —— 地を面の色に
+               して灰色の字で（docs/ref_mojikijun.png の 1 0 -1 と -1 0 1）。
+               ES_CENTER（style 0x81）なので字は真ん中 */
+            if (!mk_live(z))
+                fb_fill(fb, x + 2, y + 2, z->w - 4, z->h - 4, C_BTNFACE);
+            if (t && *t) {
+                int tw = jw_text_px_fit_w(t, z->w - 6);
+                int tx = x + (z->w - tw) / 2;
+
+                zs_text(fb, tx, ty, z->w - 6, t,
+                        mk_live(z) ? C_BTNTEXT : C_GRAYTEXT);
                 if (caret == z->id)
-                    fb_fill(fb, x + 3 + jw_text_px_w(t), ty, 1, th,
-                            C_BTNTEXT);
+                    fb_fill(fb, tx + tw, ty, 1, th, C_BTNTEXT);
             } else if (caret == z->id) {
-                fb_fill(fb, x + 3, ty, 1, th, C_BTNTEXT);
+                fb_fill(fb, x + z->w / 2, ty, 1, th, C_BTNTEXT);
             }
             break;
         }
@@ -4492,8 +4616,13 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
             } else {
                 const char *lab = jw_cmd_bar_label(c[i].id);
 
+                /* 押せない釦の字は浮き彫り: 白を一画素右下に、その上に
+                   影の色（docs/ref_start.png の 線 の ●－－－ ＜－－－） */
+                if (!en)
+                    jw_text_px(fb, c[i].x + 6, c[i].y + (c[i].h - th) / 2 + 1,
+                               lab ? lab : c[i].text, C_BTNHILIGHT);
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
-                           lab ? lab : c[i].text, en ? C_BTNTEXT : C_GRAYTEXT);
+                           lab ? lab : c[i].text, en ? C_BTNTEXT : C_BTNSHADOW);
             }
             break;
         case JW_CTL_STATIC: {

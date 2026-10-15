@@ -16,5 +16,7 @@
 #define C_BTNTEXT      0x000000u   /* COLOR_BTNTEXT                      */
 #define C_GRAYTEXT     0x6d6d6du   /* COLOR_GRAYTEXT, disabled captions  */
 #define C_WINDOW       0xffffffu   /* COLOR_WINDOW, the drawing area     */
+#define C_HILIGHT      0x0078d7u   /* COLOR_HIGHLIGHT, selected text's ground */
+#define C_HILIGHTTEXT  0xffffffu   /* COLOR_HIGHLIGHTTEXT                 */
 
 #endif

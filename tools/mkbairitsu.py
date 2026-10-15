@@ -28,7 +28,9 @@ WS_VISIBLE = 0x10000000
 BORDER = 8
 CAPTION = 31
 W, H, CW, CH = 245, 305, 229, 266
-TITLE = '画面倍率・文字表示'
+# the dialog's CAPTION (decomp/res/dialog.txt), half-width then full-width
+# space before 設定 -- 設定 was left off and the caption came out short
+TITLE = '画面倍率・文字表示 　設定'
 
 
 def kind_of(cid, cls, style):
