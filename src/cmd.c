@@ -5685,6 +5685,348 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
     }
 }
 
+/* コーナー処理 with an arc in it -- 逆コンパイルの読み、原典では押していない.
+ *
+ * CZukeiCorner's left button (slot 9, FUN_00636b10) takes the two elements
+ * and its slot 3 (FUN_006374e0) hands them to FUN_0046abe0, the corner
+ * itself.  That one asks FUN_0045fa30 for the crossing of the two -- a line
+ * and an arc go to FUN_00462070, two arcs to FUN_00460710 -- and then has
+ * each element taken to it by FUN_0044cfb0: a line by FUN_0044da00, an arc
+ * by FUN_0044d190.  What is read here:
+ *
+ *   - Each element remembers where it was picked (CData +0x30), and that is
+ *     not the click but the foot of it on the element (FUN_00455870 →
+ *     FUN_0045b790 for an arc: the point of the ellipse at the click's
+ *     angle).  corner_foot is that.
+ *   - Of the two crossings of a line with an arc (or of two arcs) the one
+ *     taken is the one nearer -- |dx|+|dy| -- to a reference point: the
+ *     arc's pick for a line and an arc, the middle of the two picks for two
+ *     arcs.  A line meeting an arc is taken as the whole line and the whole
+ *     ellipse; for an arc the sum is done in the circle's own frame (turned
+ *     back by the tilt, the ellipse squashed to a circle).
+ *   - Two circles: the textbook crossing, a touch taken as one point.  An
+ *     ellipse among them: walked to the crossing from the reference point,
+ *     each step the crossing of the two tangents at the points of the
+ *     ellipses nearest (at the same angle) to the last one, up to 40 steps
+ *     until a step moves less than 1e-8.
+ *   - A whole circle is refused when it is picked (FUN_0063aa60, string
+ *     5207 「円です。切断で弧にしてください。」) and FUN_0044d190 leaves one
+ *     alone anyway: it has no end to move.
+ *   - The arc keeps its start and goes to the crossing when the click is
+ *     between the start and the crossing; when the crossing is past the
+ *     arc's end it is the end that goes there if the click is nearer the
+ *     end than the start; otherwise the start moves to the crossing and the
+ *     end stays.  A sweep that comes out at 0 is a whole turn, and one of a
+ *     whole turn makes the arc a circle (the flag at +0x90, string 5208).
+ */
+static void corner_foot(const jw_obj *o, double *x, double *y)
+{
+    if (o->cls == JW_SEN) {
+        double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1], l2 = dx * dx + dy * dy, t;
+
+        if (l2 <= 0.0)
+            return;
+        t = ((*x - o->d[0]) * dx + (*y - o->d[1]) * dy) / l2;
+        *x = o->d[0] + t * dx;
+        *y = o->d[1] + t * dy;
+    } else if (o->cls == JW_ENKO) {
+        double f = o->d[6], c = cos(o->d[5]), s = sin(o->d[5]);
+        double ex = *x - o->d[0], ey = *y - o->d[1], u, w, l;
+
+        if (f < 1e-07 || fabs(ex) + fabs(ey) < 1e-07)
+            return;
+        u = c * ex + s * ey;
+        w = (c * ey - s * ex) / f;
+        l = sqrt(u * u + w * w);
+        if (l < 1e-07)
+            return;
+        u *= o->d[2] / l;
+        w *= o->d[2] / l * f;
+        *x = c * u - s * w + o->d[0];
+        *y = c * w + s * u + o->d[1];
+    }
+}
+
+static int corner_whole(const jw_obj *o)
+{
+    return o->d[4] == 0.0 || fabs(o->d[4]) >= 6.283185207179586;
+}
+
+/* FUN_0040b250: an angle brought round to the sweep's side, within a turn */
+static double corner_norm(double sw, double a)
+{
+    if (sw > 0.0)
+        while (a < 0.0)
+            a += 2 * PI;
+    if (sw < 0.0)
+        while (a > 0.0)
+            a -= 2 * PI;
+    while (a > 2 * PI)
+        a -= 2 * PI;
+    while (a < -2 * PI)
+        a += 2 * PI;
+    return a;
+}
+
+/* FUN_00462070 as the corner uses it: line l and arc e, the crossing
+   nearer (rx,ry) */
+static int corner_line_arc(const jw_obj *l, const jw_obj *e, double rx, double ry,
+                           double *ox, double *oy)
+{
+    double c = cos(e->d[5]), s = sin(e->d[5]), f = e->d[6], r = e->d[2];
+    double ax, ay, bx, by, kx, ky, dx, dy, len, ux, uy, along, perp;
+    double t1, t2, q1x, q1y, q2x, q2y, qx, qy;
+
+    if (f == 0.0)
+        return 0;
+#define LOC(X, Y, U, V) (U = c * ((X) - e->d[0]) + s * ((Y) - e->d[1]), \
+                         V = (c * ((Y) - e->d[1]) - s * ((X) - e->d[0])) / f)
+    LOC(l->d[0], l->d[1], ax, ay);
+    LOC(l->d[2], l->d[3], bx, by);
+    LOC(rx, ry, kx, ky);
+#undef LOC
+    dx = bx - ax;
+    dy = by - ay;
+    len = dx * dx + dy * dy;
+    if (len <= 1e-07)
+        return 0;
+    len = sqrt(len);
+    ux = dx / len;
+    uy = dy / len;
+    along = ux * -ax + uy * -ay;
+    perp = fabs(ux * -ay - uy * -ax);
+    if (1e-07 < perp - r)
+        return 0;               /* the line misses the circle */
+    t1 = t2 = along;
+    if (1e-07 < fabs(perp - r)) {
+        double h = sqrt(r * r - perp * perp);
+        t2 = along + h;
+        t1 = along - h;
+    }
+    q1x = ax + ux * t1;
+    q1y = ay + uy * t1;
+    q2x = ax + ux * t2;
+    q2y = ay + uy * t2;
+    if (fabs(q1x - kx) + fabs(q1y - ky) < fabs(q2x - kx) + fabs(q2y - ky)) {
+        qx = q1x;
+        qy = q1y;
+    } else {
+        qx = q2x;
+        qy = q2y;
+    }
+    *ox = c * qx - s * qy * f + e->d[0];
+    *oy = c * qy * f + s * qx + e->d[1];
+    if (l->d[0] == l->d[2])
+        *ox = l->d[0];
+    if (l->d[1] == l->d[3])
+        *oy = l->d[1];
+    return 1;
+}
+
+/* FUN_0045a7f0: the tangent of e at its point at the angle of (px,py) */
+static int corner_tangent(const jw_obj *e, double px, double py, double t[4])
+{
+    double c = cos(e->d[5]), s = sin(e->d[5]), f = e->d[6], r = e->d[2];
+    double ex = px - e->d[0], ey = py - e->d[1], u, w, l, p, m;
+
+    if (f < 0.01 || f > 100.0 || fabs(ex) + fabs(ey) < 1e-07)
+        return 0;
+    u = c * ex + s * ey;
+    w = (c * ey - s * ex) / f;
+    l = sqrt(u * u + w * w);
+    u *= r / l;
+    w *= r / l;
+    p = (w + u) * f;
+    m = (w - u) * f;
+    t[0] = c * (u - w) - s * p + e->d[0];
+    t[1] = c * p + s * (u - w) + e->d[1];
+    t[2] = c * (u + w) - s * m + e->d[0];
+    t[3] = c * m + s * (u + w) + e->d[1];
+    return 1;
+}
+
+/* FUN_00460710 as the corner uses it: two arcs, the crossing nearer (rx,ry) */
+static int corner_arc_arc(const jw_obj *a, const jw_obj *b, double rx, double ry,
+                          double *ox, double *oy)
+{
+    double r1 = a->d[2], r2 = b->d[2], f1 = a->d[6], f2 = b->d[6];
+    double dx = b->d[0] - a->d[0], dy = b->d[1] - a->d[1], dist;
+
+    if (fabs(f1 - 1.0) < 1e-07 && fabs(f2 - 1.0) < 1e-07) {
+        double al, h, ux, uy, p1x, p1y, p2x, p2y;
+
+        dist = dx * dx + dy * dy;
+        if (dist < 1e-07)
+            return 0;
+        dist = sqrt(dist);
+        if (r1 + r2 + 1e-07 < dist || dist < fabs(r1 - r2) - 1e-07)
+            return 0;
+        if (r1 + r2 - 1e-07 <= dist || dist <= fabs(r1 - r2) + 1e-07) {
+            al = r1;            /* touching: one point */
+            if (dist <= fabs(r1 - r2) + 1e-07 && r1 < r2)
+                al = -r1;
+            h = 0.0;
+        } else {
+            al = (r1 * r1 - r2 * r2 + dist * dist) / (dist * 2.0);
+            h = sqrt(fabs(r1 * r1 - al * al));
+        }
+        ux = dx / dist;
+        uy = dy / dist;
+        p1x = ux * al - uy * h + a->d[0];
+        p1y = ux * h + uy * al + a->d[1];
+        p2x = ux * al + uy * h + a->d[0];
+        p2y = -ux * h + uy * al + a->d[1];
+        if (fabs(p2x - rx) + fabs(p2y - ry) <= fabs(p1x - rx) + fabs(p1y - ry)) {
+            *ox = p2x;
+            *oy = p2y;
+        } else {
+            *ox = p1x;
+            *oy = p1y;
+        }
+        return 1;
+    } else {
+        double reach = r1, px = rx, py = ry, move = 1.0;
+        int k = 0;
+
+        if (f1 > 1.0)
+            reach *= f1;
+        if (f2 > 1.0)
+            reach *= f2;
+        if ((1e-07 < fabs(dx) || 1e-07 < fabs(dy))
+            && reach + r2 + 1e-07 < sqrt(dx * dx + dy * dy))
+            return 0;
+        while (1e-08 < move) {
+            double ta[4], tb[4], adx, ady, bdx, bdy, den, t, qx, qy;
+
+            if (!corner_tangent(a, px, py, ta) || !corner_tangent(b, px, py, tb))
+                return 0;
+            adx = ta[2] - ta[0];
+            ady = ta[3] - ta[1];
+            bdx = tb[2] - tb[0];
+            bdy = tb[3] - tb[1];
+            den = adx * bdy - ady * bdx;
+            if (den == 0.0)
+                return 0;
+            t = ((tb[0] - ta[0]) * bdy - (tb[1] - ta[1]) * bdx) / den;
+            qx = ta[0] + t * adx;
+            qy = ta[1] + t * ady;
+            if (++k > 40)
+                return 0;
+            move = fabs(qx - px) + fabs(qy - py);
+            px = qx;
+            py = qy;
+        }
+        *ox = px;
+        *oy = py;
+        return 1;
+    }
+}
+
+/* FUN_0044d190: arc o taken to (ix,iy), the side of (kx,ky) kept.  0 when
+   it is left as it is. */
+static int corner_arc_to(jw_obj *o, double ix, double iy, double kx, double ky)
+{
+    double c = cos(o->d[5]), s = sin(o->d[5]), f = o->d[6];
+    double st = o->d[3], sw = o->d[4], ai, ui, uc, aui, auc, asw, nsw;
+    int edge = 0;
+
+    if (corner_whole(o) || o->d[2] == 0.0 || f == 0.0)
+        return 0;
+    ix -= o->d[0];
+    iy -= o->d[1];
+    kx -= o->d[0];
+    ky -= o->d[1];
+    ai = atan2((c * iy - s * ix) / f, c * ix + s * iy);
+    ui = corner_norm(sw, ai - st);
+    uc = corner_norm(sw, atan2((c * ky - s * kx) / f, c * kx + s * ky) - st);
+    aui = fabs(ui);
+    auc = fabs(uc);
+    asw = fabs(sw);
+    if (aui < 1e-07 || fabs(aui - asw) < 1e-07)
+        edge = 1;               /* the crossing is at one of its ends */
+    if ((!edge && aui <= asw && auc < aui)
+        || (!edge && asw < aui && fabs(asw - auc) < auc)
+        || (edge && fabs(asw - auc) < auc)) {
+        nsw = ui;               /* the start stays, the end goes */
+        if (fabs(nsw) < 1e-07)
+            nsw = 2 * PI;
+    } else {                    /* the end stays, the start goes */
+        double e = st + sw;
+        nsw = corner_norm(ui, atan2(sin(e), cos(e)) - ai);
+        if (fabs(nsw) < 1e-07)
+            nsw = 2 * PI;
+        st = ai;
+    }
+    o->d[3] = st;
+    o->d[4] = nsw;
+    if (fabs(fabs(nsw) - 2 * PI) < 1e-07) {
+        if (nsw > 0.0)
+            o->d[4] = 2 * PI;
+        if (nsw < 0.0)
+            o->d[4] = -2 * PI;
+        o->n = 1;
+    }
+    return 1;
+}
+
+/* FUN_0044da00: line o taken to (ix,iy), the side of (kx,ky) kept */
+static int corner_line_to(jw_obj *o, double ix, double iy, double kx, double ky)
+{
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+
+    if (dx == 0.0 && dy == 0.0)
+        return 0;
+    if ((ix - o->d[0]) * dx + (iy - o->d[1]) * dy
+        <= (kx - o->d[0]) * dx + (ky - o->d[1]) * dy) {
+        o->d[0] = ix;
+        o->d[1] = iy;
+    } else {
+        o->d[2] = ix;
+        o->d[3] = iy;
+    }
+    return 1;
+}
+
+static void corner_arc(jw_drawing *d, int a, double ax, double ay,
+                       int b, double bx, double by)
+{
+    jw_obj p = d->obj[a], q = d->obj[b];
+    double rx, ry, ix, iy;
+    int ok, cp, cq;
+    op_t *rec;
+
+    if ((p.cls == JW_ENKO && corner_whole(&p)) || (q.cls == JW_ENKO && corner_whole(&q)))
+        return;
+    corner_foot(&p, &ax, &ay);
+    corner_foot(&q, &bx, &by);
+    if (p.cls == JW_ENKO && q.cls == JW_ENKO) {
+        rx = (bx - ax) / 2.0 + ax;
+        ry = (by - ay) / 2.0 + ay;
+        ok = corner_arc_arc(&p, &q, rx, ry, &ix, &iy);
+    } else if (q.cls == JW_ENKO) {
+        ok = corner_line_arc(&p, &q, bx, by, &ix, &iy);
+    } else {
+        ok = corner_line_arc(&q, &p, ax, ay, &ix, &iy);
+    }
+    if (!ok || !(fabs(ix) < 1e9 && fabs(iy) < 1e9))
+        return;                 /* string 5205: they do not meet */
+    cp = p.cls == JW_ENKO ? corner_arc_to(&p, ix, iy, ax, ay)
+                          : corner_line_to(&p, ix, iy, ax, ay);
+    cq = q.cls == JW_ENKO ? corner_arc_to(&q, ix, iy, bx, by)
+                          : corner_line_to(&q, ix, iy, bx, by);
+    if (!cp && !cq)
+        return;
+    rec = op_new();
+    if (cp) {
+        op_keep(rec, d, a, 0);
+        d->obj[a] = p;
+    }
+    if (cq) {
+        op_keep(rec, d, b, 0);
+        d->obj[b] = q;
+    }
+}
+
 /* コーナー処理 -- two lines, cut or carried on to where they meet.
  *
  * What survives is the piece on the side the line was clicked: drawing an L
@@ -5700,7 +6042,14 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
     double pdx, pdy, qdx, qdy, den, tp, tq, ix, iy, cp, cq;
     op_t *rec;
 
-    if (a == b || p->cls != JW_SEN || q->cls != JW_SEN)
+    if (a == b)
+        return;
+    if ((p->cls == JW_ENKO && (q->cls == JW_SEN || q->cls == JW_ENKO))
+        || (p->cls == JW_SEN && q->cls == JW_ENKO)) {
+        corner_arc(d, a, ax, ay, b, bx, by);
+        return;
+    }
+    if (p->cls != JW_SEN || q->cls != JW_SEN)
         return;
     pdx = p->d[2] - p->d[0];
     pdy = p->d[3] - p->d[1];
@@ -19391,8 +19740,11 @@ placed:
             return;
         }
         if (corner_step == 0) {
+            /* a line or an arc; a whole circle is refused (FUN_0063aa60,
+               string 5207 -- 逆コンパイルの読み、原典では押していない) */
             i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO)
+                || (d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i])))
                 return;
             corner_obj = i;
             corner_x = x;
@@ -19403,6 +19755,8 @@ placed:
         /* the second pick flips view+0x82bc, so a tie goes the other way and
            the same line is not found twice */
         i = jw_pick_tie(d, v, x, y, 3, 1);
+        if (i >= 0 && d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i]))
+            return;             /* refused, 線【A】 stays picked (slot 9's mode 2) */
         if (i >= 0 && i != corner_obj)
             corner(d, corner_obj, corner_x, corner_y, i, x, y);
         corner_step = 0;
