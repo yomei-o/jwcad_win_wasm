@@ -693,6 +693,10 @@ static int cv_mode = 1691;
    first: this is its direction, and whether it has been picked yet. */
 static double cv_ux = 1.0, cv_uy;
 static int cv_base;
+/* スプラインの 連結線指定 (1068): 押されているか（原典 +0xb4）と、始点・終点に
+   連結した線・円弧（+0xb8・+0xbc、原典は要素の写しを持つ） */
+static int cv_link, cv_has_a, cv_has_b;
+static jw_obj cv_link_a, cv_link_b;
 /* ハッチ: the closed boundary that was picked, as a ring of corners, or a
    circle.  Right-clicking one line of a closed chain takes the whole chain;
    right-clicking a circle takes the circle. */
@@ -3392,6 +3396,7 @@ void jw_cmd_set(int id)
         cv_n = 0;
         cv_mode = 1691;
         cv_base = 0;
+        cv_link = cv_has_a = cv_has_b = 0;
     }
     if (id == JW_CMD_ZOKUHEN)
         zh_type = zh_layer = 1;
@@ -8756,11 +8761,12 @@ static int tangent(double ax, double ay, double ra,
  * steps are 0.58, 1, 1, ..., 1, 0.58 -- the two at the ends are 0.58 of the
  * rest -- so the middle step is 1/(n - 0.84) and the end ones 0.58 of that.
  * That 0.58 is exact, and the same at n = 3, 4, 7 and 10.
+ *
+ * 追記（逆コンパイルの読み）: 原典 FUN_006b76e0 の媒介変数は等間隔の節では
+ * なく弦の長さ。上の四点は弦がみな等しかったので見分けがつかなかった。
+ * 移植は原典の式どおりに cv_spline で解く（始・終点連続処理 1323 の閉じた
+ * 曲線と 連結線指定 1068 も）。
  */
-#define CV_END 0.58
-
-/* The second derivatives of the natural cubic spline through v[0..n-1], for
-   unit knot spacing.  Thomas' algorithm on the usual tridiagonal system. */
 /* two ends of a chain meeting: the original's own rectangles share their
    corners exactly, so this only has to allow for the last bit of a double */
 static int near_pt(double ax, double ay, double bx, double by)
@@ -8768,36 +8774,6 @@ static int near_pt(double ax, double ay, double bx, double by)
     double dx = ax - bx, dy = ay - by;
 
     return dx * dx + dy * dy < 1e-12;
-}
-
-static void spline_m(const double *v, int n, double *m)
-{
-    double c[CV_MAX], r[CV_MAX];
-    int i;
-
-    for (i = 0; i < n; i++)
-        m[i] = 0.0;
-    if (n < 3)
-        return;
-    /* m[0] = m[n-1] = 0; for i = 1..n-2:
-         m[i-1] + 4 m[i] + m[i+1] = 6 (v[i-1] - 2 v[i] + v[i+1]) */
-    c[1] = 1.0 / 4.0;
-    r[1] = 6.0 * (v[0] - 2 * v[1] + v[2]) / 4.0;
-    for (i = 2; i <= n - 2; i++) {
-        double den = 4.0 - c[i - 1];
-        c[i] = 1.0 / den;
-        r[i] = (6.0 * (v[i - 1] - 2 * v[i] + v[i + 1]) - r[i - 1]) / den;
-    }
-    for (i = n - 2; i >= 1; i--)
-        m[i] = r[i] - c[i] * m[i + 1];
-}
-
-static double spline_at(const double *v, const double *m, int i, double s)
-{
-    double a = 1.0 - s;
-
-    return v[i] * a + v[i + 1] * s
-         + ((a * a * a - a) * m[i] + (s * s * s - s) * m[i + 1]) / 6.0;
 }
 
 /* ベジェ曲線: a Bezier of degree (points - 1) over everything that was
@@ -8971,11 +8947,310 @@ static void curve_point(jw_drawing *d, const jw_view *v, double x, double y)
     }
 }
 
+static int chain_ends(const jw_obj *o, double *x, double *y);
+
+/* スプライン・ベジェの点一つ（CZukeiKyokuSen の左 FUN_006b4690 の「それ以外」の
+ * 枝）。逆コンパイルの読み、原典では押していない.
+ *  - 点が +0x124 個あれば 0x1461 で断る（移植は CV_MAX）
+ *  - 直前の点と x・y とも 1e-6 未満なら 0x14df で断る
+ *  - 連結線指定 (+0xb4) が立っていないか、スプラインでなければ普通の点。
+ *    一つ目なら始点の連結 (+0xb8)、二つ目からは終点の連結 (+0xbc) を捨てる
+ *  - 立っていてスプラインなら、FUN_0044a270(3) で拾う。拾えない・線でも
+ *    円弧でもない・全円（|開き角| が 2π から 1e-7 以内、0x1458）なら +0xb4 を
+ *    下ろして終わり。拾えたら +0xb4 を下ろし、置く点は要素の端点のうち
+ *    クリックに近いほう（仮想関数 12 番 FUN_0042b0f0／FUN_0042b2a0。
+ *    |dx|+|dy| で比べ、同じなら終点）。点が無ければ始点の連結に、あれば
+ *    終点の連結にする（始点の連結を入れるときは終点の連結を捨てる） */
+static int cv_click(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    if (cv_n >= CV_MAX)
+        return 0;
+    if (cv_n > 0 && fabs(cv_x[cv_n - 1] - x) < 1e-6
+        && fabs(cv_y[cv_n - 1] - y) < 1e-6)
+        return 0;
+    if (!cv_link || cv_mode != 1691) {
+        if (cv_n == 0)
+            cv_has_a = 0;
+        else
+            cv_has_b = 0;
+    } else {
+        int i = d ? jw_pick(d, v, x, y, 3) : -1;
+        double ex[2], ey[2];
+        const jw_obj *o;
+
+        if (i < 0) {
+            cv_link = 0;
+            return 0;
+        }
+        o = &d->obj[i];
+        if ((o->cls != JW_SEN && o->cls != JW_ENKO)
+            || (o->cls == JW_ENKO && !chain_ends(o, ex, ey))) {
+            cv_link = 0;
+            return 0;
+        }
+        if (o->cls == JW_SEN)
+            chain_ends(o, ex, ey);
+        cv_link = 0;
+        if (fabs(x - ex[1]) + fabs(y - ey[1])
+            <= fabs(x - ex[0]) + fabs(y - ey[0])) {
+            x = ex[1];
+            y = ey[1];
+        } else {
+            x = ex[0];
+            y = ey[0];
+        }
+        if (cv_n != 0) {
+            cv_link_b = *o;
+            cv_has_b = 1;
+        } else {
+            cv_link_a = *o;
+            cv_has_a = 1;
+            cv_has_b = 0;
+        }
+    }
+    cv_x[cv_n] = x;
+    cv_y[cv_n] = y;
+    cv_n++;
+    return 1;
+}
+
+/* 連結した線・円弧の、曲線の端 (px,py) での向き（FUN_006b6860）。単位の
+ * 向きを返す。dir が 1 なら要素から外へ（始点用）、-1 なら要素へ（終点用）.
+ *  - 線: 両端 A・B のうち (px,py) に近いほう（|dx|+|dy|）を B にして B−A
+ *  - 円弧: FUN_0045a7f0 で (px,py) の所の接線を作る（扁平率が 0.01〜100、
+ *    中心からのずれが 1e-7 以上でなければ 0）。中心から見た角の点 E と
+ *    反時計回りの接ベクトル T（大きさ r）で、接線の始点 E+T・終点 E−T。
+ *    開き角が正なら、(px,py) が円弧の始点に近い（終点のほうが遠い）とき
+ *    接線の終点を、でなければ始点を (px,py) に置き換える。開き角が 0 以下
+ *    なら、終点に近いか同じとき終点を、でなければ始点を。その接線を線と
+ *    同じに扱う（結果は始点の側で −T、終点の側で +T の向き）
+ *  - 長さの二乗が 1e-7 未満なら 0 */
+static int cv_tangent(const jw_obj *o, double px, double py, int dir,
+                      double *tx, double *ty)
+{
+    double ax, ay, bx, by, t;
+
+    if (o->cls == JW_SEN) {
+        ax = o->d[0];
+        ay = o->d[1];
+        bx = o->d[2];
+        by = o->d[3];
+    } else if (o->cls == JW_ENKO) {
+        double ex[2], ey[2], c = cos(o->d[5]), s = sin(o->d[5]);
+        double k = o->d[6] > 0.0 ? o->d[6] : 1.0, r = o->d[2];
+        double rx = px - o->d[0], ry = py - o->d[1], u, w, q, d1, d2;
+        double sx, sy, fx, fy;
+
+        if (k < 0.01 || k > 100.0 || fabs(rx) + fabs(ry) < 1e-7)
+            return 0;
+        u = c * rx + s * ry;
+        w = (c * ry - s * rx) / k;
+        q = r / sqrt(u * u + w * w);
+        u *= q;
+        w *= q;
+        /* 回す前の始点 (u−w, (u+w)k)・終点 (u+w, (w−u)k) */
+        sx = o->d[0] + c * (u - w) - s * (u + w) * k;
+        sy = o->d[1] + s * (u - w) + c * (u + w) * k;
+        fx = o->d[0] + c * (u + w) - s * (w - u) * k;
+        fy = o->d[1] + s * (u + w) + c * (w - u) * k;
+        chain_ends(o, ex, ey);
+        d1 = fabs(ex[0] - px) + fabs(ey[0] - py);
+        d2 = fabs(ex[1] - px) + fabs(ey[1] - py);
+        if (o->d[4] > 0.0 ? d2 > d1 : d1 >= d2) {
+            fx = px;
+            fy = py;
+        } else {
+            sx = px;
+            sy = py;
+        }
+        ax = sx;
+        ay = sy;
+        bx = fx;
+        by = fy;
+    } else
+        return 0;
+    if (fabs(bx - px) + fabs(by - py) > fabs(ax - px) + fabs(ay - py)) {
+        t = ax; ax = bx; bx = t;
+        t = ay; ay = by; by = t;
+    }
+    if (dir < 0) {
+        t = ax; ax = bx; bx = t;
+        t = ay; ay = by; by = t;
+    }
+    bx -= ax;
+    by -= ay;
+    t = bx * bx + by * by;
+    if (t < 1e-7)
+        return 0;
+    t = sqrt(t);
+    *tx = bx / t;
+    *ty = by / t;
+    return 1;
+}
+
+/* スプライン（FUN_006b76e0）。逆コンパイルの読み.
+ *
+ * 点と点の間の弦の長さ L を媒介変数にした三次のエルミート（一階微分 m で
+ * 解く三重対角）。両端は自然端（2m1 + m2 = 3dx/L）、連結した線・円弧が
+ * あればその端の m を cv_tangent の単位の向きに固定する。弦がみな等しい
+ * ときは前の「等間隔の節の自然スプライン」と同じ曲線で、原典の答え
+ * curve_n* はそれだった。
+ *
+ * 始・終点連続処理 (1323、バーの +0x394、既定で印あり) が入っていて、最後の
+ * 点が最初の点と x・y とも 1e-7 未満で、どちらの端も連結していなければ
+ * 閉じた曲線（FUN_006b5bc0 → FUN_006b76e0(1)）: 点 P1..PN（PN = P1）の
+ * 前に P(N-2)・P(N-1)、後ろに P2・P3 を足した N+4 点で解き、描くのは
+ * もとの P1→PN の区間だけ。
+ *
+ * 一区間の刻みは h = L/(分割数 − 0.84)、t = 0.58h から h ずつ、最後は
+ * 次の点そのもの。前に置いた点から |dx|+|dy| が 1e-7 以下なら置かない. */
+static int cv_spline(jw_drawing *d, int n)
+{
+    double X[CV_MAX + 5], Y[CV_MAX + 5], DX[CV_MAX + 5], DY[CV_MAX + 5];
+    double L[CV_MAX + 5], sub[CV_MAX + 5], dia[CV_MAX + 5], sup[CV_MAX + 5];
+    double rx[CV_MAX + 5], ry[CV_MAX + 5], mx[CV_MAX + 5], my[CV_MAX + 5];
+    double px, py, tx, ty;
+    int N = cv_n, M, i, k, last, first, closed = 0, made = 0;
+
+    if (N >= 3 && fabs(cv_x[N - 1] - cv_x[0]) < 1e-7
+        && fabs(cv_y[N - 1] - cv_y[0]) < 1e-7 && !cv_has_a && !cv_has_b
+        && jw_cmd_bar_check(1323) > 0)
+        closed = 1;
+    for (i = 1; i <= N; i++) {          /* 1 から数える、原典と同じ */
+        X[i] = cv_x[i - 1];
+        Y[i] = cv_y[i - 1];
+    }
+    M = N;
+    if (closed) {
+        for (i = N; i > 0; i--) {
+            X[i + 2] = X[i];
+            Y[i + 2] = Y[i];
+        }
+        X[1] = X[N];                    /* P(N-2) */
+        Y[1] = Y[N];
+        X[2] = X[N + 1];                /* P(N-1) */
+        Y[2] = Y[N + 1];
+        X[N + 3] = X[4];                /* P2 */
+        Y[N + 3] = Y[4];
+        X[N + 4] = X[5];                /* P3 */
+        Y[N + 4] = Y[5];
+        M = N + 4;
+    }
+    for (i = 1; i <= M - 1; i++) {
+        DX[i] = X[i + 1] - X[i];
+        DY[i] = Y[i + 1] - Y[i];
+        L[i] = sqrt(DX[i] * DX[i] + DY[i] * DY[i]);
+        if (L[i] <= 0.0)
+            return 0;
+    }
+    sub[1] = 1.0;
+    dia[1] = 1.0;
+    sup[1] = 0.5;
+    sub[M] = 1.0;
+    dia[M] = 2.0;
+    sup[M] = 1.0;
+    rx[1] = DX[1] * 1.5 / L[1];
+    ry[1] = DY[1] * 1.5 / L[1];
+    rx[M] = DX[M - 1] * 3.0 / L[M - 1];
+    ry[M] = DY[M - 1] * 3.0 / L[M - 1];
+    if (cv_has_a) {
+        if (!cv_tangent(&cv_link_a, X[1], Y[1], 1, &tx, &ty))
+            cv_has_a = 0;
+        else {
+            sub[1] = 1.0;
+            dia[1] = 1.0;
+            sup[1] = 0.0;
+            rx[1] = tx;
+            ry[1] = ty;
+        }
+    }
+    if (cv_has_b) {
+        if (!cv_tangent(&cv_link_b, X[M], Y[M], -1, &tx, &ty))
+            cv_has_b = 0;
+        else {
+            sub[M] = 0.0;
+            dia[M] = 1.0;
+            sup[M] = 1.0;
+            rx[M] = tx;
+            ry[M] = ty;
+        }
+    }
+    for (i = 2; i <= M - 1; i++) {
+        sub[i] = L[i];
+        dia[i] = (L[i] + L[i - 1]) * 2.0;
+        sup[i] = L[i - 1];
+        rx[i] = (L[i - 1] * DX[i] / L[i] + L[i] * DX[i - 1] / L[i - 1]) * 3.0;
+        ry[i] = (L[i - 1] * DY[i] / L[i] + L[i] * DY[i - 1] / L[i - 1]) * 3.0;
+    }
+    last = cv_has_b ? M - 1 : M;
+    for (i = 2; i <= last; i++) {
+        double r = dia[i - 1] / sub[i], p;
+
+        sub[i] = 0.0;
+        dia[i] = r * dia[i] - sup[i - 1];
+        sup[i] = r * sup[i];
+        rx[i] = r * rx[i] - rx[i - 1];
+        ry[i] = r * ry[i] - ry[i - 1];
+        p = dia[i];
+        dia[i] = 1.0;
+        sup[i] /= p;
+        rx[i] /= p;
+        ry[i] /= p;
+    }
+    mx[M] = rx[M];
+    my[M] = ry[M];
+    for (i = M - 1; i > 0; i--) {
+        mx[i] = rx[i] - sup[i] * mx[i + 1];
+        my[i] = ry[i] - sup[i] * my[i + 1];
+    }
+    first = closed ? 3 : 1;
+    last = closed ? M - 3 : M - 1;
+    px = X[first];
+    py = Y[first];
+    for (i = first; i <= last; i++) {
+        double l = L[i];
+        double bx = ((DX[i] * 3.0) / l - mx[i + 1] - mx[i] * 2.0) / l;
+        double by = ((DY[i] * 3.0) / l - my[i + 1] - my[i] * 2.0) / l;
+        double cx = ((DX[i] * -2.0) / l + mx[i + 1] + mx[i]) / (l * l);
+        double cy = ((DY[i] * -2.0) / l + my[i + 1] + my[i]) / (l * l);
+        double h = l / ((double)n - 0.84), t = -h * 0.42000000000000004;
+
+        for (k = 1; k <= n; k++) {
+            double qx, qy;
+            jw_obj *o;
+
+            t += h;
+            if (k == n) {
+                qx = X[i + 1];
+                qy = Y[i + 1];
+            } else {
+                qx = ((cx * t + bx) * t + mx[i]) * t + X[i];
+                qy = ((cy * t + by) * t + my[i]) * t + Y[i];
+            }
+            if (!(fabs(px - qx) + fabs(py - qy) > 1e-7))
+                continue;
+            o = jw_add(d, JW_SEN);
+            if (!o)
+                break;
+            o->d[0] = px;
+            o->d[1] = py;
+            o->d[2] = qx;
+            o->d[3] = qy;
+            px = qx;
+            py = qy;
+            made++;
+        }
+    }
+    if (made)
+        op_push(made);
+    return made;
+}
+
 static void kyokusen(jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
-    double mx[CV_MAX], my[CV_MAX], v, px, py;
-    int n = sz ? atoi(sz) : 0, i, k, made = 0;
+    double px, py;
+    int n = sz ? atoi(sz) : 0, k, made = 0;
 
     if (cv_mode != 1691 && cv_mode != 1692)
         return;                 /* サイン and ２次 go through curve_draw */
@@ -9018,36 +9293,7 @@ static void kyokusen(jw_drawing *d)
             op_push(made);
         return;
     }
-    spline_m(cv_x, cv_n, mx);
-    spline_m(cv_y, cv_n, my);
-    /* the step that makes the two at the ends 0.58 of the rest add up to 1 */
-    v = 1.0 / (n - 2 + 2 * CV_END);
-    px = cv_x[0];
-    py = cv_y[0];
-    for (i = 0; i < cv_n - 1; i++)
-        for (k = 1; k <= n; k++) {
-            double s, qx, qy;
-            jw_obj *o;
-
-            if (k == n)
-                s = 1.0;
-            else
-                s = CV_END * v + (k - 1) * v;
-            qx = spline_at(cv_x, mx, i, s);
-            qy = spline_at(cv_y, my, i, s);
-            o = jw_add(d, JW_SEN);
-            if (!o)
-                return;
-            o->d[0] = px;
-            o->d[1] = py;
-            o->d[2] = qx;
-            o->d[3] = qy;
-            px = qx;
-            py = qy;
-            made++;
-        }
-    if (made)
-        op_push(made);
+    cv_spline(d, n);
 }
 
 /* ハッチ (0x806a), 1線.
@@ -14101,6 +14347,12 @@ static int bar_press(jw_drawing *d, int id)
             cv_mode = id;
             cv_n = 0;
             cv_base = 0;
+            /* FUN_006b4090: 連結の印も連結した要素も捨てる */
+            cv_link = cv_has_a = cv_has_b = 0;
+            return 1;
+        }
+        if (id == 1068) {       /* 連結線指定: 0x1405 → 29 番 FUN_006b4580 */
+            cv_link = !cv_link;
             return 1;
         }
         if (id == 1800) {       /* 作図実行 */
@@ -17911,6 +18163,19 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
         nisen_ll(d, v, x, y);   /* 基準線変更 (LL) */
         return;
     }
+    if (d && current == JW_CMD_KYOKUSEN && cv_mode == 1691) {
+        /* ［ 連結する線・弧指示（LL) ］(0x1581): 一つ目は普通の左、そこへ
+           WM_LBUTTONDBLCLK（12 番 FUN_006b4610）がスプラインで点があれば
+           一つ戻して +0xb4 を立て、同じ所で左（9 番）をもう一度。
+           逆コンパイルの読み、原典では押していない */
+        cv_click(d, v, x, y);
+        if (cv_n > 0) {
+            cv_n--;
+            cv_link = 1;
+            cv_click(d, v, x, y);
+        }
+        return;
+    }
     jw_cmd_point(d, v, x, y, 0);
 }
 
@@ -21221,11 +21486,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             curve_point(d, v, x, y);
             return;
         }
-        if (cv_n < CV_MAX) {
-            cv_x[cv_n] = x;
-            cv_y[cv_n] = y;
-            cv_n++;
-        }
+        cv_click(d, v, x, y);
         return;
     }
     if (current == JW_CMD_SEKIEN) {
