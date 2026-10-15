@@ -1052,10 +1052,7 @@ int main(void)
     opens(59392, 273, "表示 > ツールバー puts up ツールバーの表示");
     opens(32995, 384, "表示 > ブロックツリー半透明化 puts up its 透過率");
     opens(57664, 100, "ヘルプ > バージョン情報");
-    opens(32977, 368, "ファイル一括変換");
-    opens(32979, 371, "ファイル名変更 puts up ファイル選択");
-    opens(32980, 371, "ファイル削除 puts up ファイル選択");
-    opens(32984, 371, "ファイル属性変更 puts up ファイル選択");
+    /* ファイル操作 の四つは表側の窓になった（tests/fileops_test.c） */
     copy_attributes();
     block_name_over_zokusel();
     keypad();

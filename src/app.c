@@ -3691,11 +3691,18 @@ static int td_nitems, td_dl = -1;
 static const struct { unsigned short cmd, tpl; } TD_CMD[] = {
     { 59392, 273 },     /* 表示 > ツールバー -- ツールバーの表示 */
     { 57664, 100 },     /* ヘルプ > バージョン情報 */
-    { 32977, 368 },     /* ファイル操作 > ファイル一括変換 */
-    { 32979, 371 },     /* ファイル操作 > ファイル名変更 -- ファイル選択 */
-    { 32980, 371 },     /* ファイル操作 > ファイル削除 -- ファイル選択 */
-    { 32984, 371 },     /* ファイル操作 > ファイル属性変更 -- ファイル選択 */
+    /* ファイル操作 の 32977・32979・32980・32984 は表側の仕事（fo_command） */
 };
+
+/* src/fileops.h（この頁の終わりで読む）の窓 */
+static int lyl_open;
+static int lyl_ren;
+static int lyl_start(int kind);
+static int lyl_press(int x, int y, int button);
+static void lyl_paint(void);
+static void lyl_ren_close(int ok);
+static int fo_info_clip(void);
+static int fo_command(int cmd);
 
 int app_tdlg_open(void)
 {
@@ -4083,6 +4090,10 @@ static int press_tdlg(int x, int y)
         return 0;                       /* outside it: the dialog is modal */
     if (td_tpl == 342 && za_press(id))
         return 1;
+    if (td_tpl == 373 && lyl_ren >= 0 && (id == 1 || id == 2)) {
+        lyl_ren_close(id == 1);         /* レイヤ一覧 の名前 */
+        return 1;
+    }
     if (td_tpl == 340 && (id == 1 || id == 2)) {
         bn_close(id == 1);
         return 1;
@@ -4569,6 +4580,10 @@ static int td_key(int c)
     }
     if ((c == 13 || c == 27) && td_tpl == 351) {
         ms_close(c == 13);
+        return 1;
+    }
+    if ((c == 13 || c == 27) && td_tpl == 373 && lyl_ren >= 0) {
+        lyl_ren_close(c == 13);
         return 1;
     }
     if (c == 13 && td_tpl == 314) {     /* 数値入力's OK writes back */
@@ -5608,6 +5623,17 @@ int app_command(int cmd)
     case 32988:                         /* 表示 > ブロックツリー */
         bt_start();
         return 1;
+    case 32987:                         /* 図面情報コピー（src/fileops.h） */
+        return fo_info_clip();
+    case 32977:                         /* ファイル一括変換 */
+    case 32979:                         /* ファイル名変更 */
+    case 32980:                         /* ファイル削除 */
+    case 32984:                         /* ファイル属性変更 */
+        return fo_command(cmd);
+    case 32917:                         /* レイヤ一覧 */
+        return lyl_start(1);
+    case 32916:                         /* レイヤグループ一覧 */
+        return lyl_start(2);
     case 32995:                         /* 表示 > ブロックツリー半透明化 */
         /* A switch.  Turning it on puts 透過率 (DIALOG 384) up; the flag is
            already on when it does, so キャンセル leaves it on at the old
@@ -6014,6 +6040,8 @@ int app_press(int x, int y, int button)
         return press_kj(x, y);
     if (td_open)
         return td_tpl == 314 ? press_kp(x, y, button) : press_tdlg(x, y);
+    if (lyl_open)
+        return lyl_press(x, y, button);
     if (zoku_open)
         return press_zoku(x, y);
     if (moji_open)
@@ -6301,7 +6329,8 @@ static int dialog_open(void)
 {
     return mb_open || mb3_open || zoku_open || moji_open || zsel_open || blk_open || be_open
            || jk_open || sd_open || br_open || kh_open || zhen_open
-           || sk_open || ld_open || td_open || tgp_open || kj_open;
+           || sk_open || ld_open || td_open || tgp_open || kj_open
+           || lyl_open;
 }
 
 /* What the menu says about an item: bit 0 ticked, bit 1 greyed.  It is the
@@ -6348,6 +6377,8 @@ int app_menu_state(int id)
 #ifdef __EMSCRIPTEN__
     case 32954:                         /* no Notepad in a browser */
         return 2;
+    case 32977: case 32979: case 32980: case 32984:
+        return 2;                       /* ファイル操作: ブラウザにファイルは無い */
 #endif
     }
     return 0;
@@ -6371,6 +6402,8 @@ static void dialog_close(void)
     td_open = 0;
     tgp_open = 0;
     kj_open = 0;
+    lyl_open = 0;
+    lyl_ren = -1;
     sd_caret = 0;
     sd_edit[0] = 0;
 }
@@ -7443,6 +7476,7 @@ void app_paint(void)
         ui_colordlg(&fb, &cd);
     if (jk_open)
         ui_jikkaku(&fb, jk_angle, jk_on, 1);
+    lyl_paint();                        /* レイヤ一覧（名前の窓 373 はその上） */
     if (td_open) {
         ui_tdlg(&fb, td_t, td_on, td_txtp, td_caret);
         if (td_dl >= 0)
@@ -7520,3 +7554,6 @@ unsigned char *app_rgba(void)
 {
     return rgba;
 }
+
+/* ファイル操作・図面情報コピー・レイヤ一覧（app.c の static を使う） */
+#include "fileops.h"

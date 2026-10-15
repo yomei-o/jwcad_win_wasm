@@ -108,7 +108,11 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
           ありません」） */
        JW_ACT_OPEN_FIG,
        /* Jw_cadの終了 (57665): 表側が窓を閉じる（保存の問いは WM_CLOSE の側） */
-       JW_ACT_EXIT };
+       JW_ACT_EXIT,
+       /* ファイル名変更・削除・属性変更・一括変換 (32979・32980・32984・32977):
+          ネイティブの表側がファイルを選んで行う（app_fileops_kind、
+          src/fonative.h）。ブラウザでは押せない */
+       JW_ACT_FILEOPS };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
@@ -306,5 +310,18 @@ int  app_blktree_all(void);
 int  app_menu_state(int id);
 /* タグジャンプ: the text of the one that was picked, in CP932 */
 const char *app_tag_name(void);
+
+/* ファイル操作・図面情報コピー・レイヤ一覧（src/fileops.h） */
+int  app_fileops_kind(void);            /* JW_ACT_FILEOPS の命令の番号 */
+/* 一括変換の一つ: ext（"jww" "jwc" "dxf" "sfc"）のバイトを to（0 .jww 1 .jwc
+   2 .dxf 3 .sfc）に。name は SFC の FILE_NAME。呼び手が *out を free */
+int  app_fo_convert(const unsigned char *b, long n, const char *ext, int to,
+                    const char *name, unsigned char **out, long *on);
+/* 図面情報コピー の文書の道（CP932、無題なら ""）。ネイティブが開くたびに */
+void app_doc_path(const char *path);
+int  app_zumen_info(char *s, int cap);  /* いまの 図面情報（CP932） */
+int  app_laylist_open(void);            /* 0、1 レイヤ一覧、2 レイヤグループ一覧 */
+int  app_laylist_sel(void);             /* 選んでいる升目（-1 は無し） */
+void app_laylist_pane(int i, rect_t *p);    /* i 番の子窓の画素の箱 */
 
 #endif

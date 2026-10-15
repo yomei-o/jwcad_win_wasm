@@ -641,6 +641,8 @@ int  jw_cmd_gaibu_preview(const jw_drawing *d, jw_drawing *out);   /* the rubber
 
 int  jw_cmd_clip_get(const unsigned char **b, long *n);
 int  jw_cmd_clip_set(const unsigned char *b, long n);
+/* 図面情報コピー (32987): 字（CP932）だけを控えに。図形の控えは捨てる */
+int  jw_cmd_text_clip(const char *s);
 
 /* 連続線 の 手書線 (1774): the button down is jw_cmd_point; while it is held, each move
    goes to jw_cmd_drag (a line for every 5 pixels the mouse has gone) and the button

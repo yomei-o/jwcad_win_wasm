@@ -268,6 +268,12 @@ static void sync_doc(void)
     }
     (void)dot;
     app_doc(dir, stem);
+    {   /* 図面情報コピー の道（文書の m_strPathName） */
+        char pth[MAX_PATH * 2];
+
+        WideCharToMultiByte(932, 0, current_path, -1, pth, (int)sizeof pth, NULL, NULL);
+        app_doc_path(pth);
+    }
     if (main_wnd) {                     /* the window's own title (task bar, Alt+Tab) */
         wchar_t title[MAX_PATH + 32];
         const wchar_t *nm = w + (last >= 0 ? last + 1 : 0);
@@ -1216,6 +1222,7 @@ static void clip_put(HWND wnd)
    dialog.  Only 開く changes what is on screen. */
 static void settings_save(void);
 
+static int fo_run(HWND wnd);            /* src/fonative.h */
 static int do_action1(HWND wnd);
 
 static int do_action(HWND wnd)
@@ -1294,6 +1301,8 @@ static int do_action1(HWND wnd)
     case JW_ACT_CLIP_PUT:
         clip_put(wnd);
         return 1;                       /* 切り取り は図面を変えている */
+    case JW_ACT_FILEOPS:
+        return fo_run(wnd);             /* src/fonative.h */
     case JW_ACT_GAIBU:
         return pick_gaibu(wnd);
     case JW_ACT_GAIBU_RUN:
@@ -1768,6 +1777,7 @@ static int print_gdi(HWND wnd)
 }
 
 #include "prnative.h"                   /* 印刷の窓・プリンタの設定・出力方法設定・連続印刷 */
+#include "fonative.h"                   /* ファイル名変更・削除・属性変更・一括変換 */
 
 /* The right button does two jobs: dragged it moves the drawing, clicked it is
  * a point for the command in force -- which is what the original's status
