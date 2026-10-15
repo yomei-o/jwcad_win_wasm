@@ -137,6 +137,54 @@ int main(void)
     ck(near(at(0)->d[0], 100.0) && near(at(0)->d[1], 20.0)
        && near(at(1)->d[1], 10.0) && near(at(2)->d[1], 0.0), "  横だけ揃う");
 
+    /* FUN_00477000 の 文字数 n の流し込み（0x47746a〜0x47818c）と
+       FUN_0047da20 の切り方。幅は 2n（全角 2・半角 1） */
+    printf("行間 10・文字数 2 で流し込む:\n");
+    setup("ABC", "AB", "ABCD");
+    jw_cmd_bar(d, 1071);
+    jw_cmd_box_put(1418, "10 , 2");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 100.0, 50.0, 0);
+    ck(d->ndrawn == before, "  AB+ABC+ABCD が 4 ずつで三つ");
+    ck(!strcmp(str(at(0)), "ABAB") && !strcmp(str(at(1)), "CABC")
+       && !strcmp(str(at(2)), "D"), "  ABAB / CABC / D");
+    ck(near(at(0)->d[1], 50.0) && near(at(1)->d[1], 40.0) && near(at(2)->d[1], 30.0)
+       && near(at(0)->d[2], 104.0) && near(at(2)->d[2], 101.0), "  行間ごとに、長さは新しい字で");
+    ck(!strcmp(jw_cmd_box(1418), "10 , 2"), "  箱は 10 , 2 のまま");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == before && !strcmp(str(at(2)), "ABCD") && near(at(2)->d[0], -5.0),
+       "  戻すと元の三つ");
+
+    printf("\"^m\" で切る:\n");
+    setup("X", "AB^mCD", "Y");
+    jw_cmd_bar(d, 1071);
+    jw_cmd_box_put(1418, "10 , 10");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 100.0, 50.0, 0);
+    o = &d->obj[d->ndrawn - 2];
+    ck(d->ndrawn == before - 1, "  三つ消して二つ");
+    ck(!strcmp(str(o), "AB^m") && !strcmp(str(o + 1), "CDXY"),
+       "  \"^m\" までで一つ、残りは後ろと繋がる");
+    ck(near(o->d[1], 50.0) && near(o[1].d[1], 40.0), "  10 下へ");
+
+    printf("全角と行頭禁則:\n");
+    /* あいう。え（SJIS）、文字数 3 = 幅 6: 「。」は前の行に入る */
+    setup("P", "\x82\xa0\x82\xa2\x82\xa4\x81\x42\x82\xa6", "Q");
+    jw_cmd_bar(d, 1071);
+    jw_cmd_box_put(1418, "10 , 3");
+    jw_cmd_point(d, app_view(), 100.0, 50.0, 0);
+    o = &d->obj[d->ndrawn - 2];
+    ck(!strcmp(str(o), "\x82\xa0\x82\xa2\x82\xa4\x81\x42")
+       && !strcmp(str(o + 1), "\x82\xa6PQ"), "  あいう。 / えPQ");
+    setup("P", "A\x82\xa0\x82\xa2", "Q");
+    jw_cmd_bar(d, 1071);
+    jw_cmd_box_put(1418, "10 , 2");
+    jw_cmd_point(d, app_view(), 100.0, 50.0, 0);
+    o = &d->obj[d->ndrawn - 2];
+    ck(!strcmp(str(o), "A\x82\xa0") && !strcmp(str(o + 1), "\x82\xa2PQ"),
+       "  全角が幅をまたぐならその字の前で切る");
+    jw_cmd_box_put(1418, "10 , 0");
+
     printf("軸角 90:\n");
     setup("ABC", "AB", "ABCD");
     jw_cmd_set_axis(90.0);
