@@ -140,6 +140,10 @@ WANT = [
     (10171, 'transparent colour: the picture to set it on'),
     (5410, 'parametric: a typed offset -- confirm with (L) or Enter'),
     (6010, 'parametric: done (the message after each change)'),
+    (5388, 'the base line of a stretch all at once'),
+    (5389, 'the first base line of an erase all at once, or its first line'),
+    (5390, 'the second base line of an erase all at once'),
+    (5601, 'point: free (LL), Read (R)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

@@ -225,11 +225,142 @@ static void protrude(void)
     }
 }
 
+/* 一括処理 (1064)。伸縮・消去とも CIkktuDialog の 1064 → 25 番目、処理実行
+   1065 → 26 番目、段は助け手 FUN_005637b0（左）・FUN_00564350（右）、
+   範囲は FUN_00562d40、実行は 消去 FUN_0070ce00・伸縮 FUN_00716b20。
+   逆コンパイルの読み、原典では押していない。 */
+static int bar_has(int want)
+{
+    int i, id, k, x, y, w, h;
+
+    for (i = 0; ui_bar_item(i, &id, &k, &x, &y, &w, &h); i++)
+        if (id == want)
+            return 1;
+    return 0;
+}
+
+static void ikk_stretch(void)
+{
+    jw_drawing *d;
+    double vx, x4;
+    int i;
+
+    fresh();
+    d = (jw_drawing *)app_drawing();
+    line(700, 200, 700, 400);           /* 0: 基準線 */
+    line(300, 250, 500, 250);           /* 1〜3: 始線から終線までの線 */
+    line(300, 300, 500, 300);
+    line(300, 350, 500, 350);
+    line(300, 450, 500, 450);           /* 4: 範囲の外 */
+    vx = obj(0)->d[0];
+    x4 = obj(4)->d[2];
+    app_command(32791);
+    ck(jw_cmd_bar_enabled(d, 1064) > 0 && !bar_has(1065), "ikk: 伸縮の 一括処理 は生き、処理実行 は無い");
+    ck(jw_cmd_bar(d, 1064), "ikk: 一括処理 を押す");
+    ck(!strncmp(jw_cmd_prompt(), JW_STR_5388, strlen(JW_STR_5388)), "ikk: 基準線の問い 5388");
+    ck(bar_has(1065) && jw_cmd_bar_enabled(d, 1065) == 0, "ikk: 処理実行 が出て、まだ死んでいる");
+    press(700, 380, 0);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5391), "ikk: 始線の問い 5391");
+    press(400, 250, 0);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5392), "ikk: 終線の問い 5392");
+    press(400, 350, 0);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5393), "ikk: 追加・除外の問い 5393");
+    ck(jw_cmd_sel_count(d) == 3, "ikk: 始線から終線まで三本選ぶ");
+    ck(jw_cmd_bar_enabled(d, 1065) > 0, "ikk: 処理実行 が生きる");
+    ck(jw_cmd_bar(d, 1065), "ikk: 処理実行");
+    for (i = 1; i <= 3; i++)
+        ck(near_(obj(i)->d[2], vx), "ikk: 選んだ線の右端が基準線まで");
+    ck(near_(obj(4)->d[2], x4), "ikk: 範囲の外の線はそのまま");
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5336) && jw_cmd_sel_count(d) == 0,
+       "ikk: 一回きりで素の伸縮へ戻る");
+    jw_cmd_undo(d);
+    ck(near_(obj(1)->d[2], x4) && near_(obj(3)->d[2], x4), "ikk: 戻る一度で三本とも戻る");
+
+    /* (R) 読取点を基準点に: 線の端点 (700,200) の x へ */
+    app_command(32791);
+    jw_cmd_bar(d, 1064);
+    press(700, 200, 1);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5391), "ikk: (R) で基準点、始線の問いへ");
+    press(400, 250, 0);
+    press(400, 300, 0);
+    press(1100, 600, 1);                /* 段 5 の (R) は確定 */
+    ck(near_(obj(1)->d[2], vx) && near_(obj(2)->d[2], vx) && near_(obj(3)->d[2], x4),
+       "ikk: 基準点まで伸びる");
+}
+
+static int horiz_over(double y, double x)
+{
+    const jw_drawing *d = app_drawing();
+    int i;
+
+    for (i = n0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        if (o->cls == JW_SEN && near_(o->d[1], y) && near_(o->d[3], y)
+            && ((o->d[0] < x && x < o->d[2]) || (o->d[2] < x && x < o->d[0])))
+            return 1;
+    }
+    return 0;
+}
+
+static void ikk_erase(void)
+{
+    jw_drawing *d;
+    double xm, y1, y2, y4;
+
+    fresh();
+    d = (jw_drawing *)app_drawing();
+    line(500, 200, 500, 450);           /* 0・1: 基準線 */
+    line(700, 200, 700, 450);
+    line(300, 250, 900, 250);           /* 2〜4 */
+    line(300, 300, 900, 300);
+    line(300, 350, 900, 350);
+    line(300, 500, 900, 500);           /* 5: 範囲の外 */
+    xm = (obj(0)->d[0] + obj(1)->d[0]) / 2.0;
+    y1 = obj(2)->d[1];
+    y2 = obj(3)->d[1];
+    y4 = obj(5)->d[1];
+    app_command(32794);
+    ck(jw_cmd_bar_enabled(d, 1064) > 0, "ikk: 消去の 一括処理 は生きる");
+    jw_cmd_bar(d, 1064);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5389), "ikk: 消し始めの基準線 5389");
+    press(500, 430, 0);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5390), "ikk: 消し終りの基準線 5390");
+    press(700, 430, 0);
+    press(400, 250, 0);
+    press(400, 350, 0);
+    ck(jw_cmd_sel_count(d) == 3, "ikk: 三本選ぶ");
+    press(1100, 600, 1);
+    ck(!horiz_over(y1, xm) && !horiz_over(y2, xm) && horiz_over(y4, xm),
+       "ikk: 基準線の間が消え、範囲の外は残る");
+    ck(d->ndrawn - n0 == 6 + 3, "ikk: 三本とも二つに分かれる");
+    jw_cmd_undo(d);
+    ck(d->ndrawn - n0 == 6 && horiz_over(y1, xm), "ikk: 戻る一度で元どおり");
+
+    /* 基準線なし（(R) で始線）: 選んだ線を消す */
+    jw_cmd_bar(d, 1064);
+    press(400, 250, 1);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5392), "ikk: (R) の始線で終線の問いへ");
+    press(400, 300, 0);
+    jw_cmd_bar(d, 1065);
+    ck(d->ndrawn - n0 == 4 && !horiz_over(y1, xm) && !horiz_over(y2, xm),
+       "ikk: 一括消去 は二本を消す");
+
+    /* 戻る で段を戻る */
+    jw_cmd_bar(d, 1064);
+    press(500, 430, 0);
+    app_command(JW_CMD_UNDO);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5389), "ikk: 戻る で基準線の段へ");
+    app_command(JW_CMD_UNDO);
+    ck(strcmp(jw_cmd_prompt(), JW_STR_5389) != 0, "ikk: もう一度で 一括をやめる");
+}
+
 int main(void)
 {
     base_line();
     cut_move();
     protrude();
+    ikk_stretch();
+    ikk_erase();
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }

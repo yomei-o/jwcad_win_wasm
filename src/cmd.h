@@ -332,6 +332,9 @@ int  jw_cmd_zokuhen_range(jw_drawing *d, int to_layer, int to_group,
 int  jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n);
 int  jw_cmd_figure_ready(void);
 
+/* 伸縮・消去の 一括処理 (1064) の途中か（バーに 処理実行 1065 を出す） */
+int  jw_cmd_ikkatsu(void);
+
 /* The figure as it hangs off the cursor before the point that puts it
  * down.  The original paints it the whole time, in 仮表示, where the
  * click would put it, and goes on painting it after one has been placed
