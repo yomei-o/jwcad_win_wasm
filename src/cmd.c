@@ -629,6 +629,26 @@ static double bk_p2x, bk_p2y;   /* corner_step==2: 第二点 P2 */
 static int bk_a_enko;           /* corner_step==1 かつ corner_obj>=0: 指示した
                                     のが円なら 1、線なら 0（jw_cmd_prompt は
                                     jw_drawing を持たないのでここに控える） */
+/* 分割の補助設定（逆コンパイルの読み、原典では押していない）。線（Ａ）を
+ * 指示したあと（+0xc0==2・+0xac==0・Ａが CDataSen・割付 +0x7e84 も 等角度
+ * +0xb8 も 0）だけ、バーに 3 つの釦が出る（FUN_00763bf0 → FUN_00417640(-1)
+ * が テンプレート 299 の隠れた 1066・1064・1065 に 文字列 5611・5612・5609 を
+ * 書いて見せる）。押すと WM 0x1403/0x1401/0x1402 → 命令の仮想関数 27/25/26
+ * 番目（FUN_00763ee0・FUN_00763cd0・FUN_00763d20）で旗が切り替わる。同じ
+ * 三つはクロックメニュー（FUN_007637e0 の 1・2・3 時）からも切り替わる。
+ * 旗は Ａを指示し直すとき（FUN_00764910）と分割のあと（FUN_007668f0）に戻る。
+ *   bk_gyaku   +0xa8   逆分割: 組んだ線Ｂの端を入れ替える（交差に組む）
+ *   bk_senchou +0x7eb0 線長割合分割: 長い線から短い線へ、間隔を線の長さの
+ *                      割合で縮める（負の分割数と同じ割付、r=短/長）
+ *   +0x7eb4 馬目地分割は 縦分割数の窓と FUN_00767990（7,693 バイト）が
+ *   要るので入れていない（釦は出すが押せない）。 */
+static int bk_gyaku, bk_senchou;
+/* 分割数が負（逆分割、+0x7e98）のときの割付。FUN_007668f0 が r（+0x7ea0）を
+ * |分割数| の端数（0.001 未満なら 1）にし、FUN_007674b0 が 刻み
+ * bk_step=(1-r)/count と全長を出し、FUN_007697b0 が i 番目の間隔
+ * 1-(i-1)×刻み を返す（最初の間隔 1、最後の間隔 r）。 */
+static int bk_neg;
+static double bk_r = 1.0, bk_step;
 static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
 static int tk2_n;               /* ２辺: 取った点の数 */
 static int tk_pickmode;          /* 任意: 円・連続線指示 (1083) の間 */
@@ -3135,6 +3155,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU || id == JW_CMD_FUKUSEN)
         box_put(1411, "");      /* asking for it again empties the box (s4_10; 複線 s7_66、tmp/dc7 h2) */
     bk_rr_n = 0;                /* FUN_0075b070: +0x138 = 0 */
+    bk_gyaku = bk_senchou = 0;  /* 分割の補助設定（FUN_007619c0 で 0） */
     step = 0;
     en_step = 0;
     hou_step = 0;
@@ -6577,43 +6598,94 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
  * of the way, the last gap the short one; and 4 gives the three at the
  * quarters it always did.
  *
- * A negative 分割数 is 逆分割 (it sets +0x7e98), whose gaps grow or shrink
- * along the way; that is not done here, and nor is an empty box, which
- * FUN_0058cc80 may read as 0 and so as 1.01 -- that has not been asked.
+ * A negative 分割数 is 逆分割 (it sets +0x7e98): |n| divisions whose gaps
+ * shrink evenly from 1 to r, r being the fraction of |n| (bk_read_n,
+ * bk_total).  An empty box is not done: FUN_0058cc80 may read it as 0 and
+ * so as 1.01 -- that has not been asked.
  * (This used to take the box through atoi and refuse anything outside
  * 2..1000, so 2.5 drew one line at the half and 5000 drew nothing.)
  */
-/* 分割数 (1411) を読む。空欄は 2、1.01 以下は 1.01 に戻して箱へ書き戻す
- * （原典 FUN_007668f0）、10000 を超えれば箱に "10000" を書いて 0 件にする。
- * *count に floor(n)-1（端数があれば +1、FUN_007674b0）を書き、戻り値は n
- * そのもの（0 件で終わるときは 0.0）。bunkatsu() のコメントに原典の番地。 */
+/* 分割数 (1411) を読む。空欄は 2、0 は 0 件、正で 1.01 以下は 1.01 に戻して
+ * 箱へ書き戻す（原典 FUN_007668f0）。負なら逆分割（bk_neg）で、-2.01 より
+ * 0 に近ければ -2.01 に直して書き戻し、r（bk_r）は |n| の端数（0.001 未満は
+ * 1 ＝ 等分と同じ）。|n| が 10000 を超えれば箱に "10000"（負は "-10000"）を
+ * 書いて 0 件にする。*count に floor(|n|)-1（逆分割でなく端数があれば +1）を
+ * 書き、戻り値は割付の全長（bk_total、0 件で終わるときは 0.0）。k 番目の位置は
+ * bk_t(k, 戻り値)。逆コンパイルの読み、逆分割は原典では押していない。 */
+/* FUN_007674b0: n（|分割数|）と *count（floor(n)-1）から割付の全長を返す。
+ * 逆分割でなければ 端数があれば *count を一つ足して n のまま。逆分割なら
+ * 刻み bk_step=(1-r)/count、全長 (count+1) - count(count+1)/2 × 刻み。
+ * （基本設定に無い設定 S_COMM_7 の 8 番目 DAT_00a0bfa8 が 1 で 線長割合でなく
+ * 0.01≦r≦0.99 なら等比 (1-r^(count+1))/(1-r) になるが、原典の既定は 0 で
+ * 移植は .jwf からこれを読まないので、等差だけ。） */
+static double bk_total(double n, int *count)
+{
+    if (!bk_neg) {
+        if (fabs(n - (int)n) > 1e-07)
+            (*count)++;
+        return n;
+    }
+    if (*count < 1) {           /* 線長割合で 1.01 が 1 になったとき: 一本も無い */
+        *count = 0;
+        return n;
+    }
+    bk_step = (1.0 - bk_r) / (double)*count;
+    return ((double)*count + 1.0) - ((double)((*count + 1) * *count) / 2.0) * bk_step;
+}
+
+/* FUN_007697b0（等差）: i 番目（1 始まり）の間隔。逆分割でなければ 1 */
+static double bk_w(int i)
+{
+    return bk_neg ? 1.0 - ((double)i - 1.0) * bk_step : 1.0;
+}
+
+/* k 番目の分割の位置（0〜1）。bk_read_n が返した全長 n で割った、間隔の和 */
+static double bk_t(int k, double n)
+{
+    if (!bk_neg)
+        return (double)k / n;
+    return ((double)k - bk_step * (double)k * ((double)k - 1.0) / 2.0) / n;
+}
+
 static double bk_read_n(int *count)
 {
     const char *ns = jw_cmd_box(1411);
     double n = box_num(ns, 0.0);
 
+    /* 0 件の答えは bk_total を通らないので、ここで 0 件・逆分割でない形にする */
+    bk_neg = 0;
+    bk_r = 1.0;
     if (!ns || !*ns)
         n = 2.0;                /* the original divides in two when the box is blank */
-    if (n <= 0.0) {
+    if (n == 0.0) {
         *count = 0;
         return 0.0;
     }
-    if (n <= 1.01) {
+    if (n < 0.0) {
+        /* 逆分割（FUN_007668f0）: -2.01 より 0 に近ければ -2.01 に直して書き戻す */
+        bk_neg = 1;
+        if (-2.01 < n) {
+            n = -2.01;
+            box_put(1411, "-2.01");
+        }
+    } else if (n <= 1.01) {
         char t[16];
 
         n = 1.01;
         snprintf(t, sizeof t, "%.2f", n);
         box_put(1411, t);
     }
-    if (n > 10000.0) {
-        box_put(1411, "10000");
+    if (fabs(n) > 10000.0) {
+        box_put(1411, n < 0.0 ? "-10000" : "10000");
+        bk_neg = 0;
         *count = 0;
         return 0.0;
     }
+    n = fabs(n);
+    if (bk_neg && 0.001 <= n - (double)(int)n)
+        bk_r = n - (double)(int)n;
     *count = (int)n - 1;
-    if (n - (int)n > 1e-07)
-        (*count)++;
-    return n;
+    return bk_total(n, count);
 }
 
 /* 二本の線 p・q の端の組み方。二本が交わるところ（平行なら中点）を境に
@@ -6644,6 +6716,10 @@ static void bk_pair_ends(const jw_obj *p, const jw_obj *q, double ax, double ay,
 
         flipb = flip < same - 1e-9;
     }
+    /* 逆分割 (bk_gyaku、+0xa8): 組んだあと、長い横木を先にする前に Ｂ の端を
+       入れ替える（FUN_0075d660 の 0x75e4be、馬目地 +0x7eb4 のときは見ない） */
+    if (bk_gyaku)
+        flipb = !flipb;
     if (flipb) {
         tx = bx0; ty = by0;
         bx0 = bx1; by0 = by1;
@@ -6808,7 +6884,7 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
             while (da > PI) da -= 2.0 * PI;
             while (da <= -PI) da += 2.0 * PI;
             for (k = 1; k <= count; k++) {
-                double t = (double)k / n, ang = a0 + da * t, len = lp + (lq - lp) * t;
+                double t = bk_t(k, n), ang = a0 + da * t, len = lp + (lq - lp) * t;
                 jw_obj *o = jw_add(d, JW_SEN);
 
                 if (!o)
@@ -6823,6 +6899,43 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
             return;
         }
     }
+    if (bk_senchou) {
+        /* 線長割合分割 (+0x7eb0、FUN_0075d660): 短い方を Ｂ にして（Ａ が短ければ
+           二本を入れ替える）、割合 |Ｂ|/|Ａ| が 1 でなければ 分割数を floor(|n|)
+           にし、箱に -(分割数＋割合) を書いて（%.10lg、FUN_0058c7f0）その割合で
+           逆分割する。逆コンパイルの読み、原典では押していない。 */
+        double la = hypot(p->d[2] - p->d[0], p->d[3] - p->d[1]);
+        double lb = hypot(q->d[2] - q->d[0], q->d[3] - q->d[1]), ratio = 0.0;
+
+        if (la < lb) {
+            const jw_obj *t = p;
+            double tx = ax, ty = ay, tl = la;
+
+            p = q;
+            q = t;
+            ax = bx; ay = by;
+            bx = tx; by = ty;
+            la = lb;
+            lb = tl;
+        }
+        if (1e-07 < la) {
+            ratio = lb / la;
+            if (fabs(fabs(ratio) - 1.0) <= 1e-07)
+                ratio = 0.0;
+        }
+        if (1e-07 < ratio) {
+            char t[40];
+
+            /* n は全長なので、分割数の整数部は count から戻す */
+            n = bk_neg ? (double)(count + 1) : (double)(int)n;
+            snprintf(t, sizeof t, "%.10g", -(n + ratio));
+            box_put(1411, t);
+            bk_r = ratio;
+            bk_neg = 1;
+            count = (int)n - 1;
+            n = bk_total(n, &count);
+        }
+    }
     {
         double aa[4], bb[4];
 
@@ -6831,7 +6944,7 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
         bx0 = bb[0]; by0 = bb[1]; bx1 = bb[2]; by1 = bb[3];
     }
     for (k = 1; k <= count; k++) {
-        double t = (double)k / n;
+        double t = bk_t(k, n);
         jw_obj *o = jw_add(d, JW_SEN);
         if (!o)
             break;
@@ -6880,7 +6993,7 @@ static void bk_fan_line(jw_drawing *d, double px, double py, int line_idx)
             return;
     }
     for (k = 1; k <= count; k++) {
-        double t = (double)k / n;
+        double t = bk_t(k, n);
         jw_obj *o = jw_add(d, JW_SEN);
 
         if (!o)
@@ -6917,7 +7030,7 @@ static void bk_fan_from_line(jw_drawing *d, int line_idx, double ex, double ey)
     if (n <= 0.0)
         return;
     for (k = 1; k <= count; k++) {
-        double t = (double)k / n;
+        double t = bk_t(k, n);
         jw_obj *o = jw_add(d, JW_SEN);
 
         if (!o)
@@ -7097,7 +7210,7 @@ static void bk_circle_lerp(jw_drawing *d, const jw_obj *a, double ax, double ay,
         if (n <= 0.0)
             return;
         for (k = 1; k <= count; k++) {
-            double t = (double)k / n;
+            double t = bk_t(k, n);
 
             C.x = A.x + (B.x - A.x) * t;
             C.y = A.y + (B.y - A.y) * t;
@@ -7192,7 +7305,8 @@ static int bk_rr_map(double s, int *seg, double *acc, double *ox, double *oy)
  * その位置の x − P1.x を折れ線の上の距離として bk_rr_map で写す。
  *
  *   分割数（+0x7e84==0）: 一歩は (P2−P1)/n、floor(n)−1 歩（端数があれば +1、
- *       FUN_007674b0）。逆分割（負の n、+0x7e98）は bunkatsu() と同じく未対応。
+ *       FUN_007674b0）。逆分割（負の n、+0x7e98）なら i 歩目に
+ *       FUN_007697b0 の重み bk_w(i) を掛け、全長 bk_total で割る。
  *   割付 1324（+0x7e84）: 一歩は距離 1412 の向き (P2−P1)·d/L。振分 1325
  *       （+0x7e88）なら余り rem（L から d を引けるだけ引いたもの）が
  *       1e-7 < rem < d−1e-7 のとき出発を ((d−rem)/2)/d 歩ぶん手前へずらす。
@@ -7237,8 +7351,8 @@ static int bk_points_between(jw_drawing *d, double p1x, double p1y,
         sx = (p2x - p1x) / n;
         sy = (p2y - p1y) / n;
         for (k = 1; k <= count; k++) {
-            x += sx;
-            y += sy;
+            x += sx * bk_w(k);
+            y += sy * bk_w(k);
             if (!rr) {
                 made += bk_put_point(d, x, y);
             } else if (bk_rr_map(x - p1x, &seg, &acc, &ox, &oy)) {
@@ -7407,7 +7521,7 @@ static int bk_arc_walk(jw_drawing *d, double cx, double cy, double r, double a1,
         if (n <= 0.0)
             return 0;
         for (k = 1; k <= count; k++) {
-            double ang = a1 + dir * (len / r) * (double)k / n;
+            double ang = a1 + dir * (len / r) * bk_t(k, n);
 
             made += bk_put_point(d, cx + r * cos(ang), cy + r * sin(ang));
         }
@@ -12575,6 +12689,10 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return hkp_n == 0;
     if (current == JW_CMD_SOKUTEI)
         return id == 1068 ? sok_mode != SOK_ANG : 1;
+    if (current == JW_CMD_BUNKATSU && id >= 1064 && id <= 1066)
+        /* 補助設定の釦。馬目地分割 (1065) は縦分割数の窓と FUN_00767990 を
+           写していないので押せなくしておく（原典は押せる） */
+        return id != 1065 && jw_cmd_bunkatsu_hojo();
     if (current == JW_CMD_TAKAKU && tk_any) {
         /* 任意のバー: 作図 は三点から、任意色と色設定 はソリッド図形を点けて
            から（原典のバーを読んだとおり） */
@@ -12628,6 +12746,17 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 /* The presses the port acts on.  Every command's own block ends with a
    `return 0`, so this cannot be where the generic answer goes -- see
    jw_cmd_bar below. */
+/* 分割の補助設定の釦（逆分割 1066・線長割合分割 1064・馬目地分割 1065）が
+ * バーに出ているか。原典 FUN_00763bf0 の条件: 線（Ａ）を (L) で指示済み
+ * （+0xc0==2・+0xac==0、Ａが CDataSen）で、等距離分割（+0xb8==0）・割付が
+ * 切（+0x7e84==0）。逆コンパイルの読み、原典では押していない。 */
+int jw_cmd_bunkatsu_hojo(void)
+{
+    return current == JW_CMD_BUNKATSU && corner_step == 1 && corner_obj >= 0
+        && !bk_a_enko && bk_rr_n == 0 && bk_mode != 1690
+        && jw_cmd_bar_check(1324) <= 0;
+}
+
 static int bar_press(jw_drawing *d, int id)
 {
     /* 線 and 矩形 share a bar and a class (CZukeiSen): its 矩形 box is what
@@ -12899,6 +13028,19 @@ static int bar_press(jw_drawing *d, int id)
     }
     if (current == JW_CMD_BUNKATSU && (id == 1689 || id == 1690)) {
         bk_mode = id;
+        return 1;
+    }
+    if (current == JW_CMD_BUNKATSU && (id == 1064 || id == 1066)) {
+        /* 補助設定の釦: 1066 逆分割（FUN_00763ee0）・1064 線長割合分割
+           （FUN_00763cd0、馬目地は切る）。出ているときだけ効く。押したあとの
+           札（FUN_00763f20 が 「逆分割 , 線長割合分割」をカーソルのそばに
+           出す）は移植に札が無いので出さない */
+        if (!jw_cmd_bunkatsu_hojo())
+            return 0;
+        if (id == 1066)
+            bk_gyaku = !bk_gyaku;
+        else
+            bk_senchou = !bk_senchou;
         return 1;
     }
     if (current == JW_CMD_SESSEN) {
@@ -19822,6 +19964,7 @@ placed:
                 corner_x = x;
                 corner_y = y;
                 bk_a_enko = d->obj[i].cls == JW_ENKO;
+                bk_gyaku = bk_senchou = 0;      /* FUN_00764910: Ａを指すと戻る */
                 corner_step = 1;
                 return;
             }
@@ -19856,6 +19999,7 @@ placed:
                             bk_circle_fan(d, corner_obj, i);
                         }
                     }
+                    bk_gyaku = bk_senchou = 0;  /* FUN_007668f0 の終わり */
                     corner_step = 0;
                     return;
                 }
