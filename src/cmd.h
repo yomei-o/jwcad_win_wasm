@@ -244,6 +244,10 @@ int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
 int  jw_cmd_bar(jw_drawing *d, int id);
 /* Whether that button is there to be pressed, for the drawing of the bar. */
 int  jw_cmd_bar_check(int id);
+/* 接円 (32872) の 接楕円 (1065) の間: 型（10 ３点指示・20 菱形内接・30 平行四辺内接・
+   50 ３点半楕円）、型を選ぶ前は -1、接楕円でなければ 0。逆コンパイルの読み、
+   原典では押していない（src/cmd.c の sde_ の塊の前の注） */
+int  jw_cmd_setsudaen(void);
 int  jw_cmd_tenku_ask(void);                     /* 測定点が建物の内側: 問いを出すか（一度だけ 1） */
 void jw_cmd_tenku_answer(jw_drawing *d, int ans);
 int  jw_cmd_tenku_north_ask(void);               /* 太陽軌跡で真北が無い: 問いを出すか（一度だけ 1） */

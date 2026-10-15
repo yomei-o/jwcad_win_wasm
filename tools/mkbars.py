@@ -38,7 +38,12 @@ import re
 # bars, which are the same two dialogs.  See the file's own head.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
        'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt',
-       'decomp/res/bars7.txt', 'decomp/res/bars8.txt', 'decomp/res/bars9.txt']
+       'decomp/res/bars7.txt', 'decomp/res/bars8.txt', 'decomp/res/bars9.txt',
+       'decomp/res/bars10.txt']
+# bars10.txt is 接円's bar after 接楕円 (1065): DIALOG 310 (CButton9Dlg) with
+# the buttons CZukeiSetuDaEn's FUN_006417d0 labels, at the positions 測定's
+# captured CButton9Dlg bar has.  Likewise *not* read out of the original --
+# put together from the decompile; see the file's own head.
 # bars9.txt is 範囲選択's bar after 文字位置･集計 (1071), likewise DIALOG 278
 # laid out by that rule, with the controls FUN_005c9c30(1) shows.
 # bars8.txt is the print command's bar (印刷範囲を設定 32851), likewise not

@@ -1000,6 +1000,14 @@ static const jw_ctl_t jw_bar_32787_9020[] = {
     {  713,   5,   79,  24,  1115, JW_CTL_BUTTON, 0, 0, 1, "\x95\xb6\x8e\x9a\x8c\x9f\x8d\xf5" },
 };
 
+static const jw_ctl_t jw_bar_32872_9021[] = {
+    {    6,   5,   82,  24,  1064, JW_CTL_BUTTON, 0, 0, 1, "<<" },
+    {  174,   5,   82,  24,  1066, JW_CTL_BUTTON, 0, 0, 1, "\x82R\x93_\x8ew\x8e\xa6" },
+    {  258,   5,   82,  24,  1067, JW_CTL_BUTTON, 0, 0, 1, "\x95H\x8c`\x93\xe0\x90\xda" },
+    {  347,   5,   82,  24,  1068, JW_CTL_BUTTON, 0, 0, 1, "\x95\xbd\x8ds\x8el\x95\xd3\x93\xe0\x90\xda" },
+    {  437,   5,   82,  24,  1069, JW_CTL_BUTTON, 0, 0, 1, "\x82R\x93_\x94\xbc\x91\xc8\x89~" },
+};
+
 typedef struct {
     unsigned int cmd;      /* 100000 + it for the bar the
                               command puts up once a range
@@ -1101,7 +1109,8 @@ static const jw_bar_t jw_bars[] = {
     { 132898,    0, 0,  9, jw_bar_132898 },
     {  32851,    0, 0, 10, jw_bar_32851 },
     {  32787, 9020, 0,  5, jw_bar_32787_9020 },
+    {  32872, 9021, 0,  5, jw_bar_32872_9021 },
 };
-#define JW_NBARS 85
+#define JW_NBARS 86
 
 #endif
