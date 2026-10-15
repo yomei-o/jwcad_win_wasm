@@ -9010,6 +9010,167 @@ static void sel_box(jw_drawing *d, int with_text)
         sel_cut_box(d, x0, y0, x1, y1);
 }
 
+/* 範囲選択の始点の (R)「連続線をﾏｳｽ(R)で」.  逆コンパイルの読み、原典では
+ * 押していない.  CZukeiSentaku の右（vtable 11 番 FUN_006fda70）は始点の前
+ * なら FUN_0040deb0 へ行き、そこは何でも拾って（FUN_0044a270 の 0）、
+ *  - 曲線属性の印（要素の +0x04、ここの id）があればその組をまるごと
+ *    （FUN_0040f580: 拾ったのが選ばれていれば組ごと外す、でなければ組ごと選ぶ）
+ *  - なければ FUN_0040f830 で拾い直して（線・円弧、FUN_0044a270 の 3）連続線。
+ * ハッチの範囲選択（CZukeiHachi 11 番 FUN_00675620 の +0x208 の枝）も同じ
+ * FUN_006fda70 を呼ぶ.  原典の 曲線属性 の枝はブロックも拾うが、移植の
+ * jw_pick はブロックを拾わないのでその枝は無い.
+ *
+ * FUN_0040f830 のつなぎ方:
+ *  - 端点は仮想関数 13 番。円弧は始角と始角+開き角の点（扁平・傾きも）で、
+ *    全円は端点なし（FUN_0043af40）。線は両端（FUN_0043ae00、ソリッドもこれ）。
+ *    拾ったものの端点が二つ無ければ何もしない（全円を右で押しても始まらない）
+ *  - つなぐ相手は線（CDataSen）と円弧（CDataEnko）だけ。拾ったもの自身、
+ *    flags の 0x20（ハッチの印）、編集できないレイヤ（FUN_0042dd10）、
+ *    曲線属性の付いたもの（+0x04 が 0 でない）は外す
+ *  - 端点の一致は x・y それぞれ差が 1e-6 未満
+ *  - まず拾ったものの終点から歩く。毎回図面の頭から探して、始点か終点が
+ *    今の点に合う最初のもの（データ順で先のもの）を取り、その反対の端へ
+ *    進む。分岐は先のものだけが続く。今の点が拾ったものの始点に戻れば
+ *    閉じた輪で終わり。行き止まりなら一度だけ始点から逆向きに歩く
+ *    （今度は拾ったものの終点に着けば終わり）。足取りは 2000 回で打ち切り
+ *  - 拾ったものが選ばれていたら連なりごと外し、でなければ選ばれていない
+ *    ものだけ選ぶ（+0x5a を見て FUN_00454ee0）.
+ * 移植の選択は sel と flags の bit 1（値 2）を一緒に立てる（sel_clear と同じ）.
+ * 返すのは受け付けたか（原典は受けたら +0xc を立てて選択の段へ進む）. */
+static int chain_ends(const jw_obj *o, double *x, double *y)
+{
+    if (o->cls == JW_ENKO) {
+        double r = o->d[2], a0 = o->d[3], sw = o->d[4];
+        double c = cos(o->d[5]), s = sin(o->d[5]);
+        double fl = o->d[6] > 0.0 ? o->d[6] : 1.0;
+        int k;
+
+        if (sw == 0.0 || fabs(fabs(sw) - 2.0 * PI) <= 1e-7)
+            return 0;           /* 全円 */
+        for (k = 0; k < 2; k++) {
+            double t = a0 + (k ? sw : 0.0);
+            double u = r * cos(t), w = fl * r * sin(t);
+
+            x[k] = o->d[0] + u * c - w * s;
+            y[k] = o->d[1] + u * s + w * c;
+        }
+    } else {
+        x[0] = o->d[0];
+        y[0] = o->d[1];
+        x[1] = o->d[2];
+        y[1] = o->d[3];
+    }
+    return fabs(x[1] - x[0]) <= 1e-7 && fabs(y[1] - y[0]) <= 1e-7 ? 1 : 2;
+}
+
+static int chain_at(double ax, double ay, double bx, double by)
+{
+    return fabs(ax - bx) < 1e-6 && fabs(ay - by) < 1e-6;
+}
+
+static void chain_mark(jw_obj *o, int off)
+{
+    if (off) {
+        o->flags = (unsigned short)(o->flags & ~2u);
+        o->sel = 0;
+    } else if (!o->sel) {
+        o->flags = (unsigned short)(o->flags | 2u);
+        o->sel = 1;
+    }
+}
+
+/* `clear`: the port drops what is left picked first, the way its (L) at the
+   始点 does (sel_clear), but only once something was hit */
+static int sel_rpick(jw_drawing *d, const jw_view *v, double x, double y,
+                     int clear)
+{
+    double sx[2], sy[2], cx, cy, tx, ty;
+    char *seen;
+    int k, i, n, off, first = 1, steps = 0, found = 1;
+
+    if (!d)
+        return 0;
+    k = jw_pick(d, v, x, y, 0);
+    if (k < 0 || k >= d->ndrawn)
+        return 0;
+    if (d->obj[k].id != 0) {    /* 曲線属性: the whole group (FUN_0040f580) */
+        int id = d->obj[k].id;
+
+        off = d->obj[k].sel != 0;
+        if (clear) {
+            sel_clear(d);
+            off = 0;
+        }
+        for (i = 0; i < d->ndrawn; i++)
+            if (d->obj[i].id == id && (off || jw_pick_editable(d, &d->obj[i])))
+                chain_mark(&d->obj[i], off);
+        return 1;
+    }
+    k = jw_pick(d, v, x, y, 3);
+    if (k < 0 || k >= d->ndrawn
+        || (d->obj[k].cls != JW_SEN && d->obj[k].cls != JW_ENKO
+            && d->obj[k].cls != JW_SOLID)
+        || chain_ends(&d->obj[k], sx, sy) < 2)
+        return 0;
+    off = d->obj[k].sel != 0;
+    if (clear) {
+        sel_clear(d);
+        off = 0;
+    }
+    n = d->ndrawn;
+    seen = (char *)malloc((size_t)n + 1);
+    if (!seen)
+        return 0;
+    for (i = 0; i < n; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        seen[i] = i == k || (o->flags & 0x20) || o->id != 0
+                  || (o->cls != JW_SEN && o->cls != JW_ENKO)
+                  || !jw_pick_editable(d, o);
+    }
+    chain_mark(&d->obj[k], off);
+    cx = sx[1];                 /* from its end, until it comes back to its start */
+    cy = sy[1];
+    tx = sx[0];
+    ty = sy[0];
+    while (found) {
+        found = 0;
+        for (i = 0; i < n; i++) {
+            double ex[2], ey[2];
+
+            if (seen[i] || !chain_ends(&d->obj[i], ex, ey))
+                continue;
+            if (chain_at(ex[0], ey[0], cx, cy)) {
+                found = 1;
+                cx = ex[1];
+                cy = ey[1];
+            } else if (chain_at(ex[1], ey[1], cx, cy)) {
+                found = 2;
+                cx = ex[0];
+                cy = ey[0];
+            } else
+                continue;
+            seen[i] = 1;
+            chain_mark(&d->obj[i], off);
+            break;
+        }
+        if (chain_at(cx, cy, tx, ty))
+            break;              /* a closed ring */
+        if (++steps > 2000)
+            break;
+        if (!found && first) { /* a dead end: the other way, from its start */
+            found = 1;
+            first = 0;
+            cx = sx[0];
+            cy = sy[0];
+            tx = sx[1];
+            ty = sy[1];
+        }
+    }
+    free(seen);
+    return 1;
+}
+
 int jw_cmd_sel_stage(void)
 {
     return sel_step;
@@ -18044,8 +18205,14 @@ placed:
     if (range_cmd(current)) {
         switch (sel_step) {
         case 0:
-            if (button != 0)    /* (R) picks a 連続線, which is not done */
+            if (button != 0) {  /* (R): 連続線 (sel_rpick) */
+                if (sel_rpick(d, v, x, y, !sel_keep)) {
+                    sel_keep = 0;
+                    sel_sub = 0;
+                    sel_step = 2;
+                }
                 return;
+            }
             if (!sel_keep)      /* 追加範囲・除外範囲 keep what is picked */
                 sel_clear(d);
             sel_keep = 0;
@@ -18567,8 +18734,13 @@ placed:
         if (ht_sel && d) {
             /* the same two-corner box the 範囲 commands use */
             if (ht_sel == 1 || ht_sel == 3) {
-                if (button != 0)
-                    return;     /* (R) picks a 連続線, which is not done */
+                if (button != 0) {
+                    /* (R): 連続線, as 範囲選択's (sel_rpick); the hatch
+                       then takes the closed rings among what is picked */
+                    if (sel_rpick(d, v, x, y, ht_sel == 1))
+                        ht_sel = jw_cmd_sel_count(d) > 0 ? 3 : 1;
+                    return;
+                }
                 if (ht_sel == 1)
                     sel_clear(d);
                 sel_x0 = sel_x1 = x;
