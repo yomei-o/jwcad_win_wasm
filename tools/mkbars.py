@@ -39,7 +39,11 @@ import re
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
        'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt',
        'decomp/res/bars7.txt', 'decomp/res/bars8.txt', 'decomp/res/bars9.txt',
-       'decomp/res/bars10.txt']
+       'decomp/res/bars10.txt', 'decomp/res/bars11.txt']
+# bars11.txt is 接円's bar after 接楕円 (1065): DIALOG 310 (CButton9Dlg) with
+# the buttons CZukeiSetuDaEn's FUN_006417d0 labels, at the positions 測定's
+# captured CButton9Dlg bar has.  Likewise *not* read out of the original --
+# put together from the decompile; see the file's own head.
 # bars9.txt is 範囲選択's bar after 文字位置･集計 (1071), likewise DIALOG 278
 # laid out by that rule, with the controls FUN_005c9c30(1) shows.
 # bars10.txt is ２．５D's bars in its 立体 view (232937_9016・9017), DIALOG 345

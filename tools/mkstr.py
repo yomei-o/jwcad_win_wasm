@@ -175,6 +175,10 @@ WANT = [
     (6183, '(top left)'),
     (6184, '(top centre)'),
     (6185, '(top right)'),
+    (5441, 'the start of the ellipse axis (tangent ellipse, 3 points)'),
+    (5442, 'the end of the ellipse axis (tangent ellipse, 3 points)'),
+    (5443, 'a point the ellipse passes through (tangent ellipse, 3 points)'),
+    (5444, 'a side, after 1 / 2 / 3 / 4 (tangent ellipse, rhombus and parallelogram)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

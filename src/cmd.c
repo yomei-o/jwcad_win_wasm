@@ -1302,6 +1302,16 @@ static void mp_click(jw_drawing *d, const jw_view *v, double x, double y,
                      int button);
 static const char *mp_prompt(void);
 static const char *mp_label(void);
+/* 接円の 接楕円 (1065)。sek_ の塊のあと */
+static int sde_on, sde_type, sde_st;
+static void sde_off(void);
+static int sde_enter(void);
+static int sde_bar(int id);
+static void sde_click(jw_drawing *d, const jw_view *v, double x, double y,
+                      int button);
+static int sde_back(void);
+static const char *sde_prompt(void);
+static int sde_pending(jw_drawing *d, jw_obj *o, int max);
 static int hatch_chain(const jw_drawing *d);
 
 /* 元に戻る works a command at a time, not an element at a time: drawing a
@@ -3686,6 +3696,7 @@ void jw_cmd_set(int id)
     if (id == 0x8091 ? !gb_keep : id != JW_CMD_HANI)
         gb_free();                      /* a 外部変形 run does not outlive it */
     mp_off();                   /* 範囲選択の 文字位置のバーは命令をまたがない */
+    sde_off();                  /* 接円の 接楕円 も */
     ms_text = 0;
     if (id != JW_CMD_HANI)
         ms_back = ms_after = 0;
@@ -3907,6 +3918,8 @@ void jw_cmd_escape(void)
     ses_a = -1;
     sek_step = 0;
     sek_a = sek_b = -1;
+    if (sde_on && sde_type)
+        sde_st = 1;             /* 接楕円: 原典の Esc は読んでいない。型は残して段 1 へ */
     chu_step = 0;
     chu_a = chu_b = -1;
     cv_n = 0;
@@ -4188,7 +4201,7 @@ int jw_cmd_midway(void)
     case JW_CMD_FUKUSEN:   return para_step != 0;
     case JW_CMD_NISEN:     return nisen_step != 0;
     case JW_CMD_SESSEN:    return ses_step != 0;
-    case JW_CMD_SEKIEN:    return sek_step != 0;
+    case JW_CMD_SEKIEN:    return sde_on || sek_step != 0;   /* 接楕円の 戻る は sde_back */
     case JW_CMD_CHUSHIN:   return chu_step != 0;
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
     case JW_CMD_KIGOU:     return sk_step >= 1 && sk_step <= 4;
@@ -4301,6 +4314,8 @@ int jw_cmd_back(jw_drawing *d)
     }
     /* 接円 (CZukeiSetuEn, FUN_00706a20): 3 -> 2 -> 0, the second element
        and then the first -- the port's sek_step 2 and 1 */
+    if (current == JW_CMD_SEKIEN && sde_on)
+        return sde_back();      /* 接円の slot 16 → 接楕円の slot 16 */
     if (current == JW_CMD_SEKIEN && sek_step > 0) {
         sek_step--;
         if (sek_step < 2)
@@ -4875,7 +4890,7 @@ const char *jw_cmd_status(const jw_drawing *d)
     /* 接円: 一つ目・二つ目を訊く間（0x14fc・0x14fd）、半径が箱にあれば
        「    [ r = %.3lf ]」が付く（CZukeiSetuEn。箱の値の絶対値を紙の mm に
        して 1e-7 を超えるとき、実寸で。三桁区切りはない） */
-    if (current == JW_CMD_SEKIEN && (sek_step == 0 || sek_step == 1) && d) {
+    if (current == JW_CMD_SEKIEN && !sde_on && (sek_step == 0 || sek_step == 1) && d) {
         const char *t = jw_cmd_box(1411);
         double r = t ? fabs(atof(t)) : 0.0;
 
@@ -5203,6 +5218,8 @@ const char *jw_cmd_prompt(void)
             return ses_step == 0 ? JW_STR_5367 : JW_STR_5368;
         return JW_STR_5320;
     case JW_CMD_SEKIEN:
+        if (sde_on)
+            return sde_prompt();    /* 接楕円の slot 6 */
         /* CZukeiSetuEn asks for three in turn -- 0x14fc, 0x14fd, 0x14fe --
            and once a radius settles the circle it asks where to put it
            instead, 0x14ff.  (It hangs 「    [ r = %.3lf ]」 off the first
@@ -6114,6 +6131,8 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
         return gz_pending(d, o, max);
     if (current == JW_PRINT_CMD)
         return pr_pending(d, o, max);
+    if (current == JW_CMD_SEKIEN && sde_on)
+        return sde_pending(d, o, max);
 
     if (current == JW_CMD_AUTO && step > 0) {       /* 引きかけの線 */
         current = JW_CMD_SEN;
@@ -11799,6 +11818,733 @@ static void sekien3(jw_drawing *d, int c, int cpt, double x, double y)
         op_push(i);
 }
 
+/* ---- 接円 の 接楕円 (1065) --------------------------------------------------
+ *
+ * 逆コンパイルの読み、原典では押していない。接円のバーの 接楕円 (1065) は
+ * CZukeiSetuEn の slot 26 FUN_00706e50 で、多重円 (1417) の値を持たせて
+ * CZukeiSetuDaEn（FUN_00641460）を作り +0xb4 に置く。それがある間は 接円の
+ * slot 3・4・6・9・11・16・27〜32 がみなそちらへ回る。バーは CButton9Dlg
+ * （DIALOG 310）に替わり、<< (1064)・３点指示 (1066)・菱形内接 (1067)・
+ * 平行四辺内接 (1068)・３点半楕円 (1069) が出る（decomp/res/bars10.txt、
+ * 移植の番号 9021）。<< は接円の slot 25 FUN_00706d10 で、作ったものを捨てて
+ * 接円のバー（view+0x85f0）に戻す。
+ *
+ * CZukeiSetuDaEn の形（+0xb0 型、+0xac 段、+0xb4 描いた数）:
+ *   - 入った時は型が無く（+0xb0 = 0）、slot 6 FUN_00641a10 は 5403
+ *     「項目を選択してください」。1066〜1069 が slot 27〜30 で型を
+ *     10・20・30・50 にし、段を 1 に（FUN_00642720 が その釦を押し込んだ姿に
+ *     する。移植のバーの釦には押し込んだ姿が無いので出さない）。
+ *   - 10 ３点指示・50 ３点半楕円: slot 9 FUN_00642810 が (L) の自由点、slot 11
+ *     FUN_00642e80 が (R) の読取点（読めなければ何もしない）で 軸の始点・
+ *     終点・通過点 を取り（案内 5441・5442・5443）、三つ目で slot 3
+ *     FUN_006430f0 → FUN_00643340(半楕円か)。三つ目を待つ間は カーソルを
+ *     通過点にした楕円を仮に描く（slot 6）。
+ *   - 20 菱形内接: 辺を三本（FUN_0044a270(3) で拾い、直線でなければ 札 5342）、
+ *     30 平行四辺内接: 四本。案内は「1 」「  2 」「    3 」「      4 」に 5444
+ *     を足したもの（0x97805c〜0x978080 の字）。(R) も (L) と同じ。三本目
+ *     （30 は四本目）で slot 3 → FUN_006450c0・FUN_00643c30。
+ *   - slot 3 は 出来なければ 札 5205「計算できません」、出来れば
+ *     FUN_0047f220 で 多重円 の数だけ描き（sde_put）+0xb4 を一つ増やす。
+ *     どちらでも段は 1 に戻る。
+ *   - 戻る（slot 16 FUN_00641da0、接円の slot 16 FUN_00706a20 から）: 段 2・3・4
+ *     は一つ前の段へ。段 1 で描いた数が残っていればそれを一つ減らして図面の
+ *     戻る へ、無ければ +0xb4 = -1 で 接円 が slot 25（<< と同じ）で接円に戻る。
+ *     型の無い間は 描いた数が無ければ何もしない。
+ *
+ * 移植で入れていないもの: 拾った辺を桃色にする（FUN_00447b90）こと。Esc は
+ * 原典を読んでいないので、型を残して段 1 に戻すだけにした。接楕円を独りで
+ * 呼ぶ命令（tips の 32920/32921）はメニューに無いので入れていない。
+ */
+/* sde_on: CZukeiSetuDaEn がある（接円の +0xb4）、sde_type: +0xb0 の
+   0・10・20・30・50、sde_st: +0xac の段（1 から）。三つは前に宣言してある */
+static int sde_cnt;             /* +0xb4: 描いた数 */
+static double sde_mul;          /* +0x330: 入ったときの 多重円 (1417) */
+static double sde_l[4][4];      /* +0xb8・+0x120・+0x188・+0x1f0 の線の端 */
+static double sde_px[4], sde_py[4];     /* +0x2f0〜+0x320 の点 */
+
+typedef struct {
+    double cx, cy, r, st, sw, tilt, flat;
+    int whole;
+} sde_ell;
+
+/* FUN_005f97f0 などの持つ 軸の枠（原点・向き・長さ） */
+typedef struct {
+    double ox, oy, c, s, len;
+} sde_frm;
+
+static int sde_frame(sde_frm *f, double x0, double y0, double x1, double y1)
+{
+    double dx = x1 - x0, dy = y1 - y0;
+
+    f->ox = x0;
+    f->oy = y0;
+    if (fabs(dx) + fabs(dy) >= 1e-7) {
+        f->len = sqrt(dx * dx + dy * dy);
+        f->c = dx / f->len;
+        f->s = dy / f->len;
+        return 1;
+    }
+    f->c = 1.0;
+    f->s = 0.0;
+    f->len = 1.0;
+    return 0;
+}
+
+/* FUN_005f8b60 / FUN_005f8c20: 1 は図面→枠、0 は枠→図面 */
+static double sde_fx(const sde_frm *f, int in, double a, double b)
+{
+    return in ? (a - f->ox) * f->c + (b - f->oy) * f->s
+              : f->c * a - f->s * b + f->ox;
+}
+
+static double sde_fy(const sde_frm *f, int in, double a, double b)
+{
+    return in ? (b - f->oy) * f->c - (a - f->ox) * f->s
+              : f->c * b + f->s * a + f->oy;
+}
+
+/* FUN_00443e20: B は A と平行か（*par）。A が点か、B が A の上に重なれば 0 */
+static int sde_par(const double *a, const double *b, int *par)
+{
+    sde_frm f;
+    double y1, y2;
+
+    if (!sde_frame(&f, a[0], a[1], a[2], a[3]))
+        return 0;
+    *par = 0;
+    y1 = sde_fy(&f, 1, b[0], b[1]);
+    y2 = sde_fy(&f, 1, b[2], b[3]);
+    if (fabs(y1) < 0.001 && fabs(y2) < 0.001)
+        return 0;
+    if (fabs(y2 - y1) < 0.001)
+        *par = 1;
+    return 1;
+}
+
+/* FUN_004619b0: 二つの線（どちらも端無し）の交点 */
+static int sde_cross(const double *a, const double *b, double *x, double *y)
+{
+    double ex = a[2] - a[0], ey = a[3] - a[1];
+    double fx = b[2] - b[0], fy = b[3] - b[1];
+    double d4 = (b[1] - a[1]) * ex - (b[0] - a[0]) * ey;
+    double d5 = (b[3] - a[1]) * ex - (b[2] - a[0]) * ey, t;
+
+    if (fabs(d4 - d5) <= 1e-7 || fabs(d4) > fabs(d4 - d5) * 1e10)
+        return 0;
+    t = d4 / (d4 - d5);
+    *x = fx * t + b[0];
+    *y = fy * t + b[1];
+    if (fabs(*x) + fabs(*y) > 139778713.93879598)
+        return 0;
+    if (a[0] == a[2])
+        *x = a[0];
+    if (a[1] == a[3])
+        *y = a[1];
+    if (b[0] == b[2])
+        *x = b[0];
+    if (b[1] == b[3])
+        *y = b[1];
+    return 1;
+}
+
+static void sde_swap(double *a, double *b, int n)
+{
+    int i;
+
+    for (i = 0; i < n; i++) {
+        double t = a[i];
+
+        a[i] = b[i];
+        b[i] = t;
+    }
+}
+
+/* FUN_00643340: 軸の始点・終点（p[0]・p[1]）と通過点 p[2] の楕円。軸の長さの
+   半分を半径にし、通過点から扁平率を出す。扁平率が 1.001 を超えれば 短い方を
+   軸にして（終点を枠の (0, -扁平率×半径) へ）やり直す、11 回まで。
+   half は ３点半楕円: 通過点の側の半分 */
+static int sde_3pt(const double *px, const double *py, int half, sde_ell *e)
+{
+    double cx = (px[1] - px[0]) / 2.0 + px[0], cy = (py[1] - py[0]) / 2.0 + py[0];
+    double ex = px[1], ey = py[1];
+    int it, tog = 0;
+
+    for (it = 0; it < 11; it++) {
+        sde_frm f;
+        double a, u, v, k;
+        int nu, nv;
+
+        if (!sde_frame(&f, cx, cy, ex, ey))
+            return 0;
+        a = fabs(f.len);
+        u = sde_fx(&f, 1, px[2], py[2]);
+        v = sde_fy(&f, 1, px[2], py[2]);
+        nu = u < 0.0;
+        nv = v < 0.0;
+        u = fabs(u);
+        v = fabs(v);
+        if (a - u >= 1e-7)
+            k = v / sqrt(a * a - u * u);
+        else {
+            double w;
+
+            if (u < 1e-7)
+                return 0;
+            w = fabs(sde_fy(&f, 1, px[0], py[0]));
+            if (w < 1e-7)
+                return 0;
+            k = w / u;
+        }
+        if (k <= 1.001) {
+            if (fabs(k) < 0.01)
+                return 0;
+            e->cx = cx;
+            e->cy = cy;
+            e->r = a;
+            e->flat = fabs(k);
+            e->tilt = atan2(ey - cy, ex - cx);
+            e->whole = 1;
+            e->st = 0.0;
+            e->sw = 2.0 * PI;
+            if (half) {
+                e->whole = 0;
+                e->sw = PI;
+                if (!tog) {
+                    if (nv)
+                        e->sw = -PI;
+                } else {
+                    e->st = -PI / 2.0;
+                    if (nu)
+                        e->sw = -PI;
+                }
+            }
+            return 1;
+        }
+        ex = sde_fx(&f, 0, 0.0, -(k * a));
+        ey = sde_fy(&f, 0, 0.0, -(k * a));
+        tog = !tog;
+    }
+    return 0;
+}
+
+/* FUN_006450c0: 辺三本（l、拾った点 p）に内接する菱形の楕円。平行な組が
+   ちょうど一つ要り、それを l[0]・l[2] に並べ替え、l[1] との交点 Q1・Q2 から
+   l[0] の上に Q1 から辺の長さだけ（拾った点の側へ）の点 R を取る。R と Q2 が
+   対角で、その中点が中心、半径は 半対角×√2/2、扁平率は もう一つの半対角 /
+   半対角 */
+static int sde_rhombus(double l[3][4], double p[3][2], sde_ell *e)
+{
+    int f12, f23, f31;
+    double q1x, q1y, q2x, q2y, dx, dy, s, rx, ry, cx, cy;
+    sde_frm f;
+
+    if (!sde_par(l[0], l[1], &f12) || !sde_par(l[1], l[2], &f23)
+        || !sde_par(l[2], l[0], &f31))
+        return 0;
+    if (!f12 && !f23 && !f31)
+        return 0;
+    if (f12) {
+        if (f23 || f31)
+            return 0;
+        sde_swap(l[1], l[2], 4);
+        sde_swap(p[1], p[2], 2);
+    }
+    if (f23) {
+        if (f12 || f31)
+            return 0;
+        sde_swap(l[0], l[1], 4);
+        sde_swap(p[0], p[1], 2);
+    }
+    if (!sde_cross(l[0], l[1], &q1x, &q1y) || !sde_cross(l[1], l[2], &q2x, &q2y))
+        return 0;
+    if (!sde_frame(&f, l[0][0], l[0][1], l[0][2], l[0][3]))
+        return 0;
+    f.ox = q1x;
+    f.oy = q1y;
+    {
+        double u1 = sde_fx(&f, 1, p[0][0], p[0][1]), u2 = sde_fx(&f, 1, q2x, q2y);
+
+        if ((u1 > 0.0 && u2 > 0.0) || (u1 < 0.0 && u2 < 0.0)) {
+            sde_swap(l[0], l[2], 4);
+            sde_swap(p[0], p[2], 2);
+            if (!sde_cross(l[0], l[1], &q1x, &q1y)
+                || !sde_cross(l[1], l[2], &q2x, &q2y))
+                return 0;
+            if (!sde_frame(&f, l[0][0], l[0][1], l[0][2], l[0][3]))
+                return 0;
+            f.ox = q1x;
+            f.oy = q1y;
+        }
+    }
+    dx = q2x - q1x;
+    dy = q2y - q1y;
+    if (dx * dx + dy * dy < 1e-7)
+        return 0;
+    s = sqrt(dx * dx + dy * dy);
+    if (sde_fx(&f, 1, p[0][0], p[0][1]) < 0.0)
+        s = -s;
+    rx = sde_fx(&f, 0, s, 0.0);
+    ry = sde_fy(&f, 0, s, 0.0);
+    cx = (q2x - rx) / 2.0 + rx;
+    cy = (q2y - ry) / 2.0 + ry;
+    if (!sde_frame(&f, cx, cy, q2x, q2y))
+        return 0;
+    e->r = sqrt(f.len * f.len * 2.0) / 2.0;
+    e->flat = fabs(sde_fy(&f, 1, q1x, q1y) / f.len);
+    if (fabs(q2y - cy) < 1e-7 && fabs(q2x - cx) < 1e-7)
+        return 0;
+    e->tilt = atan2(q2y - cy, q2x - cx);
+    e->cx = cx;
+    e->cy = cy;
+    e->whole = 1;
+    e->st = 0.0;
+    e->sw = 2.0 * PI;
+    return 1;
+}
+
+/* FUN_00464fd0: 楕円 e を 点 (px,py) のまわりに 角 th の向きへ sx 倍・その
+   直角へ sy 倍する。出来なければ 0 で e はそのまま */
+static int sde_stretch(sde_ell *e, double th, double px, double py,
+                       double sx, double sy)
+{
+    double c, s, du, dv, ncx, ncy, r, b, ca, sa, a1, a2, mid, hf, P, Q, R, B;
+    double tl, st;
+
+    if (fabs(sx) < 1e-5 || fabs(sy) < 1e-5 || fabs(sx) > 100000.0
+        || fabs(sy) > 100000.0)
+        return 0;
+    if (fabs(sx - 1.0) < 1e-7 && fabs(sy - 1.0) < 1e-7)
+        return 1;
+    c = cos(th);
+    s = sin(th);
+    du = (c * (e->cx - px) + s * (e->cy - py)) * sx;
+    dv = (c * (e->cy - py) - s * (e->cx - px)) * sy;
+    ncx = (c * du - s * dv) + px;
+    ncy = c * dv + s * du + py;
+    if (fabs(sx - sy) < 1e-7 && sx > 0.0) {
+        e->cx = ncx;
+        e->cy = ncy;
+        e->r *= sx;
+        return 1;
+    }
+    r = e->r;
+    b = r * e->flat;
+    ca = cos(e->tilt - th);
+    sa = sin(e->tilt - th);
+    {
+        double x1 = (r * sx + b * sy) * ca, y1 = (r * sy + b * sx) * sa;
+        double x2 = (r * sx - b * sy) * ca, y2 = (r * sy - b * sx) * sa;
+
+        a1 = (x1 == 0.0 && y1 == 0.0) ? 0.0 : atan2(y1, x1);
+        while (a1 > 2.0 * PI)
+            a1 -= 2.0 * PI;
+        while (a1 < 0.0)
+            a1 += 2.0 * PI;
+        a2 = (x2 == 0.0 && y2 == 0.0) ? 0.0 : atan2(y2, x2);
+        while (a2 > 2.0 * PI)
+            a2 -= 2.0 * PI;
+        while (a2 < 0.0)
+            a2 += 2.0 * PI;
+        mid = (a1 + a2) / 2.0;
+        hf = (a1 - a2) / 2.0;
+        P = fabs(cos(a1)) <= fabs(sin(a1)) ? y1 / sin(a1) : x1 / cos(a1);
+        Q = fabs(cos(a2)) <= fabs(sin(a2)) ? y2 / sin(a2) : x2 / cos(a2);
+    }
+    R = (P + Q) / 2.0;
+    B = (P - Q) / 2.0;
+    if (R < B) {
+        double t = R;
+
+        mid -= PI / 2.0;
+        hf -= PI / 2.0;
+        R = B;
+        B = t;
+    }
+    if (fabs(R) < 1e-7 || fabs(B) < 1e-7)
+        return 0;
+    st = e->st + hf;
+    if (R < 0.0) {
+        R = -R;
+        st = PI - (st + e->sw);
+    }
+    if (B < 0.0) {
+        B = -B;
+        st = 0.0 - (st + e->sw);
+    }
+    for (tl = mid + th; tl > PI; tl -= 2.0 * PI)
+        ;
+    for (; tl < -PI; tl += 2.0 * PI)
+        ;
+    for (; st > PI; st -= 2.0 * PI)
+        ;
+    for (; st < -PI; st += 2.0 * PI)
+        ;
+    e->cx = ncx;
+    e->cy = ncy;
+    e->r = R;
+    e->tilt = tl;
+    e->st = st;
+    e->flat = B / R;
+    if (e->flat < 0.001)
+        e->flat = 0.001;
+    if (e->flat > 1000.0)
+        e->flat = 1000.0;
+    if (fabs(e->flat - 1.0) <= 1e-7)
+        e->flat = 1.0;
+    return 1;
+}
+
+/* FUN_00643c30: 辺四本の平行四辺形に内接する楕円。平行な組を l[0]・l[2] と
+   l[1]・l[3] に並べ、四つの角 V14・V12・V23・V34 を取って（l[0] 側が短ければ
+   一つずつ回す）、V14→V12 の枠で 向こうの辺の高さ h を 辺の長さが同じに
+   なるように取り直した菱形を作る。その楕円（sde_rhombus）を 枠の縦に
+   元の高さ / h 倍して戻す */
+static int sde_para(double l[4][4], sde_ell *e)
+{
+    int f12, f23, f31, f24;
+    double v[4][2], la, lb, a, u12, u23, v23, u34, dx, h, k, th, rl[3][4], rp[3][2];
+    sde_frm f;
+
+    if (!sde_par(l[0], l[1], &f12) || !sde_par(l[1], l[2], &f23)
+        || !sde_par(l[2], l[0], &f31))
+        return 0;
+    if (!f12 && !f23 && !f31)
+        return 0;
+    if (f12) {
+        if (f23 || f31)
+            return 0;
+        sde_swap(l[1], l[2], 4);
+    }
+    if (f23) {
+        if (f12 || f31)
+            return 0;
+        sde_swap(l[0], l[1], 4);
+    }
+    if (!sde_par(l[1], l[3], &f24) || !f24)
+        return 0;
+    if (!sde_cross(l[0], l[3], &v[0][0], &v[0][1])
+        || !sde_cross(l[0], l[1], &v[1][0], &v[1][1])
+        || !sde_cross(l[1], l[2], &v[2][0], &v[2][1])
+        || !sde_cross(l[2], l[3], &v[3][0], &v[3][1]))
+        return 0;
+    la = sqrt((v[1][0] - v[0][0]) * (v[1][0] - v[0][0])
+              + (v[1][1] - v[0][1]) * (v[1][1] - v[0][1]));
+    lb = sqrt((v[2][0] - v[1][0]) * (v[2][0] - v[1][0])
+              + (v[2][1] - v[1][1]) * (v[2][1] - v[1][1]));
+    if (la < lb) {
+        double t[2] = { v[0][0], v[0][1] };
+
+        v[0][0] = v[1][0];
+        v[0][1] = v[1][1];
+        v[1][0] = v[2][0];
+        v[1][1] = v[2][1];
+        v[2][0] = v[3][0];
+        v[2][1] = v[3][1];
+        v[3][0] = t[0];
+        v[3][1] = t[1];
+    }
+    if (!sde_frame(&f, v[0][0], v[0][1], v[1][0], v[1][1]))
+        return 0;
+    dx = v[1][0] - v[0][0];
+    a = sqrt(dx * dx + (v[1][1] - v[0][1]) * (v[1][1] - v[0][1]));
+    u12 = sde_fx(&f, 1, v[1][0], v[1][1]);
+    u23 = sde_fx(&f, 1, v[2][0], v[2][1]);
+    v23 = sde_fy(&f, 1, v[2][0], v[2][1]);
+    u34 = sde_fx(&f, 1, v[3][0], v[3][1]);
+    dx = u23 - u12;
+    if (a * a - dx * dx < 1e-7)
+        return 0;
+    h = sqrt(a * a - dx * dx);
+    if (v23 < 0.0)
+        h = -h;
+    rl[0][0] = v[0][0];
+    rl[0][1] = v[0][1];
+    rl[0][2] = v[1][0];
+    rl[0][3] = v[1][1];
+    rl[1][0] = v[1][0];
+    rl[1][1] = v[1][1];
+    rl[1][2] = sde_fx(&f, 0, u23, h);
+    rl[1][3] = sde_fy(&f, 0, u23, h);
+    rl[2][0] = rl[1][2];
+    rl[2][1] = rl[1][3];
+    rl[2][2] = sde_fx(&f, 0, u34, h);
+    rl[2][3] = sde_fy(&f, 0, u34, h);
+    rp[0][0] = rl[0][0];
+    rp[0][1] = rl[0][1];
+    rp[1][0] = (rl[1][2] + rl[1][0]) / 2.0;
+    rp[1][1] = (rl[1][3] + rl[1][1]) / 2.0;
+    rp[2][0] = rl[2][2];
+    rp[2][1] = rl[2][3];
+    if (!sde_rhombus(rl, rp, e))
+        return 0;
+    if (fabs(h) < 1e-7)
+        return 0;
+    k = v23 / h;
+    if (!sde_frame(&f, v[0][0], v[0][1], v[1][0], v[1][1]))
+        return 0;
+    if (fabs(v[1][1] - v[0][1]) < 1e-7 && fabs(v[1][0] - v[0][0]) < 1e-7)
+        return 0;
+    th = atan2(v[1][1] - v[0][1], v[1][0] - v[0][0]);
+    sde_stretch(e, th, e->cx, e->cy, 1.0, k);       /* 戻り値は見ない（原典も） */
+    {
+        double u = sde_fx(&f, 1, e->cx, e->cy), w = sde_fy(&f, 1, e->cx, e->cy);
+
+        e->cx = sde_fx(&f, 0, u, w * k);
+        e->cy = sde_fy(&f, 0, u, w * k);
+    }
+    return 1;
+}
+
+/* slot 3 の型ごとの計算（FUN_006430f0） */
+static int sde_calc(sde_ell *e)
+{
+    if (sde_type == 10 || sde_type == 50)
+        return sde_3pt(sde_px, sde_py, sde_type == 50, e);
+    if (sde_type == 20) {
+        double l[3][4], p[3][2];
+        int i;
+
+        for (i = 0; i < 3; i++) {
+            memcpy(l[i], sde_l[i], sizeof l[i]);
+            p[i][0] = sde_px[i];
+            p[i][1] = sde_py[i];
+        }
+        return sde_rhombus(l, p, e);
+    }
+    if (sde_type == 30) {
+        double l[4][4];
+
+        memcpy(l, sde_l, sizeof l);
+        return sde_para(l, e);
+    }
+    return 0;
+}
+
+/* FUN_0047f220: 楕円と 多重円 の値。2 以上なら その数だけ、半径を
+   半径 /（数 − 端数）ずつ小さくして（数は 100 まで）。負なら その値を
+   書込みの縮尺で割って半径に足した一つを足す。o があれば仮の絵として
+   そこへ（max まで）、無ければ図面へ。並べた数 */
+static int sde_put(jw_drawing *d, const sde_ell *e, jw_obj *o, int max)
+{
+    double rad[102];
+    int n = 0, k, i;
+
+    if (e->r <= 1e-6)
+        return 0;
+    rad[n++] = e->r;
+    if (sde_mul >= 1.9999999) {
+        int c = (int)(sde_mul + 1e-7);
+        double fr = 1.0 - (sde_mul - (double)c), dc = (double)c, rr = e->r;
+
+        if (fr < 0.01 || fr > 0.99)
+            fr = 0.0;
+        if (c > 100)
+            c = 100;
+        for (k = 2; k <= c; k++) {
+            rr -= e->r / (dc - fr);
+            if (rr > 1e-7)
+                rad[n++] = rr;
+        }
+    }
+    if (sde_mul < -1e-7) {
+        double rr = sde_mul / write_scale(d) + e->r;
+
+        if (rr > 1e-6)
+            rad[n++] = rr;
+    }
+    for (i = 0, k = 0; i < n; i++) {
+        jw_obj *q;
+
+        if (o) {
+            if (k >= max)
+                break;
+            q = &o[k];
+            blank(q);
+            q->cls = JW_ENKO;
+        } else {
+            q = jw_add(d, JW_ENKO);
+            if (!q)
+                break;
+        }
+        q->d[0] = e->cx;
+        q->d[1] = e->cy;
+        q->d[2] = rad[i];
+        q->d[3] = e->st;
+        q->d[4] = e->sw;
+        q->d[5] = e->tilt;
+        q->d[6] = e->flat;
+        q->n = e->whole;
+        k++;
+    }
+    return k;
+}
+
+static void sde_off(void)
+{
+    sde_on = 0;
+}
+
+/* 接円の 1065（slot 26） */
+static int sde_enter(void)
+{
+    sde_on = 1;
+    sde_type = 0;
+    sde_st = 0;
+    sde_cnt = 0;
+    sde_mul = box_num(jw_cmd_box(1417), 0.0);
+    tracking = 0;
+    return 1;
+}
+
+/* 9021 のバーの釦 */
+static int sde_bar(int id)
+{
+    if (id == 1064) {           /* << : 接円の slot 25 */
+        sde_off();
+        tracking = 0;
+        return 1;
+    }
+    if (id >= 1066 && id <= 1069) {     /* slot 27〜30 */
+        static const int T[4] = { 10, 20, 30, 50 };
+
+        sde_type = T[id - 1066];
+        sde_st = 1;
+        tracking = 0;
+        return 1;
+    }
+    return 0;
+}
+
+/* slot 3: 出来なければ 札、出来れば描いて数を一つ。段は 1 へ */
+static void sde_do(jw_drawing *d)
+{
+    sde_ell e;
+
+    if (!sde_calc(&e))
+        JW_NOTICE(5205);
+    else {
+        int n = sde_put(d, &e, 0, 0);
+
+        if (n)
+            op_push(n);
+        sde_cnt++;
+    }
+    sde_st = 1;
+    tracking = 0;
+}
+
+/* slot 9（左）・slot 11（右） */
+static void sde_click(jw_drawing *d, const jw_view *v, double x, double y,
+                      int button)
+{
+    int i;
+
+    if (!d)
+        return;
+    if (sde_type == 10 || sde_type == 50) {
+        if (sde_st < 1 || sde_st > 3)
+            return;
+        if (button) {           /* (R)Read: FUN_00451eb0、読めなければ何もしない */
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            x = rx;
+            y = ry;
+        }
+        sde_px[sde_st - 1] = x;
+        sde_py[sde_st - 1] = y;
+        if (sde_st < 3) {
+            sde_st++;
+            return;
+        }
+        sde_do(d);
+        return;
+    }
+    /* 辺を拾う型。型が無くても FUN_0044a270 は拾い、直線でなければ札まで出す */
+    i = jw_pick(d, v, x, y, 3);
+    if (i < 0)
+        return;
+    if (d->obj[i].cls != JW_SEN) {
+        JW_NOTICE(5342);
+        return;
+    }
+    if (sde_type != 20 && sde_type != 30)
+        return;
+    if (sde_st < 1 || sde_st > 4)
+        return;
+    memcpy(sde_l[sde_st - 1], d->obj[i].d, sizeof sde_l[0]);
+    sde_px[sde_st - 1] = x;
+    sde_py[sde_st - 1] = y;
+    if (sde_st < (sde_type == 20 ? 3 : 4)) {
+        sde_st++;
+        return;
+    }
+    sde_do(d);
+}
+
+/* 戻る（slot 16）。0 は 図面の 戻る へ、1 は済んだ。接円へ戻るのもここ */
+static int sde_back(void)
+{
+    tracking = 0;
+    if (sde_st == 1) {
+        if (sde_cnt > 0) {
+            sde_cnt--;
+            return 0;
+        }
+        sde_cnt = -1;
+        sde_off();              /* 接円の slot 25 */
+        return 1;
+    }
+    if (sde_st >= 2 && sde_st <= 4) {
+        sde_st--;
+        return 1;
+    }
+    if (sde_cnt < 1)
+        return 1;
+    sde_cnt--;
+    return 0;
+}
+
+/* slot 6 の案内 */
+static const char *sde_prompt(void)
+{
+    static char buf[128];
+    static const char *const pre[4] = { "1 ", "  2 ", "    3 ", "      4 " };
+
+    if (sde_type != 10 && sde_type != 20 && sde_type != 30 && sde_type != 50)
+        return JW_STR_5403;
+    if (sde_type == 10 || sde_type == 50)
+        return sde_st == 2 ? JW_STR_5442 : sde_st == 3 ? JW_STR_5443 : JW_STR_5441;
+    snprintf(buf, sizeof buf, "%s%s", pre[sde_st >= 1 && sde_st <= 4 ? sde_st - 1 : 0],
+             JW_STR_5444);
+    return buf;
+}
+
+/* slot 6 の仮の絵: ３点の型で通過点を待つ間、カーソルを通過点にして */
+static int sde_pending(jw_drawing *d, jw_obj *o, int max)
+{
+    sde_ell e;
+    double px[3], py[3];
+
+    if (!tracking || sde_st != 3 || (sde_type != 10 && sde_type != 50))
+        return 0;
+    px[0] = sde_px[0];
+    py[0] = sde_py[0];
+    px[1] = sde_px[1];
+    py[1] = sde_py[1];
+    px[2] = tx;
+    py[2] = ty;
+    if (!sde_3pt(px, py, sde_type == 50, &e))
+        return 0;
+    return sde_put(d, &e, o, max);
+}
+
+int jw_cmd_setsudaen(void)
+{
+    return current == JW_CMD_SEKIEN && sde_on ? (sde_type ? sde_type : -1) : 0;
+}
+
 static void tensen(jw_drawing *d, int b, double px, double py,
                    double x, double y)
 {
@@ -16182,6 +16928,8 @@ int jw_cmd_bar_check(int id)
         return jw_cmd_mp_on();
     if ((id == 9016 || id == 9017) && current == JW_CMD_25D)
         return jw_d25_bar_check(id);    /* 立体の画面のバー（decomp/res/bars10.txt） */
+    if (id == 9021)             /* 接円の 接楕円 のバー（decomp/res/bars11.txt） */
+        return current == JW_CMD_SEKIEN && sde_on;
     if (current == JW_CMD_GAZOU) {
         int r = jw_cmd_gazou_check(id);
 
@@ -16280,6 +17028,10 @@ int jw_cmd_bar_check(int id)
 
 int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
+    if (current == JW_CMD_SEKIEN && sde_on)
+        return id == 1064 || (id >= 1066 && id <= 1069);  /* 十の位が 1 以上で見せた釦 */
+    if (current == JW_CMD_SEKIEN && id == 1065)
+        return 1;               /* 接楕円 */
     if (current == JW_CMD_GAZOU)
         return jw_cmd_gazou_enabled(id);
     if (current == JW_PRINT_CMD)
@@ -17124,6 +17876,10 @@ int jw_cmd_bar(jw_drawing *d, int id)
         fk_back_go(d);
         return 1;
     }
+    if (current == JW_CMD_SEKIEN && sde_on)
+        return sde_bar(id);     /* 9021 のバー（接楕円） */
+    if (current == JW_CMD_SEKIEN && id == 1065)
+        return sde_enter();     /* 接楕円: 接円の slot 26 */
     if (current == JW_CMD_HANI && id == 1071 && !jw_cmd_mp_on())
         return mp_enter(d);     /* 文字位置･集計（mp_enter の前の注） */
     if (jw_cmd_mp_on() && id == 1121 && mp_sum) {
@@ -24819,6 +25575,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             return;
         }
         cv_click(d, v, x, y);
+        return;
+    }
+    if (current == JW_CMD_SEKIEN && sde_on) {
+        sde_click(d, v, x, y, button);  /* 接円の slot 9・11 → 接楕円の */
         return;
     }
     if (current == JW_CMD_SEKIEN) {

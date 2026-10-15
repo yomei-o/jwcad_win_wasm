@@ -12,7 +12,7 @@ sh tools/replay.sh >/dev/null || exit 1
 for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
     [ -x "$d/gcc.exe" ] && { PATH="$d:$PATH"; export PATH; break; }
 done
-[ $# -eq 0 ] && set -- bunkatsu nisen mentori mentori2 mentoriarc renzoku chushin waritsuke undostep poly renarc env image flow promptsweep bunkpar hk gaibu mojisel cmdcover dxfsynth jwwver longtext blkcycle rtsynth imgedge perf leak house boxfuzz dxfextreme undoall gaibuwalk mojiwalk boxfresh imgopt tdlg status rchain shinshuku zokumoji param numpos curve workflow prefs mojipos d25 kihonuse kihonfx
+[ $# -eq 0 ] && set -- bunkatsu nisen mentori mentori2 mentoriarc renzoku chushin waritsuke undostep poly renarc env image flow promptsweep bunkpar hk gaibu mojisel cmdcover dxfsynth jwwver longtext blkcycle rtsynth imgedge perf leak house boxfuzz dxfextreme undoall gaibuwalk mojiwalk boxfresh imgopt tdlg status rchain shinshuku zokumoji param numpos curve workflow prefs mojipos d25 kihonuse kihonfx setsudaen
 OBJ=$(ls tmp/ob/*.o | grep -v replay)
 bad=0
 for t in "$@"; do
