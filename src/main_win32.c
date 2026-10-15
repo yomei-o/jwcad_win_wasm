@@ -1916,7 +1916,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 
 /* The configuration (app_save_env, a .jwf) is kept in %APPDATA%\jw_port between
    runs: read at start, written when the window is closed. */
-static int settings_path(wchar_t *p)
+static int settings_path_of(wchar_t *p, const wchar_t *name)
 {
     wchar_t dir[MAX_PATH];
 
@@ -1924,8 +1924,51 @@ static int settings_path(wchar_t *p)
         return 0;
     swprintf(p, MAX_PATH, L"%ls%cjw_port", dir, (wchar_t)92);
     CreateDirectoryW(p, NULL);
-    swprintf(p, MAX_PATH, L"%ls%cjw_port%csettings.jwf", dir, (wchar_t)92, (wchar_t)92);
+    swprintf(p, MAX_PATH, L"%ls%cjw_port%c%ls", dir, (wchar_t)92, (wchar_t)92, name);
     return 1;
+}
+
+static int settings_path(wchar_t *p)
+{
+    return settings_path_of(p, L"settings.jwf");
+}
+
+/* and beside it what the original keeps in its registry (app_prefs_write:
+   基本設定 の箱と押し釦、寸法設定 の押し釦), read and written with it */
+static void prefs_load(void)
+{
+    wchar_t p[MAX_PATH];
+    FILE *f;
+    long n;
+    unsigned char *b;
+
+    if (!settings_path_of(p, L"jw_win_reg.txt") || !(f = _wfopen(p, L"rb")))
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)(n > 0 ? n : 1));
+    if (b && n > 0 && fread(b, 1, (size_t)n, f) == (size_t)n)
+        app_prefs_read(b, n);
+    fclose(f);
+    free(b);
+}
+
+static void prefs_save(void)
+{
+    wchar_t p[MAX_PATH];
+    unsigned char *b = 0;
+    long n = 0;
+    FILE *f;
+
+    if (!settings_path_of(p, L"jw_win_reg.txt") || !app_prefs_write(&b, &n))
+        return;
+    f = _wfopen(p, L"wb");
+    if (f) {
+        fwrite(b, 1, (size_t)n, f);
+        fclose(f);
+    }
+    free(b);
 }
 
 static void settings_load(void)
@@ -1935,8 +1978,10 @@ static void settings_load(void)
     long n;
     unsigned char *b;
 
-    if (!settings_path(p) || !(f = _wfopen(p, L"rb")))
+    if (!settings_path(p) || !(f = _wfopen(p, L"rb"))) {
+        prefs_load();
         return;
+    }
     fseek(f, 0, SEEK_END);
     n = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -1945,6 +1990,7 @@ static void settings_load(void)
         app_open_env(b, n);
     fclose(f);
     free(b);
+    prefs_load();
 }
 
 static void settings_save(void)
@@ -1954,6 +2000,7 @@ static void settings_save(void)
     long n = 0;
     FILE *f;
 
+    prefs_save();
     if (!settings_path(p) || !app_save_env("settings.jwf", &b, &n))
         return;
     f = _wfopen(p, L"wb");

@@ -12803,10 +12803,14 @@ int jw_bt_has_kids(const jw_drawing *d, int ref)
  *                       was) the thickness in mm
  *   MWIDE MHIGH MDIST MPEN     the ten text sizes, gaps and pens
  *
+ * and, not the drawing's but the port's as well as the original's globals,
+ * the 寸法設定 and 文字基点設定 ずれ lines MOFST S_STR1 S_SET1 S_SET2 S_SET3
+ * (env_sunpo_line below).
+ *
  * The rest (the keys of the letters, AUTO's mouse map, the basic settings,
- * hatch and dimension defaults...) is held by the original in its own
- * globals and not in the drawing, so it goes out as a fresh start has it.
- * Reading takes back what the list above is made of.
+ * hatch defaults...) is held by the original in its own globals and not in
+ * the drawing, so it goes out as a fresh start has it.  Reading takes back
+ * what the list above is made of.
  */
 #include "gen/jwf.h"
 
@@ -12836,6 +12840,201 @@ static int env_key(const char *line, char *key, size_t cap)
     while (n > 0 && key[n - 1] == ' ')
         key[--n] = 0;
     return 1;
+}
+
+/* 寸法設定 と 文字基点設定 のずれ: 図面ではなく原典の大域にある値で、原典は
+ * レジストリ（SUNPO・RUISHINSUNPO・MOJI\Ofst*、書き手 `FUN_004ea620`）と
+ * .jwf の次の行の両方に持つ。行の並びは .jwf の読み手 `FUN_00529070`
+ * （0x52c000 あたりの sscanf の書式）から:
+ *
+ *   MOFST  = %d %lg*6 %d   OfstOn(b9c8) X1..3(b9d0/d8/e0) Y1..3(ba20/28/30) bbb0
+ *   S_STR1 = %d %d %lg %d %d "書体"  MOJINO(bcd0) SHOUSUUKETA(bcc4) HANARE(bcf0)
+ *                                    Unit(bcc8) ShowUnit(bd34)
+ *   S_SET1 = %d %d %d %d %lg  SENColor HIKIDASHIColor TENColor（各 十の位と一の位
+ *                             bcd8/bcd4・bce0/bcdc・bce8/bce4）Arrow(bccc) TSUKIDASHI(bcf8)
+ *   S_SET2 = %lg %lg %d %lg %d  ArrowLength(bd00) ArrowAngle(bd08) StartEN(bd48)
+ *                               StartENR(bd50) MOJICHUUSHIN(bd58)
+ *   S_SET3 = %lg*6  HIKIDASHI1(bd60) SUNPOSEN1(bd68) HIKIDASHI2(bd70)
+ *                   SUNPOSEN2(bd78) HIKIDASHI3(bd80) GYAKUDE(bd18)
+ *
+ * 箱と大域の繋ぎは CSunpoSetteiDialg の DDX `FUN_005d2b30`・OK `FUN_005d34b0`
+ * （1475→+0x380→bcf0、1479→+0x408→bcf8、1477→bd00、1481→bd08、1489・2083・
+ * 1473 の順に S_SET1 の三つ）。移植が持たない数（Unit・ShowUnit・StartEN・
+ * MOJICHUUSHIN・MOFST の終わり）は型の字のまま。書く桁は型（env_new.jwf）の
+ * 小数の桁で、その桁で表せない数だけ %.10g（原典の書式の文字列はまだ読んで
+ * いない — 型と同じ桁が出ることは tests/env_test が見る）。 */
+static void env_num(char *o, double v, int places)
+{
+    double back;
+
+    if (places < 0) {
+        sprintf(o, "%d", (int)v);
+        return;
+    }
+    sprintf(o, "%.*f", places, v);
+    back = strtod(o, 0);
+    if (fabs(back - v) > 1e-9 * (fabs(v) > 1.0 ? fabs(v) : 1.0))
+        sprintf(o, "%.10g", v);
+}
+
+/* the template line with its first n numbers after '=' replaced by val[k]
+   (an empty val[k] keeps the template's own): each one right-aligned to end
+   where the template's ended, so a value as long as the template's leaves
+   the line as it was */
+static void env_fields(char *mine, const char *line, int n, char val[][32])
+{
+    const char *s = strchr(line, '=') + 1;
+    size_t o = (size_t)(s - line), w, vl;
+    int k;
+
+    memcpy(mine, line, o);
+    for (k = 0; k < n; k++) {
+        const char *t = s;
+
+        while (*t == ' ')
+            t++;
+        if (*t && *t != '"')
+            while (*t && *t != ' ')
+                t++;
+        else
+            t = s;                      /* the template has fewer: add it */
+        if (!val[k][0]) {               /* keep it */
+            memcpy(mine + o, s, (size_t)(t - s));
+            o += (size_t)(t - s);
+            s = t;
+            continue;
+        }
+        w = (size_t)(t - s);
+        vl = strlen(val[k]);
+        if (w < vl + 1)
+            w = vl + 1;
+        memset(mine + o, ' ', w - vl);
+        o += w - vl;
+        memcpy(mine + o, val[k], vl);
+        o += vl;
+        s = t;
+    }
+    strcpy(mine + o, s);
+}
+
+static int env_sunpo_line(const char *key, const char *line, char *mine)
+{
+    char v[7][32];
+
+    if (!strcmp(key, "MOFST")) {
+        env_num(v[0], moji_zure, -1);
+        env_num(v[1], moji_zx[0], 1);
+        env_num(v[2], moji_zx[1], 1);
+        env_num(v[3], moji_zx[2], 1);
+        env_num(v[4], moji_zy[2], 1);   /* Y1 は 下 (2007)。moji_zy は上から */
+        env_num(v[5], moji_zy[1], 1);
+        env_num(v[6], moji_zy[0], 1);
+        env_fields(mine, line, 7, v);
+        return 1;
+    }
+    if (!strcmp(key, "S_STR1")) {
+        env_num(v[0], sun_mojino, -1);
+        env_num(v[1], sun_decimals(), -1);
+        env_num(v[2], sun_hanare, 2);
+        env_fields(mine, line, 3, v);
+        return 1;
+    }
+    if (!strcmp(key, "S_SET1")) {
+        env_num(v[0], sun_sencol, -1);
+        env_num(v[1], sun_hikicol, -1);
+        env_num(v[2], sun_tencol, -1);
+        env_num(v[3], sun_arrows(), -1);
+        env_num(v[4], sun_tsuki, 2);
+        env_fields(mine, line, 5, v);
+        return 1;
+    }
+    if (!strcmp(key, "S_SET2")) {
+        env_num(v[0], sun_yalen, 2);
+        env_num(v[1], sun_yaang, 2);
+        v[2][0] = 0;                    /* StartEN: the template's */
+        env_num(v[3], sun_startr, 2);
+        env_fields(mine, line, 4, v);
+        return 1;
+    }
+    if (!strcmp(key, "S_SET3")) {
+        env_num(v[0], sun_hiki1, 2);
+        env_num(v[1], sun_sen1, 2);
+        env_num(v[2], sun_hiki2, 2);
+        env_num(v[3], sun_sen2, 2);
+        env_num(v[4], sun_hiki3, 2);
+        env_num(v[5], sun_gyaku, 2);
+        env_fields(mine, line, 6, v);
+        return 1;
+    }
+    return 0;
+}
+
+/* reading them back: only the numbers that are there, and the ranges the
+   original's reader keeps (MOJINO -10..10 with 0 as 1, OfstOn 0/1); the
+   port's own (小数桁 0..3, 端部 0..2) where it has no more */
+static int env_sunpo_read(const char *key, const char *v)
+{
+    double x[7];
+    int n, k;
+
+    if (!strcmp(key, "MOFST")) {
+        n = sscanf(v, "%lf %lf %lf %lf %lf %lf %lf", &x[0], &x[1], &x[2],
+                   &x[3], &x[4], &x[5], &x[6]);
+        if (n >= 1 && (x[0] == 0.0 || x[0] == 1.0))
+            moji_zure = (int)x[0];
+        for (k = 1; k < n; k++)
+            if (k <= 3)
+                jw_cmd_moji_zure_at(1, k - 1, x[k]);
+            else
+                jw_cmd_moji_zure_at(0, 6 - k, x[k]);    /* Y1 は 下 */
+        return 1;
+    }
+    if (!strcmp(key, "S_STR1")) {
+        n = sscanf(v, "%lf %lf %lf", &x[0], &x[1], &x[2]);
+        if (n >= 1 && x[0] > -11.0 && x[0] < 11.0)
+            sun_mojino = (int)x[0] ? (int)x[0] : 1;
+        if (n >= 2 && x[1] >= 0.0 && x[1] <= 3.0)
+            sun_keta = (int)x[1];
+        if (n >= 3)
+            sun_hanare = x[2];
+        return 1;
+    }
+    if (!strcmp(key, "S_SET1")) {
+        n = sscanf(v, "%lf %lf %lf %lf %lf", &x[0], &x[1], &x[2], &x[3], &x[4]);
+        if (n >= 1 && x[0] > 0.0 && x[0] < 100.0)
+            sun_sencol = (int)x[0];
+        if (n >= 2 && x[1] > 0.0 && x[1] < 100.0)
+            sun_hikicol = (int)x[1];
+        if (n >= 3 && x[2] > 0.0 && x[2] < 100.0)
+            sun_tencol = (int)x[2];
+        if (n >= 4 && x[3] >= 0.0 && x[3] <= 2.0)
+            sun_arrow = (int)x[3];
+        if (n >= 5)
+            sun_tsuki = x[4];
+        return 1;
+    }
+    if (!strcmp(key, "S_SET2")) {
+        n = sscanf(v, "%lf %lf %lf %lf", &x[0], &x[1], &x[2], &x[3]);
+        if (n >= 1)
+            sun_yalen = x[0];
+        if (n >= 2)
+            sun_yaang = x[1];
+        if (n >= 4)
+            sun_startr = x[3];
+        return 1;
+    }
+    if (!strcmp(key, "S_SET3")) {
+        n = sscanf(v, "%lf %lf %lf %lf %lf %lf", &x[0], &x[1], &x[2], &x[3],
+                   &x[4], &x[5]);
+        if (n >= 1) sun_hiki1 = x[0];
+        if (n >= 2) sun_sen1 = x[1];
+        if (n >= 3) sun_hiki2 = x[2];
+        if (n >= 4) sun_sen2 = x[3];
+        if (n >= 5) sun_hiki3 = x[4];
+        if (n >= 6) sun_gyaku = x[5];
+        return 1;
+    }
+    return 0;
 }
 
 int jw_env_write(const jw_drawing *d, const char *name, unsigned char **out,
@@ -12962,6 +13161,8 @@ int jw_env_write(const jw_drawing *d, const char *name, unsigned char **out,
                             (v >> 8) & 255, (v >> 16) & 255);
                     mod = 1;
                 }
+            } else if (env_sunpo_line(key, line, mine)) {
+                mod = 1;
             } else if (!strcmp(key, "MWIDE") || !strcmp(key, "MHIGH")
                        || !strcmp(key, "MDIST")) {
                 strcpy(mine, line);
@@ -13104,6 +13305,8 @@ int jw_env_read(jw_drawing *d, const unsigned char *b, long n)
                     d->print_width[idx] = w;
                 taken++;
             }
+        } else if (env_sunpo_read(key, v)) {
+            taken++;
         } else if (!strcmp(key, "MWIDE") || !strcmp(key, "MHIGH")
                    || !strcmp(key, "MDIST") || !strcmp(key, "MPEN")) {
             int k = 0, used;

@@ -239,6 +239,11 @@ int  app_save_jwc(unsigned char **out, long *n);
 int  app_save_env(const char *name, unsigned char **out, long *n);
 /* 環境設定ファイル 読込み (32923) */
 int  app_open_env(const unsigned char *b, long n);
+/* what the original keeps in its registry (基本設定 の箱と押し釦、寸法設定 の
+   押し釦) as ASCII text, for the front end to keep between runs; reading it
+   back puts it where OK would have.  src/app.c (app_prefs_write) */
+int  app_prefs_write(unsigned char **out, long *n);
+int  app_prefs_read(const unsigned char *b, long n);
 /* a DXF read into what is open (src/dxfread.c) */
 int  app_open_dxf(const unsigned char *b, long n);
 /* and an SFC (src/sfcread.c) */

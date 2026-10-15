@@ -615,6 +615,34 @@ EMSCRIPTEN_KEEPALIVE int jw_open_env(unsigned char *b, int n)
     return 1;
 }
 
+/* What the original keeps in its registry (基本設定 の箱と押し釦、寸法設定 の
+   押し釦: app_prefs_write), as an ASCII string for the page to put in
+   localStorage, and back.  0 when there is nothing to give. */
+EMSCRIPTEN_KEEPALIVE const char *jw_save_prefs(void)
+{
+    unsigned char *b = 0;
+    long n = 0;
+
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!app_prefs_write(&b, &n))
+        return 0;
+    saved = (unsigned char *)realloc(b, (size_t)n + 1);
+    if (!saved) {
+        free(b);
+        return 0;
+    }
+    saved[n] = 0;
+    saved_n = n;
+    return (const char *)saved;
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_open_prefs(const char *s)
+{
+    return s ? app_prefs_read((const unsigned char *)s, (long)strlen(s)) : 0;
+}
+
 /* The same, as JWC. */
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_jwc(void)
 {

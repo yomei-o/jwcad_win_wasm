@@ -1929,6 +1929,295 @@ static void kh_start(void)
     kh_open = 1;
 }
 
+/* ------------------------------------------- 設定を起動をまたいで残す ---
+ *
+ * 原典は 基本設定 の箱の多くをレジストリ HKCU\Software\Jw_cad\jw_win に置き
+ * （書き手 `FUN_004ea620`、呼び手は CJw_winView の後始末 `FUN_004f9bb0` ＝
+ * 閉じるとき、と 寸法設定 の OK `FUN_0050f6f0`）、次の起動で読む。移植の
+ * 代わりがこの字の並び（app_prefs_write / app_prefs_read）で、ネイティブは
+ * %APPDATA%\jw_port\jw_win_reg.txt、ブラウザは localStorage に置く。
+ *
+ * 残すのは OK が残したもの: 基本設定 の 箱の字（kh_txt_saved）と 押し釦の
+ * 点き具合（kh_saved）、寸法設定 の 押し釦（sd_saved）。どれも既定
+ * （src/gen/kihonval.h・kihon.h・sunpodlg.h）と違うものだけを書く。
+ *
+ * **書かないもの**: 図面の持ち物（色・画面 のペン、文字 の文字種 ——
+ * kh_live）は図面が勝つので書かない（.jwf の LCOLLOR などは別に残る）。
+ * 2112「TextFileをUTF-8出力」は 文字 のバーの SJIS/UTF8 と同じ旗で、表側が
+ * 別に残している（jw_port.ini の OutSJIS、localStorage の jw.sjis）。
+ * 寸法設定 の数の箱と 文字基点設定 のずれは .jwf の S_SET・MOFST の行に
+ * 入る（src/cmd.c env_sunpo_line）。
+ *
+ * 鍵は原典のレジストリ名ではなく窓の部品の id（どの箱がどの名前かは
+ * tools/mkkihonval.py が知っているが、押し釦の側はまだ読んでいない）:
+ *
+ *   [KIHON]   T<タブ>.<id>.<同じ id の何番目の箱>=字
+ *             C<タブ>.<id>.<同じ id の何番目の部品>=0|1
+ *   [SUNPODLG] C<id>.<何番目>=0|1
+ *
+ * 字は ASCII の外（CP932 の二バイトなど）と \ を \xHH・\\ にして、行が
+ * ASCII だけで済むようにする（localStorage にそのまま入る）。 */
+static int kh_is_live(int tab, int id)
+{
+    int row, comp;
+
+    return (tab == 2 && kh_pen_box(id, &row, &comp))
+           || (tab == 4 && ((id >= 2470 && id <= 2479)
+                            || (id >= 1532 && id <= 1561)));
+}
+
+/* which one of that id it is: among the boxes (box = 1) or all controls */
+static int kh_nth(int tab, int i, int box)
+{
+    int id = ui_kihon_id(tab, i), k, nth = 0;
+
+    for (k = 0; k < i; k++)
+        if (ui_kihon_id(tab, k) == id && (!box || ui_kihon_isbox(tab, k)))
+            nth++;
+    return nth;
+}
+
+static int kh_find(int tab, int id, int nth, int box)
+{
+    int i;
+
+    if (tab < 0 || tab >= ui_kihon_ntabs() || tab >= 8)
+        return -1;
+    for (i = 0; i < ui_kihon_n(tab) && i < 256; i++)
+        if (ui_kihon_id(tab, i) == id && (!box || ui_kihon_isbox(tab, i))
+            && kh_nth(tab, i, box) == nth)
+            return i;
+    return -1;
+}
+
+static void kh_txt_default(int tab, int i, char *o)
+{
+    const jw_khv_t *v = kh_val(tab, i);
+
+    o[0] = 0;
+    if (ui_kihon_isbox(tab, i) && v && v->text) {
+        strncpy(o, v->text, KH_TXT - 1);
+        o[KH_TXT - 1] = 0;
+    }
+}
+
+typedef struct { char *b; size_t n, cap; int bad; } pf_out;
+
+static void pf_put(pf_out *o, const char *t)
+{
+    size_t l = strlen(t);
+
+    if (o->bad)
+        return;
+    if (o->n + l + 1 > o->cap) {
+        size_t c = o->cap ? o->cap * 2 : 4096;
+        char *nb;
+
+        while (c < o->n + l + 1)
+            c *= 2;
+        nb = (char *)realloc(o->b, c);
+        if (!nb) {
+            o->bad = 1;
+            return;
+        }
+        o->b = nb;
+        o->cap = c;
+    }
+    memcpy(o->b + o->n, t, l + 1);
+    o->n += l;
+}
+
+static void pf_esc(pf_out *o, const char *t)
+{
+    char c[8];
+
+    for (; *t; t++) {
+        unsigned char u = (unsigned char)*t;
+
+        if (u == '\\')
+            strcpy(c, "\\\\");
+        else if (u < 0x20 || u > 0x7e)
+            sprintf(c, "\\x%02x", u);
+        else {
+            c[0] = (char)u;
+            c[1] = 0;
+        }
+        pf_put(o, c);
+    }
+}
+
+int app_prefs_write(unsigned char **out, long *n)
+{
+    pf_out o = { 0, 0, 0, 0 };
+    char line[96], def[KH_TXT];
+    int t, i;
+
+    if (!out || !n)
+        return 0;
+    pf_put(&o, "# jw_win port: the original's registry settings (HKCU\\Software\\Jw_cad\\jw_win)\n");
+    pf_put(&o, "[KIHON]\n");
+    for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
+        for (i = 0; i < ui_kihon_n(t) && i < 256; i++) {
+            int id = ui_kihon_id(t, i);
+
+            if (ui_kihon_isbox(t, i)) {
+                if (!kh_txt_have || kh_is_live(t, id))
+                    continue;
+                kh_txt_default(t, i, def);
+                if (!strcmp(kh_txt_saved[t][i], def))
+                    continue;
+                sprintf(line, "T%d.%d.%d=", t, id, kh_nth(t, i, 1));
+                pf_put(&o, line);
+                pf_esc(&o, kh_txt_saved[t][i]);
+                pf_put(&o, "\n");
+            } else if (kh_have_saved && id != 2112
+                       && kh_saved[t][i] != (unsigned char)ui_kihon_on(t, i)) {
+                sprintf(line, "C%d.%d.%d=%d\n", t, id, kh_nth(t, i, 0),
+                        kh_saved[t][i] ? 1 : 0);
+                pf_put(&o, line);
+            }
+        }
+    pf_put(&o, "[SUNPODLG]\n");
+    if (sd_have_saved) {
+        int nn = ui_sunpodlg_n();
+
+        for (i = 0; i < nn && i < (int)sizeof sd_saved; i++) {
+            int id = ui_sunpodlg_id(i), k, nth = 0;
+
+            if (sd_saved[i] == (unsigned char)ui_sunpodlg_on(i))
+                continue;
+            for (k = 0; k < i; k++)
+                if (ui_sunpodlg_id(k) == id)
+                    nth++;
+            sprintf(line, "C%d.%d=%d\n", id, nth, sd_saved[i] ? 1 : 0);
+            pf_put(&o, line);
+        }
+    }
+    if (o.bad) {
+        free(o.b);
+        return 0;
+    }
+    *out = (unsigned char *)o.b;
+    *n = (long)o.n;
+    return 1;
+}
+
+static void pf_unesc(const char *v, char *o, size_t cap)
+{
+    size_t k = 0;
+
+    while (*v && k + 1 < cap) {
+        if (v[0] == '\\' && v[1] == '\\') {
+            o[k++] = '\\';
+            v += 2;
+        } else if (v[0] == '\\' && v[1] == 'x' && v[2] && v[3]
+                   && strchr("0123456789abcdefABCDEF", v[2])
+                   && strchr("0123456789abcdefABCDEF", v[3])) {
+            char h[3] = { v[2], v[3], 0 };
+
+            o[k++] = (char)strtol(h, 0, 16);
+            v += 4;
+        } else {
+            o[k++] = *v++;
+        }
+    }
+    o[k] = 0;
+}
+
+/* what app_prefs_write wrote, back into the dialogs as if OK had left it
+   there.  Anything not understood is skipped.  Returns how many lines it
+   took. */
+int app_prefs_read(const unsigned char *b, long n)
+{
+    const char *p = (const char *)b, *end = p + (b ? n : 0);
+    char sec[16] = "";
+    int t, i, taken = 0, kh_any = 0, sd_any = 0;
+    static unsigned char kon[8][256], son[128];
+    static char ktx[8][256][KH_TXT];
+
+    if (!b || n <= 0)
+        return 0;
+    /* start from the defaults, or what OK has left this run */
+    for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
+        for (i = 0; i < ui_kihon_n(t) && i < 256; i++) {
+            kon[t][i] = kh_have_saved ? kh_saved[t][i]
+                                      : (unsigned char)ui_kihon_on(t, i);
+            if (kh_txt_have)
+                memcpy(ktx[t][i], kh_txt_saved[t][i], KH_TXT);
+            else
+                kh_txt_default(t, i, ktx[t][i]);
+        }
+    for (i = 0; i < ui_sunpodlg_n() && i < (int)sizeof son; i++)
+        son[i] = sd_have_saved ? sd_saved[i] : (unsigned char)ui_sunpodlg_on(i);
+    while (p < end) {
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t ll = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        char line[512];
+        const char *v;
+        int a, id, nth, k;
+
+        if (ll >= sizeof line)
+            ll = sizeof line - 1;
+        memcpy(line, p, ll);
+        line[ll] = 0;
+        p = nl ? nl + 1 : end;
+        while (ll > 0 && (line[ll - 1] == '\r' || line[ll - 1] == ' '))
+            line[--ll] = 0;
+        if (line[0] == '[') {
+            for (k = 0; k + 1 < (int)sizeof sec && line[k + 1]
+                        && line[k + 1] != ']'; k++)
+                sec[k] = line[k + 1];
+            sec[k] = 0;
+            continue;
+        }
+        v = strchr(line, '=');
+        if (line[0] == '#' || !v)
+            continue;
+        v++;
+        if (!strcmp(sec, "KIHON") && line[0] == 'T'
+            && sscanf(line + 1, "%d.%d.%d=", &a, &id, &nth) == 3) {
+            k = kh_find(a, id, nth, 1);
+            if (k >= 0 && !kh_is_live(a, id)) {
+                pf_unesc(v, ktx[a][k], KH_TXT);
+                kh_any = 1;
+                taken++;
+            }
+        } else if (!strcmp(sec, "KIHON") && line[0] == 'C'
+                   && sscanf(line + 1, "%d.%d.%d=", &a, &id, &nth) == 3) {
+            k = kh_find(a, id, nth, 0);
+            if (k >= 0 && !ui_kihon_isbox(a, k) && id != 2112) {
+                kon[a][k] = (unsigned char)(atoi(v) != 0);
+                kh_any = 1;
+                taken++;
+            }
+        } else if (!strcmp(sec, "SUNPODLG") && line[0] == 'C'
+                   && sscanf(line + 1, "%d.%d=", &id, &nth) == 2) {
+            for (k = 0; k < ui_sunpodlg_n() && k < (int)sizeof son; k++)
+                if (ui_sunpodlg_id(k) == id && nth-- == 0) {
+                    son[k] = (unsigned char)(atoi(v) != 0);
+                    sd_any = 1;
+                    taken++;
+                    break;
+                }
+        }
+    }
+    if (kh_any) {
+        int sjis = jw_moji_sjis();
+
+        memcpy(kh_saved, kon, sizeof kh_saved);
+        kh_have_saved = 1;
+        memcpy(kh_txt_saved, ktx, sizeof kh_txt_saved);
+        kh_txt_have = 1;
+        kh_apply();                     /* as OK does, but not into the drawing */
+        jw_moji_sjis_set(sjis);         /* 2112 is the front end's (see above) */
+    }
+    if (sd_any) {
+        memcpy(sd_saved, son, sizeof sd_saved);
+        sd_have_saved = 1;
+    }
+    return taken;
+}
+
 /* 色・画面 の左の列（画面の色）の釦と、原典の行番号。
  *
  * **デコンパイルから引いたものです。**CGamenPage の振り分け表
