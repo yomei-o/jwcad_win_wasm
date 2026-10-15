@@ -161,6 +161,18 @@ WANT = [
     (5389, 'the first base line of an erase all at once, or its first line'),
     (5390, 'the second base line of an erase all at once'),
     (5601, 'point: free (LL), Read (R)'),
+    (5352, 'the base point of text position (range select, 1071)'),
+    (5472, 'text count write, appended to 5318 (range select, 1121)'),
+    (6238, 'base point button (range select, 1072)'),
+    (6177, '(bottom left)'),
+    (6178, '(bottom centre)'),
+    (6179, '(bottom right)'),
+    (6180, '(middle left)'),
+    (6181, '(middle centre)'),
+    (6182, '(middle right)'),
+    (6183, '(top left)'),
+    (6184, '(top centre)'),
+    (6185, '(top right)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

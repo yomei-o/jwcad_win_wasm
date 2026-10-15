@@ -630,4 +630,22 @@ const char *jw_cmd_notice_text(void);
 unsigned jw_cmd_notice_seq(void);
 void jw_cmd_notice_clear(void);
 
+/* 範囲選択 (32787) の 文字位置･集計 (1071)。逆コンパイルの読み、原典では押して
+   いない（src/cmd.c の mp_enter の前の注）。jw_cmd_mp_on は そのバー（9020）が
+   出ているか。基点 (1072) は 文字基点設定 の窓で選ぶ 0..8（jw_cmd_moji_base と
+   同じ並び、既定 2 = 左下）。集計書込 (1121) は 文字集計設定 (351) の OK で
+   jw_cmd_mp_sum_set(1)、もう一度押すと切れる。_cfg は その窓の値
+   （書込文字種 1..10、区切り 0..2、ソート、ブロック名、後に書く、書かない、
+   文頭・文末の追加文字） */
+int  jw_cmd_mp_on(void);
+int  jw_cmd_mp_base_now(void);
+void jw_cmd_mp_base(int n);
+int  jw_cmd_mp_sum(void);
+void jw_cmd_mp_sum_set(int on);
+void jw_cmd_mp_sum_cfg(int *shu, int *tab, int *sort, int *block,
+                       int *back, int *non, const char **pre,
+                       const char **post);
+void jw_cmd_mp_sum_cfg_set(int shu, int tab, int sort, int block, int back,
+                           int non, const char *pre, const char *post);
+
 #endif

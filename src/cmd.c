@@ -1292,6 +1292,13 @@ static const char *box_of(unsigned cmd, int id)
 
 static void sel_free(void);
 static void sel_clear(jw_drawing *d);
+/* 範囲選択の 文字位置･集計 (1071)。sel_mirror の前の塊 */
+static void mp_off(void);
+static int mp_enter(jw_drawing *d);
+static void mp_click(jw_drawing *d, const jw_view *v, double x, double y,
+                     int button);
+static const char *mp_prompt(void);
+static const char *mp_label(void);
 static int hatch_chain(const jw_drawing *d);
 
 /* 元に戻る works a command at a time, not an element at a time: drawing a
@@ -3621,6 +3628,7 @@ void jw_cmd_set(int id)
     }
     if (id == 0x8091 ? !gb_keep : id != JW_CMD_HANI)
         gb_free();                      /* a 外部変形 run does not outlive it */
+    mp_off();                   /* 範囲選択の 文字位置のバーは命令をまたがない */
     ms_text = 0;
     if (id != JW_CMD_HANI)
         ms_back = ms_after = 0;
@@ -4209,6 +4217,8 @@ int jw_cmd_back(jw_drawing *d)
         line_gen++;
         return 1;
     }
+    if (current == JW_CMD_HANI)
+        mp_off();               /* FUN_006f85c0: +0xbc ならバーを戻してから */
     if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
          || current == JW_CMD_IDOU || current == JW_CMD_SEIRI
          || current == JW_CMD_PARAM)
@@ -5247,6 +5257,8 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_SEIRI:
     case JW_CMD_ZUKEIREG:
     case JW_CMD_PARAM:
+        if (jw_cmd_mp_on())
+            return mp_prompt(); /* slot 6 FUN_006f7cc0 の +0xbc の枝 */
         if (sel_step == 3 && current == JW_CMD_PARAM)
             return param_prompt();
         /* 5383 while the box has no first corner, 5326 while it is being
@@ -11851,6 +11863,539 @@ int jw_cmd_sel_text(const jw_drawing *d, char *out, int cap)
     return 1;
 }
 
+/* ---- 範囲選択 の 文字位置･集計 (1071) ------------------------------------
+ *
+ * 逆コンパイルの読み、原典では押していない（2026-10-16）。
+ *
+ * 1071 は CSentakuDialog の FUN_005ca1f0 で、バーの +0xe0（集計書込）を 0 に
+ * して 0x1408 を投げ、それが CZukeiSentaku の 32 番 FUN_006fbc40 に届く。
+ * そこは選択から 文字（CDataMoji）とブロック（CDataBlock）のほかを外し
+ * （FUN_00574f40）、一つも残らなければ 5522「データがありません」、残れば
+ * +0xb4・+0xbc を立てて FUN_005c9c30(1) でバーを替える: 1344・1334・1064〜
+ * 1071・1068 を隠し、基点 (1072)・行間のコンボ (1418)・集計書込 (1121)・
+ * ﾌｧｲﾙ出力 (1122)・文字検索 (1115) を出す（DDX FUN_005c9920 で部品とメンバを
+ * 突き合わせた。decomp/res/bars9.txt）。1072 の字は 6238「基点」＋ 6177〜6185
+ * の「(左下)」…「(右上)」の ky*3+kx 番目、コンボの字は DAT_00a0b488・
+ * DAT_00a0b490 を "%.10lg , %.10lg"（FUN_0058ae50）。
+ *
+ * +0xbc が立っている間、左（slot 9 FUN_006fd240）はその点で、右（slot 11
+ * FUN_006fda70）は読取点（FUN_00451eb0、読めなければ何もしない）で
+ * FUN_006feba0(0, 点) を呼び、終われば doc+0x8578 = 1・+0xc = 0（範囲の
+ * 始めへ）。FUN_006feba0 は:
+ *   - コンボの一つ目 v1（FUN_005cb3d0）の絶対値を 行間 g、二つ目 v2
+ *     （FUN_005cb3a0）の絶対値の四捨五入を 文字数 n（g < 1e-7 なら 0、200 まで）
+ *   - 基点 kx・ky はバーの +0xc0（0 左 1 中 2 右）・+0xc4（0 下 1 中 2 上）。
+ *     既定は作り手 FUN_005c7d50 の 0・0 = 左下
+ *   - 集計書込 (+0xe0) なら FUN_00700560(0) で 文字集計 の一覧を作り、
+ *     mode 2・n = 0・g が 1e-7 以下なら 5。そうでなく選択に文字が一つも
+ *     無ければ FUN_005c9c30(0)・5522・選択を放して終わる
+ *   - FUN_00477000(mode, 点, g, n, 0, kx, ky, doc, 0) で並べ、
+ *     DAT_00a0b488 = g・DAT_00a0b490 = v2、g >= 1e-7 ならコンボにそれを書き戻し、
+ *     FUN_005c9c30(0) でバーを戻す
+ *
+ * FUN_00477000（4806 bytes、objdump で読んだ）:
+ *   - 枠: 点を原点、軸角 doc+0x17c0 で回した座標（FUN_005f89c0、
+ *     FUN_005f92e0 が図面→枠、FUN_005f8ce0 が枠→図面）
+ *   - mode 0: 選択から文字でないものを外しながら、枠での始点の y が大きい順
+ *     （同じなら x が小さい順。初めの比べ値は -99999999・99999999）に一つずつ
+ *     取り出し、元の文字を消して（FUN_0044b2c0）写しを並べる
+ *   - 一つずつ: 写しの角度 +0xd0 を 0 にして FUN_0048c710(kx, ky, 1) で
+ *     基点のずれ bx = -L*kx/2 - ずれX[kx]、by = -H*ky/2 - ずれY[ky]
+ *     （L は FUN_004935b0(1) の長さ、H は字の高さ、縦字なら幅。ずれは
+ *     文字基点設定 の ずれ使用 のときだけ）。枠で x = bx、y は g >= 1e-7 なら
+ *     acc + by（acc は 0 から一つごとに -g）、g < 1e-7 なら元の始点の枠での y
+ *     のまま。終点はそこから枠の x に L。角度は軸角。図面へ足す（FUN_00450860）
+ *
+ * FUN_00700560（文字集計、2949 bytes）: 選択の順に、まだ数えていない文字
+ * （ブロック名も集計 なら ブロックも）を一つ取り、その後ろの同じ種類で
+ * 字が同じもの（ブロックは名前が同じもの、FUN_00414010 = CString の ==）を
+ * 数えて印を付ける。一つの字につき一つ新しい文字を作り（ブロックは
+ * 文頭追加文字＋名前＋文末追加文字）、数を +0x48 に、文字種は 書込文字種
+ * DAT_00a0cb78 の大きさ・間隔・色、書体は書込みの書体、斜体太字・角度・
+ * flags は 0、レイヤは書込みレイヤ。並べ順は 文字数の多い順にソート が
+ * 切なら字の小さい順（FUN_00481290 = CString::Compare < 0、UTF-16 の順）、
+ * 入なら数の多い順で同じ数は字の順。字は「数」＋ 数の桁が 1 なら三つ・2 なら
+ * 二つ・3 以上なら一つの空白 ＋「字」、文字数を文字の後に書く なら「字 数」、
+ * 文字数を書かない なら「字」だけ。
+ *
+ * 文字集計設定 (DIALOG 351, CMojiSeiriDialog) の値はレジストリ MSHK の
+ * Shu=2・Tab=0・Sort=0・Block=0・Back=0・Non=0・BLTI1="["・BLTI2="]"
+ * （tools/refenv.reg、FUN_004894cd の塊が DAT_00a0cb78・cb7c・cb88・cb8c・
+ * cb80・cb84 の順に読む）。DDX FUN_0057d3e0 が 1491 書込文字種（1〜10）・
+ * 2469 ソート・2467 ブロック名・2468 後に書く・1531 書かない・1492/1493
+ * 文頭/文末・1689〜1691 区切り、OK は FUN_0057d7b0。
+ *
+ * 入れていないもの（読み切っていない）: 文字数 n による折り返し（"^m" での
+ * 切り分けと、続く文字を繋げて n 文字ごとに FUN_0047da20 で切る流し込み。
+ * 移植は n を見ず一つずつ並べる）、基点の釦の右押し（+0xc8、小数点揃え
+ * "[ . ]"・FUN_0048c710 の kx = 3 の枝。移植のバーは右押しを渡さない）、
+ * 集計の段で文字を一つずつ指して足し引きすること（slot 9 の +0xe0 の枝）、
+ * ﾌｧｲﾙ出力 (1122、0x1409 → FUN_00700560(1) とファイルの窓) と 文字検索
+ * (1115、FUN_005ca390 の検索の窓)、特殊文字（^m など、FUN_00493b00）と
+ * 間隔 0.01 の比例の長さ。 */
+static int mp_on;               /* 命令の +0xbc: 文字位置のバーが出ている */
+static int mp_kijun = 2;        /* バーの +0xc0・+0xc4 を moji_kijun と同じ並び
+                                   （横*3 + 2-縦）で。既定は 左下 */
+static int mp_sum;              /* バーの +0xe0: 集計書込 */
+static double mp_gap, mp_cnt;   /* DAT_00a0b488・DAT_00a0b490 */
+static int mp_shu = 2, mp_tab, mp_sort, mp_block, mp_back, mp_non;
+static char mp_pre[64] = "[", mp_post[64] = "]";
+
+static void mp_off(void)
+{
+    mp_on = 0;
+}
+
+int jw_cmd_mp_on(void)
+{
+    return current == JW_CMD_HANI && mp_on && sel_step == 2;
+}
+
+int jw_cmd_mp_base_now(void)
+{
+    return mp_kijun;
+}
+
+void jw_cmd_mp_base(int n)
+{
+    if (n >= 0 && n < 9)
+        mp_kijun = n;
+}
+
+int jw_cmd_mp_sum(void)
+{
+    return mp_sum;
+}
+
+static void mp_box_put(double g, double n)
+{
+    char t[64];
+
+    snprintf(t, sizeof t, "%.10g , %.10g", g, n);
+    box_put(1418, t);
+}
+
+static void mp_box_get(double *g, double *n)
+{
+    const char *t = jw_cmd_box(1418);
+    char *e;
+
+    *g = *n = 0.0;
+    if (!t)
+        return;
+    *g = strtod(t, &e);
+    if (e == t || !(*g > -1e12 && *g < 1e12)) {
+        *g = 0.0;
+        return;
+    }
+    while (*e == ' ')
+        e++;
+    if (*e == ',') {
+        *n = strtod(e + 1, 0);
+        if (!(*n > -1e12 && *n < 1e12))
+            *n = 0.0;
+    }
+}
+
+/* 集計書込 (1121) の切り替え: FUN_005ca030。入れるのは 文字集計設定 の OK
+   のあと（窓は app.c）、切るのは押しただけ。入れたとき行間が 0 なら 5 に
+   （slot 6 の FUN_006f7cc0 がプロンプトを出すときに "5 , 0" を書く） */
+void jw_cmd_mp_sum_set(int on)
+{
+    mp_sum = on != 0;
+    if (mp_sum && jw_cmd_mp_on()) {
+        double g, n;
+
+        mp_box_get(&g, &n);
+        if (fabs(g) <= 1e-07)
+            mp_box_put(5.0, 0.0);
+    }
+}
+
+void jw_cmd_mp_sum_cfg(int *shu, int *tab, int *sort, int *block,
+                       int *back, int *non, const char **pre,
+                       const char **post)
+{
+    *shu = mp_shu;
+    *tab = mp_tab;
+    *sort = mp_sort;
+    *block = mp_block;
+    *back = mp_back;
+    *non = mp_non;
+    *pre = mp_pre;
+    *post = mp_post;
+}
+
+/* FUN_0057d7b0: 書込文字種は 1〜10 のときだけ、追加文字は空でなければ、
+   区切りは 0〜2 のときだけ入る */
+void jw_cmd_mp_sum_cfg_set(int shu, int tab, int sort, int block, int back,
+                           int non, const char *pre, const char *post)
+{
+    if (shu >= 1 && shu <= 10)
+        mp_shu = shu;
+    mp_sort = sort != 0;
+    mp_block = block != 0;
+    mp_back = back != 0;
+    mp_non = non != 0;
+    if (pre && *pre) {
+        strncpy(mp_pre, pre, sizeof mp_pre - 1);
+        mp_pre[sizeof mp_pre - 1] = 0;
+    }
+    if (post && *post) {
+        strncpy(mp_post, post, sizeof mp_post - 1);
+        mp_post[sizeof mp_post - 1] = 0;
+    }
+    if (tab >= 0 && tab < 3)
+        mp_tab = tab;
+}
+
+static const char *mp_prompt(void)
+{
+    static char t[256];
+
+    if (!mp_sum)
+        return JW_STR_5352;
+    snprintf(t, sizeof t, "%s%s", JW_STR_5318, JW_STR_5472);
+    return t;
+}
+
+/* 1072 の字: FUN_005c9c30(1) の switch（ky*3 + kx、0〜7 と残りは 右上） */
+static const char *mp_label(void)
+{
+    static const char *const K[9] = {
+        JW_STR_6177, JW_STR_6178, JW_STR_6179, JW_STR_6180, JW_STR_6181,
+        JW_STR_6182, JW_STR_6183, JW_STR_6184, JW_STR_6185 };
+    static char t[64];
+    int kx = mp_kijun / 3, ky = 2 - mp_kijun % 3;
+
+    snprintf(t, sizeof t, "%s%s", JW_STR_6238, K[ky * 3 + kx]);
+    return t;
+}
+
+/* 1071: FUN_006fbc40 */
+static int mp_enter(jw_drawing *d)
+{
+    int i, any = 0;
+
+    if (!d || current != JW_CMD_HANI || sel_step != 2 || sel_cut
+        || sel_outside)
+        return 0;
+    mp_sum = 0;                         /* FUN_005ca1f0: +0xe0 = 0 */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel
+            && (d->obj[i].cls == JW_MOJI || d->obj[i].cls == JW_BLOCK))
+            any = 1;
+    if (!any) {
+        JW_NOTICE(5522);
+        return 1;
+    }
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel && d->obj[i].cls != JW_MOJI
+            && d->obj[i].cls != JW_BLOCK) {
+            d->obj[i].sel = 0;
+            d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+        }
+    mp_on = 1;
+    mp_box_put(mp_gap, mp_cnt);
+    return 1;
+}
+
+/* FUN_004935b0(1) の長さ（zoku_moji と同じ式。特殊文字と 0.01 の枝は無し） */
+static double mp_run(const jw_drawing *d, const jw_obj *o)
+{
+    const char *t = o->text >= 0 ? jw_str(d, o->text) : "";
+    double cw = (o->flags & 0x20) ? o->d[5] : o->d[4], sp = o->d[6];
+    int nb = 0, wide = 0;
+
+    while (t && *t) {
+        wide = jw_is_lead((unsigned char)t[0]) && t[1];
+        nb += wide ? 2 : 1;
+        t += wide ? 2 : 1;
+    }
+    return nb < 1 ? 0.0 : nb == 1 ? cw / 2.0
+         : (cw + sp) * 0.5 * nb - (wide ? sp : sp * 0.5);
+}
+
+/* 一つを置く: FUN_00477000 の 0x477e96〜0x47814e */
+static void mp_lay(const jw_drawing *d, jw_obj *o, double cx, double cy,
+                   double co, double sn, double g, int kx, int ky,
+                   double *acc)
+{
+    double L = mp_run(d, o);
+    double H = (o->flags & 0x20) ? o->d[4] : o->d[5];
+    double bx = -L * kx / 2.0, by = -H * ky / 2.0, lx, ly;
+
+    if (moji_zure) {                    /* FUN_0048c710 の param_5 == 1 */
+        bx -= moji_zx[kx];
+        by -= moji_zy[2 - ky];          /* moji_zy は 上中下、原典の Y1 は 下 */
+    }
+    if (g < 1e-07) {
+        double px = o->d[0] - cx, py = o->d[1] - cy;
+
+        ly = py * co - px * sn;         /* FUN_005f92e0 */
+    } else {
+        ly = *acc + by;
+    }
+    lx = bx;
+    o->d[0] = co * lx - sn * ly + cx;   /* FUN_005f8ce0 */
+    o->d[1] = co * ly + sn * lx + cy;
+    o->d[2] = co * (lx + L) - sn * ly + cx;
+    o->d[3] = co * ly + sn * (lx + L) + cy;
+    o->d[7] = jw_cmd_axis();            /* doc+0x17c0 */
+    *acc -= g;
+}
+
+/* mode 0: 選んだ文字を上から並べ直す。並べたものの数 */
+static int mp_pos(jw_drawing *d, double cx, double cy, double g, int kx,
+                  int ky)
+{
+    double a = jw_cmd_axis() * PI / 180.0, co = cos(a), sn = sin(a), acc = 0.0;
+    int *idx, *used, n = 0, i, k;
+    jw_obj *cp;
+    op_t *rec;
+
+    idx = (int *)malloc((size_t)(d->ndrawn + 1) * sizeof *idx);
+    used = (int *)calloc((size_t)(d->ndrawn + 1), sizeof *used);
+    cp = (jw_obj *)malloc((size_t)(d->ndrawn + 1) * sizeof *cp);
+    if (!idx || !used || !cp) {
+        free(idx);
+        free(used);
+        free(cp);
+        return 0;
+    }
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel && d->obj[i].cls == JW_MOJI)
+            idx[n++] = i;
+    for (k = 0; k < n; k++) {           /* y の大きい順、同じなら x の小さい順 */
+        double by = -99999999.0, bx = 99999999.0;
+        int best = -1, j;
+
+        for (j = 0; j < n; j++) {
+            const jw_obj *o = &d->obj[idx[j]];
+            double px = o->d[0] - cx, py = o->d[1] - cy;
+            double lx = px * co + py * sn, ly = py * co - px * sn;
+
+            if (used[j])
+                continue;
+            if (ly > by || (ly == by && bx > lx)) {
+                by = ly;
+                bx = lx;
+                best = j;
+            }
+        }
+        if (best < 0)
+            for (j = 0; j < n && best < 0; j++)
+                if (!used[j])
+                    best = j;
+        used[best] = 1;
+        cp[k] = d->obj[idx[best]];
+    }
+    if (n > 0 && (rec = op_new()) != 0) {
+        for (k = n - 1; k >= 0; k--)    /* idx は上がり順: 後ろから消す */
+            erase(d, idx[k], rec);
+        for (k = 0; k < n; k++) {
+            jw_obj *o = jw_add(d, JW_MOJI);
+
+            if (!o)
+                break;
+            *o = cp[k];
+            o->sel = 0;
+            o->flags = (unsigned short)(o->flags & ~2u);
+            mp_lay(d, o, cx, cy, co, sn, g, kx, ky, &acc);
+        }
+        rec->n = k;
+    }
+    free(idx);
+    free(used);
+    free(cp);
+    return n;
+}
+
+/* CString::Compare（UTF-16 の順） */
+static int mp_cmp16(const char *a, const char *b)
+{
+    unsigned short x[256], y[256];
+    long nx = jw_to_utf16(a, (long)strlen(a), x, 255);
+    long ny = jw_to_utf16(b, (long)strlen(b), y, 255);
+    long i;
+
+    if (nx < 0)
+        nx = 0;
+    if (ny < 0)
+        ny = 0;
+    for (i = 0; i < nx && i < ny; i++)
+        if (x[i] != y[i])
+            return x[i] < y[i] ? -1 : 1;
+    return nx < ny ? -1 : nx > ny ? 1 : 0;
+}
+
+typedef struct {
+    char s[256];
+    int cnt, done;
+    jw_obj o;
+} mp_item;
+
+/* mode 2: FUN_00700560(0) の一覧を FUN_00477000 で並べる。書いた数 */
+static int mp_sum_write(jw_drawing *d, double cx, double cy, double g,
+                        int kx, int ky)
+{
+    double a = jw_cmd_axis() * PI / 180.0, co = cos(a), sn = sin(a), acc = 0.0;
+    unsigned char *done;
+    mp_item *it;
+    int n = 0, i, j, k, made = 0;
+    jw_obj tmpl;
+
+    done = (unsigned char *)calloc((size_t)(d->ndrawn + 1), 1);
+    it = (mp_item *)calloc((size_t)(d->ndrawn + 1), sizeof *it);
+    if (!done || !it) {
+        free(done);
+        free(it);
+        return 0;
+    }
+    memset(&tmpl, 0, sizeof tmpl);
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *e = &d->obj[i];
+        int blk = e->cls == JW_BLOCK;
+        char key[256];
+
+        if (!e->sel || done[i])
+            continue;
+        done[i] = 1;
+        if (e->cls != JW_MOJI && !(blk && mp_block))
+            continue;
+        snprintf(key, sizeof key, "%s",
+                 blk ? jw_bt_name(d, i) : e->text >= 0 ? jw_str(d, e->text) : "");
+        it[n].cnt = 1;
+        for (j = i + 1; j < d->ndrawn; j++) {
+            const jw_obj *f = &d->obj[j];
+            const char *fk;
+
+            if (!f->sel || done[j] || f->cls != e->cls)
+                continue;
+            fk = blk ? jw_bt_name(d, j) : f->text >= 0 ? jw_str(d, f->text) : "";
+            if (!strcmp(fk, key)) {
+                it[n].cnt++;
+                done[j] = 1;
+            }
+        }
+        if (blk) {
+            it[n].o = tmpl;
+            it[n].o.cls = JW_MOJI;
+            it[n].o.ltype = 1;
+            snprintf(it[n].s, sizeof it[n].s, "%s%s%s", mp_pre, key, mp_post);
+        } else {
+            it[n].o = *e;
+            snprintf(it[n].s, sizeof it[n].s, "%s", key);
+        }
+        n++;
+    }
+    if (n == 0)
+        JW_NOTICE(5522);
+    for (k = 0; k < n; k++) {           /* 並べ順（FUN_00700560 の後半の do） */
+        int best = -1;
+
+        for (j = 0; j < n; j++) {
+            if (it[j].done)
+                continue;
+            if (best < 0)
+                best = j;
+            else if (!mp_sort) {
+                if (mp_cmp16(it[j].s, it[best].s) < 0)
+                    best = j;
+            } else if (it[j].cnt == it[best].cnt) {
+                if (mp_cmp16(it[j].s, it[best].s) < 0)
+                    best = j;
+            } else if (it[best].cnt < it[j].cnt)
+                best = j;
+        }
+        it[best].done = 1;
+        {
+            char cs[32], s[320];
+            jw_obj *o = jw_add(d, JW_MOJI);
+            unsigned short layer, lgroup;
+
+            if (!o)
+                break;
+            snprintf(cs, sizeof cs, "%d", it[best].cnt);
+            if (mp_non)
+                snprintf(s, sizeof s, "%s", it[best].s);
+            else if (mp_back)
+                snprintf(s, sizeof s, "%s %s", it[best].s, cs);
+            else
+                snprintf(s, sizeof s, "%s%s%s", cs,
+                         strlen(cs) > 2 ? " " : strlen(cs) == 2 ? "  " : "   ",
+                         it[best].s);
+            layer = o->layer;
+            lgroup = o->lgroup;
+            *o = it[best].o;
+            o->layer = layer;           /* 書込みレイヤ（+0x2e・+0x2f） */
+            o->lgroup = lgroup;
+            o->n = mp_shu;              /* +0xb4、斜体太字（+0xdc）は 0 */
+            o->d[4] = d->style[mp_shu - 1].w;
+            o->d[5] = d->style[mp_shu - 1].h;
+            o->d[6] = d->style[mp_shu - 1].sp;
+            o->color = (unsigned short)d->style[mp_shu - 1].color;
+            o->face = jw_add_str(d, JW_MOJI_FACE);
+            o->d[7] = 0.0;
+            o->flags = 0;
+            o->sel = o->was_sel = 0;
+            o->text = jw_add_str(d, s);
+            mp_lay(d, o, cx, cy, co, sn, g, kx, ky, &acc);
+            made++;
+        }
+    }
+    if (made)
+        op_push(made);
+    free(done);
+    free(it);
+    return made;
+}
+
+/* +0xbc の間のクリック: FUN_006fd240 / FUN_006fda70 → FUN_006feba0 */
+static void mp_click(jw_drawing *d, const jw_view *v, double x, double y,
+                     int button)
+{
+    double v1, v2, g, cx = x, cy = y;
+    int n, kx = mp_kijun / 3, ky = 2 - mp_kijun % 3, i, any = 0;
+
+    if (!d)
+        return;
+    if (button == 1 && !(v && jw_read(d, v, x, y, &cx, &cy)))
+        return;                         /* 読めなければ何もしない */
+    mp_box_get(&v1, &v2);
+    g = fabs(v1);
+    n = (int)(fabs(v2) + 0.5);
+    if (g < 1e-07)
+        n = 0;
+    if (n > 200)
+        n = 200;
+    (void)n;                            /* 文字数の折り返しは入れていない */
+    if (mp_sum) {
+        if (g <= 1e-07)
+            g = 5.0;
+        mp_sum_write(d, cx, cy, g, kx, ky);
+    } else {
+        for (i = 0; i < d->ndrawn; i++)
+            if (d->obj[i].sel && d->obj[i].cls == JW_MOJI)
+                any = 1;
+        if (!any) {
+            JW_NOTICE(5522);
+            mp_on = 0;
+            sel_clear(d);
+            sel_step = 0;
+            return;
+        }
+        mp_pos(d, cx, cy, g, kx, ky);
+    }
+    mp_gap = g;
+    mp_cnt = v2;
+    if (g >= 1e-07)
+        mp_box_put(g, v2);
+    mp_on = 0;                          /* FUN_005c9c30(0) */
+    sel_clear(d);                       /* 選択は放され（FUN_0044c830）、 */
+    sel_step = 0;                       /* 範囲の始めへ（+0xc = 0） */
+}
+
 static void sel_mirror(jw_drawing *d, const jw_obj *axis);
 
 static void sel_clear(jw_drawing *d)
@@ -15559,6 +16104,8 @@ void jw_cmd_sansha_reset(void)
 
 int jw_cmd_bar_check(int id)
 {
+    if (id == 9020)             /* 範囲選択の 文字位置･集計 のバー（decomp/res/bars9.txt） */
+        return jw_cmd_mp_on();
     if (current == JW_CMD_GAZOU) {
         int r = jw_cmd_gazou_check(id);
 
@@ -15714,6 +16261,16 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         if (id == 1066)
             return fk_chain_ok(d);
         return id == 1067;
+    }
+    if (current == JW_CMD_HANI && (id == 1071 || jw_cmd_mp_on())) {
+        /* 文字位置･集計: FUN_005c8120 が 1068〜1071 を生かすのと同じ条件。
+           そのバーの ﾌｧｲﾙ出力・文字検索 は移植に無いので殺す */
+        if (id == 1071)
+            return sel_step == 2 && !sel_cut && !sel_outside;
+        if (id == 1122 || id == 1115)
+            return 0;
+        if (id == 1072 || id == 1121 || id == 1418)
+            return 1;
     }
     if (current == JW_CMD_HANI && id == 1068)
         /* 選択図形登録: CSentakuDialog の FUN_005c8120 は 範囲が決まった段
@@ -16481,6 +17038,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
         if (!d || sel_step != 2)
             return 0;
         fk_back_go(d);
+        return 1;
+    }
+    if (current == JW_CMD_HANI && id == 1071 && !jw_cmd_mp_on())
+        return mp_enter(d);     /* 文字位置･集計（mp_enter の前の注） */
+    if (jw_cmd_mp_on() && id == 1121 && mp_sum) {
+        jw_cmd_mp_sum_set(0);   /* 集計書込 を切る。入れるのは窓の OK（app.c） */
         return 1;
     }
     if (current == JW_CMD_HANI && id == 1068) {
@@ -17581,6 +18144,8 @@ static void tg_place(jw_drawing *d, double x, double y)
 /* 建具立面の 基準点の釦の字: 押すたびに 左内法→中→右内法、下内法→中→上内法 */
 const char *jw_cmd_bar_label(int id)
 {
+    if (id == 1072 && jw_cmd_mp_on())
+        return mp_label();      /* 基点(左下) など */
     if (current == JW_PRINT_CMD)
         return jw_pr_label(id);     /* 基準点・回転 */
     if (id == 2503 && current == JW_CMD_KIGOU && sk_step == 4) {
@@ -22169,6 +22734,13 @@ static void au_back_check(void)
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button)
 {
+    if (current == JW_CMD_HANI && mp_on) {
+        if (sel_step == 2) {
+            mp_click(d, v, x, y, button);   /* 文字位置･集計 の基点 */
+            return;
+        }
+        mp_off();
+    }
     if (current == 0x8091) {
         gb_click(d, v, x, y, button);
         return;
