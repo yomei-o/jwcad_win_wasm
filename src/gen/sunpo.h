@@ -23,6 +23,20 @@
 #define JW_SUN_COMMA       1
 #define JW_SUN_ZERO        0
 #define JW_SUN_UNIT        0
+/* gyaku-yajirushi: how far the dimension line runs on (2080, DAT_00a0bd18) */
+#define JW_SUN_GYAKUDE     5
+/* extension / dimension line positions: =(1) 1482/1483 (bd60/bd68),
+   =(2) 1484/1485 (bd70/bd78), - from the point 1486 (bd80) */
+#define JW_SUN_HIKIDASHI1  5
+#define JW_SUN_SUNPOSEN1   10
+#define JW_SUN_HIKIDASHI2  0
+#define JW_SUN_SUNPOSEN2   5
+#define JW_SUN_HIKIDASHI3  3
+/* places of an angle in degrees (2084, bd9c) */
+#define JW_SUN_DEGKETA     4
+/* ruishin: the base circle (2417, bd48) and its radius (2082, bd50) */
+#define JW_SUN_STARTEN     0
+#define JW_SUN_STARTENR    0.75
 
 /* The flags the original puts on each part (+0x44).  Read
    back out of a dimension it drew. */

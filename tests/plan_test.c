@@ -254,7 +254,8 @@ int main(int argc, char **argv)
             if (t && strcmp(t, "4,000"))
                 printf("     it says [%s]\n", t);
         }
-        jw_cmd_bar(d, 1062);
+        while (jw_cmd_sunpo_arrows())   /* 端部 は 0->1->2 と回る */
+            jw_cmd_bar(d, 1062);
         jw_cmd_bar(d, 1061);
         jw_cmd_bar(d, 1061);
     }

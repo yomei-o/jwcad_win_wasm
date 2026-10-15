@@ -173,7 +173,8 @@ static void dimension(jw_drawing *d, double ax, double ay, double bx, double by)
         const char *t = jw_str(d, d->obj[d->ndrawn - 1].text);
         ck(t && !strchr(t, '.'), "  the value written to no decimal places");
     }
-    jw_cmd_bar(d, 1062);
+    while (jw_cmd_sunpo_arrows())   /* 端部 は 0->1->2 と回る */
+        jw_cmd_bar(d, 1062);
     jw_cmd_bar(d, 1061);
     jw_cmd_bar(d, 1061);
 }
