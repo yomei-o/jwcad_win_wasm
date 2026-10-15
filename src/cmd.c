@@ -282,6 +282,11 @@ static double base_x, base_y;   /* 基準点 */
 /* 反転 (the second stage's 1067): once pressed, the next click picks the
    基準線 to flip the selection across. */
 static int sel_flip;
+/* 連続 (二枚目のバーの 1064)。原典 CZukeiFukusha の +0xfd80（回数）、
+   +0xfd90/+0xfd98（一回目のずれ）、+0xfda0（一回目の倍率）、+0xfd88
+   （初めて押したときの回転角）。sel_place / sel_renzoku を見よ */
+static int ren_n;
+static double ren_dx, ren_dy, ren_sc, ren_ang;
 /* 複写 (the second stage's 2092): the tick says whether the range is
  * copied or moved, and it is **not** the command that says so.
  * 図形複写 comes up with it on and 図形移動 with it off; taking it off in
@@ -12417,6 +12422,7 @@ static int sel_confirm(jw_drawing *d)
     sel_step = current == JW_CMD_HANI ? 4 : 3;
     if (current == JW_CMD_PARAM)
         param_settle();
+    ren_n = 0;                          /* 連続 は次に置いたずれから */
     return 1;
 }
 
@@ -12437,6 +12443,26 @@ void jw_cmd_moji_point_first(int on)
 }
 
 static void moji_place(jw_drawing *d, double x, double y);
+static int sel_numpos(const jw_drawing *d, double *ox, double *oy);
+static void sel_place(jw_drawing *d, double x, double y);
+
+/* 数値位置 (1413) が入っていれば Enter で置く。バーの PreTranslateMessage
+   (FUN_004adde0) は どの箱に居ても Enter を 0x1500 にして送り、ビュー
+   (FUN_005143b0) が仮想関数 36 番目 FUN_00652320 を呼ぶ: 箱が 0 でなければ
+   回数を 0 にして FUN_00653fe0 で置く。0 なら何もしない。逆コンパイルの
+   読み、原典では押していない。app は箱の Enter のあとにもこれを呼ぶ */
+int jw_cmd_numpos_enter(jw_drawing *d)
+{
+    double ox, oy;
+
+    if (!d || sel_step != 3 || sel_n <= 0
+        || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU)
+        || sel_flip || sel_base_wait || !sel_numpos(d, &ox, &oy))
+        return 0;
+    ren_n = 0;
+    sel_place(d, base_x + ox, base_y + oy);
+    return 1;
+}
 
 int jw_cmd_enter_key(jw_drawing *d)
 {
@@ -12482,6 +12508,8 @@ int jw_cmd_enter_key(jw_drawing *d)
     }
     if (d && current == JW_CMD_PARAM && sel_step == 3)
         return param_enter(d);          /* 数値位置 の確定 */
+    if (jw_cmd_numpos_enter(d))
+        return 1;
     if (!d || sel_step != 2
         || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU
             && current != JW_CMD_SEIRI && current != JW_CMD_PARAM))
@@ -12685,24 +12713,124 @@ const char *jw_cmd_dir_text(void)
     return s[sel_dir & 3];
 }
 
+/* 数値位置 (1413):「x,y」を箱に打つと、置く先は 基準点 + (x,y) になる。
+ * 逆コンパイルの読み、原典では押していない:
+ *   CFukushaDialog の FUN_004ae4a0 / FUN_004ae510 が箱（+0x808）の二つの数を
+ *   取り、どちらも 書込みグループの縮尺（doc +0x2578 + 群×8）で割る（箱は
+ *   実寸、移植の内部は図寸）。数が一つなら FUN_0058b290 が y にも同じ数を
+ *   入れる。CZukeiFukusha の置く本体 FUN_00653fe0 と追いかけ FUN_0064d290 は、
+ *   どちらかの絶対値が 1e-7 を超えると FUN_0044cd50（軸角で回す）を通して
+ *   置く先 +0xfc78/+0xfc80 = 基準点 (+0x228/+0x230) + ずれ とし、任意方向の
+ *   旗 (+0xfd00/+0xfd04) を 0 にする（クリックの場所も方向も効かない）。
+ *   置いたあと FUN_004ae320(0,0) で箱は "0 , 0" に戻る（一度きり）。
+ * 基本設定の単位の旗 DAT_00a0d62c（立つと DAT_00a0d630 を掛ける）は移植に
+ * 無いので入れていない。 */
+static int sel_numpos(const jw_drawing *d, double *ox, double *oy)
+{
+    const char *t = jw_cmd_box(1413);
+    const char *c = t ? strchr(t, ',') : 0;
+    double x, y, sc, a;
+
+    if (!t || !*t || !d)
+        return 0;
+    x = box_num(t, 0.0);
+    y = c ? box_num(c + 1, 0.0) : x;
+    if (!(fabs(x) > 1e-7 || fabs(y) > 1e-7))
+        return 0;
+    sc = write_scale(d);
+    x /= sc;
+    y /= sc;
+    a = axis_deg * PI / 180.0;
+    if (fabs(axis_deg) >= 1e-7) {
+        double ca = cos(a), sa = sin(a), x0 = x;
+
+        x = ca * x0 - sa * y;
+        y = ca * y + sa * x0;
+    }
+    *ox = x;
+    *oy = y;
+    return 1;
+}
+
+static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang);
+
 static void sel_place(jw_drawing *d, double x, double y)
 {
     double dx = x - base_x, dy = y - base_y;
     double sc = sel_scale(), ang = sel_turn();
-    int i;
+    int num;
 
     if (!d || sel_n <= 0)
         return;
-    switch (sel_dir) {          /* 任意方向 squares the move off */
-    case 1: dy = 0.0; break;
-    case 2: dx = 0.0; break;
-    case 3:
-        if ((dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy))
-            dy = 0.0;
-        else
-            dx = 0.0;
-        break;
+    num = sel_numpos(d, &dx, &dy);
+    if (!num)
+        switch (sel_dir) {      /* 任意方向 squares the move off */
+        case 1: dy = 0.0; break;
+        case 2: dx = 0.0; break;
+        case 3:
+            if ((dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy))
+                dy = 0.0;
+            else
+                dx = 0.0;
+            break;
+        }
+    /* 連続の一歩は、回数が 0 のときに置いたずれ（FUN_00653fe0 の
+       +0xfd80 < 1 なら +0xfd90 = 置く先 - 基準点、+0xfda0 = 倍率、そのあと
+       回数を 1 に）。二度目のクリックでは更新しない */
+    if (ren_n < 1) {
+        ren_dx = dx;
+        ren_dy = dy;
+        ren_sc = sc;
+        ren_n = 1;
     }
+    sel_put(d, dx, dy, sc, ang);
+    if (num)
+        box_put(1413, "0 , 0");
+}
+
+/* 連続 (1064): 置いたあと同じずれでもう一度。逆コンパイルの読み、原典では
+ * 押していない。釦は値の組 1 → 0x1401 → 命令の仮想関数 25 番目
+ * FUN_00651000（バーの受け手 FUN_004adc60 が 1064 (+0x340) の状態を戻す）:
+ *   回数 < 1 なら何もしない（釦もそれまで死んでいる。FUN_00653fe0 が回数を
+ *   1 にした所で 1064 と 1072 を生かす）。
+ *   複写でないとき（+0xfd08 != 1、移動）: 置く先 = 基準点 + 一歩 で、
+ *   その場の要素にもう一度掛ける（移動の要素は動いたところから、もう一歩）。
+ *   複写: 回数が 1 なら回転角の箱 (1412) を覚え、回数を一つ増やして n とし、
+ *   倍率 r が 0 か 1 に近ければ 1、|r| ≤ 1 なら 1-(1-r)n（0 に近ければ
+ *   n をもう一つ増やして置かない）、|r| > 1 なら (r-1)n+1（1 万を超えれば
+ *   同じく置かない）。角は n×覚えた角、置く先は 基準点 + n×一歩。 */
+static int sel_renzoku(jw_drawing *d)
+{
+    double r = ren_sc, s = 1.0, ar = fabs(r);
+    int i;
+
+    if (!d || sel_n <= 0 || ren_n < 1)
+        return 0;
+    if (range_moves()) {
+        for (i = 0; i < sel_n; i++)
+            if (sel_at[i] < d->nobj)
+                sel_was[i] = d->obj[sel_at[i]];
+        sel_put(d, ren_dx, ren_dy, sel_scale(), sel_turn());
+        return 1;
+    }
+    if (ren_n == 1)
+        ren_ang = sel_turn();
+    ren_n++;
+    if (!(ar < 0.0001 || fabs(ar - 1.0) < 0.0001)) {
+        s = ar <= 1.0 ? 1.0 - (1.0 - r) * ren_n : (r - 1.0) * ren_n + 1.0;
+        if (ar <= 1.0 ? fabs(s) < 0.0001 : fabs(s) > 10000.0) {
+            ren_n++;
+            return 0;
+        }
+    }
+    sel_put(d, ren_n * ren_dx, ren_n * ren_dy, s, ren_n * ren_ang);
+    return 1;
+}
+
+static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
+{
+    int i;
+
     if (range_moves()) {
         op_t *o = op_new();
         for (i = 0; i < sel_n; i++) {
@@ -13310,6 +13438,9 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return sel_step == 2 && jw_cmd_sel_count(d) > 0;   /* 選択確定 */
     case 1064:                  /* 基準点変更 (not 連続: the template's 278 says so),
                                    alive once something is picked */
+        if ((current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU)
+            && sel_step == 3)
+            return ren_n >= 1;  /* 二枚目では 連続: 一度置いてから */
         if (range_cmd(current) && sel_step == 2)
             return jw_cmd_sel_count(d) > 0;
         return 0;
@@ -13798,6 +13929,8 @@ static int bar_press(jw_drawing *d, int id)
         sel_cut = !sel_cut;
         return 1;
     case 1064:                  /* 基準点変更: the next click is the 基準点 */
+        if (sel_step == 3)      /* 二枚目のバーでは 連続 */
+            return sel_renzoku(d);
         if (!range_cmd(current) || sel_step != 2 || !d || jw_cmd_sel_count(d) <= 0)
             return 0;
         sel_base_pick = 1;
@@ -13833,6 +13966,7 @@ static int bar_press(jw_drawing *d, int id)
         if (sel_step == 3) {    /* 反転 -- the same id as 選択解除, one stage
                                    on, where the bar puts 反転 in its place */
             sel_flip = 1;
+            ren_n = 0;          /* FUN_006517e0 も +0xfd80 を 0 に */
             return 1;
         }
         sel_clear(d);

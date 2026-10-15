@@ -4285,6 +4285,8 @@ int app_key(int c)
         return 1;
     }
     if (jw_cmd_box_key(c)) {
+        if (c == 13 && have_drawing)    /* 複写・移動のバーは箱の Enter でも置く */
+            jw_cmd_numpos_enter(&drawing);
         app_paint();
         return 1;
     }
