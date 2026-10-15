@@ -8787,6 +8787,11 @@ static void nisen_ll(jw_drawing *d, const jw_view *v, double x, double y)
     int i = jw_pick(d, v, x, y, 3);
     double cx, cy;
 
+    /* (LL) を挟んだら、そのあとの右は 指示線包絡 (RR) の二つ目ではない。
+       始点を右で読み、角を (LL) で回って、始点と同じ所を右で終点にすると、
+       右が同じ所なので (RR) と取って一つ前の区間を戻していた
+       （tests/workflow_test.c の外壁の一筆） */
+    nisen_rwait = 0;
     if (i < 0 || d->obj[i].cls != JW_SEN || i == nisen_obj
         || nisen_obj < 0 || nisen_obj >= d->nobj)
         return;

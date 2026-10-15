@@ -49,21 +49,15 @@ static void px(double mx, double my, int *x, int *y)
     *y = (int)floor(v->by - (my - v->oy) * v->scale + 0.5);
 }
 
-/* マウスをそこへ持っていって押す。button 0 が (L)、1 が (R) */
-static void at(double mx, double my, int button)
+/* WF_V=1 なら押すたびに 点・要素の数・案内文 を出す */
+static void vprint(double mx, double my, int button)
 {
-    int x, y;
-
-    px(mx, my, &x, &y);
-    app_move(x, y);
-    app_press(x, y, button);
-    app_release(x, y, button);
     if (getenv("WF_V")) {
         const char *p = jw_cmd_prompt();
         unsigned short w[400];
         long n = p ? jw_to_utf16(p, (long)strlen(p), w, 400) : 0, i;
 
-        printf("       at %.3f,%.3f %c -> n=%d [", mx, my, button ? 'R' : 'L', d->ndrawn);
+        printf("       at %.3f,%.3f %c -> n=%d [", mx, my, "LRD"[button], d->ndrawn);
         for (i = 0; i < n; i++) {
             unsigned c = w[i];
 
@@ -82,6 +76,18 @@ static void at(double mx, double my, int button)
     }
 }
 
+/* マウスをそこへ持っていって押す。button 0 が (L)、1 が (R) */
+static void at(double mx, double my, int button)
+{
+    int x, y;
+
+    px(mx, my, &x, &y);
+    app_move(x, y);
+    app_press(x, y, button);
+    app_release(x, y, button);
+    vprint(mx, my, button);
+}
+
 /* (LL): 同じ所を続けて二度 */
 static void dbl(double mx, double my)
 {
@@ -93,6 +99,7 @@ static void dbl(double mx, double my)
     app_release(x, y, 0);
     app_press(x, y, 0);
     app_release(x, y, 0);
+    vprint(mx, my, 2);
 }
 
 /* 少し動かすだけ（原典は (L) のあと 2 画素動くまで待つ命令がある） */
