@@ -464,6 +464,12 @@ static void w_head(wbuf *w, const jw_drawing *d)
             w_put32(w, d->off_group[g], d->group[g].state);
             w_put32(w, d->off_group[g] + 4, d->group[g].write_layer);
         }
+        /* the group's protection, the long after its scale (src/jww.c's
+           gr->c) -- it went out as the file had it, so a group protected
+           with Ctrl came back unprotected */
+        if (d->version > 0xd3 && d->off_scale[g] > 0
+            && (np == 0 || d->off_scale[g] + 12 <= part[0].off))
+            w_put32(w, d->off_scale[g] + 8, d->group[g].c);
         if (d->off_layer[g] > 0 && (np == 0 || d->off_layer[g] + 16 * stride <= part[0].off))
             for (l = 0; l < 16; l++) {
                 w_put32(w, d->off_layer[g] + l * stride, d->group[g].layer[l].state);

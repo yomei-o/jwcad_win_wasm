@@ -17,6 +17,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/jww.h"
 
 static int fails;
 
@@ -45,6 +46,203 @@ static int wg(void)
         if (d->group[i].state == 3)
             g = i;
     return g;
+}
+
+/* the middle of one of the four small buttons under the grids */
+static void small(int k, int *x, int *y)
+{
+    static const int sx[4] = { 1194, 1194, 1234, 1234 },
+                     sy[4] = { 564, 587, 567, 590 };
+
+    *x = sx[k] + 12;
+    *y = sy[k] + 10;
+}
+
+static void press_small(int k, int button)
+{
+    int x, y;
+
+    small(k, &x, &y);
+    app_press(x, y, button);
+}
+
+/* every layer of the write group that All would set (not the write one,
+   not protected with 2) is at st */
+static int layers_at(int st)
+{
+    const jw_drawing *d = app_drawing();
+    const jw_group *gr = &d->group[wg()];
+    int i;
+
+    for (i = 0; i < 16; i++)
+        if (gr->layer[i].state != 3 && gr->layer[i].state2 != 2
+            && gr->layer[i].state != st)
+            return 0;
+    return 1;
+}
+
+/* All・0・All・× under the grids.  Read off the decompilation
+ * (FUN_00555b70 makes them; FUN_00557600, FUN_0056a080, FUN_00508a50),
+ * not pressed in the original. */
+static void small_buttons(void)
+{
+    jw_drawing *d = (jw_drawing *)app_drawing();
+    int x, y, k, i, keep[16][16], keepg[16], same;
+
+    for (k = 0; k < 4; k++) {
+        small(k, &x, &y);
+        ck(ui_layer_small_hit(1264, x, y) == k, "the small buttons are hit where drawn");
+    }
+    ck(ui_layer_small_hit(1264, 600, 400) < 0, "  and not in the drawing");
+
+    /* All under the layers: 2 -> 0 -> 1 -> 2 on the left, 2 on the right */
+    press_small(0, 0);
+    ck(layers_at(0), "レイヤの All 一回で 書込以外のレイヤが 非表示");
+    ck(d->group[wg()].layer[d->group[wg()].write_layer & 15].state == 3,
+       "  書込レイヤはそのまま");
+    press_small(0, 0);
+    ck(layers_at(1), "  二回で 表示のみ");
+    press_small(0, 1);
+    ck(layers_at(2), "  右で 編集可");
+    press_small(0, 0);
+    press_small(0, 0);
+    press_small(0, 0);
+    ck(layers_at(2), "  左三回で 編集可 に戻る");
+
+    /* All under the groups */
+    press_small(2, 0);
+    same = 1;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state != 3 && d->group[i].c != 2 && d->group[i].state != 0)
+            same = 0;
+    ck(same, "グループの All 一回で 書込以外のグループが 非表示");
+    press_small(2, 1);
+    same = 1;
+    for (i = 0; i < 16; i++)
+        if (d->group[i].state != 3 && d->group[i].c != 2 && d->group[i].state != 2)
+            same = 0;
+    ck(same, "  右で 編集可");
+
+    /* the X: 反転表示 and back */
+    for (i = 0; i < 16; i++) {
+        keepg[i] = d->group[i].state;
+        for (k = 0; k < 16; k++)
+            keep[i][k] = d->group[i].layer[k].state;
+    }
+    d->group[wg()].layer[1].state = 0;
+    keep[wg()][1] = 0;
+    d->group[wg()].layer[1].state2 = 0;
+    d->group[wg()].layer[2].state2 = 0;
+    d->group[wg()].layer[2].state = 2;
+    keep[wg()][2] = 2;
+    press_small(3, 0);
+    ck(d->group[wg()].layer[1].state == 2, "× で 非表示のレイヤが 編集可");
+    ck(d->group[wg()].layer[2].state == 0, "  編集可のレイヤが 非表示");
+    cell(0, 2, &x, &y);
+    app_press(x, y, 0);
+    ck(d->group[wg()].layer[2].state == 0, "  反転の間は升目が効かない");
+    press_small(3, 0);
+    same = 1;
+    for (i = 0; i < 16; i++) {
+        if (d->group[i].state != keepg[i])
+            same = 0;
+        for (k = 0; k < 16; k++)
+            if (d->group[i].layer[k].state != keep[i][k])
+                same = 0;
+    }
+    ck(same, "  もう一度で元に戻る");
+    press_small(3, 0);
+    app_command(JW_CMD_UNDO);
+    ck(d->group[wg()].layer[1].state == 0 && d->group[wg()].layer[2].state == 2,
+       "  戻る でも元に戻る");
+    press_small(3, 0);
+    app_command(JW_CMD_SEN);
+    ck(d->group[wg()].layer[1].state == 0 && d->group[wg()].layer[2].state == 2,
+       "  命令を選んでも元に戻る");
+
+    /* the button under the layers' All puts the group bar away */
+    press_small(1, 0);
+    ck(!ui_glayer_shown(), "レイヤの下の釦で グループのバーが消える");
+    cell(1, 3, &x, &y);
+    ck(ui_layer_hit(1264, x, y, &k) < 0, "  消えている間 グループの升目は当たらない");
+    small(3, &x, &y);
+    ck(ui_layer_small_hit(1264, x, y) < 0, "  その下の釦も");
+    press_small(1, 0);
+    ck(ui_glayer_shown(), "  もう一度で出る");
+}
+
+/* Ctrl + left: protection (FUN_0055ea10), and that it is saved */
+static void protect(void)
+{
+    jw_drawing *d = (jw_drawing *)app_drawing();
+    int x, y, g = wg(), w, st, i;
+    unsigned char *out = 0;
+    long n = 0;
+    jw_drawing r;
+
+    w = d->group[g].write_layer & 15;
+    d->group[g].layer[4].state2 = 0;
+    d->group[g].layer[6].state2 = 0;
+    d->group[g].layer[4].state = 2;
+    d->group[g].layer[6].state = 2;
+
+    app_keymods(0, 1);
+    cell(0, 4, &x, &y);
+    app_press(x, y, 0);
+    ck(d->group[g].layer[4].state2 == 1 && d->group[g].layer[4].state == 2,
+       "Ctrl+左 でレイヤが保護され 状態はそのまま");
+    app_keymods(1, 1);
+    cell(0, 6, &x, &y);
+    app_press(x, y, 0);
+    ck(d->group[g].layer[6].state2 == 2, "  Shift+Ctrl+左 で 2");
+    cell(0, w, &x, &y);
+    app_press(x, y, 0);
+    ck(d->group[g].layer[w].state2 == 0, "  書込レイヤは保護しない");
+    app_keymods(0, 0);
+
+    cell(0, 4, &x, &y);
+    app_press(x, y, 1);
+    ck((d->group[g].write_layer & 15) == w, "保護したレイヤは右で書込にならない");
+    app_press(x, y, 0);
+    ck(d->group[g].layer[4].state == 0, "  保護 1 は左で回る");
+    cell(0, 6, &x, &y);
+    app_press(x, y, 0);
+    ck(d->group[g].layer[6].state == 2, "  保護 2 は回らない");
+    press_small(0, 0);
+    ck(d->group[g].layer[6].state == 2, "  All でも変わらない");
+
+    /* the group grid, and All with Ctrl */
+    i = g == 2 ? 5 : 2;
+    d->group[i].c = 0;
+    app_keymods(0, 1);
+    cell(1, i, &x, &y);
+    app_press(x, y, 0);
+    ck(d->group[i].c == 1, "Ctrl+左 でグループも保護");
+    press_small(0, 0);
+    st = 1;
+    for (x = 0; x < 16; x++)
+        if (d->group[g].layer[x].state != 3 && d->group[g].layer[x].state2 != 1)
+            st = 0;
+    ck(st, "Ctrl+All で書込以外のレイヤがみな保護");
+    press_small(0, 0);
+    st = 1;
+    for (x = 0; x < 16; x++)
+        if (x != w && d->group[g].layer[x].state2 != 0)
+            st = 0;
+    ck(st, "  もう一度で外れる");
+    cell(0, 4, &x, &y);
+    app_press(x, y, 0);
+    app_keymods(0, 0);
+
+    /* both kinds are in the saved file */
+    ck(jw_write(d, &out, &n) && out, "保存できる");
+    if (out && jw_parse(&r, out, n)) {
+        ck(r.group[g].layer[4].state2 == 1, "  レイヤの保護が残る");
+        ck(r.group[i].c == 1, "  グループの保護も残る");
+        jw_free(&r);
+    } else
+        ck(0, "  読み直せる");
+    free(out);
 }
 
 int main(int argc, char **argv)
@@ -125,6 +323,9 @@ int main(int argc, char **argv)
         ck(wg() == 3, "the right button moves the write group too");
         ck(g0 == 3 || d->group[g0].state == 2, "the old group drops to 編集可");
     }
+
+    small_buttons();
+    protect();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

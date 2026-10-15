@@ -142,6 +142,20 @@ void ui_status_box(int k, int cw, int ch, rect_t *r);
    sixteen. */
 int ui_layer_hit(int cw, int x, int y, int *n);
 
+/* The four small buttons under the grids: 0 All and 1 the button under it
+   beside the layers, 2 All and 3 the X beside the groups; -1 for none.
+   2 and 3 are not there while the group bar is put away. */
+int  ui_layer_small_hit(int cw, int x, int y);
+void ui_glayer_show(int on);
+int  ui_glayer_shown(void);
+
+/* 1323: the group's name in front of the layer's on the status line */
+void ui_status_grpname(int on);
+
+/* the layer dialog: which name box has the caret (1838, 1839, or 0) and
+   whether 戻す (2001) can be pressed */
+void ui_layerdlg_state(int caret, int undo_en);
+
 /* 線属性 (0x8027), the dialog that picks the colour and the line type new
    elements get.  Where it sits, what is on it and how each control looks
    were read out of the running original -- tools/mkzoku.py and the picture

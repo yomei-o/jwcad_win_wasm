@@ -134,18 +134,117 @@ static void to_paper(int x, int y, double *px, double *py)
  *            to 編集可.
  *
  * The group grid behaves the same way. */
-static int press_layer(int g, int n, int button)
+/* Shift and Ctrl as they were when the button went down.  The original
+ * keeps them in two globals of its own (0xa0cc6c Shift, 0xa0cc74 Ctrl --
+ * the strings "[Shift]" and "[Ctrl]" at 0x40ea40 are printed off them), and
+ * the layer cells look at Ctrl.  The front end says what they are
+ * (app_keymods) before it hands over the press. */
+static int ly_shift, ly_ctrl;
+
+void app_keymods(int shift, int ctrl)
 {
-    jw_group *grp;
+    ly_shift = shift != 0;
+    ly_ctrl = ctrl != 0;
+}
+
+/* 反転表示 (0x805c, the X under the group grid): FUN_00508a50 keeps every
+ * state (document +0x246c and +0x1c2c), then turns the picture inside out --
+ * every group editable, and in a group that was 非表示 or 表示のみ every
+ * layer editable, in one that was 編集可 or 書込 every 非表示 / 表示のみ layer
+ * editable and every editable one 非表示; an editable one that is protected
+ * (its own or its group's protection) is 表示のみ instead.  The second press
+ * (FUN_004fd3b0) puts the kept states back, and so do choosing a command
+ * (FUN_004fdc40) and 戻る (FUN_00504100 does that and nothing else).  While
+ * it is on, the cells and the two All buttons do nothing (+0x1824).
+ * The write group keeps its 3 here, unlike the original's 2: the port finds
+ * the write group by that 3.  Read off the decompilation, not pressed. */
+static int ly_inv;
+static int ly_inv_g[16], ly_inv_l[16][16];
+
+static void ly_invert(void)
+{
+    int g, l;
+
+    for (g = 0; g < 16; g++) {
+        jw_group *gr = &drawing.group[g];
+        int gs = gr->state;
+
+        ly_inv_g[g] = gs;
+        for (l = 0; l < 16; l++)
+            ly_inv_l[g][l] = gr->layer[l].state;
+        if (gs != 3)
+            gr->state = 2;
+        for (l = 0; l < 16; l++) {
+            int s0 = ly_inv_l[g][l], ns;
+
+            ns = gs == 0 || gs == 1 ? 2 : s0 == 0 || s0 == 1 ? 2 : 0;
+            if (ns == 2 && (gr->layer[l].state2 != 0 || gr->c != 0))
+                ns = 1;
+            gr->layer[l].state = ns;
+        }
+    }
+    ly_inv = 1;
+}
+
+static void ly_restore(void)
+{
+    int g, l;
+
+    if (!ly_inv)
+        return;
+    ly_inv = 0;
+    if (!have_drawing)
+        return;
+    for (g = 0; g < 16; g++) {
+        drawing.group[g].state = ly_inv_g[g];
+        for (l = 0; l < 16; l++)
+            drawing.group[g].layer[l].state = ly_inv_l[g][l];
+    }
+}
+
+static int ly_wg(void)
+{
     int i, wg = 0;
 
-    if (!have_drawing)
-        return 0;
     for (i = 0; i < 16; i++)
         if (drawing.group[i].state == 3)
             wg = i;
+    return wg;
+}
+
+/* a cell's protection: a layer's is state2, a group's the c after its
+   scale (src/jww.c) -- 0 none, 1 protected, 2 protected and its state
+   cannot be changed either */
+static int *ly_prot(int g, int n)
+{
+    return g == 0 ? &drawing.group[ly_wg()].layer[n].state2
+                  : &drawing.group[n].c;
+}
+
+/* bar: 1 for the grids beside the drawing (CLayerControlButton), 0 for
+ * the dialog's sixteen (CLayerButton), which do not look at Ctrl.
+ *
+ * Ctrl + left on a cell that is not the write one (FUN_0055ea10): its
+ * protection goes 0 -> 1, or 0 -> 2 with Shift as well, and anything else
+ * back to 0; the state is left alone.  A cell protected with 2 does not
+ * step round (both classes, +0xb0 != 2), and one protected at all cannot be
+ * made the write one (the bar's FUN_005571b0, the dialog's FUN_00561750,
+ * which looks at the group's protection too).  Read off the decompilation,
+ * not pressed. */
+static int press_layer_in(int g, int n, int button, int bar)
+{
+    jw_group *grp;
+    int wg, *st, *pr;
+
+    if (!have_drawing || ly_inv)
+        return 0;
+    wg = ly_wg();
     grp = &drawing.group[wg];
+    st = g == 0 ? &grp->layer[n].state : &drawing.group[n].state;
+    pr = ly_prot(g, n);
     if (button != 0) {
+        if (*pr != 0)
+            return 0;
         if (g == 0) {
             grp->layer[grp->write_layer & 15].state = 2;
             grp->layer[n].state = 3;
@@ -156,11 +255,81 @@ static int press_layer(int g, int n, int button)
         }
         return 1;
     }
-    {
-        int *st = g == 0 ? &grp->layer[n].state : &drawing.group[n].state;
-        if (*st == 3)
+    if (*st == 3)
+        return 0;
+    if (bar && ly_ctrl) {
+        *pr = *pr != 0 ? 0 : ly_shift ? 2 : 1;
+        return 1;
+    }
+    if (*pr == 2)
+        return 0;
+    *st = *st == 2 ? 0 : *st == 0 ? 1 : 2;
+    return 1;
+}
+
+static int press_layer(int g, int n, int button)
+{
+    return press_layer_in(g, n, button, 1);
+}
+
+/* The four buttons under the grids (FUN_00555b70 makes them).
+ *
+ *   0  All under the layers, a CMy3Button whose left and right presses
+ *      send the bar 0x1403 with 1 and 2 (FUN_0058b8b0) -- FUN_00557600
+ *   1  the one under it, 0x805a DispGLayerBar: the group bar comes and goes
+ *      (FUN_0056a080)
+ *   2  All under the groups, the same as 0 for the sixteen groups
+ *   3  the X, 0x805c 反転表示／反転解除 (FUN_00508a50, above)
+ *
+ * All, left: the bar's own state (+0xfc, 2 when it is made) steps
+ * 2 -> 0 -> 1 -> 2 and every cell that is not the write one and not
+ * protected with 2 is put at it; right: the state is 2 and so are they.
+ * With Ctrl the left one steps the bar's protection instead (+0x100:
+ * 0 -> 1, or 2 with Shift, and back to 0) and every cell but the write one
+ * is given it.  Read off the decompilation, not pressed. */
+static int ly_all[2] = { 2, 2 }, ly_allp[2];
+
+static int press_layer_small(int k, int button)
+{
+    int g = k >= 2, i, wg;
+
+    if (k == 1) {
+        if (button != 0)
             return 0;
-        *st = *st == 2 ? 0 : *st == 0 ? 1 : 2;
+        ui_glayer_show(!ui_glayer_shown());
+        return 1;
+    }
+    if (!have_drawing)
+        return 0;
+    if (k == 3) {
+        if (button != 0)
+            return 0;
+        if (ly_inv)
+            ly_restore();
+        else
+            ly_invert();
+        return 1;
+    }
+    if (ly_inv)
+        return 0;
+    wg = ly_wg();
+    if (button == 0 && ly_ctrl) {
+        ly_allp[g] = ly_allp[g] != 0 ? 0 : ly_shift ? 2 : 1;
+        for (i = 0; i < 16; i++) {
+            int st = g == 0 ? drawing.group[wg].layer[i].state
+                            : drawing.group[i].state;
+            if (st != 3)
+                *ly_prot(g, i) = ly_allp[g];
+        }
+        return 1;
+    }
+    ly_all[g] = button != 0 ? 2
+              : ly_all[g] == 2 ? 0 : ly_all[g] == 0 ? 1 : 2;
+    for (i = 0; i < 16; i++) {
+        int *st = g == 0 ? &drawing.group[wg].layer[i].state
+                         : &drawing.group[i].state;
+        if (*ly_prot(g, i) != 2 && *st != 3)
+            *st = ly_all[g];
     }
     return 1;
 }
@@ -769,18 +938,63 @@ static int sk_key(int c)
 static int ld_open;
 static unsigned char ld_on[64];
 
+/* 一括 (1141): the dialog's own state (+0xa8), 2 each time it is made */
+static int ld_ikk = 2;
+/* 戻す (2001): what 全レイヤ編集 / 全レイヤ非表示 kept (document +0x2424 and
+   +0x1fa4) and whether there is anything (+0x17a0, which also enables the
+   button the next time the dialog comes up) */
+static int ld_back;
+static int ld_back_g[16], ld_back_l[16][16];
+/* the name box with the caret: 1838 the group's, 1839 the write layer's */
+static int ld_caret;
+static char ld_edit[256];
+static int ld_drop;
+/* 1524 and 1323 as OK left them (DAT_00a0c7dc, DAT_00a0ef58): OnInitDialog
+   ticks them from there and OnOK (FUN_005610e0) puts them back */
+static int ld_c7dc, ld_ef58;
+
 int app_layerdlg_open(void)
 {
     return ld_open;
+}
+
+/* a new drawing: nothing to take back, and not turned inside out */
+static void ly_reset(void)
+{
+    ly_inv = 0;
+    ld_back = 0;
 }
 
 static void ld_start(void)
 {
     int i, n = ui_layerdlg_n();
 
-    for (i = 0; i < n && i < (int)sizeof ld_on; i++)
+    for (i = 0; i < n && i < (int)sizeof ld_on; i++) {
         ld_on[i] = (unsigned char)ui_layerdlg_on(i);
+        if (ui_layerdlg_id(i) == 1524)
+            ld_on[i] = (unsigned char)ld_c7dc;
+        if (ui_layerdlg_id(i) == 1323)
+            ld_on[i] = (unsigned char)ld_ef58;
+    }
+    ld_ikk = 2;
+    ld_caret = 0;
     ld_open = 1;
+}
+
+/* OK, or Enter: the two checks are kept, and 1323 is the status line's */
+static void ld_ok(void)
+{
+    int i, n = ui_layerdlg_n();
+
+    for (i = 0; i < n && i < (int)sizeof ld_on; i++) {
+        if (ui_layerdlg_id(i) == 1524)
+            ld_c7dc = ld_on[i] != 0;
+        if (ui_layerdlg_id(i) == 1323)
+            ld_ef58 = ld_on[i] != 0;
+    }
+    ui_status_grpname(ld_ef58);
+    ld_caret = 0;
+    ld_open = 0;
 }
 
 static int press_layerdlg(int x, int y, int button)
@@ -790,65 +1004,126 @@ static int press_layerdlg(int x, int y, int button)
 
     if (id < 0)
         return 0;                       /* outside it: the dialog is modal */
-    if (id == 1) {                      /* OK */
-        ld_open = 0;
+    if (id == 1838 || id == 1839) {
+        /* the name boxes (CBS_SIMPLE, each with its Edit 1001): the caret
+           goes in, with the name as it is */
+        const char *t = "";
+        if (have_drawing) {
+            jw_group *gr = &drawing.group[ly_wg()];
+            t = jw_str(&drawing, id == 1838 ? gr->name
+                                            : gr->layer_name[gr->write_layer & 15]);
+        }
+        ld_caret = id;
+        ld_drop = 0;
+        strncpy(ld_edit, t, sizeof ld_edit - 1);
+        ld_edit[sizeof ld_edit - 1] = 0;
         return 1;
     }
-    if (id == 2000 || id == 1073 || id == 1141) {
-        /* 全レイヤ編集, 全レイヤ非表示 and 一括, as the original left the
-         * file after pressing each of them:
-         *
-         *   全レイヤ編集    every layer of the group being written to goes
-         *                  to 編集可能, and every other layer group with it
-         *   全レイヤ非表示  the same the other way: every layer and every
-         *                  other group goes out
-         *   一括          the layers walk on one step together, the way a
-         *                  single one does when it is clicked --
-         *                  編集可能 → 非表示 → 表示のみ → 編集可能, which is
-         *                  what three presses in a row drew out of it
-         *
-         * The one being written to stays where it is in all three. */
-        int i, wg = 0, out = 0;
+    if (id != 0)
+        ld_caret = 0;                   /* a press on another control takes the focus */
+    if (id == 1) {                      /* OK */
+        ld_ok();
+        return 1;
+    }
+    if (id == 2001) {
+        /* 戻す (FUN_00560eb0): the states 全レイヤ編集 / 全レイヤ非表示 kept
+         * come back, a 3 among them as 2, the write group and each group's
+         * write layer as 3; a group or layer protected with 2 is left as it
+         * is.  Read off the decompilation, not pressed. */
+        int g, k, wg;
+        if (!have_drawing || !ld_back)
+            return 1;                   /* greyed (WS_DISABLED) */
+        wg = ly_wg();
+        for (g = 0; g < 16; g++) {
+            jw_group *gr = &drawing.group[g];
+            if (gr->c == 2)
+                continue;
+            gr->state = g == wg ? 3 : ld_back_g[g] == 3 ? 2 : ld_back_g[g];
+            for (k = 0; k < 16; k++) {
+                jw_layer *ly = &gr->layer[k];
+                if (ly->state2 == 2)
+                    continue;
+                ly->state = k == (gr->write_layer & 15) ? 3
+                          : ld_back_l[g][k] == 3 ? 2 : ld_back_l[g][k];
+            }
+        }
+        ld_back = 0;
+        return 1;
+    }
+    if (id == 1141) {
+        /* 一括 (FUN_005619c0, a CMy3Button sending 0x1403): left steps the
+         * dialog's state 2 -> 0 -> 1 -> 2, right makes it 2, and every
+         * layer that is not the write one and not protected with 2 is put
+         * at it -- all at the same state, not each a step on.  Nothing when
+         * the group is protected.  Three presses from all 編集可 are what the
+         * original left in decomp/res/lay_ikk*.jww.  Read off the
+         * decompilation, not pressed. */
+        jw_group *gr;
+        int k;
         if (!have_drawing)
             return 1;
-        /* 「[全レイヤ非表示]を[全レイヤ表示のみ] にする」 (1524): with it
-           ticked the original put everything at 表示のみ instead of out
-           altogether -- pressed with the box on, the file came back with
-           every layer and every group at 1 rather than 0 */
+        gr = &drawing.group[ly_wg()];
+        if (gr->c != 0)
+            return 1;
+        ld_ikk = button != 0 ? 2 : ld_ikk == 2 ? 0 : ld_ikk == 0 ? 1 : 2;
+        for (k = 0; k < 16; k++)
+            if (gr->layer[k].state2 != 2 && gr->layer[k].state != 3)
+                gr->layer[k].state = ld_ikk;
+        return 1;
+    }
+    if (id == 2000 || id == 1073) {
+        /* 全レイヤ編集 (FUN_00561dc0) and 全レイヤ非表示 (FUN_00561b50), as
+         * the original left the file after pressing each of them: every
+         * group but the write one, and every layer of every group, goes to
+         * 編集可能 -- or out altogether.  What was there is kept for 戻す.
+         * The write group and each group's write layer are 3.  A group
+         * protected with 2 keeps its state, a protected group (1 or 2)
+         * keeps all its layers', a layer protected with 2 keeps its own.
+         * (The original says 0x14a8 when it left any; the port has no
+         * box for it.)
+         *
+         * 「[全レイヤ非表示]を[全レイヤ表示のみ] にする」 (1524): with it
+         * ticked the original put everything at 表示のみ instead of out
+         * altogether -- pressed with the box on, the file came back with
+         * every layer and every group at 1 rather than 0 */
+        int g, k, wg, out = 0;
+        if (!have_drawing)
+            return 1;
         for (i = 0; i < n && i < (int)sizeof ld_on; i++)
             if (ui_layerdlg_id(i) == 1524 && ld_on[i])
                 out = 1;
-        for (i = 0; i < 16; i++)
-            if (drawing.group[i].state == 3)
-                wg = i;
-        if (id == 1141) {
-            for (i = 0; i < 16; i++) {
-                int *st = &drawing.group[wg].layer[i].state;
-                if (*st != 3)
-                    *st = *st == 2 ? 0 : *st == 0 ? 1 : 2;
-            }
-        } else {
-            /* every group, not only the one being written to: the original
-               left every layer of all sixteen at the new state, each
-               group's own write layer excepted */
-            int g, k;
-            for (g = 0; g < 16; g++) {
-                for (k = 0; k < 16; k++)
-                    if (drawing.group[g].layer[k].state != 3)
-                        drawing.group[g].layer[k].state
-                            = id == 2000 ? 2 : out;
-                if (g != wg)
-                    drawing.group[g].state = id == 2000 ? 2 : out;
+        wg = ly_wg();
+        for (g = 0; g < 16; g++) {
+            jw_group *gr = &drawing.group[g];
+            ld_back_g[g] = gr->state;
+            if (g == wg)
+                gr->state = ld_back_g[g] = 3;
+            else if (gr->c != 2)
+                gr->state = id == 2000 ? 2 : out;
+            for (k = 0; k < 16; k++) {
+                jw_layer *ly = &gr->layer[k];
+                ld_back_l[g][k] = ly->state;
+                if (gr->c != 0 || ly->state2 == 2)
+                    continue;
+                if (k == (gr->write_layer & 15))
+                    ly->state = ld_back_l[g][k] = 3;
+                else
+                    ly->state = id == 2000 ? 2 : out;
             }
         }
+        ld_back = id == 2000 ? 1 : 2;
         return 1;
     }
     lay = ui_layerdlg_layer(id);
-    if (lay >= 0)
+    if (lay >= 0) {
         /* the same as pressing that layer on the grid beside the drawing:
            the left button walks its state round, the right makes it the one
-           being written to */
-        return press_layer(0, lay, button);
+           being written to -- not when the group is protected
+           (FUN_00561750) */
+        if (button != 0 && have_drawing && drawing.group[ly_wg()].c != 0)
+            return 1;
+        return press_layer_in(0, lay, button, 0);
+    }
     for (i = 0; i < n && i < (int)sizeof ld_on; i++)
         if (ui_layerdlg_id(i) == id) {
             ld_on[i] = (unsigned char)!ld_on[i];
@@ -2130,6 +2405,42 @@ static void text_put(char *s, size_t cap, int *drop, int c)
 }
 
 static int blk_drop, be_drop;
+
+/* A name typed into the layer dialog's box.  The original's CBN_EDITCHANGE
+ * (FUN_005615f0 for 1838, FUN_00561690 for 1839) gives the group, or the
+ * group's write layer, the box's text at every change, so キャンセル does not
+ * take it back.  A lead byte waits for its trail before the name is set.
+ * DDV_MaxChars is 250 (FUN_0055f5f0); the port counts bytes. */
+static void ld_name_set(void)
+{
+    jw_group *gr;
+    int off;
+
+    if (!have_drawing || ends_in_lead(ld_edit, strlen(ld_edit)))
+        return;
+    off = jw_add_str_w(&drawing, ld_edit, drawing.version > 0x275);
+    if (off < 0)
+        return;
+    gr = &drawing.group[ly_wg()];
+    if (ld_caret == 1838)
+        gr->name = off;
+    else
+        gr->layer_name[gr->write_layer & 15] = off;
+}
+
+static int ld_key(int c)
+{
+    if (!ld_caret)
+        return 0;
+    if (c == 8)
+        text_back(ld_edit);
+    else if (c >= 0x20 && c < 256)
+        text_put(ld_edit, 251, &ld_drop, c);
+    else
+        return 0;
+    ld_name_set();
+    return 1;
+}
 
 /* ---------------------------------------- dialogs from the templates -----
  * A dialog nobody has read off the running original yet, put up from the
@@ -3868,6 +4179,7 @@ int app_command(int cmd)
            picks the element to take the pen from. */
         if (have_drawing)
             jw_cmd_flush(&drawing);
+        ly_restore();                   /* 反転表示を解く（FUN_004fdc40） */
         if (have_drawing)
             jw_cmd_moji_leave(&drawing, cmd);   /* 文字の選択は種別の違う命令へ持ち越さない */
         jw_cmd_set(cmd);
@@ -4068,6 +4380,10 @@ int app_command(int cmd)
         blk_open = 1;
         return 1;
     case JW_CMD_UNDO:
+        if (ly_inv) {                   /* 反転表示の間の 戻る は解くだけ（FUN_00504100） */
+            ly_restore();
+            return 1;
+        }
         /* A command part way through takes the press itself and backs
            up (jw_cmd_back); only a command at rest lets a step of the
            drawing come off (jw_cmd_midway).  The port used to undo the drawing whatever the
@@ -4357,6 +4673,8 @@ int app_press(int x, int y, int button)
             return r;
     }
 
+    if ((g = ui_layer_small_hit(fb.w, x, y)) >= 0)
+        return press_layer_small(g, button);
     if ((g = ui_layer_hit(fb.w, x, y, &n)) >= 0)
         return press_layer(g, n, button);
 
@@ -4751,6 +5069,10 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (ld_open && ld_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (dialog_open()) {
         /* modal: the drawing and its command bar hear nothing.  Esc shuts
            it without applying what was typed, as a cancel button would;
@@ -4774,7 +5096,7 @@ int app_key(int c)
                 br_have_saved = 1;
                 br_open = 0;
             } else if (ld_open) {
-                ld_open = 0;
+                ld_ok();
             }
             app_paint();
         }
@@ -5187,6 +5509,7 @@ void app_new(void)
     ll_pend = ll_start = 0;
 
     bt_close();
+    ly_reset();
 
     if (!jw_parse(&d, jw_new_jww, jw_new_jww_len)) {
         last_error = d.error;   /* only reachable if the bake went wrong */
@@ -5222,6 +5545,7 @@ int app_open(const unsigned char *b, long n)
     ll_pend = ll_start = 0;
 
     bt_close();
+    ly_reset();
 
     if (!jw_parse(&d, b, n)) {
         last_error = d.error;
@@ -5655,8 +5979,10 @@ void app_paint(void)
         sk_fill();
         ui_shakudo(&fb, sk_num, sk_den, sk_listp, sk_group, sk_on, sk_caret);
     }
-    if (ld_open)
+    if (ld_open) {
+        ui_layerdlg_state(ld_caret, ld_back != 0);
         ui_layerdlg(&fb, have_drawing ? &drawing : 0, ld_on);
+    }
     if (tgp_open)
         ui_tgp(&fb, tgp_kind, tgp_file, tgp_page, -1);
     if (kj_open)
