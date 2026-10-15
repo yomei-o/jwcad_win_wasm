@@ -17,6 +17,7 @@
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
 #include "plot.h"               /* 印刷の命令 (JW_PRINT_CMD) */
+#include "d25view.h"            /* ２．５D の 透視図・鳥瞰図・アイソメ */
 #include "gen/prompts.h"
 #include "gen/sunpo.h"
 
@@ -902,6 +903,7 @@ static struct { int obj, has_sa; double x, y; nisen_env_t sa; } nisen_hist[NISEN
 static struct { unsigned short cmd, id; char t[64]; } box[] = {
     { JW_PRINT_CMD, 1411, "100% (A4\x81\xa8" "A4,A3\x81\xa8" "A3)" },   /* 印刷の倍率（DLGINIT 291 の三つ目） */
     { JW_CMD_25D, 1491, "10 , 0" },     /* 高さ , 奥行 */
+    { JW_CMD_25D, 1412, "5 , 10" },     /* 回転角間隔 ， 移動間隔（C25DDialog +0xc8・+0xd0、FUN_0058ae50 の %.10lg , %.10lg） */
     { JW_CMD_HIKAGE, 1491, "10" },      /* 高さ(m) */
     { JW_CMD_HIKAGE, 1492, "4" },       /* 測定高 */
     { JW_CMD_HIKAGE, 1493, "36" },      /* 緯度 */
@@ -3614,6 +3616,7 @@ void jw_cmd_set(int id)
 
     prev = current;
     fk_sel_used = 0;
+    jw_d25_leave();                     /* ２．５D の立体の画面は命令を越えない */
     jw_cmd_notice_clear();              /* FUN_004fdc40 → FUN_004fb9f0: 札を下ろす */
     if (fh_state) {                     /* a stroke does not outlive its command: what it drew stays, as one step */
         fh_made = 0;                    /* (the step is already in: fh_sample opened it) */
@@ -4174,6 +4177,10 @@ int jw_cmd_midway(void)
  * below). */
 int jw_cmd_back(jw_drawing *d)
 {
+    if (current == JW_CMD_25D && jw_d25_mode()) {
+        jw_d25_leave();         /* slot 16 FUN_0060e640: 段を 0 に、slot 27 で平面へ */
+        return 1;
+    }
     if (current == JW_PRINT_CMD && jw_pr_back())
         return 1;               /* 印刷の命令の slot 16: 段 1 → 0 */
     if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && ikk_st) {
@@ -4450,6 +4457,7 @@ void jw_cmd_reset(void)
        jw_cmd_set: the previous command and 水平・垂直 are left alone, the
        way the original leaves +0x8568 and +0x730 alone. */
     current = JW_CMD_SEN;
+    jw_d25_forget();            /* ２．５D の視点の控えも図面ごと */
     jw_cmd_notice_clear();      /* 前の図面への札も */
     jw_cmd_escape();            /* and nothing picked out of the last one:
                                    the indices meant its elements, not
@@ -4987,6 +4995,8 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_KYORITEN:
         return kyo_step ? JW_STR_5462 : JW_STR_5320;
     case JW_CMD_25D:
+        if (jw_d25_mode())
+            return jw_d25_prompt(last_dr);     /* 5520 と つまみ（src/d25view.c） */
         return JW_STR_5519;
     case JW_CMD_HIKAGE:
     case JW_CMD_TENKU:
@@ -15559,6 +15569,8 @@ void jw_cmd_sansha_reset(void)
 
 int jw_cmd_bar_check(int id)
 {
+    if ((id == 9016 || id == 9017) && current == JW_CMD_25D)
+        return jw_d25_bar_check(id);    /* 立体の画面のバー（decomp/res/bars9.txt） */
     if (current == JW_CMD_GAZOU) {
         int r = jw_cmd_gazou_check(id);
 
@@ -16476,6 +16488,14 @@ int jw_cmd_bar(jw_drawing *d, int id)
 
     last_dr = d;
 
+    if (current == JW_CMD_25D) {        /* 透視図・鳥瞰図・アイソメ（src/d25view.c） */
+        int made = 0;
+
+        if (jw_d25_bar(d, id, &made)) {
+            op_push(made);              /* 作図 の線は一手 */
+            return 1;
+        }
+    }
     /* 複線の 範囲選択 (1067) から出た 範囲: 選択確定 で 複線 に戻る（fk_back を見よ） */
     if (fk_back && current == JW_CMD_HANI && id == 1120) {
         if (!d || sel_step != 2)
@@ -17583,6 +17603,8 @@ const char *jw_cmd_bar_label(int id)
 {
     if (current == JW_PRINT_CMD)
         return jw_pr_label(id);     /* 基準点・回転 */
+    if (current == JW_CMD_25D && jw_d25_label(id))
+        return jw_d25_label(id);    /* (m) ↔ [mm] */
     if (id == 2503 && current == JW_CMD_KIGOU && sk_step == 4) {
         const jw_senkigou *sg = jw_sk_load(sk_cat);
 
@@ -22200,6 +22222,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_HIKAGE && hk_wall_step && d) {
         if (button == 0)
             hk_wall_click(d, v, x, y);
+        return;
+    }
+    if (current == JW_CMD_25D && jw_d25_mode()) {
+        jw_d25_click(d, x, y, button);  /* 立体の画面: 視点を横へ（src/d25view.c） */
         return;
     }
     if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)

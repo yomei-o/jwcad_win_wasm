@@ -13,6 +13,7 @@
 #include "cmd.h"
 #include "pick.h"
 #include "plot.h"
+#include "d25view.h"
 #include "tategu.h"
 #include "senkigou.h"
 #include "gen/layout.h"
@@ -6519,6 +6520,19 @@ static void draw_pv(void)
     pv_compass(jw_cmd_hikage_pv_az());
 }
 
+/* ２．５D の 透視図・鳥瞰図・アイソメ: 原典は view+0x859c が立つあいだ 図面の代わりに
+   CZukei25D の slot 5 (FUN_00617640) を描く。層・ペンは図面のもの */
+static void draw_d25(void)
+{
+    jw_drawing one = drawing;
+
+    one.obj = 0;
+    one.nobj = one.ndrawn = one.cobj = 0;
+    if (jw_d25_view(&drawing, &one) > 0)
+        jw_draw(&fb, &view, &one);
+    free(one.obj);
+}
+
 static void draw_drawing(void)
 {
     const rect_t *r = &view.clip;
@@ -6623,6 +6637,8 @@ void app_paint(void)
         bt_hl();
         if (jw_cmd_hikage_pv_on())
             draw_pv();
+        else if (jw_cmd() == JW_CMD_25D && jw_d25_mode())
+            draw_d25();                 /* ２．５D の立体（src/d25view.c） */
         else {
             jw_draw_textframe = br_textframe;   /* 画面だけ（印刷は描かない） */
             draw_drawing();
