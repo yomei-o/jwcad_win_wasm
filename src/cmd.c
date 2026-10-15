@@ -29,6 +29,7 @@ static int prev;
    texts are picked and shown pink (ms_text), 外部エディタ was pressed with
    nothing picked and goes on once the range is settled (ms_after, ms_go) */
 static int ms_back, ms_text, ms_after, ms_go;
+static void ms_clip_take(const jw_drawing *d);  /* コピー・切り取りの字の控え（文字の範囲選択の節） */
 /* 外部変形 (0x8091), the steps of a BAT (end of this file) */
 static const char *u8cp(const char *u);
 static int gb_keep, gb_back, gb_state;
@@ -13201,6 +13202,9 @@ int jw_cmd_clip_copy(jw_drawing *d, int cut)
     free(clip);
     clip = b;
     clip_n = n;
+    ms_clip_take(d);            /* 選んだ文字は字の並びとしても（FUN_004fb140） */
+    if (cut && current == JW_CMD_MOJI)
+        ms_text = 0;            /* 文字の範囲選択で選んだ字は切り取りで無くなる */
     if (cut) {
         /* straight out, without the 範囲選択 walk's own conditions:
            the original, given three lines and a range round them, left
@@ -24184,6 +24188,106 @@ int jw_cmd_moji_edit_text(const jw_drawing *d, unsigned char **out, long *n)
     return ms_out(d, 0, out, n);
 }
 
+/* コピー (0xe122)・切り取り (0xe123) の字の控え。原典の FUN_004fb140 は図形を
+   クリップボードに置くとき、写したものの中の CDataMoji（0x9fe108）ごとに字
+   （+0xb0）と L"\n"（0x966220、命令で確かめた）をつないで CF_UNICODETEXT (0xd)
+   にも置く（字が一つも無ければ置かない）。並びはデータの順。逆コンパイルの読み、
+   原典では押していない。移植はシステムのクリップボードの代わりに、ここに UTF-8
+   （BOM 付き、LF）で控え、文字の範囲選択の 貼付 (1065) がこれを使う
+   （jw_cmd_moji_paste）。コピーのたびに控え直し、字が無ければ空にする。 */
+static unsigned char *ms_clip;
+static long ms_clip_n;
+
+static void ms_clip_take(const jw_drawing *d)
+{
+    long cap = 3, len = 0;
+    int i, k = 0;
+    unsigned char *b;
+
+    free(ms_clip);
+    ms_clip = 0;
+    ms_clip_n = 0;
+    if (!d)
+        return;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel && d->obj[i].cls == JW_MOJI) {
+            cap += (long)strlen(jw_str(d, d->obj[i].text)) * 3 + 1;
+            k++;
+        }
+    if (!k || !(b = (unsigned char *)malloc((size_t)cap + 1)))
+        return;
+    b[len++] = 0xef;
+    b[len++] = 0xbb;
+    b[len++] = 0xbf;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].sel && d->obj[i].cls == JW_MOJI) {
+            const char *s = jw_str(d, d->obj[i].text);
+            long sl = (long)strlen(s);
+            unsigned short *w = (unsigned short *)malloc((size_t)(sl + 1) * 2);
+
+            if (!w)
+                break;
+            len += ms_put8(b + len, w, jw_to_utf16(s, sl, w, sl + 1));
+            free(w);
+            b[len++] = '\n';
+        }
+    ms_clip = b;
+    ms_clip_n = len;
+}
+
+int jw_cmd_moji_clip(const unsigned char **b, long *n)
+{
+    if (!ms_clip || ms_clip_n <= 3)
+        return 0;
+    *b = ms_clip;
+    *n = ms_clip_n;
+    return 1;
+}
+
+/* 貼付 (1065): 控えに字があればその行を選んだ字へ（jw_cmd_moji_apply と同じ
+   決まり）。控えが空なら -1 で、表側がシステムのクリップボードから渡す。 */
+int jw_cmd_moji_paste(jw_drawing *d)
+{
+    int r;
+
+    if (!ms_clip || ms_clip_n <= 3)
+        return -1;
+    r = jw_cmd_moji_apply(d, ms_clip, ms_clip_n);
+    if (r > 0)
+        ms_text = 0;            /* jw_cmd_moji_apply が選択を外す */
+    return r;
+}
+
+/* 文字を出て別の命令へ: 原典の FUN_004fdc40 は命令ごとに種別（view +0x856c）を
+   決め、入る前の種別（+0x8570）と違えば FUN_0044c830 で選択を外す（+0x85b4 は
+   文字の作り手 FUN_006bafb0 が 0 にし、最初の切り替えで 1 になるので、文字から
+   出るときは効く）。文字は種別 1。種別 2 は 範囲選択・消去・複写・移動 など、
+   0 は下の五つ。種別を決めない命令（ここに無いもの）は前の種別のままで外さない。
+   文字から 文字 に入り直すと作り手が +0x8568 == 0x8026 で選択を外す。
+   ＝ 文字の範囲選択で選んだ字は 消去・移動・複写 へは持ち越さない（消す・
+   動かすのは 切り取り と 貼り付け、または汎用の 範囲選択 から）。
+   逆コンパイルの読み、原典では押していない */
+void jw_cmd_moji_leave(jw_drawing *d, int id)
+{
+    static const int k02[] = {
+        0x8046, 0x804f, 0x8053, 0x80a0, 0x80a1,                 /* 種別 0 */
+        0x8012, 0x8013, 0x8017, 0x801a, 0x8020, 0x8024, 0x804e, /* 種別 2 */
+        0x805b, 0x805e, 0x8065, 0x8072, 0x807f, 0x8081, 0x8082,
+        0x8091, 0x8092, 0x8096, 0x80b2, 0x80c9, 0x80f5, 0x8108
+    };
+    size_t i;
+    int off = id == JW_CMD_MOJI;
+
+    if (!d || current != JW_CMD_MOJI)
+        return;
+    for (i = 0; !off && i < sizeof k02 / sizeof k02[0]; i++)
+        off = id == k02[i];
+    if (off) {
+        sel_clear(d);
+        ms_text = 0;
+    }
+}
+
 /* 文書 (1070): the file the picked texts are written to.  The picking is
    let go of afterwards and the drawing is not changed. */
 int jw_cmd_moji_doc(jw_drawing *d, unsigned char **out, long *n)
@@ -24305,8 +24409,16 @@ int jw_cmd_moji_apply(jw_drawing *d, const unsigned char *b, long n)
     char *lines, *p;
     op_t *o;
 
-    if (!d)
+    if (!d || !b)
         return 0;
+    {
+        /* ブラウザのコピーがシステムのクリップボードに置く図形（"JWCLIP:"＋base64）は
+           字の行ではない */
+        long s = n >= 3 && b[0] == 0xef && b[1] == 0xbb && b[2] == 0xbf ? 3 : 0;
+
+        if (n - s >= 7 && !memcmp(b + s, "JWCLIP:", 7))
+            return 0;
+    }
     lines = ms_lines(b, n, &nl);
     l = ms_list(d, &k);
     if (!lines || !l || k <= 0 || nl <= 0) {

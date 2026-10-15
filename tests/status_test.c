@@ -32,6 +32,7 @@
 #include "../src/cmd.h"
 #include "../src/jww.h"
 #include "../src/view.h"
+#include "../src/ui.h"
 #include "../src/gen/prompts.h"
 
 #define PI 3.14159265358979323846
@@ -741,6 +742,133 @@ static void moji_point_first(void)
    そこへ動く（元は消える）。(R) は複写。書き換えて Enter は元の基点の所。
    CZukeiMoji の FUN_006c71f0・FUN_006c7ae0・FUN_006c6160・FUN_006c83a0。
    逆コンパイルの読み、原典では押していない */
+static void moji_pick_move(void);
+
+/* 文字の 範囲選択 (2407) で選んだ字と コピー・切り取り・貼付・命令の切り替え。
+   コピーは字を「字＋\n」のデータ順で控え（FUN_004fb140）、貼付 (1065) はその行を
+   選んだ字へ。文字から種別の違う命令（消去・移動など）へ出ると選択は外れる
+   （FUN_004fdc40 の +0x856c/+0x8570/+0x85b4）、線（同じ種別 1）へは残る。
+   逆コンパイルの読み、原典では押していない */
+static int moji_texts(const jw_drawing *d)
+{
+    int i, k = 0;
+
+    for (i = 0; i < d->ndrawn; i++)
+        k += d->obj[i].cls == JW_MOJI;
+    return k;
+}
+
+static void moji_box(double x0, double y0, double x1, double y1)
+{
+    const jw_view *v = app_view();
+
+    jw_cmd_bar((jw_drawing *)app_drawing(), 2407);
+    app_press(jw_sx(v, x0), jw_sy(v, y0), 0);
+    app_press(jw_sx(v, x1), jw_sy(v, y1), 1);      /* (R): 文字も */
+    app_key(13);
+}
+
+static int bar_press(int id)
+{
+    const fb_t *fb = app_fb();
+    int x, y;
+
+    for (y = 0; y < fb->h; y += 2)
+        for (x = 0; x < fb->w; x += 2)
+            if (ui_bar_hit(x, y) == id) {
+                app_press(x + 1, y + 1, 0);
+                return 1;
+            }
+    return 0;
+}
+
+static void moji_hani_clip(void)
+{
+    jw_drawing *d;
+    const unsigned char *b;
+    long n;
+    int i, k, t0, cd = -1;
+    double top;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    app_command(JW_CMD_MOJI);
+    app_key('A');
+    app_key('B');
+    click(-40.0, 40.0);
+    app_key('C');
+    app_key('D');
+    click(-40.0, 0.0);
+    t0 = moji_texts(d);
+    ck(t0 == 2, "字を二つ置く");
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI && !strcmp(jw_str(d, d->obj[i].text), "CD"))
+            cd = i;
+    top = cd >= 0 ? d->obj[cd].d[1] + d->obj[cd].d[5] : 0.0;
+
+    moji_box(-80.0, 60.0, 60.0, -10.0);
+    ck(jw_cmd() == JW_CMD_MOJI && jw_cmd_moji_ready() && jw_cmd_moji_count(d) == 2,
+       "2407 の範囲で二つとも選ぶ");
+    ck(app_command(57634) && jw_cmd_moji_clip(&b, &n)
+       && n == 9 && !memcmp(b, "\xef\xbb\xbf" "AB\nCD\n", 9),
+       "コピーは字も控える（データの順、一字一行、LF）");
+    ck(jw_cmd_moji_count(d) == 2 && moji_texts(d) == 2, "  コピーでは何も変わらない");
+
+    /* 選び直して CD だけ、貼付 で AB・CD の二行: CD が AB に、CD が下に足される */
+    click(50.0, -30.0);
+    ck(!jw_cmd_moji_ready() && jw_cmd_sel_count(d) == 0, "図面のクリックで選択を外す");
+    moji_box(-80.0, top + 2.0 < 39.0 ? top + 2.0 : 39.0, 60.0, -10.0);
+    ck(jw_cmd_moji_count(d) == 1, "CD だけ選ぶ");
+    ck(bar_press(1065) && moji_texts(d) == 3 && app_take_action() == 0,
+       "貼付 は控えの行を選んだ字へ（表側には頼まない）");
+    k = 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI)
+            k += !strcmp(jw_str(d, d->obj[i].text), "AB") * 10
+               + !strcmp(jw_str(d, d->obj[i].text), "CD");
+    ck(k == 21, "  AB が二つ、CD が一つ");
+    ck(!jw_cmd_moji_ready() && jw_cmd_sel_count(d) == 0, "  貼付のあと選択は外れる");
+    jw_cmd_undo(d);
+    ck(moji_texts(d) == 2 && cd >= 0 && !strcmp(jw_str(d, d->obj[cd].text), "CD"),
+       "  戻るで元どおり");
+    ck(jw_cmd_moji_apply(d, (const unsigned char *)"\xef\xbb\xbf" "JWCLIP:QUJD", 14) == 0,
+       "ブラウザの図形のクリップボード（JWCLIP:）は字の行にしない");
+
+    /* 命令の切り替え */
+    moji_box(-80.0, 60.0, 60.0, -10.0);
+    app_command(JW_CMD_SEN);
+    ck(jw_cmd_sel_count(d) == 2, "文字から 線（同じ種別）へは選択が残る");
+    app_command(JW_CMD_MOJI);
+    moji_box(-80.0, 60.0, 60.0, -10.0);
+    app_command(JW_CMD_SHOUKYO);
+    ck(jw_cmd_sel_count(d) == 0 && moji_texts(d) == 2,
+       "文字から 消去 へ出ると選択は外れる（消しはしない）");
+    app_command(JW_CMD_MOJI);
+    moji_box(-80.0, 60.0, 60.0, -10.0);
+    app_command(JW_CMD_IDOU);
+    ck(jw_cmd_sel_count(d) == 0, "移動 へも持ち越さない");
+    app_command(JW_CMD_MOJI);
+    moji_box(-80.0, 60.0, 60.0, -10.0);
+    app_command(JW_CMD_MOJI);
+    ck(jw_cmd_sel_count(d) == 0, "文字に入り直すと外れる");
+
+    /* 切り取り: 字が消えて控えに残る */
+    moji_box(-80.0, 60.0, 60.0, -10.0);
+    ck(app_command(57635) && moji_texts(d) == 0 && !jw_cmd_moji_ready()
+       && jw_cmd_moji_clip(&b, &n) && n == 9, "切り取りは字を消して控える");
+    app_command(JW_CMD_SEN);
+    click(0.0, 0.0);
+    click(10.0, 0.0);
+    app_command(JW_CMD_HANI);
+    {
+        const jw_view *v = app_view();
+
+        app_press(jw_sx(v, -5.0), jw_sy(v, 5.0), 0);
+        app_press(jw_sx(v, 15.0), jw_sy(v, -5.0), 0);
+    }
+    ck(app_command(57634) && !jw_cmd_moji_clip(&b, &n), "字の無いコピーで控えは空に");
+}
+
 static void moji_pick_move(void)
 {
     jw_drawing *d;
@@ -901,6 +1029,7 @@ int main(void)
     box_sums();
     moji_point_first();
     moji_pick_move();
+    moji_hani_clip();
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;

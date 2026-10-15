@@ -572,6 +572,11 @@ int  jw_cmd_moji_doc(jw_drawing *d, unsigned char **out, long *n);
 int  jw_cmd_moji_apply(jw_drawing *d, const unsigned char *b, long n);
 
 int  jw_cmd_moji_ready(void);               /* texts picked (2407 done) */
+/* コピー・切り取りが控えた選んだ字（UTF-8、BOM 付き、一行一字）、貼付 (1065) が
+   それを使う（控えが空なら -1、表側がクリップボードから）、文字を出るときの選択の扱い */
+int  jw_cmd_moji_clip(const unsigned char **b, long *n);
+int  jw_cmd_moji_paste(jw_drawing *d);
+void jw_cmd_moji_leave(jw_drawing *d, int id);
 int  jw_cmd_moji_go(void);                  /* 外部エディタ was waiting for the range */
 
 /* 外部変形's steps: the front end hands over the BAT, the command walks the
