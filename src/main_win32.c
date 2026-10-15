@@ -18,6 +18,7 @@
 
 #include "app.h"
 #include "plot.h"
+#include "ryoboton.h"
 #include "cmd.h"
 #include "image.h"
 #include "cp932.h"
@@ -1754,9 +1755,42 @@ static int print_gdi(HWND wnd)
  * it moved: a couple of pixels of shake while clicking should not count. */
 #define DRAG_SLOP 3
 
+/* 両ボタン（src/ryoboton.h）。図面の上の左押しはすぐ app_press へ渡さずに
+ * 預かり、離すか DRAG_SLOP より動けばそこで渡す。預かっている間に右が
+ * 来れば、また右を押している間に左が来れば、両ボタンドラッグにする
+ * （原典の CJw_winView は左押し FUN_00507d00・右押し FUN_0050d070 で
+ * もう片方の押しの旗を見て CZoom を作り、命令の点は左の離しで渡す）。
+ * 二つとも離れたところで判定どおりにする。逆コンパイルの読み、原典では
+ * 押していない。 */
+static int lheld, lhx, lhy, lhshift, lhctrl;
+
+static void held_flush(HWND wnd)
+{
+    int redraw;
+
+    if (!lheld)
+        return;
+    lheld = 0;
+    app_keymods(lhshift, lhctrl);
+    redraw = app_press(lhx, lhy, 0);
+    redraw |= do_action(wnd);
+    if (redraw) {
+        app_paint();
+        InvalidateRect(wnd, NULL, FALSE);
+    }
+}
+
+static void ryo_finish(HWND wnd)
+{
+    ReleaseCapture();
+    ryo_end();
+    app_paint();
+    InvalidateRect(wnd, NULL, FALSE);
+}
+
 static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    static int dragging, moved, lastx, lasty, downx, downy;
+    static int dragging, dragright, moved, lastx, lasty, downx, downy;
 
     switch (msg) {
     case WM_MOUSEWHEEL: {
@@ -1770,9 +1804,27 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONDOWN: {
-        int redraw;
+        int redraw, x = MX(LOWORD(lp)), y = MX(HIWORD(lp));
+        if (ryo_active())
+            return 0;
+        if (dragging && dragright) {    /* 右を押したまま左: 両ボタン */
+            dragging = 0;
+            ryo_begin(x, y);
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
+        if (!dragging && ryo_holdable(x, y)) {
+            lheld = 1;
+            lhx = x;
+            lhy = y;
+            lhshift = (wp & MK_SHIFT) != 0;
+            lhctrl = (wp & MK_CONTROL) != 0;
+            SetCapture(wnd);
+            return 0;
+        }
         app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
-        redraw = app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 0);
+        redraw = app_press(x, y, 0);
         redraw |= do_action(wnd);
         if (redraw) {
             app_paint();
@@ -1781,6 +1833,15 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONUP:
+        if (ryo_active()) {
+            if (!(wp & MK_RBUTTON))     /* 二つとも離れた */
+                ryo_finish(wnd);
+            return 0;
+        }
+        if (lheld) {
+            held_flush(wnd);
+            ReleaseCapture();
+        }
         if (app_release(MX(LOWORD(lp)), MX(HIWORD(lp)), 0)) {
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
@@ -1788,7 +1849,18 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_MBUTTONDOWN:
     case WM_RBUTTONDOWN:
+        if (ryo_active())
+            return 0;
+        if (msg == WM_RBUTTONDOWN && lheld) {   /* 左を押したまま右: 両ボタン */
+            lheld = 0;
+            ryo_begin(MX(LOWORD(lp)), MX(HIWORD(lp)));
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
+        held_flush(wnd);
         dragging = 1;
+        dragright = msg == WM_RBUTTONDOWN;
         moved = 0;
         lastx = downx = MX(LOWORD(lp));
         lasty = downy = MX(HIWORD(lp));
@@ -1796,6 +1868,11 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_MBUTTONUP:
     case WM_RBUTTONUP:
+        if (ryo_active()) {
+            if (msg == WM_RBUTTONUP && !(wp & MK_LBUTTON))
+                ryo_finish(wnd);
+            return 0;
+        }
         dragging = 0;
         ReleaseCapture();
         app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
@@ -1807,6 +1884,18 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_MOUSEMOVE: {
         int x = MX(LOWORD(lp)), y = MX(HIWORD(lp));
+        if (ryo_active()) {
+            ryo_move(x, y);
+            if (!(wp & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON)))
+                ryo_finish(wnd);        /* 離しを取りこぼした（原典も動きで後始末） */
+            else {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+            return 0;
+        }
+        if (lheld && (abs(x - lhx) > DRAG_SLOP || abs(y - lhy) > DRAG_SLOP))
+            held_flush(wnd);            /* 動いた: 預かった左を渡してから */
         if (dragging) {
             if (abs(x - downx) > DRAG_SLOP || abs(y - downy) > DRAG_SLOP)
                 moved = 1;

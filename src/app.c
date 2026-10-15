@@ -1506,6 +1506,10 @@ void app_zoom_all(int paper)
     vw_go(paper ? VW_ONE : vw_mem);
 }
 
+/* 両ボタンドラッグの判定と枠（CZoom の作りから後始末まで）。中身は src/ryoboton.h */
+#define JW_RYOBOTON_IMPL
+#include "ryoboton.h"
+
 int app_coord_save(unsigned char **out, long *n)
 {
     double x, y;
@@ -2330,6 +2334,9 @@ static void kh_apply(void)
     kh_arrows = kh_value_tab(1, 2362) ? (kh_value_tab(1, 1325) ? 2 : 1) : 0;
     kh_move_rate = kh_num(1, 1951, 0.5);
     kh_zoom_rate = kh_num(1, 1952, 1.5);
+    /* 1950「[移動］の両ボタンドラッグ範囲」→ DAT_00a0d8c8（FUN_005d02e0 が (int) に）。
+       src/ryoboton.h */
+    ryo_set_slop((int)kh_num(1, 1950, 10.0));
     /* 2437 クロスラインカーソルを使う・2438 範囲指定のみ・2439 範囲始点のみ →
        doc+6000（FUN_005cd940: 2437 が切なら 0、2438 なら 2、2439 なら 3、どちらも
        切なら 1）。app_paint の cross_paint */
@@ -7300,6 +7307,7 @@ void app_paint(void)
             jw_draw_kari = 0;
         }
         cross_paint();                  /* 2437 クロスラインカーソル */
+        ryo_paint(&fb);                 /* 両ボタンドラッグの枠と字（src/ryoboton.h） */
     }
     {
         /* and the 図形 waiting to be put down, which is the same

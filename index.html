@@ -560,6 +560,13 @@ if (LANG === 'en') {
   });
   const moveNow = mod.cwrap('jw_move',  'number', ['number', 'number']);
   const release = mod._jw_release ? mod.cwrap('jw_release', 'number', ['number', 'number']) : () => 0;
+  // 両ボタンドラッグ（src/ryoboton.h）。古い jwcad.wasm には無いので、無ければ左を預からない
+  const ryoHas = !!mod._jw_ryo_begin;
+  const ryoHold = ryoHas ? mod.cwrap('jw_ryo_holdable', 'number', ['number', 'number']) : () => 0;
+  const ryoBegin = ryoHas ? mod.cwrap('jw_ryo_begin', null, ['number', 'number']) : () => {};
+  const ryoMove = ryoHas ? mod.cwrap('jw_ryo_move', null, ['number', 'number']) : () => {};
+  const ryoEnd = ryoHas ? mod.cwrap('jw_ryo_end', 'number', []) : () => 0;
+  const ryoCancel = ryoHas ? mod.cwrap('jw_ryo_cancel', null, []) : () => {};
   const save      = mod.cwrap('jw_save', 'number', []);
   const saveDxf   = mod.cwrap('jw_save_dxf', 'number', []);
   const saveSfc   = mod.cwrap('jw_save_sfc', 'number', ['string']);
@@ -1068,6 +1075,18 @@ if (LANG === 'en') {
     return [Math.round((e.clientX - r.left) * k), Math.round((e.clientY - r.top) * k)];
   };
   let drag = null;
+  // 両ボタン: 図面の上の左押しはすぐ渡さずに預かり（held）、離すか 3 画素より
+  // 動けばそこで渡す。預かっている間に右が来れば（Pointer Events では二つ目の
+  // ボタンは pointerdown でなく buttons が 3 になった pointermove で来る）、
+  // また右を押している間に左が来れば、両ボタンドラッグ（ryo）。二つとも
+  // 離れた pointerup で判定どおりに（原典の CZoom、逆コンパイルの読み）。
+  let held = null, ryo = false;
+  const heldFlush = () => {
+    if (!held) return;
+    const h = held;
+    held = null;
+    leftClick(h.e, h.x, h.y);
+  };
   // A left click: keep the hidden input focused so typing goes to the 文字
   // command, and put it where the pointer is so the IME's candidates come up
   // there.
@@ -1106,6 +1125,7 @@ if (LANG === 'en') {
       return;
     }
     const [x, y] = at(e);
+    if (ryo) return;
     // Shift-click (or Ctrl-click) is the right button, for a trackpad or a
     // Mac mouse that has none
     if (e.button === 0 && (e.shiftKey || e.ctrlKey) && !e.altKey && !e.metaKey) {
@@ -1113,9 +1133,16 @@ if (LANG === 'en') {
       return;
     }
     if (e.button === 0) {
+      sync();
+      if (ryoHold(x, y)) {
+        held = { e: { clientX: e.clientX, clientY: e.clientY }, x, y };
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
       leftClick(e, x, y);
       return;
     }
+    heldFlush();
     drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY,
              right: e.button === 2, moved: false };
     canvas.setPointerCapture(e.pointerId);
@@ -1144,6 +1171,27 @@ if (LANG === 'en') {
       }
       return;
     }
+    if (ryo) {
+      const [x, y] = at(e);
+      if (e.buttons === 0) {            /* 離しを取りこぼした */
+        ryo = false;
+        ryoEnd();
+      } else ryoMove(x, y);
+      present();
+      return;
+    }
+    if (e.buttons === 3 && ryoHas && (held || (drag && drag.right))) {
+      const [x, y] = at(e);
+      held = null;
+      drag = null;
+      ryo = true;
+      sync();
+      ryoBegin(x, y);
+      present();
+      return;
+    }
+    if (held && (Math.abs(e.clientX - held.e.clientX) > 3 || Math.abs(e.clientY - held.e.clientY) > 3))
+      heldFlush();
     if (!drag) {
       const [x, y] = at(e);
       if (move(x, y)) present();
@@ -1192,6 +1240,16 @@ if (LANG === 'en') {
       }
       return;
     }
+    if (ryo) {                          /* 二つとも離れた */
+      ryo = false;
+      drag = null;
+      const [x, y] = at(e);
+      ryoMove(x, y);
+      ryoEnd();
+      present();
+      return;
+    }
+    if (held && e.button === 0) heldFlush();
     if (e.pointerType !== 'touch' && e.button === 0 && mod._jw_release) {
       const [x, y] = at(e);          /* 連続線 の 手書線 ends its stroke here */
       if (release(x, y)) present();
@@ -1206,6 +1264,8 @@ if (LANG === 'en') {
     touches.delete(e.pointerId);
     if (!touches.size) gesture = null;
     drag = null;
+    held = null;
+    if (ryo) { ryo = false; ryoCancel(); present(); }
   });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('keydown', e => {
