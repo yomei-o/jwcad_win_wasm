@@ -251,6 +251,7 @@ void jw_cmd_tenku_north_answer(jw_drawing *d, int ok);   /* 1 OK（上向きで�
 int  jw_cmd_hikage_pv_on(void);                 /* 日影図の 確認 の窓が開いているか */
 double jw_cmd_hikage_pv_az(void);               /* その方位角（度。コンパスの向き） */
 int  jw_cmd_hikage_preview(const jw_drawing *d, const jw_view *v, jw_drawing *out);   /* 窓の中身（線の数） */
+void jw_cmd_renzoku_reset(void);       /* 連続線の 基準角度・基点 を素に戻す（試験用） */
 void jw_cmd_sansha_reset(void);        /* 三斜のつまみ（1689/1690・1329・2114）を初めに戻す（試験用） */
 /* The label 任意方向 is carrying (CP932): it cycles X, Y, XY and back. */
 const char *jw_cmd_dir_text(void);

@@ -1441,6 +1441,132 @@ static void renzoku_round(jw_drawing *d, double t, double nx, double ny)
     rn_sy = t2y;
 }
 
+/* 連続線 の 基準角度 (1065)・基点 (1066)。逆コンパイルの読み（原典では
+ * 押していない）。バー `FUN_005b80a0` が +0xc0 を 0 → 15° → 45° → 0 と
+ * 回し（負なら触らない）、`FUN_005b8180` が +200 を裏返して、どちらも
+ * 0x1402/0x1403 で `FUN_006d9740` が CZukeiRenzokuSen の +0x448・+0x464
+ * へ写す。線の向きの丸めは
+ *   一本目 `FUN_006de7a0`: 始点からの向きを (向き − 軸角) / 刻み の
+ *          四捨五入（0 から遠い側へ）× 刻み + 軸角 にし、長さはそのまま。
+ *          |dx|+|dy| < 1e-6 なら入れない
+ *   二本目から `FUN_006dcff0`: 前の線の終わりからクリックへの向きを同じく
+ *          丸める。基点 なら逆に クリックを動かさず、クリックから前の線の
+ *          終わりへの向きを丸めて、その線と前の線（延長）の交点
+ *          （`FUN_004619b0`）を角にする（前の線の終わりもそこへ動く）。
+ *          平行なら前の線の上に落ちて、下の一直線の決まりで捨てられる。
+ * 丸めの有無によらず二本目からは、新しい終点が前の線（延長）から 1e-7
+ * 未満なら（`FUN_005f8c20(1)`、前の線の始点を原点にした向き付きの座標）
+ * そのクリックは捨てられ、前の線は控えのまま残る。
+ * 素から 1065 だけ押して三クリックした原典の答え
+ * decomp/res/bsw_32883_1065_solo.jww が**空**なのはこれで説明が付く:
+ * 一本目が -26.57° → -30° に丸まり、三点目への向き 155.9° が 150° に
+ * 丸まって前の線と一直線（横ずれ 3.6e-14）になり、控えの一本目が入らない。 */
+static double rn_kak;           /* 基準角度の刻み（ラジアン）。バーの +0xc0 */
+static int rn_kiten;            /* 基点。バーの +200 */
+
+/* 命令に入るたびバーへ戻すのは大域の DAT_00a0be90（0/1/2）・
+   DAT_00a0bea0 で（CZukeiRenzokuSen の FUN_006d74d0）、それは
+   レジストリ RENSEN の Angle・Mouse から読み、終わるとき書き戻す
+   （tools/refenv.reg には無いので素は 0・0。bsw_32883_0 が丸まらずに
+   引けているのとも合う。バーの作り手 FUN_005b7780 の 45°・1 は上書きされる）。
+   新規でも命令の選び直しでも残るので、移植も静的に持ったまま。
+   ここは試験のために素（0・0、設定が無いとき）へ戻す */
+void jw_cmd_renzoku_reset(void)
+{
+    rn_kak = 0.0;
+    rn_kiten = 0;
+}
+
+static double rn_snap(double a)
+{
+    double ax = jw_cmd_axis() * PI / 180.0;
+    double v = (a - ax) / rn_kak;
+    int n = v < 0.0 ? (int)(v - 0.5) : (int)(v + 0.5);
+
+    return n * rn_kak + ax;
+}
+
+/* 一本目 (FUN_006de7a0)。0 ならそのクリックは入らない */
+static int rn_first(double x0, double y0, double *x, double *y)
+{
+    double dx = *x - x0, dy = *y - y0, a, l;
+
+    if (!(rn_kak > 1e-6))
+        return 1;
+    if (fabs(dx) + fabs(dy) < 1e-6)
+        return 0;
+    a = rn_snap(atan2(dy, dx));
+    l = sqrt(dx * dx + dy * dy);
+    *x = x0 + l * cos(a);
+    *y = y0 + l * sin(a);
+    return 1;
+}
+
+/* 二本目から (FUN_006dcff0)。前の線が (ax,ay)-(*bx,*by)、クリックが (x,y)。
+   新しい終点を (*ex,*ey) に置き、基点 なら前の線の終わりも動かす。
+   0 ならそのクリックは入らない */
+static int rn_next(double ax, double ay, double *bx, double *by,
+                   double x, double y, double *ex, double *ey)
+{
+    double px = *bx, py = *by, fx = px - ax, fy = py - ay;
+    double fl = sqrt(fx * fx + fy * fy), c = 1.0, s = 0.0;
+
+    /* FUN_005f97f0: 前の線の向きの座標系（短すぎれば x 軸） */
+    if (fabs(fx) + fabs(fy) >= 1e-7) {
+        c = fx / fl;
+        s = fy / fl;
+    }
+    *ex = x;
+    *ey = y;
+    if (rn_kak > 1e-6) {
+        double dx = x - px, dy = y - py, a, l;
+
+        if (fabs(dx) + fabs(dy) < 1e-6)
+            return 0;
+        l = sqrt(dx * dx + dy * dy);
+        if (!rn_kiten) {
+            a = rn_snap(atan2(dy, dx));
+            *ex = px + l * cos(a);
+            *ey = py + l * sin(a);
+        } else {
+            double qx, qy, gx, gy, c1, c2, t;
+
+            a = rn_snap(atan2(-dy, -dx));
+            qx = x + l * cos(a);
+            qy = y + l * sin(a);
+            /* FUN_004619b0: 前の線と (qx,qy)-(x,y) の延長どうしの交点 */
+            gx = x - qx;
+            gy = y - qy;
+            c1 = (qy - ay) * fx - (qx - ax) * fy;
+            c2 = (y - ay) * fx - (x - ax) * fy;
+            t = fabs(c1 - c2) > 1e-7 && fabs(c1) <= fabs(c1 - c2) * 1e10
+                ? c1 / (c1 - c2) : 0.0;
+            if (fabs(c1 - c2) > 1e-7 && fabs(c1) <= fabs(c1 - c2) * 1e10
+                && fabs(gx * t + qx) + fabs(gy * t + qy) <= 139778713.93879598) {
+                *bx = gx * t + qx;
+                *by = gy * t + qy;
+                if (ax == px)
+                    *bx = ax;
+                if (ay == py)
+                    *by = ay;
+                if (qx == x)
+                    *bx = qx;
+                if (qy == y)
+                    *by = qy;
+            } else {
+                /* 交わらない: 前の線の上へ落とす（下で捨てられる） */
+                double u = (x - ax) * c + (y - ay) * s;
+
+                *ex = ax + u * c;
+                *ey = ay + u * s;
+            }
+        }
+    }
+    if (fabs((*ey - ay) * c - (*ex - ax) * s) < 1e-7)
+        return 0;
+    return 1;
+}
+
 
 /* The readout the original hangs off the end of the status line while a
  * command is drawing.  Asked of it (tools/probe26.sh), with a 1/100 sheet:
@@ -5709,24 +5835,36 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
         return 0;
     if (current == JW_CMD_RENZOKU) {
         int n = 0;
+        double px = rx, py = ry, mx = tx, my = ty;
+
+        /* 基準角度 (1065)・基点 (1066) なら、マウスの線も丸めた形で */
+        if (tracking && step == 2)
+            rn_first(sx, sy, &mx, &my);
+        else if (tracking && step == 3 && rn_kak > 1e-6) {
+            double ex, ey;
+
+            rn_next(sx, sy, &px, &py, tx, ty, &ex, &ey);
+            mx = ex;
+            my = ey;
+        }
         /* the segment that is drawn but not yet in the drawing */
         if (step == 3 && max > 0) {
             blank(o);
             o->cls = JW_SEN;
             o->d[0] = sx;
             o->d[1] = sy;
-            o->d[2] = rx;
-            o->d[3] = ry;
+            o->d[2] = px;
+            o->d[3] = py;
             n = 1;
         }
         /* and the one following the mouse, from the last point */
         if (step != 0 && tracking && n < max) {
             blank(&o[n]);
             o[n].cls = JW_SEN;
-            o[n].d[0] = step == 3 ? rx : sx;
-            o[n].d[1] = step == 3 ? ry : sy;
-            o[n].d[2] = tx;
-            o[n].d[3] = ty;
+            o[n].d[0] = step == 3 ? px : sx;
+            o[n].d[1] = step == 3 ? py : sy;
+            o[n].d[2] = mx;
+            o[n].d[3] = my;
             n++;
         }
         return n;
@@ -14076,12 +14214,25 @@ static int bar_press(jw_drawing *d, int id)
      *          終わりと同じで、命令の送り直し（jw_cmd_flush）とも同じ。
      *   弧反転 slot 28 (FUN_006d96c0) は +0x460 を裏返すだけ。読むのは
      *          連続弧の続きの弧 (FUN_006dc260) で、次の弧の回りを逆にする。
-     * 基準角度 (1065)・基点 (1066) は入れていない —— 読みでは 1065 が
-     * +0xc0 を 0 → 15° → 45° → 0 と回し、線の向きを その倍数（＋軸角）へ
-     * 丸める（FUN_006de7a0・FUN_006dcff0）が、素から 1065 だけ押して
-     * 三クリックした原典の答え（decomp/res/bsw_32883_1065_solo.jww）は
-     * **何も入っていない**。丸めた線が一本入るはずの読みと合わず、
-     * 理由が読み切れていない。 */
+     * 基準角度 (1065)・基点 (1066) は CRenzokuSenDailog の FUN_005b80a0・
+     * FUN_005b8180 がバーの値を変え、0x1402・0x1403 → slot 26・27
+     * (FUN_006d9740) が CZukeiRenzokuSen へ写す。丸め方は rn_next の上。
+     * 原典の答え bsw_32883_1065_solo.jww が空なのもそこで説明している。 */
+    if (current == JW_CMD_RENZOKU && id == 1065
+        && jw_cmd_bar_check(2492) <= 0) {   /* 連続弧のバーには無い */
+        if (!(rn_kak < 0.7853980633974483))
+            rn_kak = 0.0;
+        else if (!(rn_kak < 0.2617992877991494))
+            rn_kak = PI / 4.0;
+        else if (rn_kak >= -1e-7)
+            rn_kak = PI / 12.0;
+        return 1;
+    }
+    if (current == JW_CMD_RENZOKU && id == 1066
+        && jw_cmd_bar_check(2492) <= 0) {
+        rn_kiten = !rn_kiten;
+        return 1;
+    }
     if (current == JW_CMD_RENZOKU && id == 1064) {
         jw_cmd_flush(d);
         step = 0;
@@ -22274,10 +22425,24 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             rn_sy = y;
             step = 2;
         } else if (step == 2) {
+            if (!rn_first(sx, sy, &x, &y))  /* 基準角度 (1065) の丸め */
+                return;
             rx = x;
             ry = y;
             step = 3;
         } else {
+            /* 前の線（延長）の上へ戻るクリックは捨てる。基準角度 (1065)
+               なら向きを丸めてから、基点 (1066) なら角も動く（rn_next） */
+            double ex, ey;
+            int ok = rn_next(sx, sy, &rx, &ry, x, y, &ex, &ey);
+
+            if (!ok) {
+                tx = x;
+                ty = y;
+                return;
+            }
+            x = ex;
+            y = ey;
             if (d) {
                 double t = renzoku_edge(d);
                 if (t > 0.0) {
