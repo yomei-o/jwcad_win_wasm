@@ -11,6 +11,7 @@
 #include "../src/jww.h"
 #include "../src/tategu.h"
 #include "../src/image.h"
+#include "../src/hikage.h"
 #include "png.h"
 
 static unsigned char *slurp(const char *path, long *n)
@@ -219,6 +220,9 @@ static const sc_t sc[] = {
       "b:10;405,300;595,300;595,500;405,500;n:1;300,600;B:1064;T:10.5;" },
     { "w1", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;300,650;300,600;",
       "b:10;405,300;595,300;595,500;405,500;B:1085;700,650;" },
+    /* 壁面 (1069) で 建物の南の辺を壁にしたあとの 日影図 1時間毎: 原典は何も書かない（tools/hkbatch6.sh） */
+    { "w2", 32943, "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;300,650;300,600;",
+      "b:10;405,300;595,300;595,500;405,500;n:1;300,600;B:1069;500,500;500,560;B:1064;B:1065;" },
     { "a5d", 32937, "300,300;600,300;300,330;600,330;300,360;600,360;300,430;600,430;300,460;600,460;300,490;600,490;300,520;600,520;300,550;600,550;", "b:v10;310,300;b:10h;310,330;b:3*4;310,360;b:10..5;310,430;b:10,0;310,460;b:g5;310,490;b:T1;310,520;" },
 };
 
@@ -761,6 +765,75 @@ int main(int argc, char **argv)
             fails++;
         } else
             puts("ok   日影図 確認 の釦と状態の行");
+    }
+    /* 日影図の 壁面 (1069): 案内・≪・壁線（片側なら初めへ、両側なら 作図する方向待ち）・測定高の箱の入れ替えと解除。
+       逆コンパイルの読み（FUN_0054c610・FUN_0068f980・FUN_00541130・FUN_0068e760・FUN_0068e8c0）、原典では押していない */
+    {
+        static const char kabe[] = "\x95\xc7\x90\xfc\x82\xf0";            /* 壁線を（0x159f） */
+        static const char houkou[] = "\x8d\xec\x90}\x82\xb7\x82\xe9\x95\xfb\x8c\xfc";   /* 作図する方向（0x159b） */
+        static const double tx[4] = { 0, 1, 2, 3 }, ty1[4] = { 1, 2, 0.05, 3 }, ty2[4] = { 1, -2, 0, 0 };
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const char *p, *bx;
+        int ok = 1, n0;
+
+        ok = ok && hk_wall_sides(0, 0, 10, 0, tx, ty1, 4) == 0;      /* 0.05 は数えない */
+        ok = ok && hk_wall_sides(0, 0, 10, 0, tx, ty2, 4) == 1;
+        ok = ok && hk_wall_sides(0, 0, 10, 0, tx, ty2 + 2, 2) == -1;
+        if (!ok)
+            puts("     hk_wall_sides");
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;300,400;700,400;");
+        app_command(32943);
+        clicks(&r, "b:10;405,300;595,300;595,500;405,500;x:1492=4;B:1069;");
+        p = jw_cmd_prompt();
+        ok = ok && p && strstr(p, kabe) && jw_cmd_bar_check(9005) > 0;
+        clicks(&r, "B:1121;");
+        p = jw_cmd_prompt();
+        ok = ok && p && !strstr(p, kabe) && jw_cmd_bar_check(9005) <= 0;
+        n0 = app_drawing()->ndrawn;
+        clicks(&r, "B:1069;800,650;r500,500;");            /* 何も無い所・右は 何もしない */
+        p = jw_cmd_prompt();
+        ok = ok && p && strstr(p, kabe) && app_drawing()->ndrawn == n0;
+        if (!ok)
+            puts("     案内と ≪");
+        clicks(&r, "500,500;");                            /* 南の辺: 字は片側だけ */
+        p = jw_cmd_prompt();
+        bx = jw_cmd_box(1492);
+        ok = ok && p && !strstr(p, kabe) && bx && !strcmp(bx, "0");
+        clicks(&r, "x:1492=1.5;B:1069;");                  /* 壁があれば 解除して箱を戻す */
+        bx = jw_cmd_box(1492);
+        ok = ok && bx && !strcmp(bx, "4") && !strstr(jw_cmd_prompt(), kabe);
+        if (!ok)
+            puts("     片側の壁と 解除");
+        clicks(&r, "B:1069;650,400;");                     /* 建物を横切る線: 字は両側 */
+        p = jw_cmd_prompt();
+        bx = jw_cmd_box(1492);
+        ok = ok && p && strstr(p, houkou) && bx && !strcmp(bx, "4");
+        clicks(&r, "700,300;");
+        p = jw_cmd_prompt();
+        bx = jw_cmd_box(1492);
+        ok = ok && p && !strstr(p, houkou) && bx && !strcmp(bx, "1.5");
+        n0 = app_drawing()->ndrawn;
+        clicks(&r, "B:1064;B:1065;B:1121;");               /* 壁がある間は 日影図を書かない（移植は壁面日影が未） */
+        ok = ok && app_drawing()->ndrawn == n0;
+        clicks(&r, "B:1069;B:1069;650,400;B:1121;");       /* 方向待ちの ≪ は 壁を捨てる */
+        bx = jw_cmd_box(1492);
+        ok = ok && bx && !strcmp(bx, "4");
+        clicks(&r, "B:1064;B:1065;");
+        ok = ok && app_drawing()->ndrawn > n0;
+        if (!ok) {
+            puts("BAD  日影図 壁面 (1069) の歩み");
+            fails++;
+        } else
+            puts("ok   日影図 壁面 (1069) の歩み");
     }
     /* 測定点が建物の内側: 窓（はい／いいえ／キャンセル）を app の紙面から出して 釦で答える（hk_s29〜s31） */
     {

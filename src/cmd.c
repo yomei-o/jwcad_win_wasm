@@ -499,6 +499,12 @@ static int hk_outlines(jw_drawing *d, int half);
 static double hk_one_hour;
 static int hk_write_cond;
 static int hk_ask_time;
+/* 日影図の 壁面 (1069)。下の hk_wall_click の注 */
+static int hk_wall_step;                /* 6 壁線待ち・7 作図する方向待ち（原典の +0xbc） */
+static int hk_wall_on;                  /* 壁が決まっている（原典の CZukeiHikage +0xb4） */
+static int hk_wall_swapped;             /* 測定高の箱を 壁面用の値に入れ替えた */
+static char hk_meas_ground[40], hk_meas_wall[40] = "0";
+static void hk_wall_clear(void);
 static void hk_height_text(char *out, size_t cap, const char *box, int d25);
 static int auto_back;                   /* AUTO が 複線・矩形 に渡している間 */
 static int tg_page2;                    /* ＞ で替わる二枚目のバー */
@@ -3373,6 +3379,8 @@ void jw_cmd_set(int id)
     au_reset();
     hk_write_cond = 0;
     hk_north = 0;
+    hk_wall_clear();                /* 壁は CZukeiHikage が持つので コマンドを出ると消える */
+    hk_wall_step = 0;
     tn_mode = 0;
     tn_cmp = 0;
     tn_count = 0;
@@ -4563,6 +4571,10 @@ const char *jw_cmd_prompt(void)
             return "\x93\x99\x8e\x9e\x8a\xd4\x90}\x82\xcc\x8d\xec\x90}\x94\xcd\x88\xcd\x82\xcc\x8en\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B  (L)free  (R)Read";
         if (current == JW_CMD_HIKAGE && hk_iso_on && hk_iso_rng == 2)
             return "\x81\x9f\x81@\x81@\x8fI\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2  (L)free  (R)Read";
+        if (current == JW_CMD_HIKAGE && hk_wall_step == 6)    /* 0x159f */
+            return "\x81\x9f \x95\xc7\x96\xca\x93\xfa\x89" "e \x81\x9f    \x95\xc7\x90\xfc\x82\xf0 \x83}\x83" "E\x83X\x82\xc5\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B";
+        if (current == JW_CMD_HIKAGE && hk_wall_step == 7)    /* 0x159b */
+            return "\x81m \x95\xc7\x96\xca\x93\xfa\x89" "e \x81n     \x8d\xec\x90}\x82\xb7\x82\xe9\x95\xfb\x8c\xfc\x82\xf0 \x83}\x83" "E\x83X\x82\xc5\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B";
         if (hk_write_cond)
             return JW_STR_5582;
         if (hk_pts && hk_calc_step)
@@ -13833,7 +13845,7 @@ int jw_cmd_bar_check(int id)
     if (id == 1064 && TG_IS3(current))
         return tg_cat >= 0;         /* 選んだあとに 縦＝横 が出るバー */
     if (id == 9005 && current == JW_CMD_HIKAGE)
-        return hk_pv;
+        return hk_pv || hk_wall_step;   /* 壁面: 原典 FUN_0054b780 は ≪ だけを見せる */
     if (id == 9002 && current == JW_CMD_HIKAGE)
         return hk_sub;
     if (id == 9003 && current == JW_CMD_HIKAGE)
@@ -13936,6 +13948,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
        面積測定 out.  On 測定's bar everything is alive except
        ○単独円指定, which dies while 角度測定 is chosen
        (tools/probe130.sh). */
+    if (current == JW_CMD_HIKAGE && hk_wall_step && !hk_pv)
+        return id == 1121;          /* 壁面: 原典は ≪ のほかを隠す。移植は 確認 のバーを灰色で代える */
     if (current == JW_CMD_HIKAGE && hk_pts && (id == 1065 || id == 1066))
         return hkp_n > 0;           /* 測定点を置いてから */
     if (current == JW_CMD_HIKAGE && hk_pts && id == 1070)
@@ -14178,6 +14192,32 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_KIGOU && id == 1064) {
         sk_need_pick = 1;
         return 1;
+    }
+    if (current == JW_CMD_HIKAGE && !hk_sub && !hk_pts && !hk_iso_on && !hk_pv) {
+        /* 壁面 (1069): 原典のバーの FUN_0054c610 が +0xbc = 6 にして 0x1406 を送り、
+           CZukeiHikage の FUN_0068e760 は 壁が決まっていれば 測定高の箱を +0x83b0 に戻して
+           +0xbc = 0・壁を消す（もう一度押すと解除）。≪ (1121) は FUN_0054c010 → 0x1407 →
+           FUN_0068e8c0（+0xbc が 7 なら壁を消す）。ほかの釦は 自分の状態に +0xbc を置き換える。
+           逆コンパイルの読み、原典では押していない */
+        if (id == 1069) {
+            if (hk_wall_on) {
+                hk_wall_clear();
+                hk_wall_step = 0;
+            } else {
+                hk_wall_step = 6;
+                hk_north = 0;
+                hk_write_cond = 0;
+            }
+            return 1;
+        }
+        if (hk_wall_step && id == 1121) {
+            if (hk_wall_step == 7)
+                hk_wall_clear();
+            hk_wall_step = 0;
+            return 1;
+        }
+        if (hk_wall_step && ((id >= 1064 && id <= 1068) || id == 1085))
+            hk_wall_step = 0;       /* 壁はそのまま（原典の +0xb4 は残る） */
     }
     if (current == JW_CMD_HIKAGE && !hk_sub && !hk_pts && !hk_iso_on && id == 1065) {
         hk_iso_on = 1;              /* 等時間: 時間の選択へ */
@@ -18314,6 +18354,90 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
     }
 }
 
+/* 日影図の 壁面 (1069)。逆コンパイルの読み、原典では押していない（答え hk_w2 は 壁を決めたあとの
+   日影図に何も書かれないことだけ）。
+   壁線待ち（+0xbc = 6、案内 0x159f）で左を押すと CZukeiHikage の FUN_0068f980:
+   拾えなければ何もしない、直線でなければ 0x14de「直線ではありません。」（移植は出さない）、
+   直線なら 壁にして（+0xb4）FUN_00541130 で 書込みのできる層の 高さの字（旗 0x80）が壁のどちら側か
+   （hk_wall_sides）。無ければ 0x1599 で壁を捨てて初めへ、片側だけなら 初めへ、両側なら
+   作図する方向待ち（+0xbc = 7、案内 0x159b）で もう一度押すと初めへ。初めへ戻るとき
+   測定高の箱 (1492) に 壁面用の測定高（文書 +0x83b8、初めは 0。FUN_004b2760）を "%lg" で書く。
+   壁がある間に箱で入れた値は +0x83b8 へ、壁を消すと箱は ふつうの測定高（+0x83b0）に戻る。
+   右は 壁線待ち・方向待ちでは何もしない（FUN_006900c0 は +0xbc が 0 と 5 のときだけ）。
+   壁があるときの 日影図・等時間・指定点（FUN_006936a0 ほかに 壁を渡し、FUN_00542310 の
+   FUN_005415e0 で壁に映す）は **入れていない**: 壁がある間は 何も書かない */
+static double hk_eval(const char *t);
+
+static void hk_wall_fmt(char *out, size_t cap, const char *box)
+{
+    if (!box || !*box) {
+        snprintf(out, cap, "%s", box ? box : "");
+        return;
+    }
+    snprintf(out, cap, "%g", hk_eval(box));
+}
+
+static void hk_wall_clear(void)
+{
+    char *t = (char *)box_of(JW_CMD_HIKAGE, 1492);
+
+    if (hk_wall_on && hk_wall_swapped && t) {
+        hk_wall_fmt(hk_meas_wall, sizeof hk_meas_wall, t);
+        strncpy(t, hk_meas_ground, sizeof box[0].t - 1);
+        t[sizeof box[0].t - 1] = 0;
+    }
+    hk_wall_on = 0;
+    hk_wall_swapped = 0;
+}
+
+static void hk_wall_done(void)
+{
+    char *t = (char *)box_of(JW_CMD_HIKAGE, 1492);
+
+    hk_wall_step = 0;
+    if (!t || hk_wall_swapped)
+        return;
+    hk_wall_fmt(hk_meas_ground, sizeof hk_meas_ground, t);
+    strncpy(t, hk_meas_wall, sizeof box[0].t - 1);
+    t[sizeof box[0].t - 1] = 0;
+    hk_wall_swapped = 1;
+}
+
+static void hk_wall_click(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    static double px[2000], py[2000];
+    int k, n = 0, r;
+    const jw_obj *w;
+
+    if (hk_wall_step == 7) {
+        hk_wall_done();             /* FUN_0053eca0: 押した側を 壁の向きにする（移植は持たない） */
+        return;
+    }
+    k = jw_pick(d, v, x, y, 0);
+    if (k < 0 || k >= d->ndrawn || d->obj[k].cls != JW_SEN)
+        return;
+    w = &d->obj[k];
+    for (k = 0; k < d->ndrawn && n < 2000; k++) {
+        const jw_obj *t = &d->obj[k];
+
+        if (t->cls != JW_MOJI || !(t->flags & 0x80) || !ika_editable(d, t))
+            continue;
+        px[n] = t->d[0];
+        py[n] = t->d[1];
+        n++;
+    }
+    r = hk_wall_sides(w->d[0], w->d[1], w->d[2], w->d[3], px, py, n);
+    if (r < 0) {
+        hk_wall_step = 0;           /* 0x1599 データが不適当 */
+        return;
+    }
+    hk_wall_on = 1;
+    if (r > 0)
+        hk_wall_step = 7;
+    else
+        hk_wall_done();
+}
+
 /* 日影図・天空図の 真北（decomp/res/hk_a6*.jww、tools/hkprobe.sh）。線の端（矢の先）を押すと
    その端から 線に沿って 北の角度の文字（色 5・旗 0x40）と「真北」の文字を置く。
    北の角度 = 端から もう一方の端への向き + 90°（-180..180）。(L) は 度、(R) は 度分秒 */
@@ -18501,6 +18625,8 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
     int ne, n, k, made = 0, gid = 0, ps = d->paper_size, lab = -1;
     op_t *o;
 
+    if (hk_wall_on)
+        return 0;                   /* 壁面日影は 入れていない（hk_wall_click の注） */
     hk_cond(&cond);
     bs = jw_cmd_box(1492);
     if (bs && *bs)
@@ -18654,6 +18780,8 @@ static int hk_outlines(jw_drawing *d, int half)
     hk_sun sun;
     op_t *o;
 
+    if (hk_wall_on)
+        return 0;                   /* 壁面日影は 入れていない（hk_wall_click の注） */
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
@@ -19208,6 +19336,8 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     static unsigned char in[28801];
     op_t *rec;
 
+    if (hk_wall_on)
+        return 0;                   /* 壁面日影は 入れていない（hk_wall_click の注） */
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
@@ -19581,6 +19711,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     }
     if (current == JW_CMD_GAZOU) {
         gz_point(d, v, x, y, button);
+        return;
+    }
+    if (current == JW_CMD_HIKAGE && hk_wall_step && d) {
+        if (button == 0)
+            hk_wall_click(d, v, x, y);
         return;
     }
     if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU)

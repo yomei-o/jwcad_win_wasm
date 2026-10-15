@@ -57,6 +57,31 @@ int hk_wall_sun_side(double lat_deg, double dec_deg, int t_sec, double wall_dx, 
     return v < 0.0 ? -1 : (v <= 0.001 ? 0 : 1);
 }
 
+int hk_wall_sides(double x0, double y0, double x1, double y1,
+                  const double *px, const double *py, int n)
+{
+    /* [D 0x00541130]  線は FUN_005f8940 で 始点と向き（単位）に、距離は FUN_005f8c20(1, x, y)。
+       最初に数えた点の側を覚え、反対側の点が出たら 1 */
+    double l = hypot(x1 - x0, y1 - y0), c = 1.0, s = 0.0;
+    int side = 0, i;
+
+    if (l > 0.0) {
+        c = (x1 - x0) / l;
+        s = (y1 - y0) / l;
+    }
+    for (i = 0; i < n; i++) {
+        double d = (py[i] - y0) * c - (px[i] - x0) * s;
+
+        if (fabs(d) < 0.1)
+            continue;
+        if (side == 0)
+            side = d <= 0.0 ? -1 : 1;
+        else if ((side > 0 && d < 0.0) || (side < 0 && d > 0.0))
+            return 1;
+    }
+    return side == 0 ? -1 : 0;
+}
+
 double hk_shadow_mult(double x, double y) { return sqrt(x * x + y * y); }
 
 double hk_shadow_az_deg(double x, double y)

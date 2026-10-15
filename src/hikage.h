@@ -41,6 +41,13 @@ double hk_sun_sin_alt(const hk_sun *s, int t_sec);
 int hk_wall_sun_side(double lat_deg, double dec_deg, int t_sec, double wall_dx, double wall_dy,
                      double *mult, double *sa, double *ca);
 
+/* [D 0x00541130] 壁面日影: 壁の線 (x0,y0)-(x1,y1) に対し 建物の高さの字の点 (px,py) がどちら側か。
+ * 距離は FUN_005f8c20(1,…) = (y−y0)cos − (x−x0)sin（線の向きの単位ベクトル）、|d| < 0.1 は数えない。
+ * 数えた点が無ければ -1（原典は 0x1599「データが不適当」）、全部が同じ側なら 0、
+ * 両側にあれば 1（原典は 0x159b「作図する方向を マウスで指示」へ）。 */
+int hk_wall_sides(double x0, double y0, double x1, double y1,
+                  const double *px, const double *py, int n);
+
 /* [D 0x00694840][V sample]  影倍率 = hypot(x,y); azimuth (deg, as printed in the
  * 方位角倍率図) = atan2(-x, y) in degrees. */
 double hk_shadow_mult(double x, double y);
