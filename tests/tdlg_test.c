@@ -714,6 +714,8 @@ static void corner_arcs(void)
     ok = !memcmp(d->obj, was, 2 * sizeof *was);
     jw_cmd_escape();
     ck(ok, "  全円は拾わない（5207 円です。切断で弧にしてください。）");
+}
+
 /* 小物（逆コンパイルの読み、原典では押していない）:
  *   面取 の (R) 線切断（FUN_00636ee0、幅は 面取 のバーの 1413）
  *   接線 点→円 の点 (R)Read（FUN_00704680）、曲線 の (R)Read（FUN_006b5740）
