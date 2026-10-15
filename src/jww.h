@@ -229,6 +229,16 @@ typedef struct {
        lists.  Only 0 is understood, and it is written back as it came. */
     int nimage;
 
+    /* 図面が持つ線種の表（版 201 から）。添字は線種の番号 2..19（10 は無い）。
+       pat はファイルのまま（上の桁から歩く）、unit は 2..9・16..19、
+       ran・prran は 11..15 だけ。lt_have が 0 なら版が古くて無い。
+       描き手に入れるのは src/draw.c の jw_ltype_from */
+    struct {
+        unsigned int pat;
+        int unit, ran, prran, pitch, prpit;
+    } lt[20];
+    int lt_have;
+
     const char *error;
 } jw_drawing;
 

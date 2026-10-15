@@ -6874,6 +6874,9 @@ int app_open(const unsigned char *b, long n)
     drawing = d;
     have_drawing = 1;
     have_file = 1;
+    /* 図面が持つ線種（2〜9・11〜19）が描き手の表に入る。原典の Pen\File
+       （既定 1）の働きで、あとから 基本設定 の OK をすればそちらが勝つ */
+    jw_ltype_from(&drawing);
     last_error = "";
     jw_cmd_reset();
     clean_stamp = 0;

@@ -294,12 +294,27 @@ static void read_header(ar_t *a, jw_drawing *d)
                yet -- see "仮点の形" in docs/notes-pixels.md. */
             ar_d(a);
         }
-        for (i = 2; i < 10; i++)
-            ar_skipl(a, 4);
-        for (i = 0xb; i < 0x10; i++)
-            ar_skipl(a, 5);
-        for (i = 0x10; i < 0x14; i++)
-            ar_skipl(a, 4);
+        /* 線種 2..9・ランダム線 11..15・倍長線種 16..19 の表。原典の読み手
+           （CMiniDoc の Serialize、DAT_00a0cab0 = Pen\File が立てば
+           doc+0x2fc4.. に入れる）と同じ並び: パターン・単位・画面ピッチ・
+           プリンタピッチ、ランダム線は パターン・振れ幅・画面ピッチ・
+           プリンタの振れ幅・プリンタピッチ。効かせるのは src/draw.c の
+           jw_ltype_from（開いたとき、src/app.c） */
+        for (i = 2; i < 0x14; i++) {
+            if (i == 10)
+                continue;
+            d->lt[i].pat = (unsigned)ar_l(a);
+            if (i >= 0xb && i < 0x10) {
+                d->lt[i].ran = ar_l(a);
+                d->lt[i].pitch = ar_l(a);
+                d->lt[i].prran = ar_l(a);
+            } else {
+                d->lt[i].unit = ar_l(a);
+                d->lt[i].pitch = ar_l(a);
+            }
+            d->lt[i].prpit = ar_l(a);
+        }
+        d->lt_have = 1;
         ar_skipl(a, 2);
         if (v > 0xd8)
             ar_skipl(a, 9);

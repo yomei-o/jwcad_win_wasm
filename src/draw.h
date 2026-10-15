@@ -30,6 +30,9 @@ int jw_ltype_bit(int ltype, int i);
    は 0xffffffff・32・1 のまま変えられない） */
 int jw_ltype_set(int ltype, unsigned int pattern, int unit, int pitch);
 void jw_ltype_get(int ltype, unsigned int *pattern, int *unit, int *pitch);
+/* 図面が持つ線種の表（d->lt、2〜9・11〜19）を描き手に入れる。開いたときに
+   呼ぶ（原典の Pen\File = 1、既定）。d->lt_have が 0 なら何もしない */
+void jw_ltype_from(const jw_drawing *d);
 
 /* 基本設定 の 色・画面 の、図面に属さない色の行（13 グレー・
    15 選択色・16 仮表示色）。行番号は原典の CGamenPage の受け手
