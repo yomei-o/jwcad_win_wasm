@@ -4560,6 +4560,8 @@ int app_move(int x, int y)
     jw_cmd_track(mx, my);
     if (have_drawing && jw_cmd_freehand() && jw_cmd_drag(&drawing, &view, mx, my))
         return 1;                   /* 手書線: a stroke being drawn */
+    if (have_drawing && jw_cmd_stretch_move(&drawing, &view, mx, my))
+        return 1;                   /* 伸縮の (R) 線切断 */
     {   /* the range box and the selection being dragged both follow the
            mouse, so the window has to be told to paint again */
         double a, b, c, e;

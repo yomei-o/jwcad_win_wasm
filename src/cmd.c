@@ -152,6 +152,16 @@ void jw_cmd_any_color_set(unsigned int rgb)
 static int stretch_step;
 static int stretch_obj;
 static double stretch_t0;       /* where along the line the first click fell */
+/* CZukeiShinshuku's +0x210 == 6: the right button down once on an element,
+   waiting to see whether the mouse moves (線切断 there) or the right comes
+   again (that element is the 基準線).  The point is its +0x220. */
+static int stretch_rwait;
+static double stretch_rx, stretch_ry;
+/* its states 3 and 4: a 基準線 is held -- a copy, as the original holds
+   one (+0x218), with the point it was picked at (+0x260) */
+static int stretch_based;
+static jw_obj stretch_base;
+static double stretch_bx, stretch_by;
 
 /* 文字: what has been typed but not placed yet.  The original wants it that
    way round -- type into its floating box first, then click where it goes;
@@ -2976,7 +2986,7 @@ void jw_cmd_set(int id)
     comp_n = 0;
     cut_step = 0;
     corner_step = 0;
-    stretch_step = 0;
+    stretch_step = stretch_rwait = stretch_based = 0;
     para_step = 0;
     if (carry_para) {
         para_obj = carry_obj;
@@ -3139,7 +3149,7 @@ void jw_cmd_escape(void)
     cut_step = 0;
     corner_step = 0;
     bk_rr_n = 0;
-    stretch_step = 0;
+    stretch_step = stretch_rwait = stretch_based = 0;
     para_step = 0;
     tracking = 0;
     nisen_step = 0;
@@ -3402,7 +3412,7 @@ int jw_cmd_midway(void)
     case JW_CMD_CORNER:
     case JW_CMD_MENTORI:
     case JW_CMD_BUNKATSU:  return corner_step != 0 || bk_rr_n > 0;
-    case JW_CMD_SHINSHUKU: return stretch_step != 0;
+    case JW_CMD_SHINSHUKU: return stretch_step != 0 || stretch_based || stretch_rwait;
     case JW_CMD_FUKUSEN:   return para_step != 0;
     case JW_CMD_NISEN:     return nisen_step != 0;
     case JW_CMD_SESSEN:    return ses_step != 0;
@@ -4256,10 +4266,14 @@ const char *jw_cmd_prompt(void)
             return fp;
         }
     case JW_CMD_SHINSHUKU:
-        /* FUN_00717df0: 0x14d8 while its state is 0, 0x14da once a line is
-           picked.  (Its states 3 and 4 are the 基準線 variant, where the end
-           goes to another line instead of to a point; not done here.) */
-        return stretch_step == 0 ? JW_STR_5336 : JW_STR_5338;
+        /* FUN_00717df0: 0x14db while the right is down once (+0x210 == 6),
+           else 0x14d8 in state 0, 0x14da once a line is picked (1, 2) and
+           0x14d9 while a 基準線 is held (3, 4) */
+        if (stretch_rwait)
+            return JW_STR_5339;
+        if (stretch_step != 0)
+            return JW_STR_5338;
+        return stretch_based ? JW_STR_5337 : JW_STR_5336;
     case JW_CMD_BUNKATSU:
         /* 分割 is not コーナー: it has its own pair.  CZukeiBunkatsu's
            FUN_007614c0 puts up 0x14ed while its state is 0 or 1 -- 「線・円
@@ -5416,10 +5430,19 @@ static int circle_of(const jw_obj *o, double *cx, double *cy, double *r)
     return 1;
 }
 
+/* 要素そのものを渡す形（伸縮の基準線は写しを持つので） */
+static int cross_obj(const jw_obj *a, const jw_obj *b,
+                     double px, double py, double *ox, double *oy);
+
 static int cross_point(const jw_drawing *d, int ia, int ib,
                        double px, double py, double *ox, double *oy)
 {
-    const jw_obj *a = &d->obj[ia], *b = &d->obj[ib];
+    return cross_obj(&d->obj[ia], &d->obj[ib], px, py, ox, oy);
+}
+
+static int cross_obj(const jw_obj *a, const jw_obj *b,
+                     double px, double py, double *ox, double *oy)
+{
     double cand[4][2];
     int n = 0, i, best = -1;
     double bd = 0.0;
@@ -6024,6 +6047,51 @@ static void corner_arc(jw_drawing *d, int a, double ax, double ay,
     if (cq) {
         op_keep(rec, d, b, 0);
         d->obj[b] = q;
+    }
+}
+
+/* 線切断: the line or arc under (x, y) cut there, a 切断間隔 wide --
+ * FUN_00470200 called with the one point twice, as コーナー's (R)
+ * (FUN_00636ee0) and 伸縮's (FUN_00715f50) both do.  The width is the
+ * bar's 1411 (FUN_004cacd0 → DAT_00a0cc58), on the paper, or in real size
+ * over the write group's scale when 実寸 (2096) is ticked; FUN_00471e40 /
+ * FUN_004702f0 then take out the piece from half the width before the
+ * point to half after -- along a line, across an arc's tangent -- and with
+ * no width the element is split in two there.  (Read off the decompile,
+ * not asked of the original.) */
+static void cut_gap_at(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    double gap = box_num(jw_cmd_box(1411), 0.0), h;
+    const jw_obj *o;
+    int i = jw_pick(d, v, x, y, 3);
+
+    if (i < 0)
+        return;
+    if (gap < 0.0)
+        gap = 0.0;
+    if (jw_cmd_bar_check(2096) > 0)
+        gap /= write_scale(d);
+    h = gap / 2.0;
+    o = &d->obj[i];
+    if (o->cls == JW_SEN) {
+        double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1], len = sqrt(ux * ux + uy * uy), t;
+
+        if (len < 1e-7)
+            return;
+        ux /= len;
+        uy /= len;
+        t = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
+        cut_line(d, i, o->d[0] + ux * (t - h), o->d[1] + uy * (t - h),
+                 o->d[0] + ux * (t + h), o->d[1] + uy * (t + h));
+    } else if (o->cls == JW_ENKO) {
+        double ex = x - o->d[0], ey = y - o->d[1], el = sqrt(ex * ex + ey * ey);
+
+        if (el < 1e-7)
+            return;
+        if (o->d[4] < 0.0)      /* the arc runs the other way round */
+            h = -h;
+        cut_arc(d, i, x + ey / el * h, y - ex / el * h,
+                x - ey / el * h, y + ex / el * h);
     }
 }
 
@@ -17640,6 +17708,112 @@ static void hk_height_text(char *out, size_t cap, const char *box, int d25)
         snprintf(out, cap, "%0.3f", a);
 }
 
+/* 伸縮 (CZukeiShinshuku): the pieces its click uses.  All read off the
+ * decompile, not asked of the original. */
+
+/* moved off the right press: FUN_00715f50 cuts once |dx| + |dy| > 2 pixels */
+static int stretch_far(const jw_view *v, double x, double y)
+{
+    return v && (fabs(x - stretch_rx) + fabs(y - stretch_ry)) * v->scale > 2.0;
+}
+
+/* 突出寸法, the bar's 1413 (FUN_004cad70 → +0xa060): real size, over the
+   write group's scale; one under 1e-7 either way is none */
+static double stretch_out(const jw_drawing *d)
+{
+    double v = box_num(jw_cmd_box(1413), 0.0);
+
+    if (!d)
+        return 0.0;
+    v /= write_scale(d);
+    return fabs(v) > 1e-07 ? v : 0.0;
+}
+
+/* FUN_0044cfb0 on a line: the end on P's side of where the line was picked
+   (t0, along it) goes to P dropped on to the line, so the pick stays on
+   what is left (fuzz cases 3, 4, 24, 59, s4_5) -- past an end that is the
+   end it is past.  `out` carries it that much further on (FUN_0071a050's
+   state 2: in the line's own frame P's x less 突出寸法 when it is not past
+   the pick, more when it is). */
+static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
+                        double out)
+{
+    jw_obj *o = &d->obj[i];
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    double len2 = dx * dx + dy * dy, t, nx, ny;
+    int lo;
+
+    if (len2 < 1e-14)
+        return;
+    t = ((x - o->d[0]) * dx + (y - o->d[1]) * dy) / len2;
+    lo = t < t0;
+    if (out != 0.0)
+        t += (t <= t0 ? -out : out) / sqrt(len2);
+    nx = o->d[0] + t * dx;
+    ny = o->d[1] + t * dy;
+    op_keep(op_new(), d, i, 0);
+    if (lo) {
+        o->d[0] = nx;
+        o->d[1] = ny;
+    } else {
+        o->d[2] = nx;
+        o->d[3] = ny;
+    }
+}
+
+/* States 3 and 4 (FUN_0071a050 → FUN_0046e550): the line picked at (x, y)
+   goes to where it meets the 基準線 -- the crossing nearest where the
+   基準線 was picked, the hint FUN_0045fa30 is given when the line is not an
+   arc -- by the end on that side of the pick, as above.  With a 突出寸法
+   and a 基準線 that is a line, the 基準線 is first moved off itself by that
+   much, away from the side the line was picked on, so the line goes past
+   it (a minus one stops short).  No crossing (parallel) leaves it alone
+   (0x1455).  A circle as the 基準線 is taken whole (circle_of). */
+static void stretch_to_base(jw_drawing *d, int i, double x, double y)
+{
+    jw_obj base = stretch_base;
+    const jw_obj *q = &d->obj[i];
+    double out = stretch_out(d), px, py, ex, ey, l2;
+
+    if (base.cls == JW_SEN && out != 0.0) {
+        double bx = base.d[2] - base.d[0], by = base.d[3] - base.d[1];
+        double bl = sqrt(bx * bx + by * by);
+
+        if (bl > 1e-09) {
+            /* the pick's own y in the 基準線's frame; at or over nought
+               the 基準線 goes to -out, under it to +out */
+            double side = ((x - base.d[0]) * -by + (y - base.d[1]) * bx) / bl;
+            double off = side >= 0.0 ? -out : out;
+            double ox = -by / bl * off, oy = bx / bl * off;
+
+            base.d[0] += ox;
+            base.d[1] += oy;
+            base.d[2] += ox;
+            base.d[3] += oy;
+        }
+    }
+    if (!cross_obj(&base, q, stretch_bx, stretch_by, &px, &py))
+        return;
+    ex = q->d[2] - q->d[0];
+    ey = q->d[3] - q->d[1];
+    l2 = ex * ex + ey * ey;
+    if (l2 < 1e-14)
+        return;
+    stretch_end(d, i, ((x - q->d[0]) * ex + (y - q->d[1]) * ey) / l2, px, py, 0.0);
+}
+
+/* The mouse moved with the right button pressed once in 伸縮: 線切断 there
+   (CZukeiShinshuku's slot 6, FUN_00715f50).  1 when the drawing changed. */
+int jw_cmd_stretch_move(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    if (current != JW_CMD_SHINSHUKU || !stretch_rwait || !d || !v
+        || !stretch_far(v, x, y))
+        return 0;
+    stretch_rwait = 0;
+    cut_gap_at(d, v, stretch_rx, stretch_ry);
+    return 1;
+}
+
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button);
 
@@ -19064,10 +19238,67 @@ placed:
          * settled by the second point, not the first: clicking the left half
          * of a line in Jw_cad and then a point past its right end moves the
          * right end.  The point is dropped on to the line first, the same
-         * way a partial erase drops its two.  A tie goes to the first end. */
+         * way a partial erase drops its two.  A tie goes to the first end.
+         *
+         * The right button (CZukeiShinshuku's slot 11, FUN_00719580) reads
+         * the point while a line is picked, and otherwise only notes the
+         * element under it (+0x210 = 6, prompt 0x14db): moving the mouse
+         * more than 2 pixels then cuts it there (slot 6, FUN_00715f50 →
+         * FUN_00470200, cut_gap_at; jw_cmd_stretch_move), and the right
+         * again before that -- wherever it lands; the pick is made at the
+         * first point -- makes it the 基準線 (FUN_00717650 in state 3).  A
+         * left meanwhile does nothing (FUN_00718e60's first arm).  The port
+         * may miss the move, so a press more than 2 pixels away is taken
+         * as having moved first.  With a 基準線 held (states 3 and 4,
+         * prompt 0x14d9) a left on a line stretches it to where it meets
+         * the 基準線 and the 基準線 stays (FUN_0071a050 → FUN_0046e550);
+         * the right then cuts, or changes the 基準線.  Read off the
+         * decompile, not asked of the original. */
         int i;
-        if (button != 0 || !d)
-            return;             /* (R) is 線切断, (RR) 基準線指定 */
+        if (!d)
+            return;
+        if (stretch_rwait) {
+            if (stretch_far(v, x, y)) {
+                stretch_rwait = 0;      /* it moved: 線切断 at the first point */
+                cut_gap_at(d, v, stretch_rx, stretch_ry);
+            } else if (button != 0) {
+                stretch_rwait = 0;      /* (RR): the 基準線, picked at the first point */
+                stretch_step = 0;
+                stretch_based = 0;
+                i = jw_pick(d, v, stretch_rx, stretch_ry, 3);
+                if (i >= 0 && (d->obj[i].cls == JW_SEN || d->obj[i].cls == JW_ENKO)) {
+                    stretch_base = d->obj[i];
+                    stretch_bx = stretch_rx;
+                    stretch_by = stretch_ry;
+                    stretch_based = 1;
+                }
+                return;
+            } else {
+                return;
+            }
+        }
+        if (button != 0) {
+            double rx, ry;
+
+            if (stretch_step == 0) {
+                if (jw_pick(d, v, x, y, 3) < 0)
+                    return;
+                stretch_rwait = 1;
+                stretch_rx = x;
+                stretch_ry = y;
+                return;
+            }
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            x = rx;             /* and on as the left would (FUN_00718e60) */
+            y = ry;
+        }
+        if (stretch_based) {
+            i = jw_pick(d, v, x, y, 3);
+            if (i >= 0 && d->obj[i].cls == JW_SEN)
+                stretch_to_base(d, i, x, y);
+            return;
+        }
         if (stretch_step == 0) {
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || d->obj[i].cls != JW_SEN)
@@ -19084,27 +19315,8 @@ placed:
         }
         stretch_step = 0;
         i = stretch_obj;
-        if (i >= 0 && i < d->ndrawn && d->obj[i].cls == JW_SEN) {
-            jw_obj *o = &d->obj[i];
-            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
-            double len2 = dx * dx + dy * dy, t, nx, ny;
-            if (len2 < 1e-14)
-                return;
-            t = ((x - o->d[0]) * dx + (y - o->d[1]) * dy) / len2;
-            nx = o->d[0] + t * dx;
-            ny = o->d[1] + t * dy;
-            op_keep(op_new(), d, i, 0);
-            /* the end that moves is the one on P's side of the first click,
-               so the first click stays on what is left (fuzz cases 3, 4,
-               24, 59, s4_5) -- past an end that is the end it is past */
-            if (t < stretch_t0) {
-                o->d[0] = nx;
-                o->d[1] = ny;
-            } else {
-                o->d[2] = nx;
-                o->d[3] = ny;
-            }
-        }
+        if (i >= 0 && i < d->ndrawn && d->obj[i].cls == JW_SEN)
+            stretch_end(d, i, stretch_t0, x, y, stretch_out(d));
         return;
     }
     if (current == JW_CMD_CHUSHIN) {
@@ -19703,40 +19915,9 @@ placed:
                is ticked; FUN_00471e40 / FUN_004702f0 then take out the
                piece from half the width before the click to half after --
                along a line, across an arc's tangent -- and with no width
-               the element is split in two there.  A line picked as the
-               first of the corner stays picked. */
-            double gap = box_num(jw_cmd_box(1411), 0.0), h;
-            const jw_obj *o;
-
-            i = jw_pick(d, v, x, y, 3);
-            if (i < 0)
-                return;
-            if (gap < 0.0)
-                gap = 0.0;
-            if (jw_cmd_bar_check(2096) > 0)
-                gap /= write_scale(d);
-            h = gap / 2.0;
-            o = &d->obj[i];
-            if (o->cls == JW_SEN) {
-                double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1], len = sqrt(ux * ux + uy * uy), t;
-
-                if (len < 1e-7)
-                    return;
-                ux /= len;
-                uy /= len;
-                t = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
-                cut_line(d, i, o->d[0] + ux * (t - h), o->d[1] + uy * (t - h),
-                         o->d[0] + ux * (t + h), o->d[1] + uy * (t + h));
-            } else if (o->cls == JW_ENKO) {
-                double ex = x - o->d[0], ey = y - o->d[1], el = sqrt(ex * ex + ey * ey);
-
-                if (el < 1e-7)
-                    return;
-                if (o->d[4] < 0.0)      /* the arc runs the other way round */
-                    h = -h;
-                cut_arc(d, i, x + ey / el * h, y - ex / el * h,
-                        x - ey / el * h, y + ex / el * h);
-            }
+               the element is split in two there (cut_gap_at).  A line
+               picked as the first of the corner stays picked. */
+            cut_gap_at(d, v, x, y);
             return;
         }
         if (corner_step == 0) {

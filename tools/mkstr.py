@@ -48,6 +48,8 @@ WANT = [
     (5341, 'the second line of it'),
     (5336, 'the line to stretch or shorten'),
     (5338, 'where its end should go'),
+    (5337, 'the line to stretch to the reference line'),
+    (5339, 'the right button down once: move to cut, right again for a reference line'),
     (5305, 'the line to make a parallel of'),
     (5366, 'which side to put it'),
     (5263, 'the element to take the pen and layer from'),
