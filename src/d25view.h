@@ -37,7 +37,7 @@ const char *jw_d25_label(int id);
 /* 立体の画面での (L)(R)。1 で受けた */
 int  jw_d25_click(const jw_drawing *d, double x, double y, int button);
 /* 原典の矢印キー（← → ↑ ↓ PageUp PageDown、0x25.. の仮想キー）。1 で受けた。
-   表側はまだ渡していない */
+   表側は app_arrow_key（src/app.c）が 立体の画面のときここへ回す */
 int  jw_d25_key(const jw_drawing *d, int vk);
 /* 状況の行（CP932）: 【２．５Ｄ】測定位置 と 角・高さ・距離 */
 const char *jw_d25_prompt(const jw_drawing *d);
@@ -49,6 +49,10 @@ int  jw_d25_view(const jw_drawing *d, jw_drawing *out);
 /* 試験用: 組んだ立体の線の数と i 本目（x1 y1 z1 x2 y2 z2） */
 int  jw_d25_nline(void);
 int  jw_d25_line(int i, double p[6]);
+/* 試験用: アイソメの円弧の楕円（CData3DEnko）の数 */
+int  jw_d25_nell(void);
+/* 試験用: ソリッドから作った面（CData3DSolid）の数 */
+int  jw_d25_nface(void);
 /* 試験用: 視点などのつまみ（バー +0xe0 +0xe8 +0xf0 +0xf8 +0x100 +0x108） */
 void jw_d25_knobs(double k[6]);
 

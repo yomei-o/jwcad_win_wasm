@@ -1170,6 +1170,7 @@ if (LANG === 'en') {
   window.addEventListener('keydown', e => {
     if (e.key === 'Home') { fitv(); present(); }
     /* 基本設定 2362: 矢印で画面移動、PageUp・PageDown で拡大・縮小（切なら C が断る）。
+       ２．５D の立体の画面では C が 2.5D の視点（左右・前後・上下）に回す。
        ほかの部品が使った矢印（パレットの一覧など）と、開いた窓の中は触らない */
     const vk = { ArrowLeft: 0x25, ArrowUp: 0x26, ArrowRight: 0x27, ArrowDown: 0x28,
                  PageUp: 0x21, PageDown: 0x22 }[e.key];

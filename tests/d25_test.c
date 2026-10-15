@@ -300,11 +300,264 @@ static int views(void)
     return vfail != 0;
 }
 
+/* ---- 円弧の立体（FUN_0061e030）と 矢印キー（slot 37〜42）。逆コンパイルの読み、
+   原典では押していない ---- */
+static jw_obj *add_arc(jw_drawing *d, double cx, double cy, double r, double a0, double sw,
+                       int full)
+{
+    jw_obj *o = jw_add(d, JW_ENKO);
+
+    o->d[0] = cx;
+    o->d[1] = cy;
+    o->d[2] = r;
+    o->d[3] = a0;
+    o->d[4] = sw;
+    o->d[5] = 0.0;
+    o->d[6] = 1.0;
+    o->n = full;
+    return o;
+}
+
+static void add_text(jw_drawing *d, double x, double y, const char *s)
+{
+    jw_obj *t = jw_add(d, JW_MOJI);
+
+    t->d[0] = x;
+    t->d[1] = y;
+    t->d[2] = x + 10;
+    t->d[3] = y;
+    t->d[4] = 2.5;
+    t->d[5] = 2.5;
+    t->text = jw_add_str(d, s);
+}
+
+/* 画面の絵（補助線を除く）を one に */
+static int view_all(const jw_drawing *d, jw_drawing *one)
+{
+    *one = *d;
+    one->obj = 0;
+    one->nobj = one->ndrawn = one->cobj = 0;
+    return jw_d25_view(d, one);
+}
+
+/* 楕円の上にあるか: 中心からの差を 傾きで戻して (u/r)²+(v/rf)² */
+static int on_ell(const jw_obj *e, double x, double y)
+{
+    double dx = x - e->d[0], dy = y - e->d[1], c = cos(e->d[5]), s = sin(e->d[5]);
+    double u = dx * c + dy * s, v = -dx * s + dy * c, r = e->d[2], b = e->d[2] * e->d[6];
+
+    return fabs(u * u / (r * r) + v * v / (b * b) - 1.0) < 1e-6;
+}
+
+static void ell_pt(const jw_obj *e, double a, double *x, double *y)
+{
+    double c = cos(e->d[5]), s = sin(e->d[5]), u = e->d[2] * cos(a), v = e->d[2] * e->d[6] * sin(a);
+
+    *x = e->d[0] + u * c - v * s;
+    *y = e->d[1] + u * s + v * c;
+}
+
+static int arcs(void)
+{
+    long n;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    jw_drawing *d, one;
+    double p[6], k[6], c5 = cos(5.0 * 3.14159265358979323846 / 180.0);
+    double s5 = sin(5.0 * 3.14159265358979323846 / 180.0);
+    int i, nv, nd, ne, ok;
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+    add_arc(d, 1000, 1000, 50, 0, 2 * 3.14159265358979323846, 1);
+
+    /* 文字の無い円: 数 0 で 刻み 5°、z 0 の輪 72 本 */
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 72 && jw_d25_nell() == 0, "文字の無い円は 5° 刻みの輪 72 本");
+    vck(jw_d25_line(0, p) && veq(p[0], 1050) && veq(p[1], 1000) && veq(p[2], 0)
+        && veq(p[3], 1000 + 50 * c5) && veq(p[4], 1000 + 50 * s5) && veq(p[5], 0),
+        "  一本目は 0° から 5° へ");
+    jw_cmd_bar(d, 1121);
+
+    /* 「3 , 0」: 高さ 30・奥行 0、刻み 15° で 24 刻み → 下の輪・上の輪・縦の線 */
+    add_text(d, 1000, 1000, "3 , 0");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 72, "「3 , 0」の円は 24×3 本");
+    vck(jw_d25_line(0, p) && veq(p[2], 30) && veq(p[5], 30), "  高さの輪 (z 30)");
+    vck(jw_d25_line(1, p) && veq(p[2], 0) && veq(p[5], 0), "  奥行の輪 (z 0)");
+    vck(jw_d25_line(2, p) && veq(p[0], p[3]) && veq(p[1], p[4]) && veq(p[2], 30) && veq(p[5], 0)
+        && veq(p[0], 1000 + 50 * cos(15.0 * 3.14159265358979323846 / 180.0)),
+        "  縦の線は 15° に");
+    jw_cmd_bar(d, 1121);
+
+    /* アイソメ: 輪は楕円二つ、縦の線 24 本 */
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nell() == 2 && jw_d25_nline() == 24, "アイソメでは 楕円二つと縦の線 24 本");
+    nv = view_all(d, &one);
+    vck(nv == 26 && one.obj[0].cls == JW_ENKO && one.obj[1].cls == JW_ENKO
+        && one.obj[0].n == 1, "  画面は 弧二つと線 24 本");
+    ok = 1;
+    for (i = 2; i < one.ndrawn; i++)
+        if (!on_ell(&one.obj[0], one.obj[i].d[0], one.obj[i].d[1])
+            || !on_ell(&one.obj[1], one.obj[i].d[2], one.obj[i].d[3]))
+            ok = 0;
+    vck(ok, "  縦の線の端は 写した楕円の上");
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+
+    /* 四分の一の弧（0° から 90°）: 縦の線は 始めの一本と 6 刻み */
+    d->obj[d->ndrawn - 2].n = 0;
+    d->obj[d->ndrawn - 2].d[4] = 3.14159265358979323846 / 2;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nell() == 2 && jw_d25_nline() == 7, "四分の一の弧は 縦の線 7 本");
+    nv = view_all(d, &one);
+    if (nv == 9) {
+        double sx, sy, ex, ey;
+        const jw_obj *e = &one.obj[0], *v0 = &one.obj[2], *v6 = &one.obj[8];
+
+        ell_pt(e, e->d[3], &sx, &sy);
+        ell_pt(e, e->d[3] + e->d[4], &ex, &ey);
+        vck((veq(sx, v0->d[0]) && veq(sy, v0->d[1]) && veq(ex, v6->d[0]) && veq(ey, v6->d[1]))
+            || (veq(ex, v0->d[0]) && veq(ey, v0->d[1]) && veq(sx, v6->d[0])
+                && veq(sy, v6->d[1])),
+            "  弧の両端は 始めと終わりの縦の線の下");
+    } else
+        vck(0, "  画面は 弧二つと線 7 本");
+    free(one.obj);
+    nd = d->ndrawn;
+    jw_cmd_bar(d, 1122);
+    for (i = nd, ne = 0; i < d->ndrawn; i++)
+        ne += d->obj[i].cls == JW_ENKO;
+    vck(d->ndrawn == nd + 9 && ne == 2, "  作図で 弧二つと線七本");
+    jw_cmd_undo(d);
+
+    /* 刻みを負に「3,0,-30」: 輪は描かず 縦の線だけ（30° 刻みで 3 と始め） */
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0,-30");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 4 && jw_d25_nell() == 0, "刻み −30 は 縦の線 4 本だけ");
+
+    /* 矢印キー: 立体の画面では 2.5D の視点（← 回転 −5°、↑ 前へ 10 m） */
+    app_paint();
+    jw_d25_knobs(k);
+    vck(app_arrow_key(0x25) == 1, "← を 2.5D が受ける");
+    vck(app_arrow_key(0x26) == 1, "↑ を 2.5D が受ける");
+    {
+        double k2[6];
+
+        jw_d25_knobs(k2);
+        vck(veq(k2[0], k[0] - 5.0) && veq(k2[2], k[2] + 100.0), "  回転 −5°・距離 +10 m（図寸 100）");
+    }
+    vck(app_arrow_key(0x21) == 1, "PageUp は 上へ");
+    {
+        double k3[6];
+
+        jw_d25_knobs(k3);
+        vck(veq(k3[1], k[1] + 100.0), "  高さ +10 m");
+    }
+    jw_cmd_bar(d, 1121);
+    vck(jw_d25_mode() == 0, "≪ で平面へ");
+    printf("%-4s arcs\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
+/* ---- ソリッドの面（FUN_00615f90・FUN_0043f7a0）。逆コンパイルの読み、原典では
+   押していない ---- */
+static int faces(void)
+{
+    long n;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    jw_drawing *d, one;
+    jw_obj *so;
+    double pc = cos(atan2(1.0, sqrt(2.0)));
+    int i, ok, nd, ns, lh_off;
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+    so = jw_add(d, JW_SOLID);
+    so->d[0] = 2000; so->d[1] = 2000;
+    so->d[2] = 2100; so->d[3] = 2000;
+    so->d[4] = 2100; so->d[5] = 2100;
+    so->d[6] = 2000; so->d[7] = 2100;
+    so->color = 3;
+
+    /* 文字が無ければ z 0 の面一つ */
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1 && jw_d25_nline() == 0, "文字の無いソリッドは 面一つ");
+    jw_cmd_bar(d, 1121);
+    /* 四隅に「3 , 0」: 高さ 30 と 奥行 0 の二面 */
+    add_text(d, 2000, 2000, "3,0");
+    add_text(d, 2100, 2000, "3,0");
+    add_text(d, 2100, 2100, "3,0");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "三隅だけでは 一面");
+    jw_cmd_bar(d, 1121);
+    add_text(d, 2000, 2100, "3,0");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 2, "四隅とも二つで 二面");
+    view_all(d, &one);
+    ok = one.ndrawn == 2 && one.obj[0].cls == JW_SOLID && one.obj[1].cls == JW_SOLID
+         && one.obj[0].color == 3;
+    for (i = 0; ok && i < 4; i++)
+        if (!veq(one.obj[0].d[2 * i], one.obj[1].d[2 * i])
+            || !veq(one.obj[0].d[2 * i + 1] - one.obj[1].d[2 * i + 1], 30 * pc))
+            ok = 0;
+    vck(ok, "  アイソメの面は 高さの面が 30·cos 上");
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+    /* 透視図と作図: 塗りのソリッド二つ */
+    jw_cmd_bar(d, 1064);
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    vck(ns == 2, "透視図でも 面二つ");
+    free(one.obj);
+    nd = d->ndrawn;
+    jw_cmd_bar(d, 1122);
+    vck(d->ndrawn == nd + 2 && d->obj[nd].cls == JW_SOLID && d->obj[nd].color == 3,
+        "  作図で ソリッド二つ（色はもとのソリッド）");
+    jw_cmd_undo(d);
+    /* 視点を面の中へ: 奥行 1 で切られて 一部だけ */
+    jw_cmd_bar(d, 1064);
+    for (i = 0; i < 9; i++)
+        jw_cmd_bar(d, 1127);
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    vck(ns >= 1, "  視点が近くても 見える所は描く");
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+    /* 文字を隅から退けて #lh4: 高さ 40 と 0 の二面 */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI && d->obj[i].d[0] >= 2000 && d->obj[i].d[0] < 3000)
+            d->obj[i].d[1] += 10000;
+    lh_off = jw_add_str(d, "#lh4");
+    d->group[so->lgroup].layer_name[so->layer] = lh_off;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 2, "#lh4 のレイヤは 二面");
+    jw_cmd_bar(d, 1121);
+    d->group[so->lgroup].layer_name[so->layer] = -1;
+    printf("%-4s faces\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
 int main(void)
 {
     int bad = run(32937, "decomp/res/p197_h1.jww", "2.5D");
 
     bad += views();
+    bad += arcs();
+    bad += faces();
 
     bad += run(32943, "decomp/res/p198_k1.jww", "hikage");
     bad += run(32971, "decomp/res/p198_t1.jww", "tenku");
