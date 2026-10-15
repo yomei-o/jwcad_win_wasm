@@ -403,6 +403,17 @@ static void w_sxf(wbuf *w, const jw_drawing *d)
     }
 }
 
+/* a long put back where the header had it (the file is little-endian) */
+static void w_put32(wbuf *w, long at, int v)
+{
+    unsigned char *p = w->b + at;
+
+    p[0] = (unsigned char)(v & 255);
+    p[1] = (unsigned char)((v >> 8) & 255);
+    p[2] = (unsigned char)((v >> 16) & 255);
+    p[3] = (unsigned char)((v >> 24) & 255);
+}
+
 /* The header: everything but those three blocks goes back exactly as it came
    in -- there is far more in there than this understands -- and the layer
    group scales are put in where they sit, which is before any of them.  A
@@ -440,6 +451,26 @@ static void w_head(wbuf *w, const jw_drawing *d)
     for (g = 0; g < 16 && !w->bad; g++)
         if (d->off_scale[g] > 0 && (np == 0 || d->off_scale[g] + 8 <= part[0].off))
             memcpy(w->b + d->off_scale[g], &d->group[g].scale, 8);
+    /* So do the sheet and the layer and group states.  They were copied
+       through as the file had them, so a drawing saved after 用紙サイズ, a
+       レイヤ made 非表示 or 表示のみ, or another 書込レイヤ came back with
+       the old ones (tests/workflow_test.c: A-3 read back as A-2). */
+    if (!w->bad && d->off_paper > 0 && (np == 0 || d->off_paper + 4 <= part[0].off))
+        w_put32(w, d->off_paper, d->paper_size);
+    for (g = 0; g < 16 && !w->bad; g++) {
+        int l, stride = d->version > 0xd3 ? 8 : 4;
+
+        if (d->off_group[g] > 0 && (np == 0 || d->off_group[g] + 8 <= part[0].off)) {
+            w_put32(w, d->off_group[g], d->group[g].state);
+            w_put32(w, d->off_group[g] + 4, d->group[g].write_layer);
+        }
+        if (d->off_layer[g] > 0 && (np == 0 || d->off_layer[g] + 16 * stride <= part[0].off))
+            for (l = 0; l < 16; l++) {
+                w_put32(w, d->off_layer[g] + l * stride, d->group[g].layer[l].state);
+                if (stride == 8)
+                    w_put32(w, d->off_layer[g] + l * stride + 4, d->group[g].layer[l].state2);
+            }
+    }
 }
 
 /* A 図形 file (.jws), the other way round from jw_parse_jws.  The header is

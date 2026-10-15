@@ -330,6 +330,10 @@ int main(int argc, char **argv)
     app_press(x, y, 0);
     d = app_drawing();
     ck(d && d->ndrawn == before, "the left button does not delete");
+    /* その (L) で線を拾って部分消しの始点待ち。そこでの (R) は始点の
+       (R)Read なので（CZukeiShoukyo slot 11 FUN_0070f880）、Esc で拾いを
+       放してから (R) で消す */
+    app_key(27);
     app_press(x, y, 1);
     d = app_drawing();
     ck(d && d->ndrawn == before - 1, "the right button takes it out");

@@ -190,6 +190,11 @@ typedef struct {
        above rather than copied; the numbers beside them are copied through
        that same code.  -1 means the version has no such block. */
     long off_scale[16];         /* each layer group's scale, eight bytes  */
+    /* and the other things in that part a person changes as they work: the
+       sheet (one long), each group's state and write layer (two longs) and
+       its sixteen layers' states (a long each, two from 0xd4 on).  0 when
+       the drawing did not come from a header. */
+    long off_paper, off_group[16], off_layer[16];
     long off_names, end_names;  /* the 16 by 16 layer names, then 16 more */
     long off_ctab, end_ctab;    /* the 257 colours: numbers, then names   */
     long off_sxf, end_sxf;      /* the 33 任意線種                         */
