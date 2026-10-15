@@ -47,15 +47,20 @@ int jw_text_count(const char *s)
 /* One glyph, scaled to fit the cell, into the parallelogram the baseline
  * direction defines.  Nearest neighbour: the font is 16 pixels tall and the
  * text on screen is anywhere from 4 to 60, so there is nothing to interpolate
- * that would not just blur it. */
+ * that would not just blur it.
+ *
+ * `lean` slants it (斜体): a dot `h` above the baseline moves h * lean along
+ * the run, the baseline being 2 of the font's 16 rows up.  `bold` (mm,
+ * 太字) draws it again that far along the run, a pixel a step. */
 static void glyph(fb_t *fb, const jw_view *v, unsigned code,
                   double ox, double oy, double ux, double uy,
                   double vx, double vy, double cw, double ch,
-                  unsigned int col)
+                  unsigned int col, double lean, double bold)
 {
     const fontx_t *f = code > 0xff ? &kanji : &ank;
     const unsigned char *g = fontx_glyph(f, code);
-    int stride, gx, gy, nx, ny, i, j;
+    int stride, gx, gy, nx, ny, i, j, b, nb = 0;
+    double pv = ch * 2.0 / 16.0;
 
     if (!g)
         return;
@@ -74,6 +79,11 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
        without this the two loops below run for the rest of the day. */
     if (nx > fb->w + fb->h) nx = fb->w + fb->h;
     if (ny > fb->w + fb->h) ny = fb->w + fb->h;
+    if (bold > 0.0) {                   /* that many more samples across */
+        nb = jw_px_round(bold * nx / cw + 0.5);
+        if (nb < 1) nb = 1;
+        if (nb > nx) nb = nx;
+    }
     /* And a cell that lies wholly off the window is not sampled at all.
        Every sample is inside the parallelogram the cell's four corners make,
        so if their screen box -- a pixel wider all round, for the rounding --
@@ -82,13 +92,14 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
        was on the window or not: Test7 at 256 times took ten seconds a paint,
        and 0.045 with its texts taken out. */
     {
-        double cx[4], cy[4];
+        double cx[4], cy[4], lo = -fabs(lean) * pv;
+        double hi = cw + (nb ? bold : 0.0) + fabs(lean) * ch;
         int c, x0, x1, y0, y1;
 
-        cx[0] = ox;                      cy[0] = oy;
-        cx[1] = ox + ux * cw;            cy[1] = oy + uy * cw;
-        cx[2] = ox + vx * ch;            cy[2] = oy + vy * ch;
-        cx[3] = ox + ux * cw + vx * ch;  cy[3] = oy + uy * cw + vy * ch;
+        cx[0] = ox + ux * lo;            cy[0] = oy + uy * lo;
+        cx[1] = ox + ux * hi;            cy[1] = oy + uy * hi;
+        cx[2] = ox + ux * lo + vx * ch;  cy[2] = oy + uy * lo + vy * ch;
+        cx[3] = ox + ux * hi + vx * ch;  cy[3] = oy + uy * hi + vy * ch;
         x0 = x1 = jw_sx(v, cx[0]);
         y0 = y1 = jw_sy(v, cy[0]);
         for (c = 1; c < 4; c++) {
@@ -105,14 +116,24 @@ static void glyph(fb_t *fb, const jw_view *v, unsigned code,
     }
     for (j = 0; j < ny; j++) {
         gy = f->height - 1 - j * f->height / ny;
-        for (i = 0; i < nx; i++) {
-            double px, py;
-            int sx, sy;
-            gx = i * f->width / nx;
-            if (!(g[gy * stride + (gx >> 3)] & (0x80 >> (gx & 7))))
+        for (i = 0; i < nx + nb; i++) {
+            double px, py, u = cw * i / nx;
+            int sx, sy, on = 0;
+
+            /* 太字: on if any of the nb samples to its left is */
+            for (b = i < nx ? 0 : i - nx + 1; b <= nb && b <= i; b++) {
+                gx = (i - b) * f->width / nx;
+                if (g[gy * stride + (gx >> 3)] & (0x80 >> (gx & 7))) {
+                    on = 1;
+                    break;
+                }
+            }
+            if (!on)
                 continue;
-            px = ox + ux * (cw * i / nx) + vx * (ch * j / ny);
-            py = oy + uy * (cw * i / nx) + vy * (ch * j / ny);
+            if (lean != 0.0)
+                u += lean * (ch * j / ny - pv);
+            px = ox + ux * u + vx * (ch * j / ny);
+            py = oy + uy * u + vy * (ch * j / ny);
             sx = jw_sx(v, px);
             sy = jw_sy(v, py);
             if (sx >= v->clip.x && sx < v->clip.x + v->clip.w
@@ -355,16 +376,29 @@ void jw_text_run_face(fb_t *fb, const jw_view *v, const char *s,
     if (of >= 0 && jw_outfont_run(fb, v, of, s, x0, y0, x1, y1, cw, ch, col,
                                   tate, style, prop))
         return;
-    jw_text_run(fb, v, s, x0, y0, x1, y1, cw, ch, col, tate);
+    jw_text_run_style(fb, v, s, x0, y0, x1, y1, cw, ch, col, tate, style);
 }
 
 void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
                  double x0, double y0, double x1, double y1,
                  double cw, double ch, unsigned int col, int tate)
 {
+    jw_text_run_style(fb, v, s, x0, y0, x1, y1, cw, ch, col, tate, 0);
+}
+
+/* 斜体 and 太字 in the bitmap font lean and thicken the way the outline
+   ones do (JW_TEXT_ITALIC, JW_TEXT_BOLD in src/outfont.h): the original's
+   CreateFontW gets lfItalic and lfWeight 700 whatever the face. */
+void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
+                       double x0, double y0, double x1, double y1,
+                       double cw, double ch, unsigned int col, int tate,
+                       int style)
+{
     double dx = x1 - x0, dy = y1 - y0;
     double len = sqrt(dx * dx + dy * dy);
     double ux, uy, vx, vy, step;
+    double lean = (style & 1) ? JW_TEXT_ITALIC : 0.0;
+    double bold = (style & 2) ? ch * JW_TEXT_BOLD : 0.0;
     int n = jw_text_count(s), i;
     const unsigned char *p = (const unsigned char *)s;
 
@@ -396,7 +430,7 @@ void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
         }
         glyph(fb, v, code, x0 + ux * step * i, y0 + uy * step * i,
               tate ? 1.0 : ux, tate ? 0.0 : uy,
-              tate ? 0.0 : vx, tate ? 1.0 : vy, cw, ch, col);
+              tate ? 0.0 : vx, tate ? 1.0 : vy, cw, ch, col, lean, bold);
     }
 }
 

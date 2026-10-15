@@ -6,7 +6,10 @@
  * Checks, for each of IPAexGothic, IPAexMincho and BIZ UD Gothic, that a
  * string comes out non-blank and different from the others, upright, turned,
  * italic and bold; that the original's own face and a face nobody has heard
- * of still come out as the bitmap font, byte for byte; that the 文字種
+ * of still come out as the bitmap font, byte for byte; that Arial, Times New
+ * Roman and Century are set in the Latin stand-ins at the width Windows gives
+ * them, with IPAex for their Japanese; that 斜体 leans 0.3256 and 太字 has
+ * more ink, in the outline and the bitmap font; that the 文字種
  * dialog's フォント box lists ours and OK makes new texts carry the pick; and
  * that the pick is in the saved .jww, so a reopened file keeps it.
  */
@@ -79,6 +82,50 @@ static int draw(const char *face, double ang, int style, int tate)
                      tate ? 4.0 : 8.0, 8.0, 0x000000, tate, face, style);
     for (i = 0; i < W * H; i++)
         n += img[i] != 0xffffff;
+    return n;
+}
+
+/* `s` in `face` along a run `run` mm long from (12,2), 8 mm high and cw
+   across; answers the ink: how many pixels, the leftmost and rightmost
+   column, and the mean column of the rows top..top+7 (*top8) and of the
+   eight rows above the baseline row 91 (*foot8) */
+static int ink(const char *face, const char *s, double run, double cw,
+               int style, int *x0, int *x1, double *top8, double *foot8)
+{
+    fb_t fb;
+    jw_view v = view();
+    int i, n = 0, top = H, nt = 0, nf = 0;
+    double st = 0.0, sf = 0.0;
+
+    fb.w = W;
+    fb.h = H;
+    fb.px = img;
+    for (i = 0; i < W * H; i++)
+        img[i] = 0xffffff;
+    jw_text_run_face(&fb, &v, s, 12.0, 2.0, 12.0 + run, 2.0, cw, 8.0,
+                     0x000000, 0, face, style);
+    *x0 = W;
+    *x1 = -1;
+    for (i = 0; i < W * H; i++)
+        if (img[i] != 0xffffff) {
+            n++;
+            if (i % W < *x0) *x0 = i % W;
+            if (i % W > *x1) *x1 = i % W;
+            if (i / W < top) top = i / W;
+        }
+    for (i = 0; i < W * H; i++)
+        if (img[i] != 0xffffff) {
+            if (i / W < top + 8) {
+                st += i % W;
+                nt++;
+            }
+            if (i / W >= 84 && i / W < 92) {
+                sf += i % W;
+                nf++;
+            }
+        }
+    *top8 = nt ? st / nt : 0.0;
+    *foot8 = nf ? sf / nf : 0.0;
     return n;
 }
 
@@ -264,6 +311,97 @@ int main(int argc, char **argv)
         ck(hash() == hbit, "switched off again it is the bitmap font");
         jw_outfont_enable(1);
     }
+
+    printf("-- Arial, Times New Roman, Century: the Latin stand-ins\n");
+    {
+        static const char PUDG[] = "BIZ UD\x82o\x83S\x83V\x83" "b\x83N";
+        static const char MINCHO[] = "\x82l\x82r \x96\xbe\x92\xa9";
+        /* 日本語漢字 */
+        static const char JA[] = "\x93\xfa\x96\x7b\x8c\xea\x8a\xbf\x8e\x9a";
+        int pr, a0, a1, b0, b1, na, nb2, nr;
+        double t, f;
+        unsigned long hg;
+
+        ck(jw_outfont_enabled(), "(switched on)");
+        ck(jw_outfont_resolve("Arial", &pr) == JW_NOUTFONT && (pr & 1),
+           "Arial is the sans stand-in, proportional");
+        ck(jw_outfont_resolve("arial", &pr) == JW_NOUTFONT,
+           "  whatever the case");
+        ck(jw_outfont_resolve("Times New Roman", &pr) == JW_NOUTFONT + 1
+           && jw_outfont_resolve("Century", &pr) == JW_NOUTFONT + 1,
+           "Times New Roman and Century are the serif one");
+        ck(jw_outfont_resolve("Century Gothic", &pr) == JW_NOUTFONT,
+           "  but Century Gothic is the sans");
+        ck(jw_outfont_resolve(PUDG, &pr) == 2 && (pr & 1),
+           "BIZ UDＰゴシック is BIZ UD Gothic, proportional");
+        ck(jw_outfont_count() == 3 && jw_outfont_find("JwSubSans") < 0,
+           "  the stand-ins are not listed, nor found by name");
+        ck(jw_outfont_ready(JW_NOUTFONT) && jw_outfont_ready(JW_NOUTFONT + 1),
+           "  they are read from fonts/ (jwsubsans.ttf, jwsubserif.ttf)");
+        ck(!strcmp(jw_outfont_file(JW_NOUTFONT), "jwsubsans.ttf"),
+           "  and the page asks for them by that name");
+
+        draw(MSGOTHIC, 0.0, 0, 0);
+        hg = hash();
+        draw("Arial", 0.0, 0, 0);
+        ck(hash() != hg, "a string in Arial is not the gothic's picture");
+        na = ink(MSGOTHIC, JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+        hg = hash();
+        ink("Arial", JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+        ck(na > 300 && hash() == hg,
+           "  its Japanese letters are IPAex Gothic, as ＭＳ ゴシック's");
+        ink(MINCHO, JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+        hg = hash();
+        ink("Century", JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+        ck(hash() == hg, "  and Century's are IPAex Mincho, as ＭＳ 明朝's");
+
+        /* Windows sizes a face by its average width, so Arial Narrow at the
+           same width comes out about as wide as Arial, and Century, whose
+           average (951) is more above Times New Roman's (821) than its
+           letters are wider (1.094), a little narrower than Times */
+        na = ink("Arial", "WWWW", 0.0, 8.0, 0, &a0, &a1, &t, &f);
+        nb2 = ink("Arial Narrow", "WWWW", 0.0, 8.0, 0, &b0, &b1, &t, &f);
+        snprintf(msg, sizeof msg, "Arial Narrow is as wide as Arial (%d, %d px)",
+                 b1 - b0, a1 - a0);
+        ck(na > 100 && nb2 > 100 && abs((b1 - b0) - (a1 - a0)) <= 3, msg);
+        ink("Times New Roman", "abcdefgh", 0.0, 8.0, 0, &a0, &a1, &t, &f);
+        nr = ink("Century", "abcdefgh", 0.0, 8.0, 0, &b0, &b1, &t, &f);
+        snprintf(msg, sizeof msg, "  Century is 0.944 of Times (%d, %d px)",
+                 b1 - b0, a1 - a0);
+        ck(nr > 100 && b1 - b0 < a1 - a0 && b1 - b0 > (a1 - a0) * 0.9, msg);
+        /* Windows sizes Arial so that its average, 904/2048 of the em, is half
+           the width: a W (1933 units) at 8 mm across is 8/2 * 1933/904 mm */
+        ink("Arial", "W", 0.0, 8.0, 0, &a0, &a1, &t, &f);
+        snprintf(msg, sizeof msg, "  an Arial W 8 mm across is 8.55 mm wide (%d px)",
+                 a1 - a0 + 1);
+        ck(fabs((a1 - a0 + 1) * 0.25 - 4.0 * 1933 / 904) < 0.75, msg);
+        ink("Arial", "W", 0.0, 4.0, 0, &b0, &b1, &t, &f);
+        ck(abs((b1 - b0 + 1) * 2 - (a1 - a0 + 1)) <= 3,
+           "  and half as wide at 4 mm");
+    }
+
+    printf("-- 斜体 and 太字\n");
+    for (i = 0; i < 2; i++) {
+        /* "IIII" upright and italic; bitmap (switched off) and outline */
+        int a0, a1, n0, n1, n2;
+        double t0, f0, t1, f1, lean;
+
+        jw_outfont_enable(i);
+        n0 = ink(MSGOTHIC, "IIII", 30.0, 8.0, 0, &a0, &a1, &t0, &f0);
+        n1 = ink(MSGOTHIC, "IIII", 30.0, 8.0, 1, &a0, &a1, &t1, &f1);
+        lean = (t1 - f1) - (t0 - f0);
+        snprintf(msg, sizeof msg,
+                 "%s: italic leans 0.3256 (top vs foot %.1f px, 4..10)",
+                 i ? "outline" : "bitmap", lean);
+        ck(n0 > 100 && n1 > 100 && lean > 4.0 && lean < 10.0, msg);
+        n2 = ink(MSGOTHIC, "IIII", 30.0, 8.0, 2, &a0, &a1, &t1, &f1);
+        snprintf(msg, sizeof msg, "  bold has more ink (%d > %d)", n2, n0);
+        ck(n2 > n0 + n0 / 20, msg);
+    }
+    jw_outfont_enable(0);
+    draw(MSGOTHIC, 0.0, 0, 0);
+    ck(hash() == hbit, "upright and light, the bitmap font is as it was");
+    jw_outfont_enable(1);
 
     printf("-- picking one in the 文字種 dialog\n");
     app_resize(1264, 741);
