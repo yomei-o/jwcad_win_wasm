@@ -334,6 +334,144 @@ static void fukusen_tail(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 複線の残り: (R) 前回値・端点指定 (1065)・範囲選択 (1067)・移動 (1323)。
+   どれも CZukeiFukusen の逆コンパイルの読み（slot 11・26・28/34・3、src/cmd.c の
+   fk_* の注）で、原典では押していない */
+static void fk_box(int id, const char *s)
+{
+    int i;
+
+    jw_cmd_box_click(id);
+    for (i = 0; i < 24; i++)
+        jw_cmd_box_key(8);
+    for (; *s; s++)
+        jw_cmd_box_key((unsigned char)*s);
+    jw_cmd_box_key(13);
+}
+
+static int fk_has_line(const jw_drawing *d, double x0, double y0,
+                       double x1, double y1)
+{
+    int i;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        if (o->cls != JW_SEN)
+            continue;
+        if ((fabs(o->d[0] - x0) < 1e-6 && fabs(o->d[1] - y0) < 1e-6
+             && fabs(o->d[2] - x1) < 1e-6 && fabs(o->d[3] - y1) < 1e-6)
+            || (fabs(o->d[0] - x1) < 1e-6 && fabs(o->d[1] - y1) < 1e-6
+                && fabs(o->d[2] - x0) < 1e-6 && fabs(o->d[3] - y0) < 1e-6))
+            return 1;
+    }
+    return 0;
+}
+
+static void fukusen_rest(void)
+{
+    jw_drawing *d;
+    const jw_view *v;
+    char ten[32], dir[256];
+    int n, k;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    v = app_view();
+    snprintf(ten, sizeof ten, "%g", 10.0 * scale_of(d));      /* 紙で 10 mm */
+    snprintf(dir, sizeof dir, "%s%s", JW_STR_5310, JW_STR_5708);
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, v, -100.0, 0.0, 0);
+    jw_cmd_point(d, v, 100.0, 0.0, 0);
+    ck(fk_has_line(d, -100, 0, 100, 0), "複線の残り: 元の線");
+
+    /* (R) 前回値 */
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    jw_cmd_point(d, v, 50.0, 0.0, 1);
+    ck(!strncmp(jw_cmd_status(d), JW_STR_5312, strlen(JW_STR_5312)),
+       "  (R) でも 箱が空で まだ写していなければ「間隔を入力するか」");
+    app_key(27);
+    cksame(jw_cmd_status(d), JW_STR_5305, "  Esc で線を選ぶ段へ");
+    jw_cmd_point(d, v, 0.0, 0.0, 0);
+    jw_cmd_point(d, v, 0.0, 20.0, 0);
+    jw_cmd_point(d, v, 0.0, 20.0, 0);
+    ck(fk_has_line(d, -100, 20, 100, 20), "  (L) で自由位置に写す (20 mm)");
+    jw_cmd_point(d, v, 50.0, 0.0, 1);
+    cksame(jw_cmd_status(d), dir, "  (R) 前回値: すぐ「作図する方向を指示」");
+    jw_cmd_point(d, v, 0.0, -3.0, 0);
+    ck(fk_has_line(d, -100, -20, 100, -20), "  前回の 20 mm で 反対側へ");
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    jw_cmd_point(d, v, 50.0, 0.0, 1);
+    ck(!strncmp(jw_cmd_status(d), JW_STR_5312, strlen(JW_STR_5312)),
+       "  命令に入り直すと前回値はない（箱も空になる）");
+    app_key(27);
+    fk_box(1411, ten);
+    jw_cmd_point(d, v, 50.0, 0.0, 1);
+    cksame(jw_cmd_status(d), dir, "  (R): 箱に数があれば それで方向へ");
+    jw_cmd_point(d, v, 0.0, 3.0, 0);
+    ck(fk_has_line(d, -100, 10, 100, 10), "  箱の 10 mm");
+
+    /* 端点指定 (1065) */
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    ck(jw_cmd_bar_enabled(d, 1065) == 0, "端点指定: 線を拾う前は死んでいる");
+    fk_box(1411, ten);
+    jw_cmd_point(d, v, 0.0, 0.0, 0);
+    ck(jw_cmd_bar_enabled(d, 1065) == 1, "  間隔があって線を拾えば生きる");
+    ck(jw_cmd_bar(d, 1065), "  押せる");
+    ck(strstr(jw_cmd_status(d), JW_STR_5320) != 0, "  始点を訊く (5506 + 5320)");
+    jw_cmd_point(d, v, -30.0, 50.0, 0);
+    ck(strstr(jw_cmd_status(d), JW_STR_5321) != 0, "  終点を訊く (5321)");
+    jw_cmd_point(d, v, -30.0, 50.0, 0);
+    ck(strstr(jw_cmd_status(d), JW_STR_5321) != 0, "  始点と同じ点は受けない");
+    app_key(27);
+    ck(strstr(jw_cmd_status(d), JW_STR_5320) != 0, "  Esc で始点へ戻る");
+    jw_cmd_point(d, v, -30.0, 50.0, 0);
+    jw_cmd_point(d, v, 40.0, 70.0, 0);
+    cksame(jw_cmd_status(d), dir, "  二点で方向を訊く段に戻る");
+    jw_cmd_point(d, v, 0.0, -3.0, 0);
+    ck(fk_has_line(d, -30, -10, 40, -10), "  写しは 二点を落とした所が端");
+
+    /* 移動 (1323) */
+    jw_cmd_set(JW_CMD_SEN);
+    jw_cmd_point(d, v, -50.0, 100.0, 0);
+    jw_cmd_point(d, v, 50.0, 100.0, 0);
+    for (k = 0; k < d->ndrawn; k++)
+        if (d->obj[k].cls == JW_SEN && fabs(d->obj[k].d[1] - 100.0) < 1e-9)
+            d->obj[k].color = 5;
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    ck(jw_cmd_bar(d, 1323) && jw_cmd_bar_check(1323) > 0, "移動: 印を入れる");
+    fk_box(1411, ten);
+    n = d->ndrawn;
+    jw_cmd_point(d, v, 0.0, 100.0, 0);
+    jw_cmd_point(d, v, 0.0, 103.0, 0);
+    ck(d->ndrawn == n && fk_has_line(d, -50, 110, 50, 110)
+       && !fk_has_line(d, -50, 100, 50, 100), "  元の線は消えて 写しだけ");
+    {
+        const jw_obj *o = last_of(d, JW_SEN);
+
+        ck(o && o->color == 5, "  写しは元の線色のまま");
+    }
+    jw_cmd_undo(d);
+    ck(d->ndrawn == n && fk_has_line(d, -50, 100, 50, 100)
+       && !fk_has_line(d, -50, 110, 50, 110), "  戻るで元どおり");
+    jw_cmd_bar(d, 1323);
+    ck(jw_cmd_bar_check(1323) == 0, "  印を外す");
+
+    /* 範囲選択 (1067) */
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    fk_box(1411, ten);
+    ck(jw_cmd_bar_enabled(d, 1067) == 1 && jw_cmd_bar(d, 1067), "範囲選択: 押せる");
+    ck(strcmp(jw_cmd_status(d), JW_STR_5305) != 0, "  範囲を訊く");
+    jw_cmd_point(d, v, -60.0, 95.0, 0);
+    jw_cmd_point(d, v, 60.0, 105.0, 0);
+    jw_cmd_track(0, 20);
+    ck(jw_cmd_bar(d, 1120), "  選択確定");
+    cksame(jw_cmd_status(d), dir, "  複線に戻って 箱の間隔で方向を訊く");
+    jw_cmd_point(d, v, 0.0, 97.0, 0);
+    ck(fk_has_line(d, -50, 90, 50, 90), "  選んだ線を写す");
+    jw_cmd_set(JW_CMD_SEN);
+}
+
 /* 接円: 一つ目・二つ目を訊く間、半径が箱にあれば「    [ r = %.3lf ]」
    （CZukeiSetuEn の 0x14fc・0x14fd。逆コンパイルの読み） */
 static void sekien_tail(void)
@@ -639,6 +777,7 @@ int main(void)
 
     prompts_of_the_commands();
     fukusen_tail();
+    fukusen_rest();
     sekien_tail();
     box_sums();
     moji_point_first();

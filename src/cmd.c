@@ -2894,6 +2894,85 @@ static int fk_has_sel(void)
 
 static int fk_sel_used;
 static int fk_selmode;      /* 選択中の図形が元（最初のクリックは 側・間隔の指示） */
+/* (R) 前回値 (CZukeiFukusen slot 11, FUN_0065d230): 状態 0 で (R) が線・円を拾うと
+ * 箱 (1411) を零にしない（(L) の slot 9 は 32800 なら箱を 0 にする）。箱が 1e-7 を
+ * 超えていれば すぐ状態 3「作図する方向を指示」へ、でなければ状態 2。原典の箱は 写すたびに
+ * その間隔を持つ（slot 3 が +0x2d0 に取って書き戻し、自由位置の段は 測った距離を書く）が、
+ * この移植は自由位置で箱に書かないので、この命令で最後に写した間隔を fk_prev に持つ。
+ * fk_rprev は (R) で拾ったときの その間隔（0 ならふつうの段）。逆コンパイルの読み、原典では
+ * 押していない。 */
+static double fk_prev, fk_rprev;
+/* 端点指定 (1065、slot 26 FUN_0065b720): +0x284 を 3 にする。(L) で始点 (+0x290)、
+ * 終点 (+0x2a0、始点と 1e-7 未満なら 0x14df で受けない) と取って 1 に。(R) は点読み
+ * （FUN_00451eb0）。写すとき（FUN_0065a340 の CDataSen の枝）は 写した線の上へ二点を
+ * 垂直に落とし（FUN_005f92e0 で線の座標へ、y を 0、FUN_005f8ce0 で戻す）、それを写しの
+ * 始点・終点にする。Esc（slot 16）は 1→2→3→0。写すと 0（slot 3）。原典で押せるのは
+ * 状態 3 で一本の線のときだけ（slot 6、1065 は +0x2c8）。逆コンパイルの読み、原典では
+ * 押していない。 */
+static int fk_ten;
+static double fk_tp[4];
+/* 範囲選択 (1067、slot 28 FUN_0065bb40): 箱を +0x2b8 に取って 範囲選択 に出る。選択が
+ * 決まると slot 34 (FUN_0065b360) が箱を戻し、状態 0 なら 2（選んだものが元、
+ * FUN_00659200）。この移植は 範囲 (JW_CMD_HANI) に出て、確定で 複線 に戻す（選択が残って
+ * いれば fk_selmode の道）。 */
+static int fk_back;
+static char fk_back_box[64];
+/* 移動 (1323) の読み: slot 6 (FUN_00656f10) が +0x1f8 にバーの +0x780（1323 の DDX_Check、
+ * FUN_004b1cf0）を、+0x1fc に +0x808（1324 元レイヤ）を取る。写す slot 3 (FUN_0065e230) は
+ * +0x1f8 なら元の図形を消し（ブロック・寸法図形・プロテクトレイヤは消さずに 5498
+ * 「…複線移動不可」）、6009「【図形を移動しました】」。写しに書込み線を着せる
+ * FUN_004552a0 は +0x1f8 のとき呼ばれない（FUN_0065a340）ので 線色・線種・線幅は元のまま。
+ * 置き場は FUN_00476900 の第四引数 = !(+0x1f8 && +0x1fc)、それが FUN_00447670 の
+ * param_5 で、0 なら元の図形のレイヤ・グループ、でなければ書込みレイヤ。
+ * 逆コンパイルの読み、原典では押していない。 */
+static void fk_finish(jw_drawing *d, jw_obj *o)
+{
+    int src = para_obj, ni = (int)(o - d->obj);
+
+    if (jw_cmd_bar_check(1323) > 0 && src >= 0 && src < d->ndrawn
+        && !d->obj[src].sub) {
+        op_t *u = op_new();
+        const jw_obj *s = &d->obj[src];
+
+        o->ltype = s->ltype;
+        o->color = s->color;
+        o->width = s->width;
+        if (jw_cmd_bar_check(1324) > 0) {
+            o->layer = s->layer;
+            o->lgroup = s->lgroup;
+        }
+        op_keep(u, d, src, 1);
+        jw_remove(d, src);
+        if (src < ni)
+            ni--;
+        if (u)
+            u->n = 1;
+        para_obj = -1;
+    } else
+        op_push(1);
+    para_last = ni;
+    para_last_obj = d->obj[ni];
+}
+
+/* 原典の状態 3「作図する方向を指示」か: 自由位置を指したあと（para_step 2）か、
+   間隔が分かっていて拾ったところ */
+static int fk_dir_wait(const jw_drawing *d)
+{
+    return para_step == 2
+           || (para_step == 1 && (box_mm(d, 1411) > 0.0 || have_kan
+                                  || fk_rprev > 0.0));
+}
+
+/* 範囲選択 (1067) の確定: 複線に戻して箱を戻す（slot 34）。選択が残れば fk_selmode */
+static void fk_back_go(jw_drawing *d)
+{
+    char keep[sizeof fk_back_box];
+
+    snprintf(keep, sizeof keep, "%s", fk_back_box);
+    last_dr = d;
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    box_put(1411, keep);
+}
 
 static int fukusen_selected(jw_drawing *d, double x, double y)
 {
@@ -3173,6 +3252,10 @@ void jw_cmd_set(int id)
         para_step = 1;
     }
     fk_selmode = 0;
+    fk_prev = fk_rprev = 0.0;
+    fk_ten = 0;
+    if (id != JW_CMD_HANI)
+        fk_back = 0;
     if (id == JW_CMD_FUKUSEN && !carry_para && fk_has_sel()) {
         fk_selmode = 1;         /* 選択が残っていれば それが複線の元（すでに「間隔を入力するか」の段） */
         para_step = 1;
@@ -3332,6 +3415,8 @@ void jw_cmd_escape(void)
     bk_rr_n = 0;
     stretch_step = stretch_rwait = stretch_based = 0;
     para_step = 0;
+    fk_ten = 0;
+    fk_rprev = 0.0;
     tracking = 0;
     nisen_step = 0;
     nisen_obj = -1;
@@ -3469,6 +3554,12 @@ void jw_cmd_esc_key(jw_drawing *d)
         return;
     }
     /* 複線: the direction -> the interval -> the line to offset */
+    if (current == JW_CMD_FUKUSEN && fk_ten) {
+        if (++fk_ten > 3)       /* 端点指定: slot 16 は +0x284 を 1 足し、3 を超えれば 0 */
+            fk_ten = 0;
+        tracking = 0;
+        return;
+    }
     if (current == JW_CMD_FUKUSEN && para_step > 0) {
         para_step--;
         if (para_step < 1)
@@ -3711,6 +3802,12 @@ int jw_cmd_back(jw_drawing *d)
        the offset, and the press takes 3 to 2 and then 2 to 0 -- one step
        back each time, and the second one lets go of the picked line
        (+0x20c = 0).  The port's para_step 2 and 1 are those two. */
+    if (current == JW_CMD_FUKUSEN && fk_ten) {
+        if (++fk_ten > 3)       /* 端点指定 (+0x284) が先: 1→2→3→0 */
+            fk_ten = 0;
+        tracking = 0;
+        return 1;
+    }
     if (current == JW_CMD_FUKUSEN && para_step > 0) {
         para_step--;
         if (para_step < 1)
@@ -4443,10 +4540,18 @@ const char *jw_cmd_prompt(void)
            「複線方向を指示 ﾏｳｽ(L)…」 */
         /* the original's three: the line, then (with no interval typed) the
            interval or where to put it, then the side */
+        if (fk_ten == 3 || fk_ten == 2) {
+            /* 端点指定: FUN_00658890 は 5320／5321 を "  %s" にして 5506 の後ろに付ける */
+            static char tp[200];
+
+            snprintf(tp, sizeof tp, "%s  %s", u8cp("【端点指定】"),
+                     fk_ten == 3 ? JW_STR_5320 : JW_STR_5321);
+            return tp;
+        }
         if (para_step == 0)
             return JW_STR_5305;
         if (para_step == 1 && box_num(jw_cmd_box(1411), 0.0) <= 0.0
-            && !have_kan)
+            && !have_kan && fk_rprev <= 0.0)
             return JW_STR_5312;
         {
             static char fp[200];
@@ -12323,6 +12428,10 @@ int jw_cmd_enter_key(jw_drawing *d)
         gb_step(d);
         return 1;
     }
+    if (d && fk_back && current == JW_CMD_HANI && sel_step == 2) {
+        fk_back_go(d);          /* 複線の 範囲選択 (1067) が決まった */
+        return 1;
+    }
     if (d && ms_back && current == JW_CMD_HANI && sel_step == 2) {
         /* 範囲選択 for the 文字 command: what is not a text is let go, and the
            bar goes back to the 文字 one with the texts picked */
@@ -12833,6 +12942,16 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
             return jw_cmd_bar_check(1323) > 0 && tk_pickmode;
         if (id == 1324 || id == 2552)
             return jw_cmd_bar_check(1323) > 0;
+    }
+    if (current == JW_CMD_FUKUSEN && (id == 1065 || id == 1066 || id == 1067)) {
+        /* slot 6 (FUN_00656f10): 端点指定 (+0x2c8) は状態 3 で一本の線のとき。
+           連続線選択 (+0x248) は原典では線を拾うと生きるが、この移植はまだ
+           していないので死なせておく。範囲選択はいつも生きている */
+        if (id == 1065)
+            return d && !fk_selmode && !fk_ten && para_obj >= 0
+                   && para_obj < d->ndrawn && d->obj[para_obj].cls == JW_SEN
+                   && fk_dir_wait(d);
+        return id == 1067;
     }
     switch (id) {
     case 1120:
@@ -13433,6 +13552,30 @@ int jw_cmd_bar(jw_drawing *d, int id)
 
     last_dr = d;
 
+    /* 複線の 範囲選択 (1067) から出た 範囲: 選択確定 で 複線 に戻る（fk_back を見よ） */
+    if (fk_back && current == JW_CMD_HANI && id == 1120) {
+        if (!d || sel_step != 2)
+            return 0;
+        fk_back_go(d);
+        return 1;
+    }
+    if (current == JW_CMD_FUKUSEN && id == 1067) {
+        snprintf(fk_back_box, sizeof fk_back_box, "%s",
+                 jw_cmd_box(1411) ? jw_cmd_box(1411) : "");
+        jw_cmd_set(JW_CMD_HANI);
+        fk_back = 1;
+        return 1;
+    }
+    if (current == JW_CMD_FUKUSEN && id == 1065) {
+        /* 端点指定: slot 6 は 状態 3 で一本の線のときだけ 1065 を生かす */
+        if (!d || fk_selmode || para_obj < 0 || para_obj >= d->ndrawn
+            || d->obj[para_obj].cls != JW_SEN || !fk_dir_wait(d))
+            return 0;
+        fk_ten = 3;
+        tracking = 0;
+        return 1;
+    }
+
     if (current == JW_CMD_MOJI && !ren_step) {
         if (id == 2407 || (id == 1067 && !ms_text)) {
             int after = id == 1067;
@@ -13591,6 +13734,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         double dx, dy, len, nx, ny;
         int base = id == 1064 ? para_find(d) : para_obj;
         int k;
+        fk_ten = 0;             /* slot 25・29・30 は +0x284 を 0 に */
 
         if (!d || base < 0 || base >= d->ndrawn
             || d->obj[base].cls != JW_SEN)
@@ -19554,7 +19698,41 @@ placed:
          * write layer, not a clone: offsetting a dashed line on layer 0 in
          * Test1 gave a plain one on the write layer. */
         int i;
-        if (button != 0 || !d)
+        if (!d)
+            return;
+        if (fk_ten == 3 || fk_ten == 2) {
+            /* 端点指定の 始点・終点（slot 9 の +0x284 の枝。(R) は slot 11 が点を読んでから
+               slot 9 を呼ぶ）。どの段でも これが先 */
+            double px = x, py = y;
+
+            if (button == 1) {
+                if (!jw_read(d, v, x, y, &px, &py))
+                    return;
+            } else if (button != 0)
+                return;
+            if (fk_ten == 2 && hypot(px - fk_tp[0], py - fk_tp[1]) < 1e-7)
+                return;         /* 始点と同じ点は受けない（原典は 0x14df を出す） */
+            fk_tp[fk_ten == 3 ? 0 : 2] = px;
+            fk_tp[fk_ten == 3 ? 1 : 3] = py;
+            fk_ten--;
+            return;
+        }
+        if (button == 1 && para_step == 0 && !fk_selmode) {
+            /* (R) 前回値: 拾い方は (L) と同じ（FUN_00657f10）。箱に数があるか、この命令で
+               もう写していれば その間隔で すぐ「作図する方向を指示」 */
+            double prev = box_mm(d, 1411);
+
+            i = jw_pick(d, v, x, y, 3);
+            if (i < 0 || (d->obj[i].cls != JW_SEN
+                          && !(d->obj[i].cls == JW_ENKO
+                               && fabs(d->obj[i].d[6] - 1.0) < 1e-9)))
+                return;
+            para_obj = i;
+            para_step = 1;
+            fk_rprev = prev > 0.0 ? prev : fk_prev;
+            return;
+        }
+        if (button != 0)
             return;
         if (para_step == 0) {
             i = jw_pick(d, v, x, y, 3);
@@ -19565,6 +19743,7 @@ placed:
             }
             para_obj = i;
             para_step = 1;
+            fk_rprev = 0.0;
             return;
         }
         if (para_step == 1 && fk_selmode) {
@@ -19585,6 +19764,8 @@ placed:
                 have_kan = 0;
             else
                 typed = box_mm(d, 1411);
+            if (typed <= 0.0 && fk_rprev > 0.0)
+                typed = fk_rprev;       /* (R) 前回値 */
             if (typed <= 0.0) {
                 para_step = 2;
                 return;
@@ -19628,6 +19809,8 @@ placed:
                     have_kan = 0;       /* one copy, and it is spent */
                 else
                     typed = box_mm(d, 1411);
+                if (typed <= 0.0 && fk_rprev > 0.0)
+                    typed = fk_rprev;   /* (R) 前回値 */
                 if (typed <= 0.0) {
                     para_step = 2;
                     return;
@@ -19651,46 +19834,61 @@ placed:
             }
         }
         para_step = 0;
-        if (para_obj >= 0 && para_obj < d->ndrawn
-            && d->obj[para_obj].cls == JW_ENKO) {
-            jw_obj src = d->obj[para_obj];
-            jw_obj *o;
-            if (src.d[2] + para_off < 1e-9)
+        {
+            int ten = fk_ten == 1;      /* slot 3 は写すと +0x284 を 0 に */
+
+            fk_ten = 0;
+            fk_rprev = 0.0;
+            fk_prev = fabs(para_off);
+            if (para_obj >= 0 && para_obj < d->ndrawn
+                && d->obj[para_obj].cls == JW_ENKO) {
+                jw_obj src = d->obj[para_obj];
+                jw_obj *o;
+                if (src.d[2] + para_off < 1e-9)
+                    return;
+                o = jw_add(d, JW_ENKO);
+                if (!o)
+                    return;
+                {
+                    jw_obj *keep = o;
+                    double r = src.d[2] + para_off;
+                    int k;
+                    for (k = 0; k < 8; k++)
+                        keep->d[k] = src.d[k];
+                    keep->d[2] = r;
+                }
+                fk_finish(d, o);
                 return;
-            o = jw_add(d, JW_ENKO);
-            if (!o)
-                return;
-            {
-                jw_obj *keep = o;
-                double r = src.d[2] + para_off;
-                int k;
-                for (k = 0; k < 8; k++)
-                    keep->d[k] = src.d[k];
-                keep->d[2] = r;
             }
-            para_last = (int)(o - d->obj);
-            para_last_obj = *o;
-            op_push(1);
-            return;
-        }
-        if (para_obj >= 0 && para_obj < d->ndrawn
-            && d->obj[para_obj].cls == JW_SEN) {
-            jw_obj src = d->obj[para_obj];
-            double dx = src.d[2] - src.d[0], dy = src.d[3] - src.d[1];
-            double len = sqrt(dx * dx + dy * dy);
-            jw_obj *o;
-            if (len < 1e-09)
-                return;
-            o = jw_add(d, JW_SEN);
-            if (!o)
-                return;
-            o->d[0] = src.d[0] + -dy / len * para_off;
-            o->d[1] = src.d[1] + dx / len * para_off;
-            o->d[2] = src.d[2] + -dy / len * para_off;
-            o->d[3] = src.d[3] + dx / len * para_off;
-            para_last = (int)(o - d->obj);
-            para_last_obj = *o;
-            op_push(1);
+            if (para_obj >= 0 && para_obj < d->ndrawn
+                && d->obj[para_obj].cls == JW_SEN) {
+                jw_obj src = d->obj[para_obj];
+                double dx = src.d[2] - src.d[0], dy = src.d[3] - src.d[1];
+                double len = sqrt(dx * dx + dy * dy);
+                jw_obj *o;
+                if (len < 1e-09)
+                    return;
+                o = jw_add(d, JW_SEN);
+                if (!o)
+                    return;
+                o->d[0] = src.d[0] + -dy / len * para_off;
+                o->d[1] = src.d[1] + dx / len * para_off;
+                o->d[2] = src.d[2] + -dy / len * para_off;
+                o->d[3] = src.d[3] + dx / len * para_off;
+                if (ten) {
+                    /* 端点指定: 二点を写しの線へ垂直に落として 端にする (FUN_0065a340) */
+                    double ux = dx / len, uy = dy / len;
+                    double ox = o->d[0], oy = o->d[1];
+                    double t0 = (fk_tp[0] - ox) * ux + (fk_tp[1] - oy) * uy;
+                    double t1 = (fk_tp[2] - ox) * ux + (fk_tp[3] - oy) * uy;
+
+                    o->d[0] = ox + ux * t0;
+                    o->d[1] = oy + uy * t0;
+                    o->d[2] = ox + ux * t1;
+                    o->d[3] = oy + uy * t1;
+                }
+                fk_finish(d, o);
+            }
         }
         return;
     }
