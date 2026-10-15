@@ -260,6 +260,7 @@ if (LANG === 'en') {
     later();
   };
   const fitvNow = mod.cwrap('jw_fit',   null, []);
+  const arrowNow = mod._jw_arrow ? mod.cwrap('jw_arrow', 'number', ['number']) : () => 0;   // 古い jwcad.wasm には無い
   const open  = mod.cwrap('jw_open',  'number', ['number', 'number']);
   const openDxf = mod.cwrap('jw_open_dxf', 'number', ['number', 'number']);
   const openSfc = mod.cwrap('jw_open_sfc', 'number', ['number', 'number']);
@@ -1168,6 +1169,15 @@ if (LANG === 'en') {
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('keydown', e => {
     if (e.key === 'Home') { fitv(); present(); }
+    /* 基本設定 2362: 矢印で画面移動、PageUp・PageDown で拡大・縮小（切なら C が断る）。
+       ほかの部品が使った矢印（パレットの一覧など）と、開いた窓の中は触らない */
+    const vk = { ArrowLeft: 0x25, ArrowUp: 0x26, ArrowRight: 0x27, ArrowDown: 0x28,
+                 PageUp: 0x21, PageDown: 0x22 }[e.key];
+    if (vk && !e.defaultPrevented && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !document.querySelector('dialog[open]')) {
+      sync();
+      if (arrowNow(vk)) { present(); e.preventDefault(); }
+    }
   });
 
   // Closing the tab or reloading throws the drawing away -- nothing is kept

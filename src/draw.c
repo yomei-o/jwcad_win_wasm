@@ -3069,6 +3069,47 @@ int jw_draw_reverse = 0;
    jw_draw, before the pictures.  Off, they go down in element order. */
 int jw_draw_texts_last = 1;
 int jw_draw_textframe;
+
+/* 用紙枠 (2532)。原典の描画本体 FUN_0044b760 は、画面に描くとき（DC が刷りでなく
+   +0x8558・DAT_00a0c784・DAT_00a0b3d0 が立っていない）DAT_00a0c78c が立って
+   いれば、要素を回る前に 線を四本描く: FUN_004594f0 が 用紙の表
+   (DAT_009ffbb8・009ffc58 を doc+0x2f98 の用紙番号で引く) の幅と高さの半分で
+   (-w,-h)-(w,-h)、(w,-h)-(w,h)、(w,h)-(-w,h)、(-w,h)-(-w,-h) を作り、どれも
+   CData の既定（FUN_0041f2d0: 線種 1、線色 2、線幅 0、書込みレイヤ）のまま。
+   読取り点 FUN_00451f30 も要素を回ったあとで この四本の端を拾う（pick.c）。
+   逆コンパイルの読み、原典では押していない。 */
+int jw_draw_paper_frame;
+
+void jw_draw_frame(fb_t *fb, const jw_view *v, const jw_drawing *d)
+{
+    jw_drawing one;
+    jw_obj o[4];
+    double w = d->paper_hw, h = d->paper_hh;
+    static const signed char C[5][2] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 }, { -1, -1 } };
+    int k;
+
+    if (!jw_draw_paper_frame || w <= 0.0 || h <= 0.0)
+        return;
+    one = *d;
+    one.group[0].state = 3;             /* 書込みレイヤの線: 隠れも灰色にもならない */
+    one.group[0].layer[0].state = 3;
+    one.mesh_ix = one.mesh_iy = 0.0;
+    for (k = 0; k < 4; k++) {
+        memset(&o[k], 0, sizeof o[k]);
+        o[k].cls = JW_SEN;
+        o[k].ltype = 1;
+        o[k].color = 2;
+        o[k].text = o[k].face = -1;
+        o[k].d[0] = C[k][0] * w;
+        o[k].d[1] = C[k][1] * h;
+        o[k].d[2] = C[k + 1][0] * w;
+        o[k].d[3] = C[k + 1][1] * h;
+    }
+    one.obj = o;
+    one.nobj = one.ndrawn = 4;
+    jw_draw(fb, v, &one);
+}
+
 static jw_obj *tl_obj;
 static int tl_n, tl_cap, tl_depth, tl_flushing;
 #define DRAW_AT(i, n) (rev ? (n) - 1 - (i) : (i))

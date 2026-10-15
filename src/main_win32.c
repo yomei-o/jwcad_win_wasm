@@ -1898,6 +1898,12 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
         }
+        /* 基本設定 2362 が立っていれば 矢印で画面移動、PageUp・PageDown で拡大・縮小 */
+        if ((wp == VK_LEFT || wp == VK_UP || wp == VK_RIGHT || wp == VK_DOWN
+             || wp == VK_PRIOR || wp == VK_NEXT) && app_arrow_key((int)wp)) {
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+        }
         return 0;
     case WM_COMMAND:
         if ((HIWORD(wp) == 0 || HIWORD(wp) == 1)

@@ -2612,7 +2612,7 @@ void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
     for (i = 0; i < n; i++) {
         const jw_kh_t *z = &c[i];
         int x = cx + z->x, y = cy + z->y;
-        unsigned int col = z->enabled ? C_BTNTEXT : C_BTNSHADOW;
+        unsigned int col = app_kihon_enabled(tab, i, z->enabled) ? C_BTNTEXT : C_BTNSHADOW;
 
         if (!z->shown)
             continue;
@@ -2656,7 +2656,7 @@ void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
             /* A box that cannot be pressed has the dialog's face inside it
                rather than white, and its tick comes out in the shadow
                colour rather than black. */
-            if (!z->enabled) {
+            if (!app_kihon_enabled(tab, i, z->enabled)) {
                 fb_fill(fb, bx + 2, by + 2, CHECK_W - 4, CHECK_H - 3,
                         C_BTNFACE);
                 if (lit)
@@ -2785,7 +2785,7 @@ int ui_kihon_hit(int cw, int ch, int tab, int x, int y)
         const jw_kh_t *z = &c[i];
 
         if (z->kind == JW_KH_STATIC || z->kind == JW_KH_GROUP
-            || !z->shown || !z->enabled)
+            || !z->shown || !app_kihon_enabled(tab, i, z->enabled))
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h)
             return z->id;

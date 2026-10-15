@@ -267,6 +267,8 @@ int  jw_cmd_bar_enabled(const jw_drawing *d, int id);
 /* The range box while its second corner is being chosen: the original draws
    it in red (Pen/Color11) over the drawing. */
 int  jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1);
+/* 範囲を取る命令の段: 1 始点待ち、2 終点待ち、0 それ以外（クロスラインカーソル 2437 が見る） */
+int  jw_cmd_range_phase(void);
 /* How far the selection has been dragged from 基準点, once it is being
    placed.  The selected elements are drawn a second time that far away, so
    what will be made is what is shown. */
@@ -530,6 +532,11 @@ void jw_cmd_get_shown_too(int on);
 void jw_cmd_get_arc_length(int on);
 /* 基本設定 2466「文字コマンドのとき文字位置指示後に文字入力を行う」 */
 void jw_cmd_moji_point_first(int on);
+/* 基本設定 2094「複線のとき、数値入力後の[Enter]キーで連続複線にする」: 立って
+   いれば 複線 で元を拾い間隔を打ったあとの Enter が、マウスの側へその間隔で写し、
+   写しを次の元にする（Enter を押すたびに一本）。写したら 1 */
+void jw_cmd_fukusen_enter_on(int on);
+int  jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
 /* 図形読込の 作図属性 (1067): 同じ四つ（0 書込線種・1 書込線色・2 書込レイヤ・

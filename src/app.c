@@ -2220,6 +2220,7 @@ static int press_colordlg(int x, int y)
 }
 
 static int kh_open, kh_tab;
+static int kh_colinit;                  /* 色彩の初期化 (1910) が 背景色の釦を押せるようにした */
 static unsigned char kh_on[8][256];
 
 int app_kihon_open(void)
@@ -2245,6 +2246,26 @@ static int kh_value(int id)
     return 0;
 }
 
+/* the same, but only on that tab (1325 and 2094 are on more than one) */
+static int kh_value_tab(int tab, int id)
+{
+    int i;
+
+    if (tab < 0 || tab >= ui_kihon_ntabs() || tab >= 8)
+        return 0;
+    for (i = 0; i < ui_kihon_n(tab) && i < 256; i++)
+        if (ui_kihon_id(tab, i) == id && !ui_kihon_isbox(tab, i))
+            return kh_have_saved ? kh_saved[tab][i] : ui_kihon_on(tab, i);
+    return 0;
+}
+
+static int kh_arrows;                   /* 2362: 0 切、1 入、2 入で軸角方向移動 (1325) */
+static int kh_cross;                    /* 2437: 0 切、1 いつも、2 範囲指定のみ、3 範囲始点のみ */
+static int cross_have;                  /* マウスが図面の上にある（cross_x, cross_y に） */
+static double cross_x, cross_y;
+static double kh_move_rate = 0.5, kh_zoom_rate = 1.5;   /* 移動率 1951・拡大率 1952 */
+static double kh_num(int tab, int id, double dflt);
+
 /* OK: the boxes whose meaning is read from the decompile or the dialog's words:
    画像･ソリッドを最初に描画 (2405) and 透過属性 (2860), see src/draw.c */
 static void kh_apply_text(void);
@@ -2262,6 +2283,23 @@ static void kh_apply(void)
     jw_cmd_get_arc_length(kh_value(2100));
     jw_moji_sjis_set(!kh_value(2112));
     jw_cmd_moji_point_first(kh_value(2466));
+    /* 2532 用紙枠を表示する → DAT_00a0c78c（CSonotaPage の OK FUN_005cd940 が
+       +0xbc0 から）。src/draw.c の jw_draw_frame と pick.c の jw_read */
+    jw_draw_paper_frame = kh_value(2532);
+    /* 2094 複線の Enter で連続複線 → DAT_00a0cb20（+0x718）。src/cmd.c */
+    jw_cmd_fukusen_enter_on(kh_value_tab(0, 2094));
+    /* 一般(2) 2362 矢印キーで画面移動… → DAT_00a0d864（CSonotaPage1 の OK
+       FUN_005d02e0 が +0x6b4 から 1、隣の 1325 軸角方向移動 +0x740 も立てば 2）、
+       移動率 1951 → DAT_00a0d868、拡大率 1952 → DAT_00a0d870（どちらも箱の数を
+       そのまま）。app_arrow_key */
+    kh_arrows = kh_value_tab(1, 2362) ? (kh_value_tab(1, 1325) ? 2 : 1) : 0;
+    kh_move_rate = kh_num(1, 1951, 0.5);
+    kh_zoom_rate = kh_num(1, 1952, 1.5);
+    /* 2437 クロスラインカーソルを使う・2438 範囲指定のみ・2439 範囲始点のみ →
+       doc+6000（FUN_005cd940: 2437 が切なら 0、2438 なら 2、2439 なら 3、どちらも
+       切なら 1）。app_paint の cross_paint */
+    kh_cross = !kh_value_tab(0, 2437) ? 0 : kh_value_tab(0, 2438) ? 2
+               : kh_value_tab(0, 2439) ? 3 : 1;
 }
 
 /* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が
@@ -2619,6 +2657,7 @@ static void kh_start(void)
             if (ui_kihon_id(t, i) == 2112)
                 kh_on[t][i] = (unsigned char)!jw_moji_sjis();
     kh_txt_start();
+    kh_colinit = 0;
     kh_tab = 0;
     kh_open = 1;
 }
@@ -2819,6 +2858,138 @@ const char *app_backup_ext(int k)
     e[2] = (char)('0' + k);
     e[3] = 0;
     return e;
+}
+
+/* the number in the first box with this id on that tab, as OK left it (or the
+   original's default); dflt when it holds no number */
+static double kh_num(int tab, int id, double dflt)
+{
+    char t[KH_TXT], *e;
+    int i = kh_find(tab, id, 0, 1);
+    double v;
+
+    if (i < 0)
+        return dflt;
+    if (kh_txt_have)
+        memcpy(t, kh_txt_saved[tab][i], KH_TXT);
+    else
+        kh_txt_default(tab, i, t);
+    t[KH_TXT - 1] = 0;
+    v = strtod(t, &e);
+    return e != t && !*e ? v : dflt;
+}
+
+/* 基本設定 一般(2) 2362「矢印キーで画面移動、PageUp・PageDownで画面拡大・縮小、
+ * Homeで全体表示にする」。原典はキーを CZoom の命令に替え（FUN_00512920: ← 0x65、
+ * → 0x66、↑ 0x67、↓ 0x68、PageUp 0x6f、PageDown 0x70、Home 4）、CZoom の後始末
+ * FUN_0060b110 が 画面の中心（+0x7a18・+0x7a20）を 画面の幅（↑↓は高さ）×移動率
+ * (DAT_00a0d868) だけ動かし、倍率（+0x1728）を 拡大率 (DAT_00a0d870) で掛け・割る
+ * （1000 と 0.01 で止める）。2362 と 1325 が両方なら（DAT_00a0d864 == 2）動かす向きを
+ * 軸角（doc+0x1738）だけ回す。旗が立っていなければ 窓の部品（バーの箱）がそのキーを
+ * 受ける（FUN_0054cae0・0058abc0 などの PreTranslateMessage が DAT_00a0d864 を見る）。
+ * 移植は旗が立っているときだけ ←↑→↓ PageUp PageDown を受ける（Home は前から
+ * いつも全体表示）。vk は Windows の仮想キー（0x21 PageUp 0x22 PageDown
+ * 0x25〜0x28 ←↑→↓）。受けたら 1。逆コンパイルの読み、原典では押していない。 */
+int app_arrow_key(int vk)
+{
+    double w, h, c = 1.0, s = 0.0, mx = 0.0, my = 0.0;
+
+    if (!kh_arrows || !view_ready || !have_drawing || app_modal())
+        return 0;
+    if (vk == 0x21 || vk == 0x22) {
+        double f = kh_zoom_rate;
+
+        if (!(f > 0.0))
+            return 1;
+        if (vk == 0x22)
+            f = 1.0 / f;
+        /* 原典の 1000 倍・0.01 倍の止めは 移植の app_zoom が持たない（行き過ぎだけ断る） */
+        app_zoom(f, view.clip.x + view.clip.w / 2, view.clip.y + view.clip.h / 2);
+        return 1;
+    }
+    if (vk < 0x25 || vk > 0x28)
+        return 0;
+    w = view.clip.w * view.mmpp * kh_move_rate;
+    h = view.clip.h * view.mmpp * kh_move_rate;
+    if (kh_arrows == 2) {
+        double a = jw_cmd_axis() * 3.14159265358979323846 / 180.0;
+
+        c = cos(a);
+        s = sin(a);
+    }
+    switch (vk) {
+    case 0x25: mx = -w * c; my = -w * s; break;     /* ← 0x65 */
+    case 0x27: mx = w * c;  my = w * s;  break;     /* → 0x66 */
+    case 0x26: mx = -h * s; my = h * c;  break;     /* ↑ 0x67 */
+    case 0x28: mx = h * s;  my = -h * c; break;     /* ↓ 0x68 */
+    }
+    view.ox += mx;
+    view.oy += my;
+    return 1;
+}
+
+/* 基本設定 一般(1) 2437 クロスラインカーソル。原典は doc+0x176c に CCrossLine
+ * のようなもの（FUN_0041c850）を持ち、FUN_00517430(1/0) で作り・消す。いつ作るか:
+ * 命令が替わるとき（FUN_004faf00・004fdc40）は doc+6000 == 1 なら作り、ほかは消す。
+ * 範囲の始点待ち（FUN_0040ac80 の local_6800[1] == 0）は 1 以上なら作り、終点待ちは
+ * 2 なら作り 3 なら消す。描くのは FUN_0041d3f0: 仮表示（FUN_004bbad0 =
+ * R2_NOTXORPEN）で、マウスの点を通る 縦横の二本を 窓の大きさ（+0x1808）の 1.45 倍
+ * の長さで、軸角（+0x17c0 を -45〜45 に畳んだもの）だけ傾けて。線種は
+ * DAT_00a0c7f4 が 2 以上ならその線種（移植は実線だけ）。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int cross_on(void)
+{
+    int ph;
+
+    if (!kh_cross || !cross_have || !view_ready || !have_drawing || app_modal())
+        return 0;
+    if (kh_cross == 1)
+        return 1;
+    ph = jw_cmd_range_phase();
+    return kh_cross == 2 ? ph != 0 : ph == 1;
+}
+
+static void cross_paint(void)
+{
+    jw_drawing one;
+    jw_obj o[2];
+    double a, c, s, len;
+    int k;
+
+    if (!cross_on())
+        return;
+    a = jw_cmd_axis();
+    while (a > 45.0)
+        a -= 90.0;
+    while (a <= -45.0)
+        a += 90.0;
+    a *= 3.14159265358979323846 / 180.0;
+    c = cos(a);
+    s = sin(a);
+    len = (view.clip.w + view.clip.h) * view.mmpp * 1.45;
+    one = drawing;
+    one.group[0].state = 3;
+    one.group[0].layer[0].state = 3;
+    one.mesh_ix = one.mesh_iy = 0.0;
+    for (k = 0; k < 2; k++) {
+        double dx = k ? -s : c, dy = k ? c : s;
+
+        memset(&o[k], 0, sizeof o[k]);
+        o[k].cls = JW_SEN;
+        o[k].ltype = 1;
+        o[k].color = 2;
+        o[k].text = o[k].face = -1;
+        o[k].d[0] = cross_x - dx * len;
+        o[k].d[1] = cross_y - dy * len;
+        o[k].d[2] = cross_x + dx * len;
+        o[k].d[3] = cross_y + dy * len;
+    }
+    one.obj = o;
+    one.nobj = one.ndrawn = 2;
+    ui_view_rect(fb.w, fb.h, &view.clip);
+    jw_draw_kari = 1;
+    jw_draw(&fb, &view, &one);
+    jw_draw_kari = 0;
 }
 
 typedef struct { char *b; size_t n, cap; int bad; } pf_out;
@@ -3099,6 +3270,112 @@ static unsigned int kihon_row_rgb(int row)
     return jw_row_rgb(row);
 }
 
+/* 色・画面 の 色彩の初期化 (1910)・背景色：白 (1907)・黒 (1908)・深緑 (1909)・
+ * プリンタ出力色 (1911)。CGamenPage の振り分け表（mm.py 4bf000 4c4100）で
+ * 1910 → FUN_004c3e30: +0x178 を裏返して 押し釦五つの EnableWindow をそれに
+ * （窓の型では 1907〜1909・1911 が WS_DISABLED）。1907 → FUN_004c4000、
+ * 1908 → FUN_004c3ca0(0)、1909 → FUN_004c3ca0(1)、1911 → FUN_004c3f00 は
+ * 頁の色の欄（+0x184 + 行×4、COLORREF）を決まった色で埋め、FUN_004c4cf0 で
+ * 箱の数（赤 緑 青）に移して、FUN_004c3e30 でまた押せなくし、UpdateData(FALSE)。
+ * 線幅は触らない。行 0 背景色 1..8 画面の線色 9 補助線色 13 グレー 15 選択色
+ * 16 仮表示色、19（+0x1d0）は 2483〜2485 の箱、101..109 はプリンタ出力の線色と
+ * グレー（+0x1dc + 行×4、+0x210）。数は機械語の即値（0x4c3ca0〜・0x4c4000〜）。
+ * OK で図面へ（kh_live_apply、打った箱と同じ）。逆コンパイルの読み、原典では
+ * 押していない。 */
+static int kh_on_get(int tab, int id)
+{
+    int i;
+
+    for (i = 0; i < ui_kihon_n(tab) && i < 256; i++)
+        if (ui_kihon_id(tab, i) == id && !ui_kihon_isbox(tab, i))
+            return kh_on[tab][i];
+    return 0;
+}
+
+static void kh_on_set(int tab, int id, int on)
+{
+    int i;
+
+    for (i = 0; i < ui_kihon_n(tab) && i < 256; i++)
+        if (ui_kihon_id(tab, i) == id && !ui_kihon_isbox(tab, i))
+            kh_on[tab][i] = (unsigned char)(on != 0);
+}
+
+int app_kihon_enabled(int tab, int i, int deflt)
+{
+    int id;
+
+    if (tab == 1 && i >= 0 && ui_kihon_id(tab, i) == 1325)
+        return kh_on_get(1, 2362);      /* 軸角方向移動 は 矢印キーで画面移動 の下の段 */
+    /* 一般(1) の DDX（FUN_005ce2a0）は UpdateData のたびに、2437 が入っていれば
+       範囲指定のみ・範囲始点のみ を、2405 が入っていれば ソリッドを先に描画 と
+       ソリッド描画順 を押せるようにする（EnableWindow） */
+    if (tab == 0 && i >= 0) {
+        id = ui_kihon_id(tab, i);
+        if (id == 2438 || id == 2439)
+            return kh_on_get(0, 2437);
+        if (id == 2406 || (id >= 1525 && id <= 1529))
+            return kh_on_get(0, 2405);
+    }
+    if (tab != 2 || i < 0)
+        return deflt;
+    id = ui_kihon_id(tab, i);
+    if (id == 1907 || id == 1908 || id == 1909 || id == 1911)
+        return kh_colinit;
+    return deflt;
+}
+
+/* put row's colour (a COLORREF, 0x00bbggrr) into the 色・画面 boxes of that row */
+static void kh_put_row(int row, unsigned int cref)
+{
+    int i, r, comp, n = ui_kihon_n(2);
+
+    for (i = 0; i < n && i < 256; i++) {
+        int id = ui_kihon_id(2, i);
+
+        if (!ui_kihon_isbox(2, i))
+            continue;
+        if (row == 19 && id >= 2483 && id <= 2485)
+            comp = id - 2483;
+        else if (!kh_pen_box(id, &r, &comp) || r != row || comp > 2)
+            continue;
+        sprintf(kh_txt[2][i], "%u", (cref >> (8 * comp)) & 255u);
+    }
+}
+
+static void kh_colour_preset(int id)
+{
+    /* 行 0..9（背景色・線色 1〜8・補助線色）、13 グレー、15 選択色、16 仮表示色、19 */
+    static const unsigned int WHITE[10] = {
+        0xffffff, 0xc0c000, 0x000000, 0x00c000, 0x00c0c0,
+        0xc000c0, 0xff0000, 0x808000, 0x8000ff, 0xff80ff
+    };
+    static const unsigned int DARK[10] = {
+        0x000000, 0xffff00, 0xffffff, 0x00ff00, 0x00ffff,
+        0xc000c0, 0xff2020, 0x808000, 0x0000a0, 0x8080c0
+    };
+    static const unsigned int PRN[9] = {        /* プリンタ 線色 1〜8 と グレー */
+        0xffff00, 0x000000, 0x00ff00, 0x00ffff, 0xff00ff,
+        0xff0000, 0x808000, 0x0000ff, 0xc0c0c0
+    };
+    int k;
+
+    if (id == 1911) {
+        for (k = 0; k < 8; k++)
+            kh_put_row(101 + k, PRN[k]);
+        kh_put_row(109, PRN[8]);
+        return;
+    }
+    for (k = 0; k < 10; k++)
+        kh_put_row(k, id == 1907 ? WHITE[k] : DARK[k]);
+    if (id == 1909)
+        kh_put_row(0, 0x002000);                /* 深緑 */
+    kh_put_row(13, id == 1907 ? 0xc0c0c0 : 0x808080);
+    kh_put_row(15, id == 1907 ? 0xff00ff : 0xc800e6);
+    kh_put_row(16, id == 1907 ? 0x0000ff : 0xffff00);
+    kh_put_row(19, 0x808080);
+}
+
 static int press_kihon(int x, int y)
 {
     int id = ui_kihon_hit(fb.w, fb.h, kh_tab, x, y), i, n;
@@ -3132,6 +3409,16 @@ static int press_kihon(int x, int y)
     if (kh_tab == 2) {                  /* 色・画面 */
         int row = kihon_row(id);
 
+        if (id == 1910) {
+            kh_colinit = !kh_colinit;
+            return 1;
+        }
+        if (id == 1907 || id == 1908 || id == 1909 || id == 1911) {
+            kh_colour_preset(id);
+            kh_colinit = !kh_colinit;   /* FUN_004c3e30 をもう一度: また押せなく */
+            return 1;
+        }
+
         if (row >= 0) {
             cd_start(row, kihon_row_rgb(row));
             return 1;
@@ -3141,6 +3428,24 @@ static int press_kihon(int x, int y)
     for (i = 0; i < n && i < 256; i++)
         if (ui_kihon_id(kh_tab, i) == id)
             kh_on[kh_tab][i] = (unsigned char)!kh_on[kh_tab][i];
+    /* 押したときの連れ（窓の受け手）。一般(2): 2362 を切ると 1325 も切れ、入れると
+       2093 が切れる（FUN_005d1a50）、2093 を入れると 2362・1325 が切れる
+       （FUN_005d1930）。一般(1): 2438 範囲指定のみ と 2439 範囲始点のみ は
+       入れると もう片方が切れる（FUN_005cf4c0・005cf500 の BM_SETCHECK 0） */
+    if (kh_tab == 1 && id == 2362) {
+        if (!kh_on_get(1, 2362))
+            kh_on_set(1, 1325, 0);
+        else
+            kh_on_set(1, 2093, 0);
+    }
+    if (kh_tab == 1 && id == 2093 && kh_on_get(1, 2093)) {
+        kh_on_set(1, 1325, 0);
+        kh_on_set(1, 2362, 0);
+    }
+    if (kh_tab == 0 && (id == 2438 || id == 2439) && kh_on_get(0, id))
+        kh_on_set(0, id == 2438 ? 2439 : 2438, 0);
+    if (kh_tab == 0 && id == 2405 && !kh_on_get(0, 2405))
+        kh_on_set(0, 2406, 0);          /* FUN_005cf390 */
     return 1;
 }
 
@@ -6104,6 +6409,8 @@ int app_key(int c)
     if (jw_cmd_box_key(c)) {
         if (c == 13 && have_drawing)    /* 複写・移動のバーは箱の Enter でも置く */
             jw_cmd_numpos_enter(&drawing);
+        if (c == 13 && have_drawing && view_ready)  /* 間隔を打っての Enter: 2094 連続複線 */
+            jw_cmd_fukusen_enter(&drawing, &view);
         app_paint();
         return 1;
     }
@@ -6183,6 +6490,11 @@ int app_key(int c)
     }
     if (c == 27) {              /* Esc steps the command back (see jw_cmd_esc_key) */
         jw_cmd_esc_key(have_drawing ? &drawing : 0);
+        app_paint();
+        return 1;
+    }
+    if (c == 13 && have_drawing && view_ready
+        && jw_cmd_fukusen_enter(&drawing, &view)) {   /* 2094 連続複線 */
         app_paint();
         return 1;
     }
@@ -6390,10 +6702,17 @@ int app_move(int x, int y)
     }
     if (ui_popup_up())
         return ui_popup_move(x, y);
-    if (!view_ready || !in_view(x, y))
-        return 0;
+    if (!view_ready || !in_view(x, y)) {
+        int was = cross_have && cross_on();
+
+        cross_have = 0;
+        return was;                     /* クロスラインカーソルを消すので描き直す */
+    }
     to_paper(x, y, &mx, &my);
     jw_cmd_track(mx, my);
+    cross_x = mx;
+    cross_y = my;
+    cross_have = 1;
     if (have_drawing && jw_cmd_freehand() && jw_cmd_drag(&drawing, &view, mx, my))
         return 1;                   /* 手書線: a stroke being drawn */
     if (have_drawing && jw_cmd_stretch_move(&drawing, &view, mx, my))
@@ -6417,7 +6736,8 @@ int app_move(int x, int y)
             return 1;
     }
     return jw_cmd_pending(have_drawing ? &drawing : 0, o,
-                          JW_CMD_MAXFIG) > 0;
+                          JW_CMD_MAXFIG) > 0
+           || cross_on();               /* クロスラインカーソルはマウスについて動く */
 }
 
 void app_chrome(int on)
@@ -6778,6 +7098,7 @@ static void draw_drawing(void)
     size_t need;
 
     if (base_off || w <= 0 || y1 <= y0) {
+        jw_draw_frame(&fb, &view, &drawing);     /* 用紙枠 (2532): 要素より先 */
         jw_draw(&fb, &view, &drawing);
         return;
     }
@@ -6797,6 +7118,7 @@ static void draw_drawing(void)
     h = mix(h, &jw_draw_reverse, sizeof jw_draw_reverse);
     h = mix(h, &jw_draw_texts_last, sizeof jw_draw_texts_last);
     h = mix(h, &jw_draw_textframe, sizeof jw_draw_textframe);   /* 【文字枠】 */
+    h = mix(h, &jw_draw_paper_frame, sizeof jw_draw_paper_frame);   /* 用紙枠 */
     {   /* an outline font arriving changes how its texts come out */
         int fg = jw_outfont_gen();
 
@@ -6823,6 +7145,7 @@ static void draw_drawing(void)
                    base_px + (size_t)(y - y0) * w, (size_t)w * sizeof *fb.px);
         return;
     }
+    jw_draw_frame(&fb, &view, &drawing);
     jw_draw(&fb, &view, &drawing);
     base_ok = 0;
     if (need > base_cap) {
@@ -6908,6 +7231,7 @@ void app_paint(void)
             jw_draw(&fb, &view, &one);
             jw_draw_kari = 0;
         }
+        cross_paint();                  /* 2437 クロスラインカーソル */
     }
     {
         /* and the 図形 waiting to be put down, which is the same

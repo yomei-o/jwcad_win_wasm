@@ -4,6 +4,7 @@
 
 #include "pick.h"
 #include "text.h"
+#include "draw.h"
 
 #define TWO_PI 6.283185307179586
 /* The arc's own "is this a whole circle" constant is a hair under 2 pi --
@@ -545,6 +546,12 @@ int jw_read(const jw_drawing *d, const jw_view *v, double x, double y,
     for (i = 0; i < nnarc; i++)
         for (j = i + 1; j < nnarc; j++)
             cross_arcs(&d->obj[narc[i]], &d->obj[narc[j]], &r);
+    /* 用紙枠 (2532) を出していれば その四本の端（= 用紙の四隅）も読む。原典の
+       FUN_00451f30 は要素を回ったあとで DAT_00a0c78c を見て 枠の線（FUN_004594f0）
+       を同じように拾う。逆コンパイルの読み、原典では押していない */
+    if (jw_draw_paper_frame && d->paper_hw > 0.0 && d->paper_hh > 0.0)
+        for (i = 0; i < 4; i++)
+            offer(&r, (i & 1 ? 1 : -1) * d->paper_hw, (i & 2 ? 1 : -1) * d->paper_hh);
     if (!r.got)
         return 0;
     *rx = r.x;

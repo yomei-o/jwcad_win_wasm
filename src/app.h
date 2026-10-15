@@ -55,6 +55,9 @@ void app_zoom_rect(int x0, int y0, int x1, int y1);
 void app_zoom_out(int sx, int sy);
 void app_zoom_prev(void);
 void app_zoom_all(int paper);
+/* 基本設定 2362 が立っていれば ←↑→↓（vk 0x25〜0x28）で画面を 移動率 (1951) ずつ、
+   PageUp・PageDown（0x21・0x22）で 拡大率 (1952) ずつ。受けたら 1（描き直しは呼び手） */
+int app_arrow_key(int vk);
 const jw_view *app_view(void);
 void app_paint(void);                   /* redraw into the framebuffer */
 /* 0: draw the drawing afresh on every paint rather than reuse the picture of
@@ -161,6 +164,9 @@ int  app_kihon_tab(void);
 /* what box i of the 基本設定 tab shows (CP932), whether it is centred
    (ES_CENTER) and whether it has the caret */
 const char *app_kihon_text(int tab, int i, int *center, int *caret);
+/* 部品 i が押せるか（deflt は窓の型の WS_DISABLED の逆）。色・画面 の
+   背景色 白・黒・深緑 と プリンタ出力色 は 色彩の初期化 (1910) で押せるようになる */
+int app_kihon_enabled(int tab, int i, int deflt);
 /* 軸角・目盛・オフセット: whether it is up, and what its 軸角 box holds */
 int  app_jikkaku_open(void);
 const char *app_jikkaku_angle(void);
