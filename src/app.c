@@ -6099,8 +6099,9 @@ int app_press(int x, int y, int button)
             action = JW_ACT_OPEN_FIG;
             return 1;
         }
-        if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
-                                             1069) > 0) {
+        if (id == 1070 && jw_cmd() != JW_PRINT_CMD     /* 印刷の 1070 は 回転、1069 は */
+            && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,   /* 出力方法設定（ネイティブ */
+                                  1069) > 0) {                   /* で押せる、src/prnative.h） */
             /* 属性変更 -- the same window, its other half */
             zhen_start();
             return 1;
@@ -6128,8 +6129,9 @@ int app_press(int x, int y, int button)
             zoku_ask(0);
             return 1;
         }
-        if (id == 1069 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
-                                             1069) > 0
+        if (id == 1069 && jw_cmd() != JW_PRINT_CMD
+            && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
+                                  1069) > 0
             && !(jw_cmd() == JW_CMD_PARAM && jw_cmd_sel_stage() == 3)) {
             /* (パラメトリック変形 の二枚目では 1069 は 再選択 で、命令の側が受ける)
                範囲選択's own button, which only comes alive once a box is

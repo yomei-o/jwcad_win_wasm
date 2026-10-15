@@ -116,7 +116,8 @@ unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
  *                     「－９０°回転」（5772..5776、FUN_005ae8a0）
  *   1343 カラー印刷   刷る前に doc+0x8288 へ（FUN_006d4920）
  *   1068 枠書込       slot 29。枠の四本を図面に書く
- *   1067 プリンタの設定・1069 出力方法設定 は移植に窓が無いので押せない
+ *   1067 プリンタの設定・1069 出力方法設定 はブラウザでは窓が無いので押せない。
+ *                     ネイティブは jw_pr_dialogs(1) で押せ、窓は src/prnative.h
  *
  * 刷り方: 回転は 刷るときだけ（FUN_0044b760 が IsPrinting のとき
  * FUN_00452e30）、要素を 枠の中心のまわりに ９０° なら −π/2、−９０° なら
@@ -164,5 +165,19 @@ int  jw_pr_write_frame(jw_drawing *d);  /* 枠書込: 足した線の数 */
 int  jw_pr_want(void);                  /* 刷る頼み（読むと消える） */
 double jw_pr_scale_of(const char *box); /* 倍率の箱の字から倍率（0 は読めない） */
 void jw_pr_reset(void);                 /* 試験用: 素に戻す */
+
+/* 印刷の窓のある表側（ネイティブ）のため。jw_pr_dialogs(1) で
+ * プリンタの設定 (1067)・出力方法設定 (1069) が押せるようになり、押すと
+ * jw_pr_ask がその id を返す（読むと消える。原典 FUN_005aeaf0 は
+ * ID_FILE_PRINT_SETUP 0xe106、FUN_005aeb40 は プリント出力形式 DIALOG 344）。
+ * jw_pr_entered は命令に入ったら一度 1（原典は入る前に印刷の窓、
+ * OnPreparePrinting FUN_0050be70）。jw_pr_printer_paper は選んだプリンタの
+ * GetDeviceCaps(HORZSIZE/VERTSIZE) の mm（0 で図面の用紙に戻す。原典
+ * FUN_004fccb0 が doc+0x8f08/0x8f0c に取るもの）で、枠と刷る紙がそれになる */
+void jw_pr_dialogs(int on);
+int  jw_pr_ask(void);
+int  jw_pr_entered(void);
+void jw_pr_printer_paper(double w, double h);
+void jw_pr_paper(const jw_drawing *d, double *wide, double *tall);  /* 刷る紙の mm */
 
 #endif

@@ -795,6 +795,10 @@ static int pr_stage;            /* doc +0x8560 */
 static double pr_mx, pr_my;     /* doc +0x8f78: マウス */
 static int pr_colour;           /* カラー印刷 (1343) → doc +0x8288 */
 static int pr_want_;
+/* 表側に印刷の窓があるか（ネイティブ）、押された窓の釦、入った知らせ、
+   プリンタの紙（HORZSIZE/VERTSIZE の mm、0 なら図面の用紙） */
+static int pr_dialogs_, pr_ask_, pr_entered_;
+static double pr_pw, pr_ph;
 
 void jw_pr_reset(void)
 {
@@ -803,6 +807,50 @@ void jw_pr_reset(void)
     pr_rot = pr_base = pr_stage = 0;
     pr_mx = pr_my = 0.0;
     pr_colour = pr_want_ = 0;
+    pr_dialogs_ = pr_ask_ = pr_entered_ = 0;
+    pr_pw = pr_ph = 0.0;
+}
+
+void jw_pr_dialogs(int on)
+{
+    pr_dialogs_ = on != 0;
+}
+
+int jw_pr_ask(void)
+{
+    int a = pr_ask_;
+
+    pr_ask_ = 0;
+    return a;
+}
+
+int jw_pr_entered(void)
+{
+    int e = pr_entered_;
+
+    pr_entered_ = 0;
+    return e;
+}
+
+void jw_pr_printer_paper(double w, double h)
+{
+    if (w > 0.0 && h > 0.0) {
+        pr_pw = w;
+        pr_ph = h;
+    } else
+        pr_pw = pr_ph = 0.0;
+}
+
+void jw_pr_paper(const jw_drawing *d, double *wide, double *tall)
+{
+    if (pr_pw > 0.0 && pr_ph > 0.0) {
+        if (wide)
+            *wide = pr_pw;
+        if (tall)
+            *tall = pr_ph;
+        return;
+    }
+    jw_plot_paper(d, wide, tall);
 }
 
 /* 倍率の箱（1411）の字。DLGINIT 291 の七つの札は FUN_005adde0 が突き合わせる
@@ -872,7 +920,7 @@ static void pr_half(const jw_drawing *d, double *hw, double *hh)
     double w, h, a, b;
     int iw, ih;
 
-    jw_plot_paper(d, &w, &h);
+    jw_pr_paper(d, &w, &h);
     iw = (int)w;                        /* HORZSIZE / VERTSIZE は mm の整数 */
     ih = (int)h;
     a = (double)(long)((double)(iw / 2) / pr_sc);
@@ -899,6 +947,7 @@ void jw_pr_enter(void)
 {
     pr_stage = 0;                       /* 作り手 FUN_006d09d0: +0x8560 = 0 */
     pr_want_ = 0;
+    pr_entered_ = 1;                    /* 表側が先に印刷の窓を出す（OnPreparePrinting） */
     pr_sync();
 }
 
@@ -1001,8 +1050,10 @@ int jw_pr_bar(const jw_drawing *d, int id)
     case 1070:                          /* 回転: slot 31 */
         pr_rot = pr_rot + 1 > 2 ? 0 : pr_rot + 1;
         return 1;
-    case 1067:                          /* プリンタの設定・出力方法設定: 窓が無い */
-    case 1069:
+    case 1067:                          /* プリンタの設定 (FUN_005aeaf0)・出力方法設定 */
+    case 1069:                          /* (FUN_005aeb40): 窓は表側が出す（jw_pr_ask） */
+        if (pr_dialogs_)
+            pr_ask_ = id;
         return 1;
     }
     return 0;
@@ -1021,7 +1072,7 @@ int jw_pr_bar_r(int id)
 
 int jw_pr_enabled(int id)
 {
-    return id != 1067 && id != 1069;
+    return pr_dialogs_ || (id != 1067 && id != 1069);
 }
 
 const char *jw_pr_label(int id)
@@ -1187,6 +1238,10 @@ static int pr_paper(const jw_drawing *d, const jw_plot_frame *f,
 
     *out = *d;
     *own = 0;
+    if (pr_pw > 0.0 && pr_ph > 0.0) {   /* プリンタの紙: 枠の中心がその真ん中に */
+        out->paper_hw = pr_pw / 2.0;
+        out->paper_hh = pr_ph / 2.0;
+    }
     if (!f || (f->cx == 0.0 && f->cy == 0.0 && f->scale == 1.0 && f->rot == 0))
         return 1;
     *own = (jw_obj *)malloc((size_t)(d->nobj > 0 ? d->nobj : 1) * sizeof **own);
