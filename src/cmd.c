@@ -239,8 +239,14 @@ static int sel_step;
 static int range_cmd(int c)
 {
     return c == JW_CMD_HANI || c == JW_CMD_FUKUSHA || c == JW_CMD_IDOU
-        || c == JW_CMD_SEIRI || c == JW_CMD_ZUKEIREG;
+        || c == JW_CMD_SEIRI || c == JW_CMD_ZUKEIREG || c == JW_CMD_PARAM;
 }
+/* パラメトリック変形 (JW_CMD_PARAM) の本体は「パラメトリック変形」の節（sel_place のあと） */
+static void param_box(jw_drawing *d, double x0, double y0, double x1,
+                      double y1, int with_text);
+static const char *param_prompt(void);
+static int param_enter(jw_drawing *d);
+static void param_settle(void);
 static double sel_x0, sel_y0, sel_x1, sel_y1;
 /* 範囲外選択 (1334): the box takes what lies wholly *outside* it instead.
    Driving the original says the texts come too, whichever button the second
@@ -3426,6 +3432,7 @@ int jw_cmd_midway(void)
     case JW_CMD_FUKUSHA:
     case JW_CMD_IDOU:
     case JW_CMD_SEIRI:
+    case JW_CMD_PARAM:
         /* a box being drawn, or a selection made or settled.  A settled
            one is held by its places in the drawing (sel_at), and 移動 puts
            each moved element back **at** its place: a step of the drawing
@@ -3468,7 +3475,8 @@ int jw_cmd_back(jw_drawing *d)
         return 1;
     }
     if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
-         || current == JW_CMD_IDOU || current == JW_CMD_SEIRI)
+         || current == JW_CMD_IDOU || current == JW_CMD_SEIRI
+         || current == JW_CMD_PARAM)
         && sel_step != 0) {
         /* let go of the selection, marks and all */
         sel_clear(d);
@@ -4403,6 +4411,9 @@ const char *jw_cmd_prompt(void)
     case JW_CMD_IDOU:
     case JW_CMD_SEIRI:
     case JW_CMD_ZUKEIREG:
+    case JW_CMD_PARAM:
+        if (sel_step == 3 && current == JW_CMD_PARAM)
+            return param_prompt();
         /* 5383 while the box has no first corner, 5326 while it is being
            dragged, then 5314 基準点 and 5307/5311 for where it goes. */
         if (ms_back && current == JW_CMD_HANI && sel_step <= 1) {
@@ -8984,6 +8995,10 @@ static void sel_box(jw_drawing *d, int with_text)
 
     if (!d)
         return;
+    if (current == JW_CMD_PARAM) {      /* 端点だけ入った線も拾う */
+        param_box(d, x0, y0, x1, y1, with_text);
+        return;
+    }
     for (i = 0; i < d->ndrawn; i++) {
         jw_obj *o = &d->obj[i];
         double a, b, c2, e;
@@ -11183,6 +11198,8 @@ static int sel_confirm(jw_drawing *d)
     /* 範囲選択 has nothing to place: confirming there only settles what is
        picked, and it is the next command that does something with it. */
     sel_step = current == JW_CMD_HANI ? 4 : 3;
+    if (current == JW_CMD_PARAM)
+        param_settle();
     return 1;
 }
 
@@ -11235,9 +11252,11 @@ int jw_cmd_enter_key(jw_drawing *d)
         ms_go = go && ms_text;
         return 1;
     }
+    if (d && current == JW_CMD_PARAM && sel_step == 3)
+        return param_enter(d);          /* 数値位置 の確定 */
     if (!d || sel_step != 2
         || (current != JW_CMD_FUKUSHA && current != JW_CMD_IDOU
-            && current != JW_CMD_SEIRI))
+            && current != JW_CMD_SEIRI && current != JW_CMD_PARAM))
         return 0;
     return sel_confirm(d);
 }
@@ -11497,6 +11516,310 @@ static void sel_place(jw_drawing *d, double x, double y)
     }
 }
 
+/* ---------------------------------------------- パラメトリック変形 -----
+ * 32898 (0x8082)、原典の CZukeiParametric。以下はみな逆コンパイルの読みで、
+ * 原典では押していない。
+ *
+ * 範囲を取る段は 範囲選択（CZukeiSentaku）そのもので、違うのは枠の拾い方
+ * だけ。枠の判定 FUN_00408d00 は CZukeiParametric のとき選び方 1 で回り、
+ * 要素ごとの答え（FUN_0040ab00）が
+ *   -1 丸ごと入る  1 始点だけ入る  2 終点だけ入る  3 跨ぐだけ  0 外
+ * のうち -1・1・2 を拾って、1・2 には印を付ける（+0x58 の bit 1・bit 2、
+ * FUN_0040e410・FUN_0040e450）。端点の「入る」は枠の内側に**厳密に**
+ * （FUN_0040cd00 の末尾、端に乗ったものは入らない）。線のほかで 1・2 が
+ * 返るのは ソリッド の角（FUN_0040eb50 が四辺を線として見て、入った角ごとに
+ * +0x88..+0x94 を立てる）と寸法。円・円弧・点・文字・ブロックは -1 だけ
+ * （文字は (R) で終点を取ったときだけ、範囲選択 と同じ）。
+ *
+ * 選択確定 のあとのバーは 複写・移動 の二枚目と同じ窓（CFukushaDialog）を
+ * 型 8 で出したもの（FUN_004accf0）: 任意方向・基点変更・倍率・回転角・
+ * 数値位置 が残り、ﾏｳｽ倍率 (1069) の札が 再選択 (0x152b) に替わる。
+ * 一手ごとに（FUN_006cf900、要素ごとの FUN_006ce8b0）
+ *   倍率・回転角 で 基準点 まわりに変えてから 移動先 − 基準点 だけずらし
+ *   （FUN_00465c40・FUN_0046d5b0・FUN_0046bdf0、XY 方向固定 はずらしの
+ *   ほうだけに効く）、印の付いた線は動かない側の端点を元へ戻す。
+ * 数値位置 に値があればずらしはそれ（実寸を縮尺で割る。方向固定は外れる）で、
+ * 案内は 0x1522「位置を確定して下さい」、(L) か Enter（36 番目
+ * FUN_006cd8a0）で決まる。決まったら **基準点 は移動先に移り**
+ * （+0x228 ← +0xfc78）、選んだものはそのまま次の一手を待つ。一手ごとの
+ * 基準点は +0x238 からの表に積まれ、戻る（16 番目 FUN_006cca80）で一つ戻る。
+ *
+ * 寸法（移植では部品ごとの要素）の端点だけの伸縮と寸法値の書き直し
+ * （FUN_0047e400）は入れていない: 寸法の部品は丸ごと入ったときだけ動く。 */
+static unsigned char *pm_mask;  /* 要素ごと: 0 = 丸ごと、bit k = k 番目の点だけ動く */
+static int pm_cap;
+static struct { double x, y; int depth; } pm_hist[256];
+static int pm_nh;               /* 一手ごとの 基準点（戻る で戻す） */
+static int pm_done;             /* いま変形したところ（案内 6010） */
+static double pm_done_x, pm_done_y;
+
+static void param_settle(void)
+{
+    pm_nh = 0;
+    pm_done = 0;
+}
+
+static int pm_grow(int n)
+{
+    if (n > pm_cap) {
+        unsigned char *p = (unsigned char *)realloc(pm_mask, (size_t)n);
+
+        if (!p)
+            return 0;
+        memset(p + pm_cap, 0, (size_t)(n - pm_cap));
+        pm_mask = p;
+        pm_cap = n;
+    }
+    return 1;
+}
+
+static int pm_in(double x, double y, double x0, double y0, double x1,
+                 double y1)
+{
+    return x > x0 && x < x1 && y > y0 && y < y1;
+}
+
+static void param_box(jw_drawing *d, double x0, double y0, double x1,
+                      double y1, int with_text)
+{
+    int i, k;
+
+    if (!pm_grow(d->nobj))
+        return;
+    for (i = 0; i < d->ndrawn; i++) {
+        jw_obj *o = &d->obj[i];
+        double a, b, c2, e;
+        int whole, m = 0;
+
+        if (!o->sel)
+            pm_mask[i] = 0;
+        if (o->cls == JW_MOJI && !with_text)
+            continue;
+        jw_obj_box(o, &a, &b, &c2, &e);
+        whole = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
+        if (!whole) {
+            if (o->sub)
+                continue;       /* 寸法の部品は 丸ごとだけ（上の注） */
+            if (o->cls == JW_SEN)
+                m = pm_in(o->d[0], o->d[1], x0, y0, x1, y1)
+                  | pm_in(o->d[2], o->d[3], x0, y0, x1, y1) << 1;
+            else if (o->cls == JW_SOLID && o->ltype < 100)
+                for (k = 0; k < 4; k++)
+                    if (pm_in(o->d[2 * k], o->d[2 * k + 1], x0, y0, x1, y1))
+                        m |= 1 << k;
+            if (!m)
+                continue;
+        }
+        if (sel_sub) {
+            o->flags = (unsigned short)(o->flags & ~2u);
+            o->sel = 0;
+            pm_mask[i] = 0;
+            continue;
+        }
+        if (o->sel)             /* 追加範囲: 丸ごとが勝ち、端点どうしは合わせる */
+            pm_mask[i] = (unsigned char)(pm_mask[i] == 0 || m == 0
+                                         ? 0 : pm_mask[i] | m);
+        else
+            pm_mask[i] = (unsigned char)m;
+        o->flags = (unsigned short)(o->flags | 2u);
+        o->sel = 1;
+    }
+}
+
+/* 戻る が一手ぶん取り消したら、その一手の前の 基準点 に戻す */
+static void param_sync(void)
+{
+    int depth = jw_cmd_undo_depth();
+
+    while (pm_nh > 0 && depth < pm_hist[pm_nh - 1].depth) {
+        pm_nh--;
+        base_x = pm_hist[pm_nh].x;
+        base_y = pm_hist[pm_nh].y;
+        pm_done = 0;
+    }
+}
+
+/* 数値位置 (1413): "x,y"（実寸）。両方ほぼ 0 なら無いのと同じ */
+static int pm_typed(const jw_drawing *d, double *dx, double *dy)
+{
+    const char *t = jw_cmd_box(1413), *p;
+    double a, b = 0.0, s = write_scale(d);
+
+    if (!t || !*t)
+        return 0;
+    a = atof(t);
+    p = strchr(t, ',');
+    if (p)
+        b = atof(p + 1);
+    if (!(a > -1e12 && a < 1e12) || !(b > -1e12 && b < 1e12))
+        return 0;
+    if (fabs(a) <= 1e-7 && fabs(b) <= 1e-7)
+        return 0;
+    *dx = a / s;
+    *dy = b / s;
+    return 1;
+}
+
+static int pm_offset(const jw_drawing *d, double x, double y, double *dx,
+                     double *dy)
+{
+    if (pm_typed(d, dx, dy))
+        return 1;
+    *dx = x - base_x;
+    *dy = y - base_y;
+    switch (sel_dir) {          /* 任意方向 / X / Y / XY（FUN_004ae200） */
+    case 1: *dy = 0.0; break;
+    case 2: *dx = 0.0; break;
+    case 3:
+        if (fabs(*dx) > fabs(*dy))
+            *dy = 0.0;
+        else
+            *dx = 0.0;
+        break;
+    }
+    return 0;
+}
+
+/* 一つの要素: 変えてから、印の付いていない点は元へ */
+static void pm_one(const jw_obj *was, jw_obj *o, int mask, double dx,
+                   double dy, double sc, double ang)
+{
+    int k, n = was->cls == JW_SEN ? 2 : 4;
+
+    *o = *was;
+    jw_obj_xform(o, base_x, base_y, sc, ang, dx, dy);
+    if (mask)
+        for (k = 0; k < n; k++)
+            if (!(mask >> k & 1)) {
+                o->d[2 * k] = was->d[2 * k];
+                o->d[2 * k + 1] = was->d[2 * k + 1];
+            }
+}
+
+static int pm_mask_at(int at)
+{
+    return at >= 0 && at < pm_cap ? pm_mask[at] : 0;
+}
+
+static int param_apply(jw_drawing *d, double dx, double dy)
+{
+    double sc = sel_scale(), ang = sel_turn();
+    op_t *rec;
+    int k, n = 0;
+
+    if (!d || sel_n <= 0)
+        return 0;
+    rec = op_new();
+    for (k = 0; k < sel_n; k++) {
+        int at = sel_at[k];
+        jw_obj w;
+
+        if (at >= d->nobj)
+            continue;
+        op_keep(rec, d, at, 0);
+        w = d->obj[at];
+        pm_one(&w, &d->obj[at], pm_mask_at(at), dx, dy, sc, ang);
+        d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
+        d->obj[at].sel = 1;
+        sel_was[k] = d->obj[at];
+        n++;
+    }
+    if (pm_nh < (int)(sizeof pm_hist / sizeof pm_hist[0])) {
+        pm_hist[pm_nh].x = base_x;
+        pm_hist[pm_nh].y = base_y;
+        pm_hist[pm_nh].depth = jw_cmd_undo_depth();
+        pm_nh++;
+    }
+    base_x += dx;               /* 基準点 は移動先へ（+0x228 ← +0xfc78） */
+    base_y += dy;
+    pm_done = 1;
+    pm_done_x = tx;
+    pm_done_y = ty;
+    return n > 0;
+}
+
+static void param_click(jw_drawing *d, const jw_view *v, double x, double y,
+                        int button)
+{
+    double dx, dy;
+
+    if (!d)
+        return;
+    param_sync();
+    /* (R) は読取点（11 番目 FUN_006ce710 が FUN_00451eb0 で点を読んでから
+       (L) と同じ 9 番目へ渡す） */
+    if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+        return;
+    if (sel_base_wait) {        /* 基点変更 */
+        base_x = x;
+        base_y = y;
+        sel_base_wait = 0;
+        pm_done = 0;
+        return;
+    }
+    pm_offset(d, x, y, &dx, &dy);
+    param_apply(d, dx, dy);
+}
+
+static int param_enter(jw_drawing *d)
+{
+    double dx, dy;
+
+    param_sync();
+    if (sel_base_wait || !pm_typed(d, &dx, &dy))
+        return 0;
+    return param_apply(d, dx, dy);
+}
+
+static const char *param_prompt(void)
+{
+    double dx, dy;
+
+    if (sel_base_wait)
+        return JW_STR_5314;
+    if (pm_done && tracking && tx == pm_done_x && ty == pm_done_y)
+        return JW_STR_6010;     /* 【図形をパラメトリック変形しました】 */
+    return pm_typed(0, &dx, &dy) ? JW_STR_5410 : JW_STR_5311;
+}
+
+int jw_cmd_param_preview(const jw_drawing *d, jw_drawing *out)
+{
+    static jw_obj *pv;
+    static int cpv;
+    double dx, dy, sc, ang;
+    int k, n = 0;
+
+    if (!d || !out || current != JW_CMD_PARAM || sel_step != 3
+        || sel_n <= 0 || !tracking || sel_base_wait)
+        return 0;
+    param_sync();
+    if (cpv < sel_n) {
+        jw_obj *p = (jw_obj *)realloc(pv, (size_t)sel_n * sizeof *p);
+
+        if (!p)
+            return 0;
+        pv = p;
+        cpv = sel_n;
+    }
+    pm_offset(d, tx, ty, &dx, &dy);
+    sc = sel_scale();
+    ang = sel_turn();
+    for (k = 0; k < sel_n; k++) {
+        int at = sel_at[k];
+
+        if (at >= d->nobj)
+            continue;
+        pm_one(&d->obj[at], &pv[n], pm_mask_at(at), dx, dy, sc, ang);
+        n++;
+    }
+    if (!n)
+        return 0;
+    *out = *d;
+    out->obj = pv;
+    out->nobj = out->ndrawn = n;
+    return 1;
+}
+
 int jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1)
 {
     if (sel_step != 1 || !tracking)
@@ -11510,7 +11833,8 @@ int jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1)
 
 int jw_cmd_sel_ghost(double *dx, double *dy)
 {
-    if (sel_step != 3 || sel_n <= 0 || !tracking)
+    if (sel_step != 3 || sel_n <= 0 || !tracking
+        || current == JW_CMD_PARAM)     /* こちらは jw_cmd_param_preview */
         return 0;
     *dx = tx - base_x;
     *dy = ty - base_y;
@@ -11727,6 +12051,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         if (id == 1324 || id == 2552)
             return jw_cmd_bar_check(1323) > 0;
     }
+    if (current == JW_CMD_PARAM && sel_step == 3 && id == 1069)
+        return 1;                   /* 二枚目の 1069 は 再選択 */
     switch (id) {
     case 1120:
         /* 寸法 has 実行 here, and it is alive at exactly one
@@ -12148,6 +12474,16 @@ static int bar_press(jw_drawing *d, int id)
         return 0;
     if (!jw_cmd_bar_enabled(d, id))
         return 0;
+    if (current == JW_CMD_PARAM && sel_step == 3 && id == 1069) {
+        /* 再選択: CZukeiParametric の 30 番目 FUN_006cd720 が 範囲選択 の段
+           （+0x1fc = 1）へ戻す。要素の印（+0x44 の bit 1）には触らないので、
+           選んだものは残ったまま 追加・除外 の段になる（逆コンパイルの読み、
+           原典では押していない） */
+        sel_free();
+        sel_step = d && jw_cmd_sel_count(d) > 0 ? 2 : 0;
+        sel_base_wait = 0;
+        return 1;
+    }
     switch (id) {
     case 1334:                  /* 範囲外選択 -- only before the box */
         if (sel_step != 0)
@@ -18093,6 +18429,10 @@ placed:
             }
         }
         default:
+            if (current == JW_CMD_PARAM) {
+                param_click(d, v, x, y, button);
+                return;
+            }
             if (button != 0)
                 return;
             if (current == JW_CMD_ZUKEIREG) {

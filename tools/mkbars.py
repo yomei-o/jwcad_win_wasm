@@ -32,8 +32,13 @@ import re
 # reached it.  tools/probe61.sh goes in through the file window instead.
 # 貼り付け (57637) puts the same bar up, so 倍率 (1431) and 回転角 (1412)
 # come with it.
+# bars7.txt is パラメトリック変形 (32898), and unlike the rest it was *not*
+# read out of the original: it is put together from the decompile (which
+# controls each dialog mode shows) with the positions of 移動's captured
+# bars, which are the same two dialogs.  See the file's own head.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
-       'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt']
+       'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt',
+       'decomp/res/bars7.txt']
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar

@@ -136,6 +136,8 @@ WANT = [
     (10168, 'a new drawing must be saved first'),
     (10169, 'N pictures separated'),
     (10171, 'transparent colour: the picture to set it on'),
+    (5410, 'parametric: a typed offset -- confirm with (L) or Enter'),
+    (6010, 'parametric: done (the message after each change)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

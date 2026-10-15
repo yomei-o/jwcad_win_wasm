@@ -961,6 +961,24 @@ static const jw_ctl_t jw_bar_32869[] = {
     {  668,  11,   95,  12,  2862, JW_CTL_CHECK , 0, 0, 1, "\x83O\x83\x8b\x81[\x83v\x89\xbb" },
 };
 
+static const jw_ctl_t jw_bar_32898[] = {
+    {  176,   5,   68,  24,  1064, JW_CTL_BUTTON, 0, 0, 0, "\x8a\xee\x8f\x80\x93_\x95\xcf\x8dX" },
+    {  414,   5,   70,  24,  1069, JW_CTL_BUTTON, 0, 0, 0, "<\x91\xae\x90\xab\x91I\x91\xf0>" },
+    {  491,   5,   89,  24,  1120, JW_CTL_BUTTON, 0, 0, 0, "\x91I\x91\xf0\x8am\x92\xe8" },
+};
+
+static const jw_ctl_t jw_bar_132898[] = {
+    {  251,  11,   26,  12,  1763, JW_CTL_STATIC, 1, 0, 1, "\x94{\x97\xa6" },
+    {  279,   7,   89,  20,  1411, JW_CTL_COMBO , 0, 0, 1, "" },
+    {  374,  11,   37,  12,  1752, JW_CTL_STATIC, 1, 0, 1, "\x89\xf1\x93]\x8ap" },
+    {  414,   7,   79,  20,  1412, JW_CTL_COMBO , 0, 0, 1, "" },
+    {  195,   5,   54,  24,  1066, JW_CTL_BUTTON, 0, 0, 1, "\x8a\xee\x93_\x95\xcf\x8dX" },
+    {  531,  11,   54,  12,  1760, JW_CTL_STATIC, 1, 0, 1, "\x90\x94\x92l\x88\xca\x92u" },
+    {  585,   7,   93,  20,  1413, JW_CTL_COMBO , 0, 0, 1, "" },
+    {  137,   5,   56,  24,  1151, JW_CTL_BUTTON, 0, 0, 1, "\x94" "C\x88\xd3\x95\xfb\x8c\xfc" },
+    {  715,   5,   54,  24,  1069, JW_CTL_BUTTON, 0, 0, 1, "\x8d\xc4\x91I\x91\xf0" },
+};
+
 typedef struct {
     unsigned int cmd;      /* 100000 + it for the bar the
                               command puts up once a range
@@ -1058,7 +1076,9 @@ static const jw_bar_t jw_bars[] = {
     {  32862,    0, 0,  9, jw_bar_32862 },
     {  33013,    0, 0, 12, jw_bar_33013 },
     {  32869,    0, 0,  4, jw_bar_32869 },
+    {  32898,    0, 0,  3, jw_bar_32898 },
+    { 132898,    0, 0,  9, jw_bar_132898 },
 };
-#define JW_NBARS 81
+#define JW_NBARS 83
 
 #endif

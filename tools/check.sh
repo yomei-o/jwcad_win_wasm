@@ -427,6 +427,10 @@ echo "=== 複写・移動の倍率と回転角 —— 原典が置いたもの�
 ./tests/xform_test.exe | sed 's/^/    /'
 
 echo
+echo "=== パラメトリック変形 —— 逆コンパイルの読み（原典では押していない）との突き合わせ"
+./tests/param_test.exe | sed 's/^/    /'
+
+echo
 echo "=== DXF 書き出し —— 原典が書いた DXF との突き合わせ"
 ./tests/dxf_test.exe | sed 's/^/    /'
 
