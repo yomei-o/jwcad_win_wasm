@@ -714,6 +714,175 @@ static void corner_arcs(void)
     ok = !memcmp(d->obj, was, 2 * sizeof *was);
     jw_cmd_escape();
     ck(ok, "  全円は拾わない（5207 円です。切断で弧にしてください。）");
+/* 小物（逆コンパイルの読み、原典では押していない）:
+ *   面取 の (R) 線切断（FUN_00636ee0、幅は 面取 のバーの 1413）
+ *   接線 点→円 の点 (R)Read（FUN_00704680）、曲線 の (R)Read（FUN_006b5740）
+ *   消去 の 範囲選択消去 1066・連続範囲選択消去 1067（FUN_0070e760・
+ *   FUN_0070e8f0、実行は Enter）と 節間消し 1324（FUN_00712f00） */
+static int count_cls(const jw_drawing *d, int cls)
+{
+    int i, n = 0;
+
+    for (i = 0; i < d->ndrawn; i++)
+        n += d->obj[i].cls == cls;
+    return n;
+}
+
+static int has_line(const jw_drawing *d, double x0, double y0, double x1, double y1)
+{
+    int i;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        if (o->cls != JW_SEN)
+            continue;
+        if ((near_(o->d[0], x0) && near_(o->d[1], y0) && near_(o->d[2], x1) && near_(o->d[3], y1))
+            || (near_(o->d[0], x1) && near_(o->d[1], y1) && near_(o->d[2], x0) && near_(o->d[3], y0)))
+            return 1;
+    }
+    return 0;
+}
+
+static jw_obj *add_line(jw_drawing *d, double x0, double y0, double x1, double y1)
+{
+    jw_obj *o = jw_add(d, JW_SEN);
+
+    o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
+    return o;
+}
+
+static void komono(void)
+{
+    jw_drawing *d;
+    jw_obj *o;
+    int i, n, ok;
+
+    /* 面取 (R): 切断間隔は 1413。1411（面取の寸法）は見ない */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    add_line(d, 0, 0, 100, 0);
+    add_line(d, 0, 300, 0, 400);        /* 画面を広げるだけ */
+    app_fit();
+    app_command(32859);
+    jw_cmd_box_put(1411, "30");
+    jw_cmd_box_put(1413, "10");
+    jw_cmd_point(d, app_view(), 50, 0, 1);
+    ck(has_line(d, 0, 0, 45, 0) && has_line(d, 55, 0, 100, 0),
+       "面取 (R): 切断間隔 1413 のぶん 45 から 55 が抜ける");
+    jw_cmd_box_put(1413, "");
+    jw_cmd_point(d, app_view(), 20, 0, 1);
+    ck(has_line(d, 0, 0, 20, 0) && has_line(d, 20, 0, 45, 0),
+       "  空なら そこで二つに");
+    jw_cmd_box_put(1411, "");
+
+    /* 接線 点→円: 点の段の (R) は読んだ点 */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_ENKO);
+    o->d[0] = 0; o->d[1] = 0; o->d[2] = 50; o->d[3] = 0; o->d[4] = 2 * 3.141592653589793; o->d[5] = 0; o->d[6] = 1;
+    add_line(d, 100, 0, 100, 50);
+    app_fit();
+    app_command(32870);
+    jw_cmd_bar(d, 1690);
+    n = d->ndrawn;
+    jw_cmd_point(d, app_view(), 100.3, 0.2, 1);
+    jw_cmd_point(d, app_view(), 25, 43.3, 0);
+    ok = d->ndrawn == n + 1 && d->obj[n].cls == JW_SEN
+         && d->obj[n].d[0] == 100.0 && d->obj[n].d[1] == 0.0
+         && near_(d->obj[n].d[2], 25) && fabs(d->obj[n].d[3] - 43.30127018922193) < 1e-9;
+    if (!ok && d->ndrawn > n)
+        printf("     %g %g %g %g\n", d->obj[n].d[0], d->obj[n].d[1], d->obj[n].d[2], d->obj[n].d[3]);
+    ck(ok, "接線 点→円 (R)Read: 線の端 (100,0) から接線");
+
+    /* 曲線 スプライン: (R) は読んだ点 */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    for (i = 0; i < 3; i++) {
+        o = jw_add(d, JW_TEN);
+        o->d[0] = 50.0 * i;
+        o->d[1] = i == 1 ? 30.0 : 0.0;
+    }
+    app_fit();
+    app_command(32908);
+    jw_cmd_bar(d, 1691);
+    jw_cmd_box_put(1411, "4");
+    jw_cmd_point(d, app_view(), 0.2, -0.3, 1);
+    jw_cmd_point(d, app_view(), 50.3, 29.8, 1);
+    jw_cmd_point(d, app_view(), 99.7, 0.2, 1);
+    n = d->ndrawn;
+    jw_cmd_bar(d, 1800);
+    ok = d->ndrawn > n && d->obj[n].d[0] == 0.0 && d->obj[n].d[1] == 0.0
+         && d->obj[d->ndrawn - 1].d[2] == 100.0 && d->obj[d->ndrawn - 1].d[3] == 0.0;
+    ck(ok, "曲線 (R)Read: スプラインは読んだ点 (0,0) から (100,0) まで");
+
+    /* 消去 範囲選択消去 (1066) */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    add_line(d, 0, 0, 10, 0);
+    add_line(d, 0, 5, 10, 5);
+    add_line(d, 100, 0, 110, 0);
+    add_line(d, 100, 100, 110, 100);
+    app_fit();
+    app_command(32794);
+    ck(jw_cmd_bar(d, 1066) != 0, "消去 1066: 範囲選択消去に入る");
+    jw_cmd_point(d, app_view(), -5, -5, 0);
+    jw_cmd_point(d, app_view(), 20, 10, 0);
+    ck(jw_cmd_sel_count(d) == 2, "  箱で二本選ぶ");
+    jw_cmd_enter_key(d);
+    ck(d->ndrawn == 2 && has_line(d, 100, 0, 110, 0) && has_line(d, 100, 100, 110, 100),
+       "  Enter で消える");
+    jw_cmd_point(d, app_view(), 105, 100, 1);
+    ck(d->ndrawn == 1, "  そのあと (R) は元の消去（1066 は一回きり）");
+    jw_cmd_undo(d);
+    jw_cmd_undo(d);
+    ck(d->ndrawn == 4, "  戻る二つで 四本に");
+
+    /* 連続範囲選択消去 (1067) */
+    ck(jw_cmd_bar(d, 1067) != 0, "消去 1067: 連続範囲選択消去に入る");
+    jw_cmd_point(d, app_view(), -5, -5, 0);
+    jw_cmd_point(d, app_view(), 20, 10, 0);
+    jw_cmd_enter_key(d);
+    jw_cmd_point(d, app_view(), 95, -5, 0);
+    jw_cmd_point(d, app_view(), 120, 10, 0);
+    jw_cmd_enter_key(d);
+    ck(d->ndrawn == 1 && has_line(d, 100, 100, 110, 100), "  箱を二つ続けて消せる");
+    jw_cmd_esc_key(d);
+
+    /* 節間消し (1324) */
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    add_line(d, 0, 0, 100, 0);
+    add_line(d, 30, -10, 30, 10);
+    add_line(d, 70, -10, 70, 10);
+    o = jw_add(d, JW_ENKO);
+    o->d[0] = 0; o->d[1] = 200; o->d[2] = 50; o->d[3] = 0; o->d[4] = 2 * 3.141592653589793; o->d[5] = 0; o->d[6] = 1;
+    add_line(d, -100, 200, 100, 200);
+    app_fit();
+    app_command(32794);
+    jw_cmd_bar(d, 1324);
+    ck(jw_cmd_bar_check(1324) > 0, "消去 節間消し 1324 が入る");
+    jw_cmd_point(d, app_view(), 50, 0, 0);
+    ck(has_line(d, 0, 0, 30, 0) && has_line(d, 70, 0, 100, 0) && !has_line(d, 0, 0, 100, 0),
+       "  拾った点の両側の交わり 30 と 70 のあいだが消える");
+    jw_cmd_point(d, app_view(), 10, 0, 0);
+    ck(!has_line(d, 0, 0, 30, 0) && has_line(d, 70, 0, 100, 0),
+       "  端と交わりのあいだは そのまま消える");
+    jw_cmd_point(d, app_view(), 0, 250, 0);
+    o = 0;
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_ENKO)
+            o = &d->obj[i];
+    ok = o && fabs(fabs(o->d[4]) - 3.141592653589793) < 1e-9
+         && fabs(o->d[3] - 3.141592653589793) < 1e-9;
+    if (o && !ok)
+        printf("     arc %.12f %.12f\n", o->d[3], o->d[4]);
+    ck(ok, "  円は 上の半分（交わり 0° と 180° のあいだ）が消えて 180° からの半円に");
+    jw_cmd_point(d, app_view(), 0, 150, 0);
+    ck(count_cls(d, JW_ENKO) == 0, "  残った半円は 両端まで消えて無くなる");
+    jw_cmd_undo(d);
+    ck(count_cls(d, JW_ENKO) == 1, "  戻るで半円が戻る");
+    jw_cmd_bar(d, 1324);
 }
 
 /* The command bars, against their templates.  A bar is a child dialog 462
@@ -895,6 +1064,7 @@ int main(void)
     corner_arcs();
     senjou_cross();
     chushin_len();
+    komono();
 
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
