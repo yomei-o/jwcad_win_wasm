@@ -702,6 +702,109 @@ int main(int argc, char **argv)
 #undef MKENKO
     }
 
+    /* 逆分割（分割数が負）と補助設定の釦（逆分割 1066・線長割合分割 1064）。
+     * 逆コンパイルの読み（FUN_007668f0・FUN_007674b0・FUN_007697b0・
+     * FUN_0075d660・FUN_00417640）、原典では押していない。平行な二本
+     * A=(0,0)-(100,0)・B=(0,100)-(100,100)（短い B は (0,100)-(50,100)）。 */
+    {
+        const jw_view *v;
+        int g, j, okk, sh, nb;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+#define MK2(x1) do { jw_obj *o2 = jw_add(d, JW_SEN); \
+        o2->d[0] = 0; o2->d[1] = 0; o2->d[2] = 100; o2->d[3] = 0; \
+        o2 = jw_add(d, JW_SEN); \
+        o2->d[0] = 0; o2->d[1] = 100; o2->d[2] = (x1); o2->d[3] = 100; } while (0)
+        MK2(100.0);
+        app_fit();
+        v = app_view();
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        {
+            static const struct { const char *n, *after; int cnt; double y[3]; const char *what; } N[] = {
+                { "-4.5", "-4.5", 3, { 100.0 / 3, 100.0 * (1 + 5.0 / 6) / 3, 100.0 * 2.5 / 3 },
+                  "分割数 -4.5: r=0.5 で間隔が 1・5/6・4/6・3/6（全長 3）" },
+                { "-1", "-2.01", 1, { 100.0 / 1.01, 0, 0 },
+                  "分割数 -1 は -2.01 に直して書き戻し、r=0.01（全長 1.01）" },
+                { "-3", "-3", 2, { 100.0 / 3, 200.0 / 3, 0 },
+                  "分割数 -3: 端数が無ければ r=1 で等分" },
+            };
+            int f;
+
+            for (f = 0; f < (int)(sizeof N / sizeof N[0]); f++) {
+                g = d->ndrawn;
+                type_box(1411, N[f].n);
+                jw_cmd_point(d, v, 50, 0, 0);
+                jw_cmd_point(d, v, 50, 100, 0);
+                okk = d->ndrawn == g + N[f].cnt && jw_cmd_box(1411)
+                      && !strcmp(jw_cmd_box(1411), N[f].after);
+                for (j = 0; okk && j < N[f].cnt; j++)
+                    okk = fabs(d->obj[g + j].d[1] - N[f].y[j]) < 1e-6
+                          && fabs(d->obj[g + j].d[3] - N[f].y[j]) < 1e-6;
+                ck(okk, N[f].what);
+                while (d->ndrawn > g && jw_cmd_can_undo())
+                    jw_cmd_undo(d);
+            }
+        }
+
+        /* 補助設定の釦: 線（Ａ）を指すまでは出ない */
+        type_box(1411, "3");
+        sh = jw_cmd_bunkatsu_hojo();
+        jw_cmd_point(d, v, 50, 0, 0);
+        {
+            int id, kind, x, y, w, h;
+
+            nb = 0;
+            for (j = 0; ui_bar_item(j, &id, &kind, &x, &y, &w, &h); j++)
+                if (id == 1064 || id == 1065 || id == 1066)
+                    nb++;
+        }
+        ck(!sh && jw_cmd_bunkatsu_hojo() && nb == 3
+           && jw_cmd_bar_enabled(d, 1066) && jw_cmd_bar_enabled(d, 1064)
+           && !jw_cmd_bar_enabled(d, 1065),
+           "線（Ａ）のあとバーに 逆分割・線長割合分割・馬目地分割（馬目地は押せない）");
+        g = d->ndrawn;
+        ck(jw_cmd_bar(d, 1066), "逆分割 の釦が効く");
+        jw_cmd_point(d, v, 50, 100, 0);
+        okk = d->ndrawn == g + 2;
+        for (j = 0; okk && j < 2; j++) {
+            double t = (j + 1) / 3.0, lo = 100.0 * t, hi = 100.0 - lo;
+            double x0 = d->obj[g + j].d[0], x1 = d->obj[g + j].d[2];
+
+            okk = fabs(d->obj[g + j].d[1] - lo) < 1e-6 && fabs(d->obj[g + j].d[3] - lo) < 1e-6
+                  && fabs((x0 < x1 ? x0 : x1) - (lo < hi ? lo : hi)) < 1e-6
+                  && fabs((x0 < x1 ? x1 : x0) - (lo < hi ? hi : lo)) < 1e-6;
+        }
+        ck(okk && !jw_cmd_bunkatsu_hojo(),
+           "逆分割: Ｂの端を入れ替えて交差に組む（A0→B1）、分割のあと旗は戻る");
+        while (d->ndrawn > g && jw_cmd_can_undo())
+            jw_cmd_undo(d);
+
+        /* 線長割合分割: 短い方を先に指しても 長い A から短い B へ、割合 0.5 */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        MK2(50.0);
+        app_fit();
+        v = app_view();
+        jw_cmd_set(JW_CMD_BUNKATSU);
+        type_box(1411, "4");
+        g = d->ndrawn;
+        jw_cmd_point(d, v, 25, 100, 0);
+        jw_cmd_bar(d, 1064);
+        jw_cmd_point(d, v, 50, 0, 0);
+        {
+            static const double Y[3] = { 100.0 / 3, 100.0 * (1 + 5.0 / 6) / 3, 100.0 * 2.5 / 3 };
+
+            okk = d->ndrawn == g + 3 && jw_cmd_box(1411)
+                  && !strcmp(jw_cmd_box(1411), "-4.5");
+            for (j = 0; okk && j < 3; j++)
+                okk = fabs(d->obj[g + j].d[1] - Y[j]) < 1e-6
+                      && fabs(d->obj[g + j].d[3] - Y[j]) < 1e-6;
+            ck(okk, "線長割合分割 n=4・長さ 100 と 50: 箱は -4.5、間隔 1 から 0.5 へ");
+        }
+#undef MK2
+    }
+
     jw_free(&ref);
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;

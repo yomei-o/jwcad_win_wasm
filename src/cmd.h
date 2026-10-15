@@ -88,6 +88,7 @@ int  jw_cmd(void);                  /* the current command */
 void jw_cmd_set(int id);            /* enter a command */
 int  jw_cmd_bar_radio(int id);      /* ラジオの点き具合: 1・0・-1（持っていない） */
 int  jw_cmd_takaku_pos(void);       /* 多角形 の 中央 (1068): 0 中央・1 頂点・2 辺 */
+int  jw_cmd_bunkatsu_hojo(void);    /* 分割: 逆分割・線長割合・馬目地の釦が出ているとき 1 */
 void jw_cmd_flush(jw_drawing *d);
 /* 建具平面: 建具選択の窓を出してほしいときは 1（読むと戻る）。選んだら
    jw_cmd_tategu_choose。catalog は src/tategu.h の jw_tgdat の番号 */

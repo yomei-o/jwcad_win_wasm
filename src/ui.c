@@ -4192,6 +4192,36 @@ static int bar_now(const jw_ctl_t **c)
 {
     int cmd = jw_cmd(), i;
 
+    /* 分割で線（Ａ）を指示したあと: テンプレート 299 の隠れた 1066・1064・1065
+       に 逆分割・線長割合分割・馬目地分割 を書いて見せる（原典 FUN_00417640(-1)、
+       逆コンパイルの読み、原典では押していない）。位置は テンプレートの
+       DLU を他のバーの取り込みと同じ割合で画素にしたもの（32785 の 1064〜1066
+       と同じ所）。外の釦は 等距離・割付なしのバー jw_bar_32867 のまま */
+    if (cmd == JW_CMD_BUNKATSU && jw_cmd_bunkatsu_hojo()) {
+        enum { NB = (int)(sizeof jw_bar_32867 / sizeof jw_bar_32867[0]) };
+        static jw_ctl_t bk[NB + 3];
+        static int made;
+
+        if (!made) {
+            static const jw_ctl_t add[3] = {
+                {  496,   5,   58,  24,  1066, JW_CTL_BUTTON, 0, 0, 1,
+                   "\x8b\x74\x95\xaa\x8a\x84" },                    /* 逆分割 5611 */
+                {  587,   5,   79,  24,  1064, JW_CTL_BUTTON, 0, 0, 1,
+                   "\x90\xfc\x92\xb7\x8a\x84\x8d\x87\x95\xaa\x8a\x84" },    /* 線長割合分割 5612 */
+                {  675,   5,   77,  24,  1065, JW_CTL_BUTTON, 0, 0, 1,
+                   "\x94\x6e\x96\xda\x92\x6e\x95\xaa\x8a\x84" },    /* 馬目地分割 5609 */
+            };
+
+            for (i = 0; i < NB; i++)
+                bk[i] = jw_bar_32867[i];
+            for (i = 0; i < 3; i++)
+                bk[NB + i] = add[i];
+            made = 1;
+        }
+        *c = bk;
+        return NB + 3;
+    }
+
     /* Once a range is settled the command puts up a bar of its own -- the
        one tools/bars2.ps1 reads, filed under 100000 + the command.  範囲選択
        has none, so it keeps the one it started with. */
