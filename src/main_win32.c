@@ -34,6 +34,10 @@ static void sync_doc(void);
 static int uiscale = 1;                 /* see dpi_init */
 static void autosave_clear(void);
 static int print_gdi(HWND wnd);
+static int pr_hooks(HWND wnd);          /* src/prnative.h: 印刷の窓 */
+static int pr_print(HWND wnd);
+static HGLOBAL pr_devnames;             /* 選んだプリンタ（devmode は src/prnative.h） */
+static HDC pr_dc(void);
 /* The words of the program's own boxes (the question about unsaved changes and the like):
    Japanese on a Japanese Windows, English elsewhere; JW_LANG=en|ja or [ui] lang= in the ini
    decides otherwise.  The original's menus, bars and prompts are the original's and stay Japanese. */
@@ -1212,7 +1216,16 @@ static void clip_put(HWND wnd)
    dialog.  Only 開く changes what is on screen. */
 static void settings_save(void);
 
+static int do_action1(HWND wnd);
+
 static int do_action(HWND wnd)
+{
+    int r = do_action1(wnd);
+
+    return pr_hooks(wnd) | r;
+}
+
+static int do_action1(HWND wnd)
 {
     switch (app_take_action()) {
     case JW_ACT_OPEN:
@@ -1249,10 +1262,11 @@ static int do_action(HWND wnd)
         edit_env();
         break;
     case JW_ACT_PLOT:
-        /* a printer, or a file of the sheet (PDF / PNG) */
-        if ((_wgetenv(L"JW_PRINTER") && *_wgetenv(L"JW_PRINTER")) || MessageBoxW(wnd, tr(L"\u30d7\u30ea\u30f3\u30bf\u306b\u5370\u5237\u3057\u307e\u3059\u304b\uff1f\n\uff08\u300c\u3044\u3044\u3048\u300d\u306f PDF / PNG \u30d5\u30a1\u30a4\u30eb\u306b\u3057\u307e\u3059\uff09", L"Print on a printer?\n(No: write a PDF / PNG file)"),
+        /* a printer, or a file of the sheet (PDF / PNG).  印刷 の窓でプリンタを
+           選んであれば（src/prnative.h）そこへ、連続印刷もそこで */
+        if (pr_devnames || (_wgetenv(L"JW_PRINTER") && *_wgetenv(L"JW_PRINTER")) || MessageBoxW(wnd, tr(L"\u30d7\u30ea\u30f3\u30bf\u306b\u5370\u5237\u3057\u307e\u3059\u304b\uff1f\n\uff08\u300c\u3044\u3044\u3048\u300d\u306f PDF / PNG \u30d5\u30a1\u30a4\u30eb\u306b\u3057\u307e\u3059\uff09", L"Print on a printer?\n(No: write a PDF / PNG file)"),
                         L"jw_win", MB_YESNO | MB_ICONQUESTION) == IDYES)
-            print_gdi(wnd);
+            pr_print(wnd);
         else
             save_plot(wnd);
         break;
@@ -1647,6 +1661,10 @@ static int print_gdi(HWND wnd)
         dc = CreateDCW(L"WINSPOOL", named, NULL, NULL);
         if (!dc)
             return 0;
+    } else if (pr_devnames) {           /* 印刷 の窓で選んだもの（src/prnative.h） */
+        dc = pr_dc();
+        if (!dc)
+            return 0;
     } else {
         if (!PrintDlgW(&pd))
             return 0;
@@ -1655,7 +1673,7 @@ static int print_gdi(HWND wnd)
     pw = GetDeviceCaps(dc, HORZRES);
     ph = GetDeviceCaps(dc, VERTRES);
     dpix = GetDeviceCaps(dc, LOGPIXELSX);
-    jw_plot_paper(app_drawing(), &sw, &sh);
+    jw_pr_paper(app_drawing(), &sw, &sh);  /* 選んだプリンタの紙、無ければ図面の用紙 */
     dpmm = dpix / 25.4;
     if (dpmm > 6.0)
         dpmm = 6.0;                     /* more than that is only a bigger file */
@@ -1748,6 +1766,8 @@ static int print_gdi(HWND wnd)
         GlobalFree(pd.hDevNames);
     return 1;
 }
+
+#include "prnative.h"                   /* 印刷の窓・プリンタの設定・出力方法設定・連続印刷 */
 
 /* The right button does two jobs: dragged it moves the drawing, clicked it is
  * a point for the command in force -- which is what the original's status
@@ -2235,6 +2255,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show)
     dpi_init();
     english = lang_is_english();
     app_new();
+    jw_pr_dialogs(1);                   /* 印刷の命令の プリンタの設定・出力方法設定 */
     ini_load();
     settings_load();
     open_arg(cmd);

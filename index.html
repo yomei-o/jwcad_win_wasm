@@ -306,6 +306,11 @@ if (LANG === 'en') {
   const boxfocus = mod.cwrap('jw_box_focus', 'number', []);
   const keyu = mod.cwrap('jw_key_u', 'number', ['number']);
   const compu = mod.cwrap('jw_compose_u', 'number', ['number']);
+  // 指で叩くとき (LL) の幅と間（leftClick）。古い jwcad.wasm には無い
+  const llSlop = mod._jw_ll_slop ? mod.cwrap('jw_ll_slop', null, ['number']) : () => {};
+  const llBreak = mod._jw_ll_break ? mod.cwrap('jw_ll_break', 'number', []) : () => 0;
+  const TAP_SLOP = 16, TAP_TIME = 500, TAP_HOLD = 550;
+  let touchUI = false, lastTap = 0;
   const missing = ['_jw_key_u', '_jw_compose_u', '_jw_cmd_id']
                   .filter(f => typeof mod[f] !== 'function');
 
@@ -392,7 +397,9 @@ if (LANG === 'en') {
       ime.style.display = 'none';   /* out of the way of the drawing */
     }
     ime.inputMode = cmdid() !== 0x8026 && boxfocus() ? "decimal" : "text";
-    ime.focus({ preventScroll: true });
+    if (touchUI && ime.style.display === 'none') {
+      if (document.activeElement === ime) ime.blur();   /* 指: 要らないキーボードはしまう */
+    } else ime.focus({ preventScroll: true });
     note(cmdid() === 0x8026
          ? 'text box ready, focus=' + (document.activeElement === ime)
          : '');
@@ -1094,6 +1101,25 @@ if (LANG === 'en') {
   // command, and put it where the pointer is so the IME's candidates come up
   // there.
   const leftClick = (e, x, y) => {
+    if (e.pointerType === 'touch') {
+      // 指: (LL) は「2 画素以内で動かずに二度」では出ないので、指のときだけ
+      // 幅を TAP_SLOP（CSS 画素）に広げ、Windows の既定のダブルクリック時間
+      // （GetDoubleClickTime の 500ms）より間が空けば預かった (L) を先に渡す。
+      // 隠した入力欄は叩く前にはフォーカスせず、叩いたあと要るときだけ
+      // （文字の命令・バーの箱）aim がフォーカスする（要らなければ外す）ので、
+      // ソフトキーボードが叩くたびに出ない。aim はこの手の中で呼ぶ（iOS は
+      // 手の外のフォーカスではキーボードを出さない）
+      touchUI = true;
+      llSlop(Math.round(TAP_SLOP * canvas.width / canvas.getBoundingClientRect().width));
+      const now = Date.now();
+      if (now - lastTap > TAP_TIME) llBreak();
+      lastTap = now;
+      react(press(x, y, 0));
+      aim();
+      return;
+    }
+    if (touchUI) { touchUI = false; llSlop(2); }
+    lastTap = 0;
     ime.style.left = e.clientX + 'px';
     ime.style.top = e.clientY + 'px';
     ime.focus({ preventScroll: true });
@@ -1120,7 +1146,20 @@ if (LANG === 'en') {
                                  cx: e.clientX, cy: e.clientY, cx0: e.clientX, cy0: e.clientY, t0: Date.now() });
       canvas.setPointerCapture(e.pointerId);
       if (touches.size === 2) {
-        gesture = Object.assign(touchPair(), { moved: false, t: Date.now() });
+        gesture = Object.assign(touchPair(), { moved: false, t: Date.now(), ryo: false });
+        // 二本指を動かさずに長押し（TAP_HOLD）: 両ボタンドラッグ（原典の CZoom）。
+        // 指には二つ目のボタンが無いので、その代わり。そのまま二本で動かして向きを
+        // 選び、指を全部離すと判定どおりに（範囲拡大・縮小・前倍率・全体・移動）
+        const g0 = gesture;
+        if (ryoHas) setTimeout(() => {
+          if (gesture !== g0 || g0.moved || touches.size !== 2) return;
+          const g = touchPair();
+          if (!ryoHold(Math.round(g.cx), Math.round(g.cy))) return;
+          g0.ryo = true;
+          sync();
+          ryoBegin(Math.round(g.cx), Math.round(g.cy));
+          present();
+        }, TAP_HOLD);
       } else if (touches.size === 1) {
         const [x, y] = at(e);
         if (move(x, y)) present();
@@ -1158,7 +1197,13 @@ if (LANG === 'en') {
       const k = canvas.width / r.width;
       t.x = (e.clientX - r.left) * k; t.y = (e.clientY - r.top) * k;
       t.cx = e.clientX; t.cy = e.clientY;
-      if (gesture && touches.size >= 2) {
+      if (gesture && gesture.ryo) {
+        if (touches.size >= 2) {
+          const g = touchPair();
+          ryoMove(Math.round(g.cx), Math.round(g.cy));
+          present();
+        }
+      } else if (gesture && touches.size >= 2) {
         const g = touchPair();
         if (Math.abs(g.cx - gesture.cx) > 6 || Math.abs(g.cy - gesture.cy) > 6
             || Math.abs(g.d - gesture.d) > 10) gesture.moved = true;
@@ -1226,7 +1271,8 @@ if (LANG === 'en') {
         if (touches.size === 0) {
           const g = gesture;
           gesture = null;
-          if (!g.moved && Date.now() - g.t < 500) {
+          if (g.ryo) { ryoEnd(); present(); }
+          else if (!g.moved && Date.now() - g.t < 500) {
             const r = canvas.getBoundingClientRect();
             react(press(Math.round(g.cx), Math.round(g.cy), 1));
           }
@@ -1265,7 +1311,10 @@ if (LANG === 'en') {
   });
   canvas.addEventListener('pointercancel', e => {
     touches.delete(e.pointerId);
-    if (!touches.size) gesture = null;
+    if (!touches.size) {
+      if (gesture && gesture.ryo) { ryoCancel(); present(); }
+      gesture = null;
+    }
     drag = null;
     held = null;
     if (ryo) { ryo = false; ryoCancel(); present(); }

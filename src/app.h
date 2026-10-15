@@ -130,6 +130,11 @@ int  app_press(int x, int y, int button);
 /* the button coming up (only 連続線's 手書線 uses it); 1 if the picture changed */
 int  app_release(int x, int y, int button);
 int  app_move(int x, int y);
+/* (LL) を「同じ所に二度」とみる幅（画素、既定 2）。指で叩くブラウザが
+   広げる（1 未満は 2 に戻す）。app_ll_break は預かった (L) をいま渡して、
+   次の (L) を (LL) にしない（時間が空いたとき）。1 なら描き直す */
+void app_ll_slop(int px);
+int  app_ll_break(void);
 int  app_take_action(void);
 
 /* Whether the 線属性 dialog is up; while it is, it takes every press. */

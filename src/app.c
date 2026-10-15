@@ -5449,6 +5449,15 @@ static void paper_popup(int x, int y)
  * 逆コンパイルの読み、原典では押していない。tests/workflow_test.c */
 static int ll_pend, ll_start, ll_x, ll_y;
 static double ll_mx, ll_my;
+/* 「動かずに」の幅。マウスは原典の 2 画素（state 4・5 の待ち）。指は
+ * 二度叩いても同じ画素には落ちないので、ブラウザがタッチのときだけ広げる
+ * （app_ll_slop。移植の都合で、原典には指の扱いは無い） */
+static int ll_slop = 2;
+
+void app_ll_slop(int px)
+{
+    ll_slop = px < 1 ? 2 : px;
+}
 
 static int ll_wanted(int button)
 {
@@ -5488,6 +5497,15 @@ static void ll_flush(void)
     jw_cmd_point(&drawing, &view, ll_mx, ll_my, 0);
     if (jw_cmd_block_editing() && drawing.ndrawn > was)
         jw_cmd_block_take(&drawing, was);
+}
+
+/* 二度目の (L) が遅すぎた（指で叩く表が時間を見る）: 預かりをいま渡す */
+int app_ll_break(void)
+{
+    int had = ll_pend;
+
+    ll_flush();
+    return had;
 }
 
 /* One command, however it was asked for: a toolbar button, or the menu the
@@ -5924,7 +5942,7 @@ int app_press(int x, int y, int button)
     nt_px = x;
     nt_py = y;
     if (ll_pend || ll_start) {
-        if (button == 0 && abs(x - ll_x) < 2 && abs(y - ll_y) < 2
+        if (button == 0 && abs(x - ll_x) < ll_slop && abs(y - ll_y) < ll_slop
             && have_drawing && jw_cmd() == ll_cmd) {
             int was = drawing.ndrawn;
 
@@ -6118,8 +6136,9 @@ int app_press(int x, int y, int button)
             action = JW_ACT_OPEN_FIG;
             return 1;
         }
-        if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
-                                             1069) > 0) {
+        if (id == 1070 && jw_cmd() != JW_PRINT_CMD     /* 印刷の 1070 は 回転、1069 は */
+            && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,   /* 出力方法設定（ネイティブ */
+                                  1069) > 0) {                   /* で押せる、src/prnative.h） */
             /* 属性変更 -- the same window, its other half */
             zhen_start();
             return 1;
@@ -6147,8 +6166,9 @@ int app_press(int x, int y, int button)
             zoku_ask(0);
             return 1;
         }
-        if (id == 1069 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
-                                             1069) > 0
+        if (id == 1069 && jw_cmd() != JW_PRINT_CMD
+            && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
+                                  1069) > 0
             && !(jw_cmd() == JW_CMD_PARAM && jw_cmd_sel_stage() == 3)) {
             /* (パラメトリック変形 の二枚目では 1069 は 再選択 で、命令の側が受ける)
                範囲選択's own button, which only comes alive once a box is
@@ -6792,7 +6812,7 @@ int app_move(int x, int y)
     double mx, my;
     jw_obj o[JW_CMD_MAXFIG];
 
-    if ((ll_pend || ll_start) && (abs(x - ll_x) >= 2 || abs(y - ll_y) >= 2))
+    if ((ll_pend || ll_start) && (abs(x - ll_x) >= ll_slop || abs(y - ll_y) >= ll_slop))
         ll_flush();
 
     {   /* マウスが札に乗れば札は隠れる */
