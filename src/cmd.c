@@ -340,6 +340,15 @@ static int sel_flip;
    （初めて押したときの回転角）。sel_place / sel_renzoku を見よ */
 static int ren_n;
 static double ren_dx, ren_dy, ren_sc, ren_ang;
+/* 二枚目のバーの ﾏｳｽ倍率 (1069) と 角 (1071)。原典 CZukeiFukusha の
+   +0xfd18 と +0xfd40: 0 切、1 一つ目（+0xfd20）待ち、2 置く点（+0xfc78）待ち、
+   3 三つ目（+0xfd30）待ち。fk_mouse_click を見よ。fk_placed は置いた回数
+   （+0xfdb0、戻るで一つずつ取り消す）、fk_last* は最後に置いたずれ・倍率・角
+   （1072 が 複写／移動 を入れ替えて置き直す）、fk_xy1 は 作図属性 の
+   「マウス倍率のときXY等倍」(2556、DAT_00a0cb2c) */
+static int fk_mb, fk_kaku, fk_placed, fk_xy1;
+static double fk_ax, fk_ay, fk_bx, fk_by;
+static double fk_last_dx, fk_last_dy, fk_last_sx, fk_last_sy, fk_last_ang;
 /* 複写 (the second stage's 2092): the tick says whether the range is
  * copied or moved, and it is **not** the command that says so.
  * 図形複写 comes up with it on and 図形移動 with it off; taking it off in
@@ -407,6 +416,7 @@ static double sun_ex, sun_ey;   /* the last one's end: 連続入力 (R) starts t
    tools/jwdraw.ps1's `read:1411` while pressing it -- so the box is the one
    place the angle lives. */
 static void box_put(int id, const char *v);
+static int fk_unplace(jw_drawing *d);       /* 複写・移動: 置いた一手を取り消す */
 
 /* 角度 (1068): the angle between two directions taken about an origin.
  * The original's own status line spells the order out -- 「● 原点を指示して
@@ -2271,6 +2281,9 @@ static double kyo_x, kyo_y;
  * 左右のクリック・中断で回数 0。逆コンパイルの読み、原典では押していない */
 static int kyo_n;
 static double kyo_ux, kyo_uy, kyo_sum;
+/* 置いた点ごとの距離（原典 +0x100 の配列、1 始まり）。戻るで回数を減らしたあと
+   の 連続 は 残った回数ぶんの和から進む（FUN_006b9940 が 1..回数 を足す） */
+static double kyo_d[1001];
 
 /* マウス角 (1068): 0 切、1 Ｘ方向、2 Ｙ方向（CZukeiTourokuZukei の +0x228）。
    入りなら一つ目のクリックが置く点（+0x210、+0x220 = 1）、二つ目が角度の点
@@ -2278,6 +2291,11 @@ static double kyo_ux, kyo_uy, kyo_sum;
    置いたあと slot 3 が角度を回転角の箱に書いて 0 に戻す。逆コンパイルの
    読み、原典では押していない */
 static int fig_mouse, fig_apt;
+/* 図形読込の 0x157e「元レイヤグループに異なる縮尺があります。」（OK/キャンセル）
+   の待ち: 1 窓を出す、2 出した。答えまで置く点を取っておく。fig_q_ok は OK の
+   あと同じ点でもう一度置くとき（figure_place） */
+static int fig_q, fig_q_ok;
+static double fig_qx, fig_qy;
 static double fig_ax, fig_ay;
 
 /* the 傾き box, in radians */
@@ -4044,6 +4062,8 @@ void jw_cmd_set(int id)
         jw_pr_enter();          /* 印刷の命令: 段 0 から（src/plot.c） */
     sel_flip = sel_base_wait = sel_dir = 0;
     sel_base_pick = sel_base_set = 0;
+    fk_mb = fk_kaku = fk_placed = 0;
+    fig_q = 0;
     if (id == JW_CMD_HATCH) {
         ht_n = 0;
         ht_nreg = 0;
@@ -4151,8 +4171,9 @@ void jw_cmd_esc_key(jw_drawing *d)
             return;
         case 3:
         case 4:
-            if (sel_flip || sel_base_wait) {
+            if (sel_flip || sel_base_wait || fk_mb || fk_kaku) {
                 sel_flip = sel_base_wait = 0;
+                fk_mb = fk_kaku = 0;
                 return;
             }
             sel_free();
@@ -4398,6 +4419,9 @@ int jw_cmd_midway(void)
     case JW_CMD_KYOKUSEN:  return cv_n != 0 || cv_base != 0;
     case JW_CMD_KIGOU:     return sk_step >= 1 && sk_step <= 4;
     case JW_CMD_AUTO:      return au_st != 0;
+    /* 距離指定点 (CZukeiKyori slot 16 FUN_006b91d0): 始点のあとは受けて始点待ちに、
+       連続の回数があれば 一つ減らして 0 を返す（図面の 戻る がその点を消す） */
+    case JW_CMD_KYORITEN:  return kyo_step != 0 || kyo_n > 0;
     /* ハッチ: a circle right-clicked leaves no corners and no chain --
        only a region -- and the original takes 戻る for that too
        (CZukeiHachi slot 16 tests +0x224 and +0x228, which is the
@@ -4483,8 +4507,48 @@ int jw_cmd_back(jw_drawing *d)
         line_gen++;
         return 1;
     }
+    if (current == JW_CMD_KYORITEN) {
+        /* FUN_006b91d0: 状態 2（始点を取った、移植の kyo_step 1）なら 0 にして
+           受ける。0・1（始点待ち）なら 回数 +0xb0 を一つ減らして（FUN_006baa70 が
+           連続 を付け直す）受けない（0）。逆コンパイルの読み、原典では押していない */
+        int k;
+
+        tracking = 0;
+        if (kyo_step) {
+            kyo_step = 0;
+            return 1;
+        }
+        if (kyo_n > 0)
+            kyo_n--;
+        kyo_sum = 0.0;
+        for (k = 1; k <= kyo_n; k++)
+            kyo_sum += kyo_d[k];
+        return 0;
+    }
     if (current == JW_CMD_HANI)
         mp_off();               /* FUN_006f85c0: +0xbc ならバーを戻してから */
+    if ((current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU) && sel_step == 3) {
+        /* CZukeiFukusha の 16 番目 FUN_0064e7c0（置く段、+0x1fc == 0）:
+             反転・ﾏｳｽ倍率・角 の間なら 反転を切り、ﾏｳｽ倍率（+0xfd18）か 角
+             （+0xfd40）が 2 以上なら一つ戻し、でなければ両方切る
+             置いたことがあれば（+0xfdb0 >= 1）その一手を取り消して、連続の
+             回数（+0xfd80）を一つ減らす。選んだものは持ったまま
+           どちらでもなければ これまでどおり選択を放す。逆コンパイルの読み、
+           原典では押していない */
+        tracking = 0;
+        if (sel_flip || fk_mb > 0 || fk_kaku > 0) {
+            sel_flip = 0;
+            if (fk_mb >= 2)
+                fk_mb--;
+            else if (fk_kaku >= 2)
+                fk_kaku--;
+            else
+                fk_mb = fk_kaku = 0;
+            return 1;
+        }
+        if (fk_unplace(d))
+            return 1;
+    }
     if ((current == JW_CMD_HANI || current == JW_CMD_FUKUSHA
          || current == JW_CMD_IDOU || current == JW_CMD_SEIRI
          || current == JW_CMD_PARAM)
@@ -5562,6 +5626,13 @@ const char *jw_cmd_prompt(void)
         /* 図形登録: after 選択確定 the next point is the 基準点 */
         if (sel_step == 3 && current == JW_CMD_ZUKEIREG)
             return JW_STR_5314;
+        /* ﾏｳｽ倍率・角 の一つ目と三つ目（slot 6 FUN_0064d290: +0xfd18 が 1 なら
+           0x1523、3 なら 0x1524。+0xfd40 が 1 なら 0x15ff、3 なら 0x2786。
+           2 はふつうの置く点） */
+        if (sel_step == 3 && (fk_mb == 1 || fk_mb == 3))
+            return fk_mb == 1 ? JW_STR_5411 : JW_STR_5412;
+        if (sel_step == 3 && !fk_mb && (fk_kaku == 1 || fk_kaku == 3))
+            return fk_kaku == 1 ? JW_STR_5631 : JW_STR_10118;
         if (sel_step == 3)
             return current != JW_CMD_SEIRI && range_moves()
                    ? JW_STR_5311 : JW_STR_5307;
@@ -12856,6 +12927,7 @@ static void sel_free(void)
     sel_was = 0;
     sel_at = 0;
     sel_n = 0;
+    fk_mb = fk_kaku = fk_placed = 0;
 }
 
 int jw_cmd_sel_count(const jw_drawing *d)
@@ -15530,6 +15602,7 @@ static double fig_mag = 1.0, fig_deg;
 /* whether the figure came out of a coordinate file, whose texts keep their
    own size and work their far end out from it (see src/coord.c) */
 static int fig_coord;
+static int fig_noaxis;          /* 1 なら fig_one が軸角を足さない（外部変形） */
 
 /* 倍率 and 回転角 for a figure, from a front end that has no
    command bar of its own.  They go **into the bar's own boxes**, because
@@ -15847,8 +15920,12 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
         o->color = (unsigned short)(d->write_ltype ? d->write_color : 2);
         o->width = (unsigned short)(d->write_ltype ? d->write_width : 0);
     }
+    /* 回転は 回転角の箱 + 軸角（CZukeiTourokuZukei slot 6 FUN_00757470 が
+       +0x250 = 箱（FUN_005f5710）+ doc +0x17c0 の軸角。マウス角 は箱に書くとき
+       軸角を引いている〔slot 3〕ので、足して元に戻る）。逆コンパイルの読み、
+       原典では押していない */
     jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
-                 fig_deg * 3.141592653589793 / 180.0,
+                 (fig_deg + (fig_noaxis ? 0.0 : axis_deg)) * 3.141592653589793 / 180.0,
                  x - fig_bx, y - fig_by);
     if (fig_coord && o->cls == JW_MOJI) {
         /* a coordinate file's text keeps the size the file named, in
@@ -15940,6 +16017,26 @@ static int figure_place(jw_drawing *d, double x, double y)
         return 0;
     fig_boxes();
     fig_where(d, &wg, &wl);
+    if (!fz_on[3] && !fig_q_ok) {
+        /* 元グループに作図（+0x268 == 0）のとき、図形の要素に 書込グループでなく
+           縮尺（置く図面の +0x2578）も違うグループのものがあれば 0x157e を
+           OK/キャンセル で訊き、OK でなければ置かない（slot 3 FUN_00759d60、
+           FUN_004f60a0(0x157e, 1)）。逆コンパイルの読み、原典では押していない */
+        double ws = d->group[wg].scale;
+
+        for (i = 0; i < fig.ndrawn; i++) {
+            int g = fig.obj[i].lgroup & 15;
+
+            if (g != wg && d->group[g].scale != ws)
+                break;
+        }
+        if (i < fig.ndrawn) {
+            fig_q = 1;
+            fig_qx = x;
+            fig_qy = y;
+            return 0;
+        }
+    }
     for (i = 0; i < fig.ndrawn; i++) {
         const jw_obj *p = &fig.obj[i];
         jw_obj *o = jw_add(d, p->cls);
@@ -15956,6 +16053,29 @@ static int figure_place(jw_drawing *d, double x, double y)
     if (made)
         op_push(made);
     return made;
+}
+
+/* 0x157e の問いを出すか（一度だけ 1）。app が OK/キャンセル の窓にする */
+int jw_cmd_figure_ask(void)
+{
+    int r = fig_q == 1 && current == JW_CMD_ZUKEI;
+
+    if (r)
+        fig_q = 2;
+    return r;
+}
+
+/* その答え: OK なら 取っておいた点に置く。キャンセルなら置かない */
+void jw_cmd_figure_answer(jw_drawing *d, int ok)
+{
+    if (!fig_q)
+        return;
+    fig_q = 0;
+    if (!ok || !d || current != JW_CMD_ZUKEI)
+        return;
+    fig_q_ok = 1;
+    figure_place(d, fig_qx, fig_qy);
+    fig_q_ok = 0;
 }
 
 
@@ -16002,6 +16122,7 @@ int jw_cmd_gaibu_commit(jw_drawing *d, const unsigned char *b, long n,
     fig_mag = 1.0;
     fig_deg = 0.0;
     fig_where(d, &wg, &wl);
+    fig_noaxis = 1;                     /* 外部変形は軸角で回さない */
     for (i = 0; i < fig.ndrawn; i++) {
         const jw_obj *p = &fig.obj[i];
         jw_obj *o = jw_add(d, p->cls);
@@ -16014,6 +16135,7 @@ int jw_cmd_gaibu_commit(jw_drawing *d, const unsigned char *b, long n,
         fig_one(d, d, o, p, wg, wl, ox, oy);
         made++;
     }
+    fig_noaxis = 0;
     if (op)
         op->n = made;
     jw_free(&fig);
@@ -16277,6 +16399,7 @@ static int sel_confirm(jw_drawing *d)
     if (current == JW_CMD_PARAM)
         param_settle();
     ren_n = 0;                          /* 連続 は次に置いたずれから */
+    fk_mb = fk_kaku = fk_placed = 0;    /* ﾏｳｽ倍率・角・置いた回数も */
     return 1;
 }
 
@@ -16511,6 +16634,13 @@ void jw_cmd_zuzoku_set(int k, int on)
         za_on[k] = on != 0;
 }
 
+/* 作図属性設定 の「マウス倍率のときXY等倍」(2556、DAT_00a0cb2c、
+   FUKUSHA\MOUSE_XY_TOUBAI): ﾏｳｽ倍率 で X・Y に同じ倍率（fk_mouse_place） */
+void jw_cmd_fk_xy1_set(int on)
+{
+    fk_xy1 = on != 0;
+}
+
 static void za_apply(const jw_drawing *d, jw_obj *p)
 {
     int g, wg = 0;
@@ -16557,6 +16687,8 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis)
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
+        if (o)
+            fk_placed++;        /* 反転も置いた一手（戻るで取り消す） */
         return;
     }
     {
@@ -16576,6 +16708,8 @@ static void sel_mirror(jw_drawing *d, const jw_obj *axis)
             made++;
         }
         op_push(made);
+        if (made > 0)
+            fk_placed++;
     }
 }
 
@@ -16706,10 +16840,119 @@ static int sel_renzoku(jw_drawing *d)
     return 1;
 }
 
-static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
+/* 倍率が X と Y で違うとき（ﾏｳｽ倍率 1069）の一つの要素。軸角 ax の向きで
+ * X・Y に sx・sy を掛け、ang 回して (dx, dy) ずらす。原典は要素の種類ごとの
+ * FUN_00465c40（線 FUN_004686e0・円弧 FUN_00464fd0・点 FUN_00469fa0・文字
+ * FUN_00466e30 ほか）。円・円弧は楕円になる（中心とともに 半径・扁平率・傾き・
+ * 始角を写した楕円の軸で取り直す。裏返しなら向きを逆に）。文字は 文字も倍率
+ * (1328) の切のときの FUN_00465f40 と同じく 置く点だけ移して大きさは変えない
+ * （文字も倍率 の入の枝 FUN_00466e30 の残りは読み切っていない）。
+ * 等倍（sx == sy > 0）なら jw_obj_xform そのまま。逆コンパイルの読み、原典では
+ * 押していない */
+static void fk_map(double c, double s, double ca, double sa, double sx,
+                   double sy, double *x, double *y)
+{
+    /* R(ang) R(ax) diag(sx, sy) R(-ax) */
+    double u = ca * *x + sa * *y, w = -sa * *x + ca * *y, px, py;
+
+    u *= sx;
+    w *= sy;
+    px = ca * u - sa * w;
+    py = sa * u + ca * w;
+    *x = c * px - s * py;
+    *y = s * px + c * py;
+}
+
+static void fk_ellipse(double c, double s, double ca, double sa, double sx,
+                       double sy, double *r, double *flat, double *tilt,
+                       double *start, double sweep)
+{
+    double f = *flat > 0.0 ? *flat : 1.0;
+    double ct = cos(*tilt), st = sin(*tilt);
+    double a = ct * *r, cc = st * *r;          /* 第 1 列 R(tilt)(r, 0) */
+    double b = -st * *r * f, dd = ct * *r * f; /* 第 2 列 R(tilt)(0, rf) */
+    double E, F, G, H, Q, R, s1, s2, a1, a2;
+
+    fk_map(c, s, ca, sa, sx, sy, &a, &cc);
+    fk_map(c, s, ca, sa, sx, sy, &b, &dd);
+    /* [[a b] [cc dd]] = R(phi) diag(s1, s2) R(theta) */
+    E = (a + dd) / 2.0;
+    F = (a - dd) / 2.0;
+    G = (cc + b) / 2.0;
+    H = (cc - b) / 2.0;
+    Q = sqrt(E * E + H * H);
+    R = sqrt(F * F + G * G);
+    s1 = Q + R;
+    s2 = Q - R;
+    a1 = atan2(G, F);
+    a2 = atan2(H, E);
+    if (s1 < 1e-12)
+        return;
+    *r = s1;
+    *tilt = (a2 + a1) / 2.0;
+    *flat = fabs(s2) / s1;
+    if (s2 >= 0.0)
+        *start = *start + (a2 - a1) / 2.0;
+    else
+        *start = -(*start + (a2 - a1) / 2.0) - sweep;
+}
+
+static void fk_xform_xy(jw_obj *o, double cx, double cy, double sx, double sy,
+                        double ang, double dx, double dy)
+{
+    double c = cos(ang), s = sin(ang);
+    double ax = axis_deg * PI / 180.0, ca = cos(ax), sa = sin(ax);
+    int i, n;
+
+    if (fabs(sx - sy) < 1e-12 && sx > 0.0) {
+        jw_obj_xform(o, cx, cy, sx, ang, dx, dy);
+        return;
+    }
+    if (o->cls == JW_MOJI) {
+        double x = o->d[0] - cx, y = o->d[1] - cy;
+        double ex = o->d[2] - o->d[0], ey = o->d[3] - o->d[1];
+
+        fk_map(c, s, ca, sa, sx, sy, &x, &y);
+        o->d[0] = cx + x + dx;
+        o->d[1] = cy + y + dy;
+        o->d[2] = o->d[0] + c * ex - s * ey;
+        o->d[3] = o->d[1] + s * ex + c * ey;
+        return;
+    }
+    if (o->cls == JW_ENKO) {
+        fk_ellipse(c, s, ca, sa, sx, sy, &o->d[2], &o->d[6], &o->d[5],
+                   &o->d[3], o->d[4]);
+        n = 1;
+    } else if (o->cls == JW_SOLID && (o->ltype == 101 || o->ltype == 111)) {
+        /* 円ソリッド: 半径 d[2]・扁平 d[3]・傾き d[4]・始角 d[5]・開き d[6] */
+        fk_ellipse(c, s, ca, sa, sx, sy, &o->d[2], &o->d[3], &o->d[4],
+                   &o->d[5], o->d[6]);
+        n = 1;
+    } else if (o->cls == JW_TEN)
+        n = 1;
+    else if (o->cls == JW_SOLID)
+        n = 4;
+    else
+        n = 2;
+    for (i = 0; i < n; i++) {
+        double x = o->d[i * 2] - cx, y = o->d[i * 2 + 1] - cy;
+
+        fk_map(c, s, ca, sa, sx, sy, &x, &y);
+        o->d[i * 2] = cx + x + dx;
+        o->d[i * 2 + 1] = cy + y + dy;
+    }
+}
+
+static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
+                       double sy, double ang)
 {
     int i;
 
+    fk_last_dx = dx;
+    fk_last_dy = dy;
+    fk_last_sx = sx;
+    fk_last_sy = sy;
+    fk_last_ang = ang;
     if (range_moves()) {
         op_t *o = op_new();
         for (i = 0; i < sel_n; i++) {
@@ -16718,11 +16961,13 @@ static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
                 continue;
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
-            jw_obj_xform(&d->obj[at], base_x, base_y, sc, ang, dx, dy);
+            fk_xform_xy(&d->obj[at], base_x, base_y, sx, sy, ang, dx, dy);
             za_apply(d, &d->obj[at]);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
+        if (o)
+            fk_placed++;        /* 一手（戻るで取り消す） */
         return;
     }
     {   /* 複写: every click leaves another copy, all of them measured from
@@ -16736,7 +16981,7 @@ static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
                 break;
             at = (int)(p - d->obj);
             *p = sel_was[i];
-            jw_obj_xform(p, base_x, base_y, sc, ang, dx, dy);
+            fk_xform_xy(p, base_x, base_y, sx, sy, ang, dx, dy);
             za_apply(d, p);
             /* a copy is not itself selected: in the original the new
                elements come out in their own colours while the ones that
@@ -16748,7 +16993,188 @@ static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
             made++;
         }
         op_push(made);
+        if (made > 0)
+            fk_placed++;
     }
+}
+
+static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
+{
+    sel_put_xy(d, dx, dy, sc, sc, ang);
+}
+
+/* 置いた一手を取り消す（CZukeiFukusha の 16 番目 FUN_0064e7c0 の +0xfdb0 >= 1
+   の枝: 戻して +0xfdb0 を一つ減らし、連続の回数 +0xfd80 も一つ減らす。0 に
+   なれば 連続 (1064) と / (1072) は死ぬ）。選んだものはそのまま */
+static int fk_unplace(jw_drawing *d)
+{
+    if (!d || fk_placed <= 0 || !jw_cmd_can_undo())
+        return 0;
+    jw_cmd_undo(d);
+    fk_placed--;
+    if (ren_n > 0)
+        ren_n--;
+    return 1;
+}
+
+/* 置く点から b（原典 +0xfc78 - 基準点）を、任意方向をかけて求める。原典
+   FUN_0064f350 / FUN_0064f900 は 軸角で戻して（FUN_0044cd50(1)）X・Y の片方を
+   0 にし、軸角で回し直す */
+static void fk_offset(double px, double py, double *bx, double *by)
+{
+    double ax = axis_deg * PI / 180.0, ca = cos(ax), sa = sin(ax);
+    double x = px - base_x, y = py - base_y;
+    double u = ca * x + sa * y, w = -sa * x + ca * y;
+
+    switch (sel_dir) {
+    case 1: w = 0.0; break;
+    case 2: u = 0.0; break;
+    case 3:
+        if (fabs(u) <= fabs(w))
+            u = 0.0;
+        else
+            w = 0.0;
+        break;
+    }
+    *bx = ca * u - sa * w;
+    *by = sa * u + ca * w;
+}
+
+/* ﾏｳｽ倍率・角 の三つ目のクリック（原典 slot 9 FUN_006533c0 が 状態 3 で
+   +0xfd30 に取って 1 を返し、置く本体 FUN_00653fe0 が FUN_0064f350（倍率）・
+   FUN_0064f900（角）で倍率か角を決めてから置く）。置いたら どちらも 0、連続の
+   回数も 0（連続 と / は死ぬ）、角 は 回転角の箱 (1412) にその角を書く
+   （FUN_004ae3f0）。逆コンパイルの読み、原典では押していない */
+static void fk_mouse_place(jw_drawing *d, double cx3, double cy3)
+{
+    double ax = axis_deg * PI / 180.0, ca = cos(ax), sa = sin(ax);
+    double bx, by, x, y;
+
+    fk_offset(fk_bx, fk_by, &bx, &by);
+    x = cx3 - (base_x + bx);
+    y = cy3 - (base_y + by);
+    if (fk_mb) {
+        /* FUN_0064f350: a = 一つ目 - 基準点、c = 三つ目 - (基準点 + b)、どちらも
+           軸角で戻して、X・Y ごとに c / a（どちらかが 1e-7 以下なら 1、c が
+           -1e-7 より小さければ -1）。XY等倍 なら |a.x| <= |a.y| で Y の、でなければ
+           X の倍率を両方に（原典はここで a をもう一度 軸角で戻している） */
+        double au = fk_ax - base_x, aw = fk_ay - base_y, t;
+        double cu = ca * x + sa * y, cw = -sa * x + ca * y;
+        double sx = 1.0, sy = 1.0;
+
+        t = ca * au + sa * aw;
+        aw = -sa * au + ca * aw;
+        au = t;
+        if (fabs(au) > 1e-7 && fabs(cu) > 1e-7)
+            sx = cu / au;
+        else if (cu < -1e-7)
+            sx = -1.0;
+        if (fabs(aw) > 1e-7 && fabs(cw) > 1e-7)
+            sy = cw / aw;
+        else if (cw < -1e-7)
+            sy = -1.0;
+        if (fk_xy1) {
+            t = ca * au + sa * aw;
+            aw = -sa * au + ca * aw;
+            au = t;
+            if (fabs(au) <= fabs(aw))
+                sx = sy;
+            else
+                sy = sx;
+        }
+        sel_put_xy(d, bx, by, sx, sy, sel_turn());
+    } else {
+        /* FUN_0064f900: 一つ目 - 基準点 の向き（0 なら 0）から 三つ目 -
+           (基準点 + b) の向きへの角を (-180, 180] に。三つ目が 基準点 + b と
+           同じなら 0。角 の間 回転角の箱は使わない（slot 6 が +0xfcd0 を 0 に） */
+        double a0 = 0.0, a1 = 0.0, a, sc = sel_scale();
+        char buf[32];
+
+        if (fabs(fk_ax - base_x) > 1e-7 || fabs(fk_ay - base_y) > 1e-7)
+            a0 = atan2(fk_ay - base_y, fk_ax - base_x);
+        if (fabs(x) > 1e-7 || fabs(y) > 1e-7)
+            a1 = atan2(y, x);
+        a = (fabs(x) < 1e-7 && fabs(y) < 1e-7) ? 0.0 : a1 - a0;
+        if (a > PI)
+            a -= 2.0 * PI;
+        if (a <= -PI)
+            a += 2.0 * PI;
+        sel_put_xy(d, bx, by, sc, sc, a);
+        snprintf(buf, sizeof buf, "%.10g", a * 180.0 / PI);
+        box_put(1412, buf);
+    }
+    fk_mb = fk_kaku = 0;
+    ren_n = 0;
+}
+
+/* ﾏｳｽ倍率・角 の間のクリック（slot 9 FUN_006533c0 の +0xfd18 / +0xfd40 の枝） */
+static void fk_mouse_click(jw_drawing *d, double x, double y)
+{
+    int *st = fk_mb ? &fk_mb : &fk_kaku;
+
+    if (*st == 1) {
+        fk_ax = x;              /* +0xfd20 */
+        fk_ay = y;
+        *st = 2;
+    } else if (*st == 2) {
+        fk_bx = x;              /* +0xfc78 */
+        fk_by = y;
+        *st = 3;
+    } else
+        fk_mouse_place(d, x, y);
+}
+
+/* ﾏｳｽ倍率 (1069 → 0x1406 → 30 番目 FUN_006519d0): 切なら入れて 一つ目待ち
+   （角は切る）、入なら切る。どちらでも 連続の回数を 0 に。入れたとき 倍率の箱は
+   "0 , 0"（FUN_004ae1b0(0,0)）、バーは 型 2（任意方向 と ﾏｳｽ倍率 のほかは死ぬ）。
+   角 (1071 → 0x1408 → 32 番目 FUN_00651f90): ﾏｳｽ倍率 を切って 0 → 1（型 3）
+   → 2（一つ目を 基準点 + (1, 0) に取ったことにして 基準角 は水平）→ 0。
+   逆コンパイルの読み、原典では押していない */
+static int fk_mouse_button(int id)
+{
+    ren_n = 0;
+    if (id == 1069) {
+        fk_kaku = 0;
+        if (fk_mb)
+            fk_mb = 0;
+        else {
+            fk_mb = 1;
+            box_put(1411, "0 , 0");
+        }
+        return 1;
+    }
+    fk_mb = 0;
+    if (fk_kaku == 0)
+        fk_kaku = 1;
+    else if (fk_kaku == 1) {
+        fk_kaku = 2;
+        fk_ax = base_x + 1.0;
+        fk_ay = base_y;
+    } else
+        fk_kaku = 0;
+    return 1;
+}
+
+/* / (1072 → 0x1409 → 33 番目 FUN_006521d0): 置いた一手を 戻る で取り消し
+   （+0x40）、複写 (2092) を入れ替えて（+0xfd08）、同じずれ・倍率・角で
+   置き直す（+0xc、置く本体）。逆コンパイルの読み、原典では押していない */
+static int fk_swap(jw_drawing *d)
+{
+    double dx = fk_last_dx, dy = fk_last_dy, sx = fk_last_sx, sy = fk_last_sy;
+    double ang = fk_last_ang;
+    unsigned char *on = chk_slot(bar_cmd(), 2092);
+
+    if (!d || !on || ren_n < 1 || !fk_unplace(d))
+        return 0;
+    *on = (unsigned char)!*on;
+    if (ren_n < 1) {            /* FUN_00653fe0: 回数 0 ならこのずれが一歩 */
+        ren_dx = dx;
+        ren_dy = dy;
+        ren_sc = sx;
+        ren_n = 1;
+    }
+    sel_put_xy(d, dx, dy, sx, sy, ang);
+    return 1;
 }
 
 /* ---------------------------------------------- パラメトリック変形 -----
@@ -17415,6 +17841,11 @@ int jw_cmd_sel_ghost(double *dx, double *dy)
     if (sel_step != 3 || sel_n <= 0 || !tracking
         || current == JW_CMD_PARAM)     /* こちらは jw_cmd_param_preview */
         return 0;
+    /* ﾏｳｽ倍率・角 の一つ目待ちは 仮表示なし（slot 6 が戻る）。三つ目待ちの
+       倍率・角を掛けた仮表示（FUN_0064f350・FUN_0064f900 を通す）は ずらす
+       だけのこの絵では描けないので出さない */
+    if (fk_mb == 1 || fk_mb == 3 || (!fk_mb && (fk_kaku == 1 || fk_kaku == 3)))
+        return 0;
     *dx = tx - base_x;
     *dy = ty - base_y;
     return 1;
@@ -17610,6 +18041,27 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return jw_cmd_gazou_enabled(id);
     if (current == JW_PRINT_CMD)
         return jw_pr_enabled(id);
+    if ((current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU) && sel_step == 3) {
+        /* 二枚目のバーの型（CFukushaDialog FUN_004accf0）: 型 2（ﾏｳｽ倍率）は
+           任意方向 と ﾏｳｽ倍率、型 3（角）は 任意方向・倍率・角 のほか死ぬ。
+           型 0 は 連続 (1064) と / (1072) が 置いてから（回数 +0xfd80 >= 1） */
+        static const short ids[] = { 2092, 1151, 1066, 1064, 1411, 1412, 1413,
+                                     1067, 1069, 1070, 1071, 1072 };
+        int k;
+
+        for (k = 0; k < (int)(sizeof ids / sizeof ids[0]); k++)
+            if (ids[k] == id)
+                break;
+        if (k < (int)(sizeof ids / sizeof ids[0])) {
+            if (fk_mb)
+                return id == 1151 || id == 1069;
+            if (fk_kaku)
+                return id == 1151 || id == 1411 || id == 1071;
+            if (id == 1064 || id == 1072)
+                return ren_n >= 1;
+            return 1;
+        }
+    }
     if (current == JW_CMD_MOJI && ms_text) {
         /* texts picked: 貼付 and 文書 appear, 文読 gives way */
         if (id == 1065 || id == 1070)
@@ -18298,6 +18750,12 @@ static int bar_press(jw_drawing *d, int id)
         sel_base_wait = 0;
         return 1;
     }
+    if ((current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU) && sel_step == 3) {
+        if (id == 1069 || id == 1071)
+            return fk_mouse_button(id);     /* ﾏｳｽ倍率・角 */
+        if (id == 1072)
+            return fk_swap(d);              /* 複写と移動を入れ替えて置き直す */
+    }
     switch (id) {
     case 1334:                  /* 範囲外選択 -- only before the box */
         if (sel_step != 0)
@@ -18465,6 +18923,13 @@ int jw_cmd_bar_r(jw_drawing *d, int id)
         fig_turn90_back();
         return 1;
     }
+    if ((current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU) && sel_step == 3
+        && id == 1064 && jw_cmd_bar_enabled(d, 1064) == 1)
+        /* 複写・移動の 連続 の右押し: 値の組 1 の 0x1401 を wParam 2 で受ける
+           FUN_004adc60 は、押したまま離すまで DAT_00a0b3a4 ミリ秒（10〜1000）ごとに
+           連続を繰り返す。初めの一回は待たずに出る。移植のバーは押したままを
+           知らない（離すのは左だけ app_release に来る）ので、その一回だけ */
+        return sel_renzoku(d);
     return 0;
 }
 
@@ -18596,6 +19061,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
         kyo_sum += mm;
         kyo_n++;
+        kyo_d[kyo_n] = mm;      /* 原典 +0x100 + 回数×8 */
         o = jw_add(d, JW_TEN);
         if (o) {
             o->d[0] = kyo_x + kyo_ux * kyo_sum;
@@ -22191,6 +22657,13 @@ static void au_ll(jw_drawing *d, const jw_view *v, double x, double y);
 /* A double left click.  連 wants one -- it is how the original says
    「移動（LL)」 -- and so does ２線's 基準線変更(LL) (nisen_ll), and AUTO
    (au_ll); everywhere else it is just a left click. */
+/* 伸縮の一括処理が 基準線（基準点）を待っているか、基準線を取って始線を待って
+   いるか —— (LL) が free 基準点になる段（jw_cmd_point_ll の SHINSHUKU） */
+int jw_cmd_ikk_base_wait(void)
+{
+    return current == JW_CMD_SHINSHUKU && (ikk_st == 1 || ikk_st == 3);
+}
+
 void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 {
     if (d && current == JW_CMD_AUTO && step == 0) {
@@ -22208,6 +22681,23 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
     }
     if (d && current == JW_CMD_NISEN && nisen_step > 0) {
         nisen_ll(d, v, x, y);   /* 基準線変更 (LL) */
+        return;
+    }
+    if (current == JW_CMD_SHINSHUKU && ikk_st) {
+        /* 伸縮の一括処理の (LL) free 基準点: 左ダブル（CZukeiShinshuku slot 12
+           FUN_00718a70 → FUN_005635b0）は +0x18 が 1（基準線待ち）か 3（一つ目の
+           左で基準線を拾って始線待ち）なら 1 に戻して FUN_00564870 —— (R) の
+           基準点と同じ所で、読まずに押した点を基準点にする（基準線は放す）。
+           ほかの段（始線を拾ったあと）では何もしない。逆コンパイルの読み、
+           原典では押していない */
+        if (ikk_st == 1 || ikk_st == 3) {
+            ikk_pt = 1;
+            ikk_px = x;
+            ikk_py = y;
+            ikk_b1 = -1;
+            ikk_st = 3;
+        }
+        (void)v;
         return;
     }
     if (d && current == JW_CMD_KYOKUSEN && cv_mode == 1691) {
@@ -25389,6 +25879,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 kyo_uy = dy / len;
                 kyo_sum = mm;
                 kyo_n = 1;
+                kyo_d[1] = mm;
             }
         }
         return;
@@ -25843,6 +26334,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     return;     /* 基準線を指示してください */
                 sel_mirror(d, &d->obj[i]);
                 sel_flip = 0;
+                return;
+            }
+            if ((fk_mb || fk_kaku)
+                && (current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU)) {
+                fk_mouse_click(d, x, y);        /* ﾏｳｽ倍率・角 */
                 return;
             }
             sel_place(d, x, y);

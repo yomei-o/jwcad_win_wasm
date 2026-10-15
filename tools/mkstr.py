@@ -188,6 +188,10 @@ WANT = [
     (5442, 'the end of the ellipse axis (tangent ellipse, 3 points)'),
     (5443, 'a point the ellipse passes through (tangent ellipse, 3 points)'),
     (5444, 'a side, after 1 / 2 / 3 / 4 (tangent ellipse, rhombus and parallelogram)'),
+    (5411, 'mouse scale: the far corner of the original (copy / move)'),
+    (5412, 'mouse scale: the far corner of the copy (copy / move)'),
+    (5631, 'mouse angle: the reference angle point (copy / move)'),
+    (5502, 'the figure has groups of another scale (figure read, OK / cancel)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'
