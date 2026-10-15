@@ -90,6 +90,11 @@ static double rx, ry;
 static int cut_step;
 static int cut_obj;             /* which element, while it is being cut */
 static double cut_x, cut_y;     /* the first of the two range points */
+/* 範囲選択消去 (1066)・連続範囲選択消去 (1067): 0 なし、1 箱の始点待ち、
+   2 終点待ち、3 箱を取って実行（Enter）待ち。CZukeiShoukyo の +0x200 が
+   1・2 になって範囲選択の働き（CZukeiSentaku）に回る形。shk_rep が 1067 */
+static int shk_sel, shk_rep;
+static int sel_erase_now(jw_drawing *d);
 
 /* コーナー処理: the first line, and where it was clicked.  CZukeiCorner
    keeps the same in +0x204 (0, then 2 once a line is down, then 3). */
@@ -2974,6 +2979,7 @@ void jw_cmd_set(int id)
     sel_keep = sel_sub = 0;
     comp_n = 0;
     cut_step = 0;
+    shk_sel = shk_rep = 0;
     corner_step = 0;
     stretch_step = 0;
     para_step = 0;
@@ -3136,6 +3142,7 @@ void jw_cmd_escape(void)
     tk_an = 0;
     hou_step = 0;
     cut_step = 0;
+    shk_sel = 0;
     corner_step = 0;
     bk_rr_n = 0;
     stretch_step = 0;
@@ -3354,6 +3361,17 @@ void jw_cmd_esc_key(jw_drawing *d)
     if (current == JW_CMD_SOKUTEI && sok_mode == SOK_LEN && !sok_write
         && !sok_one && sok_n > 0) {
         sok_esc = 1;
+        return;
+    }
+    if (current == JW_CMD_SHOUKYO && shk_sel) {
+        /* 範囲の途中: 終点待ちなら始点へ、ほかは範囲選択消去をやめる
+           （CZukeiShoukyo の 16 番 FUN_0070ccb0 が +0x200 を 0 に戻す） */
+        if (shk_sel == 2)
+            shk_sel = 1;
+        else {
+            sel_clear(d);
+            shk_sel = 0;
+        }
         return;
     }
     if (current == JW_CMD_SHOUKYO && cut_step > 0) {
@@ -4388,6 +4406,9 @@ const char *jw_cmd_prompt(void)
            while it is 1 or 2. */
         return corner_step == 0 ? JW_STR_5340 : JW_STR_5341;
     case JW_CMD_SHOUKYO:
+        if (shk_sel)            /* 範囲選択消去: 範囲選択と同じ問いかけ */
+            return shk_sel == 2 ? sel_prompt_corner()
+                 : shk_sel == 3 ? sel_prompt_add() : JW_STR_5383;
         /* 10111 is CZukeiShoukyo's own line, and where the two buttons' jobs
            are written down: (L) takes a piece out of a line or circle, (R)
            deletes the whole element.  Once a line has been picked it asks
@@ -5683,6 +5704,352 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
         }
     }
 }
+
+/* (R) 線切断 of コーナー and 面取 -- one function in the original, CZukeiCorner's
+ * slot 11 FUN_00636ee0 (面取 is CZukeiCorner too, with +0xa03c set).  The
+ * line or arc under the click is cut there, a 切断間隔 wide; with no width it
+ * is split in two.  Where the width comes from is the one difference: コーナー
+ * reads its bar with FUN_004cacd0 (box 1411), 面取 its own bar, CMentoriDialog,
+ * with FUN_0056fd50 -- whose DDX ties the read edit to 0x585, box 1413, and the
+ * 実寸 flag to 0x830, the 2096 on the same bar.  Read off the decompile, not
+ * asked of the original. */
+static void line_cut_r(jw_drawing *d, const jw_view *v, double x, double y,
+                       int box)
+{
+    double gap = box_num(jw_cmd_box(box), 0.0), h;
+    const jw_obj *o;
+    int i;
+
+    i = jw_pick(d, v, x, y, 3);
+    if (i < 0)
+        return;
+    if (gap < 0.0)
+        gap = 0.0;
+    if (jw_cmd_bar_check(2096) > 0)
+        gap /= write_scale(d);
+    h = gap / 2.0;
+    o = &d->obj[i];
+    if (o->cls == JW_SEN) {
+        double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1], len = sqrt(ux * ux + uy * uy), t;
+
+        if (len < 1e-7)
+            return;
+        ux /= len;
+        uy /= len;
+        t = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
+        cut_line(d, i, o->d[0] + ux * (t - h), o->d[1] + uy * (t - h),
+                 o->d[0] + ux * (t + h), o->d[1] + uy * (t + h));
+    } else if (o->cls == JW_ENKO) {
+        double ex = x - o->d[0], ey = y - o->d[1], el = sqrt(ex * ex + ey * ey);
+
+        if (el < 1e-7)
+            return;
+        if (o->d[4] < 0.0)      /* the arc runs the other way round */
+            h = -h;
+        cut_arc(d, i, x + ey / el * h, y - ex / el * h,
+                x - ey / el * h, y + ex / el * h);
+    }
+}
+
+/* 消去 の 節間消し (1324).  左で拾った線・円の、拾った点の両側でいちばん近く
+ * 交わる所までを消す。原典は CZukeiShoukyo の左（9 番 FUN_0070f1c0）が
+ * +0x25c（バーの 1324、FUN_00710790）を見て一手目で実行に回し、3 番
+ * FUN_0070fc60 が mode 3 で拾い直して FUN_00712f00 に渡す。逆コンパイルの読み、
+ * 原典では押していない。
+ *
+ *   線   拾った点を線上に落とした位置 t（線の外なら何もしない）から、手前で
+ *        いちばん近い交わりと先でいちばん近い交わりまでを FUN_00470200
+ *        （= cut_line）で切る。どちらかが無ければ端まで、両方無ければ線ごと
+ *   円弧 中心から見た角度で同じことをする（FUN_0070dae0）。全円は交わりが
+ *        無いか一か所だけなら丸ごと消す（FUN_0070cad0）。弧は拾った点が弧の外
+ *        なら何もしない（FUN_007104c0）
+ *
+ * 交わりに数えるのは 編集できる（FUN_0042dd10、表示のみを読む設定なら表示のみも）
+ * 線・円弧・点だけ。線どうしは相手の両端が 1e-7 の幅で線を挟むとき、点は
+ * 1e-7 以内に乗るとき。楕円どうし・楕円と円の交わり（原典 FUN_00714f40）は
+ * 読んでいないので数えない。 */
+#define SK_EPS 1e-7
+
+/* 楕円（円）の中の座標へ: 中心を原点に、傾きを戻し、扁平を伸ばす */
+static void sk_to_ell(const jw_obj *e, double x, double y, double *u, double *w)
+{
+    double c = cos(e->d[5]), s = sin(e->d[5]);
+    double flat = e->d[6] > 0.0 ? e->d[6] : 1.0;
+    double ex = x - e->d[0], ey = y - e->d[1];
+
+    *u = c * ex + s * ey;
+    *w = (c * ey - s * ex) / flat;
+}
+
+/* 弧の範囲に入っているか（全円は常に） */
+static int sk_on_span(const jw_obj *e, double x, double y)
+{
+    double sw = e->d[4], span = sw == 0.0 ? 2 * PI : fabs(sw);
+    double dir = sw < 0.0 ? -1.0 : 1.0, u, tol;
+
+    if (span >= 6.283185207179586)
+        return 1;
+    tol = e->d[2] > 0.0 ? SK_EPS / e->d[2] : SK_EPS;
+    u = turn((arc_angle(e, x, y) - e->d[3]) * dir);
+    return u <= span + tol || u >= 2 * PI - tol;
+}
+
+/* A→B を通る直線と楕円（全周）の交わり。t は A→B を 1 とする位置 */
+static int sk_line_ell(const jw_obj *e, double ax, double ay, double bx,
+                       double by, double t[2])
+{
+    double pu, pw, qu, qw, du, dw, A, B, C, D, r = e->d[2];
+
+    sk_to_ell(e, ax, ay, &pu, &pw);
+    sk_to_ell(e, bx, by, &qu, &qw);
+    du = qu - pu;
+    dw = qw - pw;
+    A = du * du + dw * dw;
+    if (A < 1e-30 || r <= 0.0)
+        return 0;
+    B = 2.0 * (pu * du + pw * dw);
+    C = pu * pu + pw * pw - r * r;
+    D = B * B - 4.0 * A * C;
+    if (D < 0.0) {
+        /* 接するもの（丸めで僅かに負）は一点に */
+        double m = -B / (2.0 * A), mu = pu + m * du, mw = pw + m * dw;
+
+        if (fabs(sqrt(mu * mu + mw * mw) - r) > SK_EPS)
+            return 0;
+        t[0] = m;
+        return 1;
+    }
+    D = sqrt(D);
+    t[0] = (-B - D) / (2.0 * A);
+    t[1] = (-B + D) / (2.0 * A);
+    return D == 0.0 ? 1 : 2;
+}
+
+static int sk_is_round(const jw_obj *e)
+{
+    return e->d[6] <= 0.0 || fabs(e->d[6] - 1.0) <= SK_EPS;
+}
+
+/* 要素 k と、拾った要素 p（線なら延ばした直線、円弧なら全周）の交わりの点。
+   k の上（線分の中・弧の範囲）にあるものだけ */
+static int sk_cross(const jw_obj *p, const jw_obj *k, double *xs, double *ys)
+{
+    int n = 0, m, j;
+    double t[2];
+
+    if (k->cls == JW_TEN) {
+        if (p->cls == JW_SEN) {
+            double ux = p->d[2] - p->d[0], uy = p->d[3] - p->d[1];
+            double len = sqrt(ux * ux + uy * uy);
+
+            if (fabs(((k->d[0] - p->d[0]) * uy - (k->d[1] - p->d[1]) * ux) / len) > SK_EPS)
+                return 0;
+        } else {
+            double u, w, flat = p->d[6] > 0.0 ? p->d[6] : 1.0;
+
+            sk_to_ell(p, k->d[0], k->d[1], &u, &w);
+            /* 扁平を戻した半径で比べる（円なら距離そのもの） */
+            if (fabs(sqrt(u * u + w * w) - p->d[2]) > SK_EPS / (flat < 1.0 ? flat : 1.0))
+                return 0;
+            if (!sk_on_span(p, k->d[0], k->d[1]))
+                return 0;
+        }
+        xs[0] = k->d[0];
+        ys[0] = k->d[1];
+        return 1;
+    }
+    if (p->cls == JW_SEN && k->cls == JW_SEN) {
+        double ux = p->d[2] - p->d[0], uy = p->d[3] - p->d[1];
+        double len = sqrt(ux * ux + uy * uy), y0, y1, f;
+
+        ux /= len;
+        uy /= len;
+        y0 = (k->d[0] - p->d[0]) * -uy + (k->d[1] - p->d[1]) * ux;
+        y1 = (k->d[2] - p->d[0]) * -uy + (k->d[3] - p->d[1]) * ux;
+        if ((y0 > SK_EPS && y1 > SK_EPS) || (y0 < -SK_EPS && y1 < -SK_EPS))
+            return 0;
+        if (fabs(y1 - y0) < 1e-12)
+            return 0;           /* 平行（重なるものも）: 交わりにしない */
+        f = -y0 / (y1 - y0);
+        xs[0] = k->d[0] + f * (k->d[2] - k->d[0]);
+        ys[0] = k->d[1] + f * (k->d[3] - k->d[1]);
+        return 1;
+    }
+    if (p->cls == JW_SEN && k->cls == JW_ENKO) {
+        m = sk_line_ell(k, p->d[0], p->d[1], p->d[2], p->d[3], t);
+        for (j = 0; j < m; j++) {
+            double x = p->d[0] + t[j] * (p->d[2] - p->d[0]);
+            double y = p->d[1] + t[j] * (p->d[3] - p->d[1]);
+
+            if (sk_on_span(k, x, y)) {
+                xs[n] = x;
+                ys[n] = y;
+                n++;
+            }
+        }
+        return n;
+    }
+    if (p->cls == JW_ENKO && k->cls == JW_SEN) {
+        double len = hypot(k->d[2] - k->d[0], k->d[3] - k->d[1]);
+        double tol = len > 0.0 ? SK_EPS / len : 0.0;
+
+        m = sk_line_ell(p, k->d[0], k->d[1], k->d[2], k->d[3], t);
+        for (j = 0; j < m; j++) {
+            if (t[j] < -tol || t[j] > 1.0 + tol)
+                continue;
+            xs[n] = k->d[0] + t[j] * (k->d[2] - k->d[0]);
+            ys[n] = k->d[1] + t[j] * (k->d[3] - k->d[1]);
+            n++;
+        }
+        return n;
+    }
+    if (p->cls == JW_ENKO && k->cls == JW_ENKO) {
+        double dx, dy, dd, r0 = p->d[2], r1 = k->d[2], a, h, mx, my, cand[2][2];
+
+        if (!sk_is_round(p) || !sk_is_round(k))
+            return 0;           /* 楕円が絡むもの（FUN_00714f40）は読んでいない */
+        dx = k->d[0] - p->d[0];
+        dy = k->d[1] - p->d[1];
+        dd = sqrt(dx * dx + dy * dy);
+        if (dd < 1e-12 || dd > r0 + r1 + SK_EPS || dd < fabs(r0 - r1) - SK_EPS)
+            return 0;
+        a = (r0 * r0 - r1 * r1 + dd * dd) / (2.0 * dd);
+        h = r0 * r0 - a * a;
+        h = h > 0.0 ? sqrt(h) : 0.0;
+        mx = p->d[0] + a * dx / dd;
+        my = p->d[1] + a * dy / dd;
+        cand[0][0] = mx - h * dy / dd;
+        cand[0][1] = my + h * dx / dd;
+        cand[1][0] = mx + h * dy / dd;
+        cand[1][1] = my - h * dx / dd;
+        m = h > 0.0 ? 2 : 1;
+        for (j = 0; j < m; j++)
+            if (sk_on_span(k, cand[j][0], cand[j][1])) {
+                xs[n] = cand[j][0];
+                ys[n] = cand[j][1];
+                n++;
+            }
+        return n;
+    }
+    return 0;
+}
+
+static void setsukan(jw_drawing *d, int i, double px, double py)
+{
+    const jw_obj *p;
+    double xs[2], ys[2];
+    int k, j, m, count = 0;
+
+    if (i < 0 || i >= d->ndrawn)
+        return;
+    p = &d->obj[i];
+    if (p->cls == JW_SEN) {
+        double ax = p->d[0], ay = p->d[1], ux = p->d[2] - ax, uy = p->d[3] - ay;
+        double len = sqrt(ux * ux + uy * uy), tp, lo, hi;
+
+        if (len < 1e-7)
+            return;
+        ux /= len;
+        uy /= len;
+        tp = (px - ax) * ux + (py - ay) * uy;
+        if (tp < -SK_EPS || len + SK_EPS < tp)
+            return;
+        lo = -SK_EPS;
+        hi = len + SK_EPS;
+        for (k = d->ndrawn - 1; k >= 0; k--) {
+            if (k == i || !jw_pick_editable(d, &d->obj[k]))
+                continue;
+            m = sk_cross(p, &d->obj[k], xs, ys);
+            for (j = 0; j < m; j++) {
+                double t = (xs[j] - ax) * ux + (ys[j] - ay) * uy;
+
+                if (t <= tp && lo < t)
+                    lo = t;
+                if (tp <= t && t < hi)
+                    hi = t;
+            }
+        }
+        cut_line(d, i, ax + ux * lo, ay + uy * lo, ax + ux * hi, ay + uy * hi);
+        return;
+    }
+    if (p->cls == JW_ENKO) {
+        double cx = p->d[0], cy = p->d[1], ap, lo, hi, lx, ly, hx, hy;
+        double sw = p->d[4], span = sw == 0.0 ? 2 * PI : fabs(sw);
+        int whole = span >= 6.283185207179586;
+
+        if (p->d[2] <= 1e-7)
+            return;
+        ap = atan2(py - cy, px - cx);
+        if (whole) {
+            lo = -2 * PI;
+            hi = 2 * PI;
+            lx = hx = px;
+            ly = hy = py;
+        } else {
+            /* 弧の両端。原典は向きが負なら入れ替えて、反時計回りの始め・終り
+               にする。拾った点が弧の外なら何もしない（FUN_007104c0） */
+            double c = cos(p->d[5]), s = sin(p->d[5]);
+            double flat = p->d[6] > 0.0 ? p->d[6] : 1.0, r = p->d[2];
+            /* 端は 1e-9 だけ内側に取る: cut_arc が端を 0 と 2π の取り違えで
+               読まないように（どちらも 1e-7 の内なので端まで消える） */
+            double dir = sw < 0.0 ? -1.0 : 1.0;
+            double a0 = p->d[3] + dir * 1e-9, a1 = p->d[3] + sw - dir * 1e-9;
+            double e0x, e0y, e1x, e1y, t;
+
+            if (!sk_on_span(p, px, py))
+                return;
+            e0x = cx + c * r * cos(a0) - s * flat * r * sin(a0);
+            e0y = cy + s * r * cos(a0) + c * flat * r * sin(a0);
+            e1x = cx + c * r * cos(a1) - s * flat * r * sin(a1);
+            e1y = cy + s * r * cos(a1) + c * flat * r * sin(a1);
+            if (sw < 0.0) {
+                t = e0x; e0x = e1x; e1x = t;
+                t = e0y; e0y = e1y; e1y = t;
+            }
+            lo = atan2(e0y - cy, e0x - cx) - ap;
+            if (lo >= 0.0)
+                lo -= 2 * PI;
+            hi = atan2(e1y - cy, e1x - cx) - ap;
+            if (hi <= 0.0)
+                hi += 2 * PI;
+            lx = e0x;
+            ly = e0y;
+            hx = e1x;
+            hy = e1y;
+        }
+        for (k = d->ndrawn - 1; k >= 0; k--) {
+            if (k == i || !jw_pick_editable(d, &d->obj[k]))
+                continue;
+            m = sk_cross(p, &d->obj[k], xs, ys);
+            for (j = 0; j < m; j++) {
+                /* FUN_0070dae0 */
+                double r = atan2(ys[j] - cy, xs[j] - cx) - ap;
+
+                count++;
+                if (r >= 0.0)
+                    r -= 2 * PI;
+                if (lo < r) {
+                    lo = r;
+                    lx = xs[j];
+                    ly = ys[j];
+                }
+                if (r <= 0.0)
+                    r += 2 * PI;
+                if (r < hi) {
+                    hi = r;
+                    hx = xs[j];
+                    hy = ys[j];
+                }
+            }
+        }
+        if (!count || (whole && fabs(lo + 2 * PI - hi) <= SK_EPS)) {
+            erase(d, i, op_new());
+            return;
+        }
+        cut_arc(d, i, lx, ly, hx, hy);
+    }
+}
+#undef SK_EPS
 
 /* コーナー処理 -- two lines, cut or carried on to where they meet.
  *
@@ -11206,6 +11573,17 @@ static void moji_place(jw_drawing *d, double x, double y);
 
 int jw_cmd_enter_key(jw_drawing *d)
 {
+    if (d && current == JW_CMD_SHOUKYO && shk_sel == 3) {
+        /* 範囲選択消去の実行: CZukeiShoukyo の 34 番 FUN_0070e400 が 3 番
+           FUN_0070fc60 を呼び、選んだものを消す（FUN_00478480）。1066 なら
+           元の消去に戻り（+0x200 = 0）、1067 なら次の範囲へ（FUN_0070c870）。
+           逆コンパイルの読み、原典では押していない */
+        if (jw_cmd_sel_count(d) > 0)
+            sel_erase_now(d);
+        sel_clear(d);
+        shk_sel = shk_rep ? 1 : 0;
+        return 1;
+    }
     if (d && current == JW_CMD_MOJI && moji_pre_on && moji_pre && line_n > 0 && !ren_step) {
         moji_place(d, moji_pre_x, moji_pre_y);
         moji_pre = 0;
@@ -11275,8 +11653,6 @@ int jw_cmd_shift_enter_key(jw_drawing *d)
  * 4) and not the one 複写 and 移動 place from (step 3). */
 int jw_cmd_sel_erase(jw_drawing *d)
 {
-    op_t *o;
-    int i, n = 0;
 
     /* From 範囲選択, 選択確定 is not needed: the original's bar there has no
        選択確定 at all, and 消去 straight after a box takes what the box
@@ -11288,6 +11664,15 @@ int jw_cmd_sel_erase(jw_drawing *d)
         return 0;
     if (sel_step == 4 && sel_n <= 0)
         return 0;
+    return sel_erase_now(d);
+}
+
+/* 選ばれている要素を消す（jw_cmd_sel_erase と 消去 の 範囲選択消去）。 */
+static int sel_erase_now(jw_drawing *d)
+{
+    op_t *o;
+    int i, n = 0;
+
     o = op_new();
     for (i = d->nobj - 1; i >= 0; i--)
         if (d->obj[i].sel) {
@@ -11845,6 +12230,19 @@ static int bar_press(jw_drawing *d, int id)
             return 1;
         }
         return 0;
+    }
+    if (current == JW_CMD_SHOUKYO && (id == 1066 || id == 1067)) {
+        /* 範囲選択消去 (1066)・連続範囲選択消去 (1067): CZukeiShoukyo の
+           27 番 FUN_0070e760（+0x200 = 1）と 28 番 FUN_0070e8f0（+0x200 = 2）。
+           範囲の途中（+0x200 が 0 でない）では何もしない。逆コンパイルの読み、
+           原典では押していない */
+        if (shk_sel || !d)
+            return 0;
+        sel_clear(d);
+        cut_step = 0;
+        shk_sel = 1;
+        shk_rep = id == 1067;
+        return 1;
     }
     if (current == JW_CMD_KYOKUSEN) {
         if (id >= 1689 && id <= 1692) {
@@ -18626,8 +19024,20 @@ placed:
         return;
     }
     if (current == JW_CMD_KYOKUSEN) {
-        if (button != 0 || !d)
+        if (button > 1 || !d)
             return;
+        /* (R)Read: CZukeiKyokuSen の右 FUN_006b5740 は、サイン・２次で基準線を
+           拾う段（[0xac] が 1）だけ左 FUN_006b4690 をそのまま呼び、ほかは
+           FUN_00451eb0 で読めた点を左に渡す（読めなければ何もしない）。
+           逆コンパイルの読み、原典では押していない */
+        if (button == 1 && !((cv_mode == 1689 || cv_mode == 1690) && !cv_base)) {
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            x = rx;
+            y = ry;
+        }
         if (cv_mode == 1689 || cv_mode == 1690) {
             curve_point(d, v, x, y);
             return;
@@ -18676,14 +19086,28 @@ placed:
     }
     if (current == JW_CMD_SESSEN) {
         int i;
-        if (button != 0 || !d)
+        /* (R): CZukeiSessen の右 FUN_00704680 は、円を拾う段（+0xb4 が
+           0・1・2）では左 FUN_00703f90 をそのまま呼び、点の段では
+           FUN_00451eb0 で読めた点を左に渡す（読めなければ何もしない）。
+           逆コンパイルの読み、原典では押していない */
+        if (button > 1 || !d)
             return;
         if (ses_mode == 1691 || ses_mode == 1692) {
+            if (button != 0)
+                return;
             sesline(d, v, x, y);
             return;
         }
         if (ses_mode == 1690) {         /* 点→円: the point, then the circle */
             if (ses_step == 0) {
+                if (button == 1) {      /* (R)Read */
+                    double rx, ry;
+
+                    if (!jw_read(d, v, x, y, &rx, &ry))
+                        return;
+                    x = rx;
+                    y = ry;
+                }
                 ses_x = x;
                 ses_y = y;
                 ses_step = 1;
@@ -19037,8 +19461,14 @@ placed:
     }
     if (current == JW_CMD_MENTORI) {
         int i;
-        if (button != 0 || !d)
+        if (!d)
             return;
+        if (button != 0) {
+            /* (R) 線切断 -- コーナーと同じ FUN_00636ee0。幅は 面取 のバーの
+               切断間隔 1413（実寸 2096）。逆コンパイルの読み、原典では押していない */
+            line_cut_r(d, v, x, y, 1413);
+            return;
+        }
         if (corner_step == 0) {
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || d->obj[i].cls != JW_SEN)
@@ -19070,38 +19500,7 @@ placed:
                along a line, across an arc's tangent -- and with no width
                the element is split in two there.  A line picked as the
                first of the corner stays picked. */
-            double gap = box_num(jw_cmd_box(1411), 0.0), h;
-            const jw_obj *o;
-
-            i = jw_pick(d, v, x, y, 3);
-            if (i < 0)
-                return;
-            if (gap < 0.0)
-                gap = 0.0;
-            if (jw_cmd_bar_check(2096) > 0)
-                gap /= write_scale(d);
-            h = gap / 2.0;
-            o = &d->obj[i];
-            if (o->cls == JW_SEN) {
-                double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1], len = sqrt(ux * ux + uy * uy), t;
-
-                if (len < 1e-7)
-                    return;
-                ux /= len;
-                uy /= len;
-                t = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
-                cut_line(d, i, o->d[0] + ux * (t - h), o->d[1] + uy * (t - h),
-                         o->d[0] + ux * (t + h), o->d[1] + uy * (t + h));
-            } else if (o->cls == JW_ENKO) {
-                double ex = x - o->d[0], ey = y - o->d[1], el = sqrt(ex * ex + ey * ey);
-
-                if (el < 1e-7)
-                    return;
-                if (o->d[4] < 0.0)      /* the arc runs the other way round */
-                    h = -h;
-                cut_arc(d, i, x + ey / el * h, y - ex / el * h,
-                        x - ey / el * h, y + ex / el * h);
-            }
+            line_cut_r(d, v, x, y, 1411);
             return;
         }
         if (corner_step == 0) {
@@ -19137,6 +19536,24 @@ placed:
         int i;
         if (!d)
             return;
+        if (shk_sel) {
+            /* 範囲選択消去: 範囲選択と同じ二点の箱（ハッチの 範囲選択 と同じ形） */
+            if (shk_sel == 1 || shk_sel == 3) {
+                if (button != 0)
+                    return;     /* (R) の連続線選択はしていない */
+                if (shk_sel == 1)
+                    sel_clear(d);
+                sel_x0 = sel_x1 = x;
+                sel_y0 = sel_y1 = y;
+                shk_sel = 2;
+                return;
+            }
+            sel_x1 = x;
+            sel_y1 = y;
+            sel_box(d, button != 0);
+            shk_sel = jw_cmd_sel_count(d) > 0 ? 3 : 1;
+            return;
+        }
         if (button == 1) {
             i = jw_pick(d, v, x, y, 0);
             if (i >= 0)
@@ -19145,6 +19562,13 @@ placed:
             return;
         }
         /* the left button: pick, then the two ends of the piece */
+        if (cut_step == 0 && button == 0 && jw_cmd_bar_check(1324) > 0) {
+            /* 節間消し: 一手目で実行（FUN_0070f1c0 → FUN_0070fc60 → FUN_00712f00） */
+            i = jw_pick(d, v, x, y, 3);
+            if (i >= 0)
+                setsukan(d, i, x, y);
+            return;
+        }
         if (cut_step == 0) {
             /* FUN_0070dc20 picks with mode 3, which is the one that leaves
                points alone -- there is no piece of a point to take out. */
