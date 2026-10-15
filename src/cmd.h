@@ -36,6 +36,7 @@ enum {
     JW_CMD_HANI = 0x8013,           /* 範囲選択 -- CZukeiSentaku */
     JW_CMD_FUKUSHA = 0x8024,        /* 複写 -- CZukeiFukusha */
     JW_CMD_IDOU = 0x8096,           /* 移動 -- the same class */
+    JW_CMD_PARAM = 0x8082,          /* パラメトリック変形 (32898) -- CZukeiParametric */
     JW_CMD_SUNPO = 0x804f,          /* 寸法 -- CZukeiSunpo */
     JW_CMD_SOKUTEI = 0x8081,        /* 測定 (32897) */
     JW_CMD_KYORITEN = 0x80a2,       /* 距離指定点 (32930) */
@@ -260,6 +261,9 @@ int  jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1);
    placed.  The selected elements are drawn a second time that far away, so
    what will be made is what is shown. */
 int  jw_cmd_sel_ghost(double *dx, double *dy);
+/* パラメトリック変形 の仮表示: 選んだ要素を いまのマウスの位置で変形したもの
+   （枠に端点だけ入った線は その端点だけ動く）。1 なら out に入れた */
+int  jw_cmd_param_preview(const jw_drawing *d, jw_drawing *out);
 /* How many elements are selected. */
 int  jw_cmd_sel_count(const jw_drawing *d);
 /* Take the settled selection out of the drawing, which is what entering 消去

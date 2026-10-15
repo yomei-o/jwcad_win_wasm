@@ -3964,8 +3964,10 @@ int app_press(int x, int y, int button)
             return 1;
         }
         if (id == 1069 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,
-                                             1069) > 0) {
-            /* 範囲選択's own button, which only comes alive once a box is
+                                             1069) > 0
+            && !(jw_cmd() == JW_CMD_PARAM && jw_cmd_sel_stage() == 3)) {
+            /* (パラメトリック変形 の二枚目では 1069 は 再選択 で、命令の側が受ける)
+               範囲選択's own button, which only comes alive once a box is
                in -- the bar has it greyed until then */
             zsel_start();
             return 1;
@@ -4568,6 +4570,12 @@ int app_move(int x, int y)
         if (jw_cmd_sel_box(&a, &b, &c, &e) || jw_cmd_sel_ghost(&a, &b))
             return 1;
     }
+    if (have_drawing) {             /* パラメトリック変形 の仮表示 */
+        jw_drawing one;
+
+        if (jw_cmd_param_preview(&drawing, &one))
+            return 1;
+    }
     if (have_drawing) {             /* ぶら下がる建具も 動くたびに描き直す */
         jw_drawing one;
 
@@ -5055,6 +5063,16 @@ void app_paint(void)
         jw_drawing one;
 
         if (view_ready && have_drawing && jw_cmd_tategu_preview(&drawing, &one)) {
+            ui_view_rect(fb.w, fb.h, &view.clip);
+            jw_draw_kari = 1;
+            jw_draw(&fb, &view, &one);
+            jw_draw_kari = 0;
+        }
+    }
+    {
+        jw_drawing one;
+
+        if (view_ready && have_drawing && jw_cmd_param_preview(&drawing, &one)) {
             ui_view_rect(fb.w, fb.h, &view.clip);
             jw_draw_kari = 1;
             jw_draw(&fb, &view, &one);
