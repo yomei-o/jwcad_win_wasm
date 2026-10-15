@@ -97,6 +97,10 @@ static double cut_x, cut_y;     /* the first of the two range points */
    1・2 になって範囲選択の働き（CZukeiSentaku）に回る形。shk_rep が 1067 */
 static int shk_sel, shk_rep;
 static int sel_erase_now(jw_drawing *d);
+static void ikk_back(jw_drawing *d);
+static const char *ikk_prompt(void);
+static void ikk_start(jw_drawing *d);
+static void ikk_run(jw_drawing *d);
 
 /* コーナー処理: the first line, and where it was clicked.  CZukeiCorner
    keeps the same in +0x204 (0, then 2 once a line is down, then 3). */
@@ -169,6 +173,39 @@ static double stretch_rx, stretch_ry;
 static int stretch_based;
 static jw_obj stretch_base;
 static double stretch_bx, stretch_by;
+
+/* 伸縮・消去の 一括処理 (1064)。両方のバー（雛形 305、CIkktuDialog）の 1064 は
+ * FUN_004180c0 → 0x1401 → 25 番目（消去 FUN_0070e580・伸縮 FUN_007183c0）、
+ * 処理実行 1065 は FUN_004180f0 → 0x1402 → 26 番目（FUN_0070e6a0・
+ * FUN_00718530）。どちらも寸法の一括処理と同じ助け手（消去 +0x20c・伸縮
+ * +0x1f8、型 +0x14 が 2・1）を回す。段 +0x18:
+ *   1 基準線（伸縮）／消し始めの基準線（消去）。伸縮の (R) は読取点を基準点に、
+ *     消去の (R) は線を始線にして基準線なしの 一括消去 で 4 へ
+ *   2 消し終りの基準線（消去だけ。同じ線なら切断）
+ *   3 始線（選択に入れる）  4 終線 → 始線と終線の拾い位置を結ぶ線分が横切る
+ *     線を選ぶ（FUN_00562d40）  5 追加・除外（(L)）、(R) か 処理実行で実行
+ * 拾いは FUN_005637b0 の FUN_0044a270(3) で直線だけ、基準線は始線・終線・
+ * 追加にならない。段 3・4 の (R) は 同一線種（線種・線色・レイヤ・グループ）
+ * を立ててから左と同じ。実行は 消去 FUN_0070ce00（基準線が無ければ選んだ
+ * ものを消す、あれば二本の基準線の間を部分消し、同じ線なら切断間隔 1411 の
+ * 幅で切断）、伸縮 FUN_00716b20（基準線まで／基準点へ、突出寸法 1413）。
+ * 戻るは FUN_00562880、案内は FUN_00562600。逆コンパイルの読み、原典では
+ * 押していない。 */
+#define IKK_MAX 4096
+static int ikk_st;              /* 0 一括でない、1..5 段 */
+static int ikk_b1 = -1, ikk_b2 = -1;    /* 基準線 */
+static double ikk_b1x, ikk_b1y, ikk_b2x, ikk_b2y;
+static int ikk_pt;              /* 伸縮の基準点（基準線の代わり） */
+static double ikk_px, ikk_py;
+static int ikk_s = -1, ikk_e = -1;      /* 始線・終線 */
+static double ikk_ax, ikk_ay, ikk_bx, ikk_by;
+static int ikk_same;            /* 同一線種 */
+static int ikk_n;               /* 選んだ線と、その拾い位置 */
+static int ikk_at[IKK_MAX];
+static double ikk_hx[IKK_MAX], ikk_hy[IKK_MAX];
+/* 消去の 選択順切替 (1068): (R) の消去で文字を先に拾う（DAT_00a0cc3c、
+   FUN_0070ea90。既定 0） */
+static int shk_moji_first;
 
 /* 文字: what has been typed but not placed yet.  The original wants it that
    way round -- type into its floating box first, then click where it goes;
@@ -1369,6 +1406,14 @@ static void op_push(int n)
         o->n = n;
 }
 
+/* まとめて一手にする間（一括処理の実行）はその一手、ほかは新しい一手 */
+static op_t *op_batch;
+
+static op_t *op_get(void)
+{
+    return op_batch ? op_batch : op_new();
+}
+
 #define PI 3.14159265358979323846
 
 /* 印刷の命令の枠: 四本の線（src/plot.c の jw_pr_frame）。左下から 右下・右上・左上。
@@ -1962,6 +2007,22 @@ static void sok_value(char *out, int n, const jw_drawing *d, double v)
  */
 static int kyo_step;
 static double kyo_x, kyo_y;
+/* 連続 (1066): 置いた回数（原典 +0xb0）、向き、ここまでの距離の合計。
+ * CZukeiKyori の 27 番 FUN_006ba0b0 → 作図 FUN_006baad0 → FUN_006b9940 は
+ * 箱の距離を毎回読み直して配列 +0x100 に足し、始点から読取点の向きへ
+ * その合計だけ進んだ所に点を置く（1000 回まで、距離が 1e-7 未満なら
+ * 札 0x1455 で回数 0）。釦は回数が 1 以上で生きる（FUN_006baa70）。
+ * 左右のクリック・中断で回数 0。逆コンパイルの読み、原典では押していない */
+static int kyo_n;
+static double kyo_ux, kyo_uy, kyo_sum;
+
+/* マウス角 (1068): 0 切、1 Ｘ方向、2 Ｙ方向（CZukeiTourokuZukei の +0x228）。
+   入りなら一つ目のクリックが置く点（+0x210、+0x220 = 1）、二つ目が角度の点
+   （+0x230）。slot 29 FUN_00758b40・左 FUN_00758da0・角度 FUN_00757c70・
+   置いたあと slot 3 が角度を回転角の箱に書いて 0 に戻す。逆コンパイルの
+   読み、原典では押していない */
+static int fig_mouse, fig_apt;
+static double fig_ax, fig_ay;
 
 /* the 傾き box, in radians */
 static double box_angle(int id)
@@ -3575,6 +3636,8 @@ void jw_cmd_set(int id)
     comp_n = 0;
     cut_step = 0;
     shk_sel = shk_rep = 0;
+    ikk_st = 0;
+    ikk_n = 0;
     corner_step = 0;
     stretch_step = stretch_rwait = stretch_based = 0;
     para_step = 0;
@@ -3620,6 +3683,8 @@ void jw_cmd_set(int id)
     sok_reset();                /* a 測定 run does not cross a command */
     sok_mode = SOK_LEN;         /* and it comes up on 距離測定 */
     kyo_step = 0;
+    kyo_n = 0;
+    fig_mouse = fig_apt = 0;
     /* 測定 shows its readout from the moment it is entered, before any
        point is down (tools/probe125.sh) */
     if (id == JW_CMD_SOKUTEI)
@@ -3983,6 +4048,10 @@ void jw_cmd_esc_key(jw_drawing *d)
         sok_esc = 1;
         return;
     }
+    if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && ikk_st) {
+        ikk_back(d);
+        return;
+    }
     if (current == JW_CMD_SHOUKYO && shk_sel) {
         /* 範囲の途中: 終点待ちなら始点へ、ほかは範囲選択消去をやめる
            （CZukeiShoukyo の 16 番 FUN_0070ccb0 が +0x200 を 0 に戻す） */
@@ -4035,11 +4104,13 @@ int jw_cmd_midway(void)
     switch (current) {
     case JW_CMD_ENKO:      return en_step != 0;
     case JW_CMD_HOURAKU:   return hou_step != 0;
-    case JW_CMD_SHOUKYO:   return cut_step != 0;
+    case JW_CMD_SHOUKYO:   return cut_step != 0 || ikk_st != 0;
+    case JW_CMD_ZUKEI:     return fig_mouse != 0;
     case JW_CMD_CORNER:
     case JW_CMD_MENTORI:
     case JW_CMD_BUNKATSU:  return corner_step != 0 || bk_rr_n > 0;
-    case JW_CMD_SHINSHUKU: return stretch_step != 0 || stretch_based || stretch_rwait;
+    case JW_CMD_SHINSHUKU: return stretch_step != 0 || stretch_based || stretch_rwait
+                                  || ikk_st != 0;
     case JW_CMD_FUKUSEN:   return para_step != 0;
     case JW_CMD_NISEN:     return nisen_step != 0;
     case JW_CMD_SESSEN:    return ses_step != 0;
@@ -4096,6 +4167,19 @@ int jw_cmd_back(jw_drawing *d)
 {
     if (current == JW_PRINT_CMD && jw_pr_back())
         return 1;               /* 印刷の命令の slot 16: 段 1 → 0 */
+    if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && ikk_st) {
+        ikk_back(d);            /* 一括処理の段を戻る（FUN_00562880） */
+        tracking = 0;
+        return 1;
+    }
+    if (current == JW_CMD_ZUKEI && fig_mouse) {
+        /* マウス角（FUN_00757b00）: 点の後なら点を、前ならマウス角をやめる */
+        if (fig_apt)
+            fig_apt = 0;
+        else
+            fig_mouse = 0;
+        return 1;
+    }
     if (current == JW_CMD_KIGOU && sk_step == 4) {
         sk_step = 0;            /* 文字入力をやめる（置いたぶんはそのまま） */
         sk_run.active = 0;
@@ -4955,6 +5039,8 @@ const char *jw_cmd_prompt(void)
             return fp;
         }
     case JW_CMD_SHINSHUKU:
+        if (ikk_st)
+            return ikk_prompt();
         /* FUN_00717df0: 0x14db while the right is down once (+0x210 == 6),
            else 0x14d8 in state 0, 0x14da once a line is picked (1, 2) and
            0x14d9 while a 基準線 is held (3, 4) */
@@ -5079,6 +5165,8 @@ const char *jw_cmd_prompt(void)
             return ht_sel == 2 ? sel_prompt_corner() : JW_STR_5383;
         return ht_nchain == 0 ? JW_STR_5377 : JW_STR_5378;
     case JW_CMD_ZUKEI:
+        if (fig_mouse && fig_apt && jw_cmd_figure_ready())
+            return JW_STR_10118;    /* マウス角の 角度点 指示（slot 6 の 0x2786） */
         /* CZukeiTourokuZukei asks FUN_00572c70 whether there is a figure to
            place: no, and it puts up 0x14ea 「【図形】データがありません。
            再選沢してください。」; yes, and it puts up 0x14e9 「【図形】の
@@ -5092,6 +5180,8 @@ const char *jw_cmd_prompt(void)
            while it is 1 or 2. */
         return corner_step == 0 ? JW_STR_5340 : JW_STR_5341;
     case JW_CMD_SHOUKYO:
+        if (ikk_st)
+            return ikk_prompt();
         if (shk_sel)            /* 範囲選択消去: 範囲選択と同じ問いかけ */
             return shk_sel == 2 ? sel_prompt_corner()
                  : shk_sel == 3 ? sel_prompt_add() : JW_STR_5383;
@@ -6325,7 +6415,7 @@ static void cut_line(jw_drawing *d, int i, double px, double py,
 
     keep0 = t0 > 1e-07;
     keep1 = t1 < len - 1e-07;
-    rec = op_new();
+    rec = op_get();
     if (!keep0 && !keep1) {
         erase(d, i, rec);
         return;
@@ -13228,6 +13318,7 @@ int jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n)
     fig_coord = 0;
     fig_mag = 1.0;                      /* the bar comes up empty */
     fig_deg = 0.0;
+    fig_mouse = fig_apt = 0;
     jw_cmd_set(JW_CMD_ZUKEI);
     (void)d;
     return 1;
@@ -13445,6 +13536,25 @@ static void fig_boxes(void)
         fig_deg = box_num(g, 0.0);
 }
 
+/* 作図属性 (1067、CZukeiTourokuZukei の slot 28 FUN_00758840): 複写の 31 番と
+   同じ窓（雛形 342）で、図形の組 DAT_00a0c074・08c・0a4・0bc（+0x25c 書込線種・
+   +0x260 書込線色・+0x264 書込レイヤ・+0x268 書込グループ）。既定は .jwf の
+   S_COMM_5 が 0 のときの 0・0・1・1。置くとき（slot 3）書込グループでなければ
+   要素のグループ（縮尺もそのグループの）、書込レイヤでなければ要素のレイヤ。
+   逆コンパイルの読み、原典では押していない */
+static int fz_on[4] = { 0, 0, 1, 1 };
+
+int jw_cmd_fzoku(int k)
+{
+    return k >= 0 && k < 4 ? fz_on[k] : 0;
+}
+
+void jw_cmd_fzoku_set(int k, int on)
+{
+    if (k >= 0 && k < 4)
+        fz_on[k] = on != 0;
+}
+
 /* Which layer group and layer the figure goes on: the write ones. */
 static void fig_where(const jw_drawing *d, int *wg, int *wl)
 {
@@ -13466,12 +13576,22 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
                     double x, double y)
 {
     double fs = fig.group[p->lgroup & 15].scale;
-    double f = fs > 0.0 && d->group[wg].scale > 0.0
-                   ? fs / d->group[wg].scale : 1.0;
+    /* 書込レイヤは書込グループの中（元グループは元レイヤも伴う） */
+    int g = fz_on[3] || fz_on[2] ? wg : (p->lgroup & 15);
+    int l = fz_on[2] ? wl : (p->layer & 15);
+    double f = fs > 0.0 && d->group[g].scale > 0.0
+                   ? fs / d->group[g].scale : 1.0;
 
-    o->layer = (unsigned short)wl;
-    o->lgroup = (unsigned short)wg;
+    o->layer = (unsigned short)l;
+    o->lgroup = (unsigned short)g;
     o->sel = 0;
+    /* 作図属性の 書込線種・書込線色（複写の za_apply と同じ決まり） */
+    if (fz_on[0] && o->cls != JW_SOLID)
+        o->ltype = (unsigned char)(d->write_ltype ? d->write_ltype : 1);
+    if (fz_on[1] && o->cls != JW_MOJI) {
+        o->color = (unsigned short)(d->write_ltype ? d->write_color : 2);
+        o->width = (unsigned short)(d->write_ltype ? d->write_width : 0);
+    }
     jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
                  fig_deg * 3.141592653589793 / 180.0,
                  x - fig_bx, y - fig_by);
@@ -13493,6 +13613,47 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
            fills in from the same direction */
         o->d[7] = atan2(dy, dx) * 180.0 / 3.141592653589793;
     }
+}
+
+/* マウス角の角度（FUN_00757c70 と slot 3 の後半）: 置く点から (x, y) への
+   向きから軸角を引いて (-180, 180] に。Ｙ方向は 90° 引く。二点が重なれば 0 */
+static int fig_mouse_deg(double x, double y, double *deg)
+{
+    double a;
+
+    if (fabs(x - fig_ax) < 1e-7 && fabs(y - fig_ay) < 1e-7)
+        return 0;
+    a = atan2(y - fig_ay, x - fig_ax);
+    if (fig_mouse == 2)
+        a -= PI / 2.0;
+    a = a * 180.0 / PI - axis_deg;
+    while (a <= -180.0)
+        a += 360.0;
+    while (a > 180.0)
+        a -= 360.0;
+    if (fabs(a) < 1e-7)
+        a = 0.0;
+    *deg = a;
+    return 1;
+}
+
+/* 90ﾟ毎 (1064) の左（FUN_005f50c0）: 回転角を [0,360) に回し、次の 90 の倍数へ。
+   右（FUN_005f4fd0、一つ前へ）は移植のバーに右押しの口が無いので無い */
+static void fig_turn90(void)
+{
+    char *g = box_slot(JW_CMD_ZUKEI, 1412);
+    double a = g ? box_num(g, 0.0) : 0.0;
+    int k;
+
+    if (!g)
+        return;
+    a = fmod(a, 360.0);
+    if (a < 0.0)
+        a += 360.0;
+    k = (int)(a / 90.0) + 1;
+    if (k >= 4)
+        k = 0;
+    snprintf(g, 16, "%.10g", k * 90.0);
 }
 
 /* Put the figure down with its base point at (x, y). */
@@ -13621,9 +13782,24 @@ int jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out)
     }
     fig_boxes();
     fig_where(d, &wg, &wl);
-    for (i = 0; i < fig.ndrawn; i++) {
-        pv[i] = fig.obj[i];
-        fig_one(d, &fig, &pv[i], &fig.obj[i], wg, wl, tx, ty);
+    {
+        /* マウス角: 点の前は角度 0 でマウスに、点の後は置く点に、向きはマウスへ
+           （slot 6 FUN_00757470） */
+        double px = tx, py = ty, keep = fig_deg, deg = 0.0;
+
+        if (fig_mouse) {
+            if (fig_apt) {
+                px = fig_ax;
+                py = fig_ay;
+                fig_deg = fig_mouse_deg(tx, ty, &deg) ? deg : 0.0;
+            } else
+                fig_deg = 0.0;
+        }
+        for (i = 0; i < fig.ndrawn; i++) {
+            pv[i] = fig.obj[i];
+            fig_one(d, &fig, &pv[i], &fig.obj[i], wg, wl, px, py);
+        }
+        fig_deg = keep;
     }
     *out = *d;
     out->obj = pv;
@@ -14866,6 +15042,14 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return sel_step == 2 && !sel_cut && !sel_outside;
     if (current == JW_CMD_PARAM && sel_step == 3 && id == 1069)
         return 1;                   /* 二枚目の 1069 は 再選択 */
+    if (current == JW_CMD_KYORITEN && id == 1066)
+        return kyo_n > 0;           /* 連続: 一つ置いてから（FUN_006baa70） */
+    if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU)
+        && (id == 1064 || id == 1065))
+        /* 一括処理は一括の間は死に、処理実行は終線が決まってから
+           （FUN_004c9cb0 のバー 0xb／0xc・0x15／0x16） */
+        return id == 1064 ? !ikk_st && !(current == JW_CMD_SHOUKYO && shk_sel)
+                          : ikk_st == 5;
     switch (id) {
     case 1120:
         /* 寸法 has 実行 here, and it is alive at exactly one
@@ -15045,12 +15229,39 @@ static int bar_press(jw_drawing *d, int id)
         }
         return 0;
     }
+    if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && id == 1064) {
+        /* 一括処理: 消去は範囲選択消去の途中（+0x200）なら何もしない
+           （FUN_0070e580）。伸縮は条件なし（FUN_007183c0） */
+        if (!d || ikk_st || (current == JW_CMD_SHOUKYO && shk_sel))
+            return 0;
+        ikk_start(d);
+        return 1;
+    }
+    if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && id == 1065) {
+        /* 処理実行: 終線まで決まっていれば、その選択で実行して一括をやめる */
+        if (!d || ikk_st != 5)
+            return 0;
+        ikk_run(d);
+        return 1;
+    }
+    if (current == JW_CMD_SHOUKYO && id == 1068) {
+        /* 選択順切替 (FUN_0070ea90): 範囲選択消去の途中なら 選択図形登録
+           （FUN_006fb760、範囲選択の 1068 と同じ）、ほかは (R) の消去で
+           文字を先に拾うかを切り替える（札 5625・5626 は出さない） */
+        if (shk_sel) {
+            if (d && jw_cmd_sel_count(d) > 0)
+                hatch_register(d);
+            return 1;
+        }
+        shk_moji_first = !shk_moji_first;
+        return 1;
+    }
     if (current == JW_CMD_SHOUKYO && (id == 1066 || id == 1067)) {
         /* 範囲選択消去 (1066)・連続範囲選択消去 (1067): CZukeiShoukyo の
            27 番 FUN_0070e760（+0x200 = 1）と 28 番 FUN_0070e8f0（+0x200 = 2）。
            範囲の途中（+0x200 が 0 でない）では何もしない。逆コンパイルの読み、
            原典では押していない */
-        if (shk_sel || !d)
+        if (shk_sel || ikk_st || !d)
             return 0;
         sel_clear(d);
         cut_step = 0;
@@ -15665,6 +15876,39 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
     }
 
+    if (current == JW_CMD_ZUKEI && id == 1064) {
+        fig_turn90();           /* 90ﾟ毎 */
+        return 1;
+    }
+    if (current == JW_CMD_ZUKEI && id == 1068) {
+        /* マウス角: 押すたびに 切→Ｘ方向→Ｙ方向→切、点は取り直し */
+        fig_mouse = (fig_mouse + 1) % 3;
+        fig_apt = 0;
+        return 1;
+    }
+    if (current == JW_CMD_KYORITEN && id == 1066) {
+        /* 距離指定点の 連続: 前の点の先へ、いまの箱の距離をもう一つ（kyo_n の注） */
+        double mm;
+        jw_obj *o;
+
+        if (!d || kyo_n <= 0)
+            return 0;
+        mm = box_mm(d, 1412);
+        if (fabs(mm) < 1e-7 || kyo_n >= 1000) {
+            kyo_n = 0;
+            return 1;
+        }
+        kyo_sum += mm;
+        kyo_n++;
+        o = jw_add(d, JW_TEN);
+        if (o) {
+            o->d[0] = kyo_x + kyo_ux * kyo_sum;
+            o->d[1] = kyo_y + kyo_uy * kyo_sum;
+            o->n = jw_cmd_bar_check(1323) > 0;  /* 仮点 */
+            op_push(1);
+        }
+        return 1;
+    }
     if (current == JW_CMD_GAZOU && gz_bar(d, id))
         return 1;
     if (current == JW_PRINT_CMD && id == 1068) {
@@ -20730,7 +20974,7 @@ static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
         t += (t <= t0 ? -out : out) / sqrt(len2);
     nx = o->d[0] + t * dx;
     ny = o->d[1] + t * dy;
-    op_keep(op_new(), d, i, 0);
+    op_keep(op_get(), d, i, 0);
     if (lo) {
         o->d[0] = nx;
         o->d[1] = ny;
@@ -20779,6 +21023,361 @@ static void stretch_to_base(jw_drawing *d, int i, double x, double y)
     if (l2 < 1e-14)
         return;
     stretch_end(d, i, ((x - q->d[0]) * ex + (y - q->d[1]) * ey) / l2, px, py, 0.0);
+}
+
+/* ---- 一括処理 (ikk_st の注) ---- */
+static void ikk_mark(jw_drawing *d, int i, double x, double y)
+{
+    if (ikk_n >= IKK_MAX || d->obj[i].sel)
+        return;
+    d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
+    d->obj[i].sel = 1;
+    ikk_at[ikk_n] = i;
+    ikk_hx[ikk_n] = x;
+    ikk_hy[ikk_n] = y;
+    ikk_n++;
+}
+
+static void ikk_unmark(jw_drawing *d, int k)
+{
+    int i = ikk_at[k];
+
+    d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+    d->obj[i].sel = 0;
+    ikk_n--;
+    ikk_at[k] = ikk_at[ikk_n];
+    ikk_hx[k] = ikk_hx[ikk_n];
+    ikk_hy[k] = ikk_hy[ikk_n];
+}
+
+static void ikk_unsel(jw_drawing *d)
+{
+    sel_clear(d);
+    ikk_n = 0;
+}
+
+static void ikk_start(jw_drawing *d)
+{
+    sel_clear(d);
+    cut_step = 0;
+    stretch_step = stretch_rwait = stretch_based = 0;
+    ikk_st = 1;
+    ikk_b1 = ikk_b2 = ikk_s = ikk_e = -1;
+    ikk_pt = 0;
+    ikk_same = 0;
+    ikk_n = 0;
+}
+
+static int ikk_is_base(int i)
+{
+    return i >= 0 && (i == ikk_b1 || i == ikk_b2);
+}
+
+static int ikk_same_attr(const jw_obj *a, const jw_obj *b)
+{
+    return a->ltype == b->ltype && a->color == b->color
+        && a->layer == b->layer && a->lgroup == b->lgroup;
+}
+
+/* FUN_00562d40: 始線の拾い位置 A から終線の拾い位置 B への線分が横切る直線。
+   両端が AB の両側にあり、交点が AB の上にあるもの。拾い位置はその交点 */
+static void ikk_range(jw_drawing *d)
+{
+    double ux = ikk_bx - ikk_ax, uy = ikk_by - ikk_ay;
+    double ul = sqrt(ux * ux + uy * uy);
+    int i;
+
+    if (ul < 1e-7 || ikk_s < 0)
+        return;
+    ux /= ul;
+    uy /= ul;
+    for (i = d->ndrawn - 1; i >= 0; i--) {
+        const jw_obj *o = &d->obj[i];
+        double h0, h1, t;
+
+        if (o->cls != JW_SEN || o->sel || ikk_is_base(i) || i == ikk_s
+            || i == ikk_e || !jw_pick_editable(d, o))
+            continue;
+        if (ikk_same && !ikk_same_attr(o, &d->obj[ikk_s]))
+            continue;
+        h0 = (o->d[0] - ikk_ax) * -uy + (o->d[1] - ikk_ay) * ux;
+        h1 = (o->d[2] - ikk_ax) * -uy + (o->d[3] - ikk_ay) * ux;
+        if (h0 * h1 >= 0.0)
+            continue;
+        t = ((o->d[0] - ikk_ax) * ux + (o->d[1] - ikk_ay) * uy) * (h1 / (h1 - h0))
+          + ((o->d[2] - ikk_ax) * ux + (o->d[3] - ikk_ay) * uy) * (-h0 / (h1 - h0));
+        if (t < -1e-7 || t > ul + 1e-7)
+            continue;
+        ikk_mark(d, i, ikk_ax + ux * t, ikk_ay + uy * t);
+    }
+}
+
+/* 段 3〜5 の左（FUN_005637b0）。段が進めば 1 */
+static int ikk_left(jw_drawing *d, int i, double x, double y)
+{
+    int k;
+
+    if (ikk_st == 1) {
+        ikk_b1 = i;
+        ikk_b1x = x;
+        ikk_b1y = y;
+        ikk_st = current == JW_CMD_SHOUKYO ? 2 : 3;
+        return 1;
+    }
+    if (ikk_st == 2) {          /* 同じ線なら切断（0x2737） */
+        ikk_b2 = i;
+        ikk_b2x = x;
+        ikk_b2y = y;
+        ikk_st = 3;
+        return 1;
+    }
+    if (ikk_is_base(i))
+        return 0;               /* 0x1512「基準線です」 */
+    if (ikk_st == 3) {
+        ikk_s = i;
+        ikk_ax = x;
+        ikk_ay = y;
+        ikk_mark(d, i, x, y);
+        ikk_st = 4;
+        return 1;
+    }
+    if (ikk_st == 4) {
+        if (i == ikk_s)
+            return 0;           /* 0x14e7「同一線です」 */
+        if (ikk_same && !ikk_same_attr(&d->obj[i], &d->obj[ikk_s]))
+            return 0;           /* 0x145b・0x145c・0x145a */
+        ikk_e = i;
+        ikk_bx = x;
+        ikk_by = y;
+        ikk_mark(d, i, x, y);
+        ikk_range(d);
+        ikk_st = 5;
+        return 1;
+    }
+    for (k = 0; k < ikk_n; k++)         /* 段 5: 追加・除外 */
+        if (ikk_at[k] == i) {
+            ikk_unmark(d, k);
+            return 1;
+        }
+    ikk_mark(d, i, x, y);
+    return 1;
+}
+
+static void ikk_click(jw_drawing *d, const jw_view *v, double x, double y,
+                      int button)
+{
+    int i;
+
+    if (button != 0) {          /* FUN_00564350 */
+        if (ikk_st == 5) {
+            ikk_run(d);
+            return;
+        }
+        if (ikk_st == 1 && current == JW_CMD_SHINSHUKU) {
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            ikk_pt = 1;         /* FUN_00564870: 基準点、基準線なし */
+            ikk_px = rx;
+            ikk_py = ry;
+            ikk_b1 = -1;
+            ikk_st = 3;
+            return;
+        }
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0 || d->obj[i].cls != JW_SEN)
+            return;             /* 0x14de「直線ではありません。」 */
+        if (ikk_st == 1) {      /* 消去: 基準線なしの 一括消去 */
+            if (!jw_pick_editable(d, &d->obj[i]))
+                return;
+            ikk_s = i;
+            ikk_ax = x;
+            ikk_ay = y;
+            ikk_mark(d, i, x, y);
+            ikk_st = 4;
+            return;
+        }
+        if (ikk_st == 3 || ikk_st == 4) {
+            int was = ikk_same;
+
+            ikk_same = 1;       /* 同一線種選択 */
+            if (!ikk_left(d, i, x, y))
+                ikk_same = was;
+            return;
+        }
+        ikk_left(d, i, x, y);
+        return;
+    }
+    i = jw_pick(d, v, x, y, 3);
+    if (i < 0 || d->obj[i].cls != JW_SEN)
+        return;
+    if (ikk_st >= 3 && !jw_pick_editable(d, &d->obj[i]))
+        return;
+    ikk_left(d, i, x, y);
+}
+
+/* 戻る (FUN_00562880) */
+static void ikk_back(jw_drawing *d)
+{
+    switch (ikk_st) {
+    case 1:
+        ikk_st = 0;
+        break;
+    case 2:
+    case 3:
+        ikk_st = 1;
+        ikk_b1 = ikk_b2 = -1;
+        ikk_pt = 0;
+        break;
+    default:
+        if (d)
+            ikk_unsel(d);
+        ikk_s = ikk_e = -1;
+        ikk_same = 0;
+        if (current == JW_CMD_SHOUKYO && ikk_b1 < 0 && ikk_b2 < 0)
+            ikk_st = 1;
+        else
+            ikk_st = 3;
+        break;
+    }
+}
+
+/* 案内 (FUN_00562600) */
+static const char *ikk_prompt(void)
+{
+    static char p1[200];
+
+    switch (ikk_st) {
+    case 1:
+        if (current == JW_CMD_SHOUKYO)
+            return JW_STR_5389;
+        snprintf(p1, sizeof p1, "%s%s", JW_STR_5388, JW_STR_5601);
+        return p1;
+    case 2:
+        return JW_STR_5390;
+    case 3:
+        return JW_STR_5391;
+    case 4:
+        return JW_STR_5392;
+    }
+    return JW_STR_5393;
+}
+
+/* 消去の一本（FUN_0070ce00 の線ごと）: 二本の基準線との交点の間を消す */
+static void ikk_cut_one(jw_drawing *d, int i, const jw_obj *b1, const jw_obj *b2)
+{
+    const jw_obj *o = &d->obj[i];
+    double p1x, p1y, p2x, p2y, ux, uy, len, t1, t2, w;
+
+    if (o->cls != JW_SEN)
+        return;
+    if (!cross_obj(b1, o, ikk_b1x, ikk_b1y, &p1x, &p1y)
+        || !cross_obj(b2, o, ikk_b2x, ikk_b2y, &p2x, &p2y))
+        return;
+    if (fabs(p1x) > 1e6 || fabs(p1y) > 1e6 || fabs(p2x) > 1e6 || fabs(p2y) > 1e6)
+        return;
+    ux = o->d[2] - o->d[0];
+    uy = o->d[3] - o->d[1];
+    len = sqrt(ux * ux + uy * uy);
+    if (len < 1e-7)
+        return;
+    ux /= len;
+    uy /= len;
+    t1 = (p1x - o->d[0]) * ux + (p1y - o->d[1]) * uy;
+    t2 = (p2x - o->d[0]) * ux + (p2y - o->d[1]) * uy;
+    if (t2 < t1) {
+        double t = t1;
+        t1 = t2;
+        t2 = t;
+    }
+    if (ikk_b1 == ikk_b2 || t2 - t1 < 1e-7) {
+        /* 切断: 切断間隔 1411 の幅（実寸 2096 なら縮尺で割る） */
+        w = box_num(jw_cmd_box(1411), 0.0);
+        if (w < 0.0)
+            w = 0.0;
+        if (jw_cmd_bar_check(2096) > 0)
+            w /= write_scale(d);
+        t1 -= w / 2.0;
+        t2 += w / 2.0;
+    }
+    cut_line(d, i, o->d[0] + ux * t1, o->d[1] + uy * t1,
+             o->d[0] + ux * t2, o->d[1] + uy * t2);
+}
+
+/* 実行（消去 FUN_0070ce00・伸縮 FUN_00716b20）。一手にまとめて、一括をやめる */
+static void ikk_run(jw_drawing *d)
+{
+    int k, j;
+    op_t *rec;
+    jw_obj b1, b2;              /* 写し: 消した線で番号がずれても困らない */
+
+    memset(&b1, 0, sizeof b1);
+    memset(&b2, 0, sizeof b2);
+    if (ikk_b1 >= 0 && ikk_b1 < d->ndrawn)
+        b1 = d->obj[ikk_b1];
+    if (ikk_b2 >= 0 && ikk_b2 < d->ndrawn)
+        b2 = d->obj[ikk_b2];
+    /* 番号の大きいほうから: 消した線より後ろの番号だけがずれる */
+    for (k = 1; k < ikk_n; k++) {
+        int a = ikk_at[k];
+        double hx = ikk_hx[k], hy = ikk_hy[k];
+
+        for (j = k; j > 0 && ikk_at[j - 1] < a; j--) {
+            ikk_at[j] = ikk_at[j - 1];
+            ikk_hx[j] = ikk_hx[j - 1];
+            ikk_hy[j] = ikk_hy[j - 1];
+        }
+        ikk_at[j] = a;
+        ikk_hx[j] = hx;
+        ikk_hy[j] = hy;
+    }
+    rec = op_new();
+    op_batch = rec;
+    for (k = 0; k < ikk_n; k++) {
+        int i = ikk_at[k];
+
+        if (i < 0 || i >= d->ndrawn || d->obj[i].cls != JW_SEN)
+            continue;
+        d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+        d->obj[i].sel = 0;
+        if (current == JW_CMD_SHOUKYO) {
+            if (ikk_b1 < 0 && ikk_b2 < 0)
+                erase(d, i, rec);
+            else if (ikk_b1 >= 0 && ikk_b2 >= 0)
+                ikk_cut_one(d, i, &b1, &b2);
+        } else if (ikk_b1 >= 0) {
+            stretch_base = b1;
+            stretch_bx = ikk_b1x;
+            stretch_by = ikk_b1y;
+            stretch_to_base(d, i, ikk_hx[k], ikk_hy[k]);
+        } else if (ikk_pt) {
+            jw_obj *q = &d->obj[i];
+            double ex = q->d[2] - q->d[0], ey = q->d[3] - q->d[1];
+            double l2 = ex * ex + ey * ey;
+
+            if (l2 > 1e-14)
+                stretch_end(d, i, ((ikk_hx[k] - q->d[0]) * ex
+                                   + (ikk_hy[k] - q->d[1]) * ey) / l2,
+                            ikk_px, ikk_py, stretch_out(d));
+        }
+    }
+    op_batch = 0;
+    if (rec && !rec->nitem && !rec->n) {
+        nop--;                  /* 何も変わらなければ一手にしない */
+        ntop = nop;
+    }
+    ikk_unsel(d);
+    ikk_st = 0;
+    ikk_b1 = ikk_b2 = ikk_s = ikk_e = -1;
+    ikk_pt = 0;
+    ikk_same = 0;
+    stretch_based = 0;
+}
+
+int jw_cmd_ikkatsu(void)
+{
+    return (current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && ikk_st != 0;
 }
 
 /* The mouse moved with the right button pressed once in 伸縮: 線切断 there
@@ -21566,6 +22165,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_KYORITEN) {
         double rx = x, ry = y, dx, dy, len, mm;
 
+        kyo_n = 0;                      /* 押すたびに連続は切れる */
         if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
             return;
         if (!kyo_step) {
@@ -21591,6 +22191,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 o->d[1] = kyo_y + dy / len * mm;
                 o->n = jw_cmd_bar_check(1323) > 0;      /* 仮点 */
                 op_push(1);
+                kyo_ux = dx / len;
+                kyo_uy = dy / len;
+                kyo_sum = mm;
+                kyo_n = 1;
             }
         }
         return;
@@ -22417,6 +23021,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         int i;
         if (!d)
             return;
+        if (ikk_st) {
+            ikk_click(d, v, x, y, button);
+            return;
+        }
         if (stretch_rwait) {
             if (stretch_far(v, x, y)) {
                 stretch_rwait = 0;      /* it moved: 線切断 at the first point */
@@ -23253,6 +23861,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         int i;
         if (!d)
             return;
+        if (ikk_st) {
+            ikk_click(d, v, x, y, button);
+            return;
+        }
         if (shk_sel) {
             /* 範囲選択消去: 範囲選択と同じ二点の箱（ハッチの 範囲選択 と同じ形） */
             if (shk_sel == 1 || shk_sel == 3) {
@@ -23286,7 +23898,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             button = 0;
         }
         if (button == 1) {
-            i = jw_pick(d, v, x, y, 0);
+            /* 選択順切替 (1068) が立っていれば 文字を先に（FUN_0070f880 の
+               FUN_004500e0(1,…)）、取れなければふだんの拾い */
+            i = shk_moji_first ? jw_pick_moji(d, v, x, y) : -1;
+            if (i < 0)
+                i = jw_pick(d, v, x, y, 0);
             if (i >= 0)
                 erase(d, i, op_new());
             cut_step = 0;
@@ -23389,6 +24005,26 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_ZUKEI) {
         /* 図形読込: the figure hangs on the cursor and a point puts it
            down.  It stays on it, so another point puts down another. */
+        if (fig_mouse && fig_have) {
+            /* マウス角: 一つ目は置く点、二つ目の向きが回転角（fig_mouse の注） */
+            double deg;
+            char *g = box_slot(JW_CMD_ZUKEI, 1412);
+
+            if (!fig_apt) {
+                fig_ax = x;
+                fig_ay = y;
+                fig_apt = 1;
+                return;
+            }
+            if (!fig_mouse_deg(x, y, &deg))
+                return;
+            if (g)
+                snprintf(g, 16, "%.10g", deg);
+            fig_apt = 0;
+            figure_place(d, fig_ax, fig_ay);
+            fig_mouse = 0;
+            return;
+        }
         figure_place(d, x, y);
         return;
     }

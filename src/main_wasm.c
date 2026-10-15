@@ -264,6 +264,10 @@ static int finish(int redraw)
     case JW_ACT_CLIP_PUT:
         app_paint();            /* 切り取り は図面を変えている */
         return 16;              /* コピー・切り取り: システムのクリップボードへ */
+    case JW_ACT_OPEN_FIG:
+        return 21;              /* 図形 (32862): .jws を選ばせて jw_figure へ */
+    case JW_ACT_EXIT:
+        break;                  /* Jw_cadの終了: 頁は自分を閉じられない */
     }
     if (redraw)
         app_paint();

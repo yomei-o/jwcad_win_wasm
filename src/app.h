@@ -96,7 +96,13 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        /* コピー・切り取りが図形を控えた: 表側はそれをシステムのクリップボード
           へ（jw_cmd_clip_get の図形、選んだ字があれば jw_cmd_moji_clip の
           字を文字列として。原典 FUN_004fb140 の CF_UNICODETEXT） */
-       JW_ACT_CLIP_PUT };
+       JW_ACT_CLIP_PUT,
+       /* 図形 (32862): 命令に入ったところで原典はファイルの窓を出す。表側が
+          .jws を選ばせて app_figure に渡す（取り消せば命令のまま「データが
+          ありません」） */
+       JW_ACT_OPEN_FIG,
+       /* Jw_cadの終了 (57665): 表側が窓を閉じる（保存の問いは WM_CLOSE の側） */
+       JW_ACT_EXIT };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */

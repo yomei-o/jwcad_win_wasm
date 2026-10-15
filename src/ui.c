@@ -4525,6 +4525,33 @@ static int bar_now(const jw_ctl_t **c)
         return NB + 3;
     }
 
+    /* 伸縮・消去の 一括処理 の間: 雛形 305 の隠れた 処理実行 (1065、DLU 111)
+       を見せ、切断間隔の組・範囲選択消去の釦などを隠す（原典 FUN_004c9cb0
+       のバー 0xb・0x15。伸縮は 突出寸法 を残す。消去の 0x15 の細かい
+       見せ隠しは読み切っていないので 1064・1065 だけにする）。逆コンパイルの
+       読み、原典では押していない */
+    if ((cmd == JW_CMD_SHOUKYO || cmd == JW_CMD_SHINSHUKU) && jw_cmd_ikkatsu()) {
+        static jw_ctl_t ik[16];
+        const jw_ctl_t *src = cmd == JW_CMD_SHOUKYO ? jw_bar_32794 : jw_bar_32791;
+        int ns = cmd == JW_CMD_SHOUKYO
+                 ? (int)(sizeof jw_bar_32794 / sizeof jw_bar_32794[0])
+                 : (int)(sizeof jw_bar_32791 / sizeof jw_bar_32791[0]);
+        static const jw_ctl_t run = {
+            203,   5,   67,  24,  1065, JW_CTL_BUTTON, 0, 0, 1,
+            "\x8f\x88\x97\x9d\x8e\xc0\x8d\x73" };           /* 処理実行 */
+        int n = 0;
+
+        for (i = 0; i < ns && n < 15; i++) {
+            unsigned short id = src[i].id;
+
+            if (id == 1064 || id == 2518 || id == 1413)
+                ik[n++] = src[i];
+        }
+        ik[n++] = run;
+        *c = ik;
+        return n;
+    }
+
     /* Once a range is settled the command puts up a bar of its own -- the
        one tools/bars2.ps1 reads, filed under 100000 + the command.  範囲選択
        has none, so it keeps the one it started with. */

@@ -3082,6 +3082,11 @@ static void bn_close(int ok)
 static const short ZA_ID[4] = { 1324, 1323, 1325, 1326 };
 static const short ZA_KEEP_ID[5] = { 1322, 2114, 1328, 2250, 2556 };
 static unsigned char za_keep[5];
+/* 1 なら 図形読込の 作図属性 (1067) として開いている（jw_cmd_fzoku）。原典は
+   1325・1326 の字を「◆元レイヤに作図」「◆元ｸﾞﾙｰﾌﾟに作図」に替えて印を
+   逆向きに持つ（FUN_004ae8d0）が、移植の窓は字を替えられないので 複写 の字の
+   まま同じ三通り（書込レイヤ／書込グループで元レイヤ／元グループ）を持つ */
+static int za_fig;
 
 static void za_tick(int id, int on)
 {
@@ -3104,8 +3109,24 @@ static void za_open(void)
 
     if (!td_start(342))
         return;
+    za_fig = 0;
     for (k = 0; k < 4; k++)
         za_tick(ZA_ID[k], jw_cmd_zuzoku(k));
+    for (k = 0; k < 5; k++)
+        za_tick(ZA_KEEP_ID[k], za_keep[k]);
+}
+
+static void fz_open(void)
+{
+    int k;
+
+    if (!td_start(342))
+        return;
+    za_fig = 1;
+    za_tick(1324, jw_cmd_fzoku(0));
+    za_tick(1323, jw_cmd_fzoku(1));
+    za_tick(1325, jw_cmd_fzoku(2));
+    za_tick(1326, jw_cmd_fzoku(3) && !jw_cmd_fzoku(2));
     for (k = 0; k < 5; k++)
         za_tick(ZA_KEEP_ID[k], za_keep[k]);
 }
@@ -3114,6 +3135,15 @@ static void za_save(void)
 {
     int k;
 
+    if (za_fig) {
+        jw_cmd_fzoku_set(0, za_ticked(1324));
+        jw_cmd_fzoku_set(1, za_ticked(1323));
+        jw_cmd_fzoku_set(3, za_ticked(1325) || za_ticked(1326));
+        jw_cmd_fzoku_set(2, za_ticked(1325));
+        for (k = 0; k < 5; k++)
+            za_keep[k] = (unsigned char)za_ticked(ZA_KEEP_ID[k]);
+        return;
+    }
     for (k = 0; k < 4; k++)
         jw_cmd_zuzoku_set(k, za_ticked(ZA_ID[k]));
     for (k = 0; k < 5; k++)
@@ -3132,6 +3162,8 @@ static int za_press(int id)
     if (id == 1064) {
         for (k = 0; k < 4; k++)
             za_tick(ZA_ID[k], 0);
+        if (za_fig)             /* 図形では「◆書込レイヤ、元線色、元線種」(0x182c) */
+            za_tick(1325, 1);
         za_save();
         td_open = 0;
         return 1;
@@ -4601,6 +4633,10 @@ int app_command(int cmd)
             action = JW_ACT_SAVE_COORD;
         if (cmd == 32913 && have_drawing)
             action = JW_ACT_GAIBU;          /* the front end picks the BAT */
+        /* 図形 (32862): 原典は命令に入ってファイルの窓を出す。移植は表側に
+           選ばせて app_figure で受ける */
+        if (cmd == JW_CMD_ZUKEI && have_drawing)
+            action = JW_ACT_OPEN_FIG;
         return 1;
     }
     /* a dialog put up from the original's own template (td_start) */
@@ -4753,10 +4789,19 @@ int app_command(int cmd)
         bt_close();
         return 1;
     case 32862:                         /* 図形読込 */
-        /* The original puts up a file window of its own here.  The port has
-           none: the front end reads the .jws and calls app_figure, which is
-           what enters the command. */
-        return 0;
+        /* 釦にあれば上で命令に入り JW_ACT_OPEN_FIG を置く。ここへ来るのは
+           釦の表に無いときだけ: 同じように命令に入って表側に選ばせる */
+        if (!have_drawing)
+            return 0;
+        jw_cmd_flush(&drawing);
+        jw_cmd_set(JW_CMD_ZUKEI);
+        bt_close();
+        action = JW_ACT_OPEN_FIG;
+        return 1;
+    case 57665:                         /* Jw_cadの終了 */
+        /* 原典は CWinApp の ID_APP_EXIT（主窓に WM_CLOSE）。窓は表側のもの */
+        action = JW_ACT_EXIT;
+        return 1;
     case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;
@@ -5138,6 +5183,18 @@ int app_press(int x, int y, int button)
         if (id == 1070 && jw_cmd_sel_stage() == 3
             && (jw_cmd() == JW_CMD_FUKUSHA || jw_cmd() == JW_CMD_IDOU)) {
             za_open();
+            return 1;
+        }
+        /* 図形読込の 作図属性 (1067): 同じ窓を図形の組で（jw_cmd_fzoku） */
+        if (id == 1067 && jw_cmd() == JW_CMD_ZUKEI) {
+            fz_open();
+            return 1;
+        }
+        /* 図形選択 (1065): slot 26 FUN_00758820 → FUN_0075a9a0（+0x1f8 = 1）。
+           クロックの「【図形】再選沢」と同じ関数で、ファイルの窓を出し直す
+           見込み（窓の側は読み切っていない） */
+        if (id == 1065 && jw_cmd() == JW_CMD_ZUKEI && have_drawing) {
+            action = JW_ACT_OPEN_FIG;
             return 1;
         }
         if (id == 1070 && jw_cmd_bar_enabled(have_drawing ? &drawing : 0,

@@ -285,7 +285,11 @@ static void prompts_of_the_commands(void)
     cksame(jw_cmd_prompt(), JW_STR_5420, "整理は確定すると実行項目を指示");
 
     /* 図形読込: 図形がなければ 0x14ea */
+    app_take_action();
     app_command(JW_CMD_ZUKEI);
+    ck(app_take_action() == JW_ACT_OPEN_FIG,
+       "図形 (32862) は表側にファイルの窓を出させる");
+    ck(jw_cmd() == JW_CMD_ZUKEI, "  命令には入っている");
     ck(!jw_cmd_figure_ready(), "まだ図形を読んでいない");
     cksame(jw_cmd_prompt(), JW_STR_5354,
            "  その間は「【図形】データがありません」");
@@ -932,6 +936,142 @@ static void moji_pick_move(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 距離指定点 (32930) の 連続 (1066): 置いた点の先へ、いまの箱の距離を
+   もう一つ足した所に点。CZukeiKyori の 27 番 FUN_006ba0b0 → FUN_006baad0
+   → FUN_006b9940 の読み（逆コンパイルの読み、原典では押していない）。
+   釦は一つ置いてから生き、新しいクリックで死ぬ（FUN_006baa70）。 */
+static int ten_count(const jw_drawing *d)
+{
+    int i, n = 0;
+
+    for (i = 0; i < d->ndrawn; i++)
+        n += d->obj[i].cls == JW_TEN;
+    return n;
+}
+
+static void kyori_ren(void)
+{
+    jw_drawing *d;
+    const jw_obj *o;
+    double s;
+    int n0;
+
+    app_new();
+    d = app_drawing();
+    s = scale_of(d);
+    app_command(JW_CMD_KYORITEN);
+    type_into(1412, "1000");
+    jw_cmd_box_key(13);
+    jw_cmd_box_click(0);
+    ck(jw_cmd_bar_enabled(d, 1066) == 0, "距離指定点の 連続 は始めは死んでいる");
+    n0 = ten_count(d);
+    click(0.0, 0.0);
+    click(50.0, 0.0);
+    o = last_of(d, JW_TEN);
+    ck(ten_count(d) == n0 + 1 && o && fabs(o->d[0] - 1000.0 / s) < 1e-6
+       && fabs(o->d[1]) < 1e-6, "  一つ目は始点から 1000 の所");
+    ck(jw_cmd_bar_enabled(d, 1066) > 0, "  置くと 連続 が生きる");
+    ck(jw_cmd_bar(d, 1066), "  連続 を押す");
+    o = last_of(d, JW_TEN);
+    ck(ten_count(d) == n0 + 2 && o && fabs(o->d[0] - 2000.0 / s) < 1e-6,
+       "  二つ目は 2000 の所");
+    type_into(1412, "500");
+    jw_cmd_box_key(13);
+    jw_cmd_box_click(0);
+    jw_cmd_bar(d, 1066);
+    o = last_of(d, JW_TEN);
+    ck(ten_count(d) == n0 + 3 && o && fabs(o->d[0] - 2500.0 / s) < 1e-6,
+       "  箱を 500 にすると その先 500 の所");
+    click(10.0, 10.0);
+    ck(jw_cmd_bar_enabled(d, 1066) == 0, "  新しいクリックで 連続 は切れる");
+}
+
+/* 図形読込のバー: 90ﾟ毎 (1064)・マウス角 (1068)・作図属性 (1067)。
+   CTourokuZuDialog の 1064（CMy3Button、左 FUN_005f50c0）、1068 → slot 29
+   FUN_00758b40・左 FUN_00758da0・FUN_00757c70、1067 → slot 28 FUN_00758840
+   の読み（逆コンパイルの読み、原典では押していない） */
+static unsigned char *fig_bytes(long *n)
+{
+    FILE *f = fopen("decomp/res/fig.jws", "rb");
+    unsigned char *b;
+
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    *n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)*n);
+    if (b && fread(b, 1, (size_t)*n, f) != (size_t)*n) {
+        free(b);
+        b = 0;
+    }
+    fclose(f);
+    return b;
+}
+
+static void fig_bar(void)
+{
+    jw_drawing *d, fg;
+    unsigned char *b;
+    long n;
+    int n0, i, figlayer = -1, ok;
+    double bx, by;
+
+    app_new();
+    d = app_drawing();
+    b = fig_bytes(&n);
+    ck(b != 0, "decomp/res/fig.jws を読む");
+    if (!b)
+        return;
+    memset(&fg, 0, sizeof fg);
+    if (jw_parse_jws(&fg, b, n, &bx, &by) && fg.ndrawn > 0)
+        figlayer = fg.obj[0].layer;
+    ck(app_figure(b, n) && jw_cmd() == JW_CMD_ZUKEI, "図形を読むと 図形読込");
+
+    jw_cmd_bar(d, 1064);
+    cksame(jw_cmd_box(1412), "90", "90ﾟ毎: 空の回転角は 90 に");
+    jw_cmd_bar(d, 1064);
+    cksame(jw_cmd_box(1412), "180", "  もう一度で 180");
+    jw_cmd_box_put(1412, "45");
+    jw_cmd_bar(d, 1064);
+    cksame(jw_cmd_box(1412), "90", "  45 は 90 に");
+    jw_cmd_box_put(1412, "300");
+    jw_cmd_bar(d, 1064);
+    cksame(jw_cmd_box(1412), "0", "  300 は 0 に");
+
+    n0 = d->ndrawn;
+    jw_cmd_bar(d, 1068);                /* マウス角: Ｘ方向 */
+    click(10.0, 10.0);
+    ck(d->ndrawn == n0, "マウス角: 一つ目のクリックでは置かない");
+    cksame(jw_cmd_prompt(), JW_STR_10118, "  角度点の問い");
+    click(10.0, 30.0);
+    ck(d->ndrawn > n0, "  二つ目で置く");
+    cksame(jw_cmd_box(1412), "90", "  その向き（真上）が回転角に");
+    ck(strcmp(jw_cmd_prompt(), JW_STR_10118) != 0, "  一回きりで戻る");
+    jw_cmd_bar(d, 1068);
+    jw_cmd_bar(d, 1068);                /* Ｙ方向 */
+    click(0.0, 0.0);
+    click(0.0, 20.0);
+    cksame(jw_cmd_box(1412), "0", "  Ｙ方向では真上が 0");
+
+    ck(!jw_cmd_fzoku(0) && !jw_cmd_fzoku(1) && jw_cmd_fzoku(2) && jw_cmd_fzoku(3),
+       "作図属性の既定は 書込レイヤ・書込グループ");
+    jw_cmd_fzoku_set(2, 0);             /* 元レイヤ */
+    n0 = d->ndrawn;
+    click(50.0, 50.0);
+    ok = d->ndrawn > n0;
+    for (i = n0; i < d->ndrawn; i++)
+        ok &= d->obj[i].layer == figlayer;
+    ck(ok && figlayer >= 0, "  元レイヤ なら図形のレイヤのまま");
+    jw_cmd_fzoku_set(2, 1);
+    ck(bar_press(1067) && app_tdlg_open() && app_tdlg_tpl() == 342,
+       "  作図属性 (1067) は 作図属性設定 の窓");
+    app_key(13);
+    ck(jw_cmd_fzoku(2) && jw_cmd_fzoku(3), "  開いて OK でもそのまま");
+    jw_free(&fg);
+    free(b);
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -1031,6 +1171,14 @@ int main(void)
     moji_point_first();
     moji_pick_move();
     moji_hani_clip();
+
+    kyori_ren();
+    fig_bar();
+
+    /* Jw_cadの終了 (57665): 表側に窓を閉じさせる（ネイティブは WM_CLOSE） */
+    app_take_action();
+    ck(app_command(57665) && app_take_action() == JW_ACT_EXIT,
+       "Jw_cadの終了 は表側に閉じさせる");
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;

@@ -157,6 +157,10 @@ WANT = [
     (5208, 'notice: it is a circle'),
     (5611, 'notice: reverse division (division helper)'),
     (5612, 'notice: division by length ratio (division helper)'),
+    (5388, 'the base line of a stretch all at once'),
+    (5389, 'the first base line of an erase all at once, or its first line'),
+    (5390, 'the second base line of an erase all at once'),
+    (5601, 'point: free (LL), Read (R)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'
