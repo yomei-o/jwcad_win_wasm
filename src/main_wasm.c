@@ -699,6 +699,17 @@ EMSCRIPTEN_KEEPALIVE void jw_saved_free(void)
     saved_n = 0;
 }
 
+/* 指で叩くとき (LL) の幅を広げ、間が空いたら預かりを渡す（app_ll_slop） */
+EMSCRIPTEN_KEEPALIVE void jw_ll_slop(int px)
+{
+    app_ll_slop(px);
+}
+
+EMSCRIPTEN_KEEPALIVE int jw_ll_break(void)
+{
+    return finish(app_ll_break());
+}
+
 EMSCRIPTEN_KEEPALIVE int jw_move(int x, int y)
 {
     y -= app_chrome_h();
