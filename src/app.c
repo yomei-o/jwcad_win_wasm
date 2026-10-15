@@ -1595,6 +1595,10 @@ static void kh_apply(void)
 #define KH_TXT 48
 static char kh_txt[8][256][KH_TXT];
 static char kh_txt_saved[8][256][KH_TXT];
+/* what the drawing's boxes held when the dialog came up (or last followed the
+   drawing): a box not typed into since follows the drawing -- 色の設定 opened
+   from 色・画面 changes a pen under it -- and OK writes only the typed ones */
+static char kh_txt_init[8][256][KH_TXT];
 static int kh_txt_have;
 /* the box being typed into (tab and index), or -1; and whether nothing has
    been typed since it was clicked, so the first key replaces what is there */
@@ -1772,7 +1776,8 @@ static void kh_live_apply(void)
         long v;
         unsigned int rgb;
 
-        if (!ui_kihon_isbox(2, i) || !kh_pen_box(id, &row, &comp) || !*t)
+        if (!ui_kihon_isbox(2, i) || !kh_pen_box(id, &row, &comp) || !*t
+            || !strcmp(t, kh_txt_init[2][i]))
             continue;
         v = strtol(t, &e, 10);
         if (*e)
@@ -1794,7 +1799,7 @@ static void kh_live_apply(void)
         char *e;
         double v;
 
-        if (!ui_kihon_isbox(4, i) || !*t)
+        if (!ui_kihon_isbox(4, i) || !*t || !strcmp(t, kh_txt_init[4][i]))
             continue;
         v = strtod(t, &e);
         if (*e)
@@ -1825,6 +1830,9 @@ const char *app_kihon_text(int tab, int i, int *center, int *caret)
         *center = v ? v->center : 0;
     if (caret)
         *caret = kh_ctab == tab && kh_ci == i;
+    if (!strcmp(kh_txt[tab][i], kh_txt_init[tab][i])
+        && kh_live(tab, ui_kihon_id(tab, i), kh_txt_init[tab][i]))
+        strcpy(kh_txt[tab][i], kh_txt_init[tab][i]);
     return kh_txt[tab][i];
 }
 
@@ -1852,6 +1860,7 @@ static void kh_txt_start(void)
                 o[KH_TXT - 1] = 0;
             }
         }
+    memcpy(kh_txt_init, kh_txt, sizeof kh_txt_init);
     kh_ctab = kh_ci = -1;
     kh_cfresh = 0;
 }
