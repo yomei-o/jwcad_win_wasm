@@ -1776,6 +1776,7 @@ static double ra_jx, ra_jy;     /* where the chain has got to */
 static double ra_mx, ra_my;     /* the middle point of the first arc */
 static double ra_ux, ra_uy;     /* out of the last centre, through the join */
 static double ra_dx, ra_dy;     /* and the way the last arc was going there */
+static int ra_flip;             /* 弧反転 (1067): CZukeiRenzokuSen +0x460 */
 
 /* 包絡処理: the first corner of the box, and whether it has been given */
 static int hou_step;
@@ -3282,6 +3283,7 @@ void jw_cmd_set(int id)
     moji_got = moji_got_all = 0;   /* 拾った文字も */
     ra_step = ra_have = 0;      /* and neither is a 連続弧 part way through */
     ra_have_pend = 0;
+    ra_flip = 0;
     tk_step = 0;
     if (id == JW_CMD_SUNPO) {
         sun_step = 0;
@@ -13267,6 +13269,10 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         /* 補助設定の釦。馬目地分割 (1065) は縦分割数の窓と FUN_00767990 を
            写していないので押せなくしておく（原典は押せる） */
         return id != 1065 && jw_cmd_bunkatsu_hojo();
+    /* 連続線 の 終了 は、一本（連続弧なら一つ）引けてから点く —— 原典は
+       辺を足すたびに FUN_005b8360(1)、終わりで (0)。逆コンパイルの読み */
+    if (current == JW_CMD_RENZOKU && id == 1064)
+        return jw_cmd_bar_check(2492) > 0 ? ra_have : step == 3;
     if (current == JW_CMD_TAKAKU && tk_any) {
         /* 任意のバー: 作図 は三点から、任意色と色設定 はソリッド図形を点けて
            から（原典のバーを読んだとおり） */
@@ -13358,6 +13364,34 @@ static int bar_press(jw_drawing *d, int id)
             hv = !hv;
             return 1;
         }
+    }
+    /* 連続線 の 終了 (1064)・弧反転 (1067)。逆コンパイルの読み、原典では
+     * 押していない。釦は CRenzokuSenDailog の地図で 1064 → FUN_004180c0、
+     * 1067 → FUN_00418c00 で、view へ私用メッセージ 0x1401・0x1404 を送り、
+     * view (FUN_00512170・FUN_00512230) が CZukeiRenzokuSen の
+     * slot 25・28 を呼ぶ。
+     *   終了   slot 25 (FUN_006d9630) = slot 4 (FUN_006db060) で控えの
+     *          ひとつ手前を図面へ入れ、状態を素へ戻す。同一点クリックの
+     *          終わりと同じで、命令の送り直し（jw_cmd_flush）とも同じ。
+     *   弧反転 slot 28 (FUN_006d96c0) は +0x460 を裏返すだけ。読むのは
+     *          連続弧の続きの弧 (FUN_006dc260) で、次の弧の回りを逆にする。
+     * 基準角度 (1065)・基点 (1066) は入れていない —— 読みでは 1065 が
+     * +0xc0 を 0 → 15° → 45° → 0 と回し、線の向きを その倍数（＋軸角）へ
+     * 丸める（FUN_006de7a0・FUN_006dcff0）が、素から 1065 だけ押して
+     * 三クリックした原典の答え（decomp/res/bsw_32883_1065_solo.jww）は
+     * **何も入っていない**。丸めた線が一本入るはずの読みと合わず、
+     * 理由が読み切れていない。 */
+    if (current == JW_CMD_RENZOKU && id == 1064) {
+        jw_cmd_flush(d);
+        step = 0;
+        ra_step = ra_have = 0;
+        ra_flip = 0;
+        return 1;
+    }
+    if (current == JW_CMD_RENZOKU && id == 1067
+        && jw_cmd_bar_check(2492) > 0) {
+        ra_flip = !ra_flip;
+        return 1;
     }
     if (current == JW_CMD_SEIRI && sel_step == 3) {
         if (id == 1064 || id == 1065)   /* 重複整理, 連結整理 */
@@ -13725,6 +13759,10 @@ static int bar_press(jw_drawing *d, int id)
             sun_step = 0;
             return 1;
         }
+        /* ＝ (1060, 引出線タイプ) は入れていない（docs/notes-commands.md
+           の「寸法 の ＝」）: 0〜3 を回すところまでは読めたが、=(1)(2) は
+           基準点のあと「マウス移動で確定」の段 (+0x1bc == 7) を通り、
+           クリックだけでは進み方が決まらない。 */
         if (id != 1059)
             return 0;
         /* ０º/９０º: the 傾き box turns over between the two.  Asked of
@@ -21224,6 +21262,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             ra_step = 2;
         } else if (fabs(x - ra_jx) < 1e-9 && fabs(y - ra_jy) < 1e-9) {
             ra_step = 0;        /* the same point again: that is the end */
+            ra_flip = 0;        /* slot 4 (FUN_006db060) が +0x460 も落とす */
         } else if (!ra_have) {
             double cx, cy;
 
@@ -21252,6 +21291,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                    start is the radius turned a quarter turn left */
                 double vx = -(ra_jy - cy), vy = ra_jx - cx;
                 int ccw = vx * ra_dx + vy * ra_dy > 0.0;
+
+                /* 弧反転 (1067): FUN_006dc260 は掃きの向き (+1/-1) を
+                   +0x460 が立っていれば裏返し、FUN_0040b250 でその向きへ
+                   掃きを寄せ直す —— 中心と両端はそのままで、同じ円の
+                   反対回りの弧になる。逆コンパイルの読み、原典では
+                   押していない。 */
+                if (ra_flip)
+                    ccw = !ccw;
 
                 ren_arc_add(d, cx, cy, ra_jx, ra_jy, x, y, ccw);
             }

@@ -120,6 +120,142 @@ static void run(const char *name, const char *box, int jitsu,
         fails++;
 }
 
+/* 下敷き new.jww に 連続線 を入れて、pre 点 → 釦 → post 点 → 命令の送り直し
+   (resend) と流す。新しく出た線・弧を out へ。 */
+static int drive(int arc, const int (*pt)[2], int pre, int npt, int press,
+                 int resend, jw_obj *out, int max)
+{
+    unsigned char *b;
+    long n;
+    const jw_drawing *d;
+    rect_t r;
+    int i, base, k = 0;
+
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b)
+        return -1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    free(b);
+    app_command(32883);
+    if ((jw_cmd_bar_check(2492) > 0) != (arc != 0))
+        jw_cmd_bar((jw_drawing *)app_drawing(), 2492);
+    jw_cmd_box_put(1411, "");
+    if (jw_cmd_bar_check(2096) > 0)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 2096);
+    d = app_drawing();
+    base = d->ndrawn;
+    ui_view_rect(app_fb()->w, app_fb()->h, &r);
+    for (i = 0; i < npt; i++) {
+        if (i == pre && press) {
+            jw_cmd_bar((jw_drawing *)d, press < 0 ? -press : press);
+            if (press < 0)
+                jw_cmd_bar((jw_drawing *)d, -press);
+        }
+        app_press(r.x + pt[i][0], r.y + pt[i][1], 0);
+    }
+    if (npt == pre && press)
+        jw_cmd_bar((jw_drawing *)d, press);
+    if (resend)
+        app_command(32883);
+    d = app_drawing();
+    for (i = base; i < d->ndrawn && k < max; i++)
+        if (d->obj[i].cls == JW_SEN || d->obj[i].cls == JW_ENKO)
+            out[k++] = d->obj[i];
+    return k;
+}
+
+static void check(const char *name, int ok)
+{
+    printf("%-4s %s\n", ok ? "ok" : "BAD", name);
+    if (!ok)
+        fails++;
+}
+
+static int same_obj(const jw_obj *a, const jw_obj *b)
+{
+    int k;
+
+    if (a->cls != b->cls)
+        return 0;
+    for (k = 0; k < (a->cls == JW_SEN ? 4 : 5); k++)
+        if (fabs(a->d[k] - b->d[k]) > 1e-9)
+            return 0;
+    return 1;
+}
+
+/* 終了 (1064)・弧反転 (1067)。逆コンパイルの読みで入れたもので、原典では
+   押していない（src/cmd.c の bar_press の注）。 */
+static void end_flip(void)
+{
+    static const int ABC[5][2] = {
+        { 400, 350 }, { 600, 450 }, { 500, 420 }, { 300, 300 }, { 350, 500 }
+    };
+    jw_obj a[16], b[16];
+    int na, nb, i, ok;
+
+    /* 終了 は命令の送り直しと同じく、ひとつ手前の線を図面へ入れる */
+    na = drive(0, ABC, 3, 3, 1064, 0, a, 16);
+    nb = drive(0, ABC, 0, 3, 0, 1, b, 16);
+    ok = na == 2 && nb == 2;
+    for (i = 0; ok && i < na; i++)
+        ok = same_obj(&a[i], &b[i]);
+    check("終了 1064 = 送り直し（二本入る）", ok);
+
+    /* 終了 のあとは新しい連続線: 四点目・五点目は前とつながらない */
+    na = drive(0, ABC, 3, 5, 1064, 1, a, 16);
+    ok = na == 3 && a[2].cls == JW_SEN
+         && !(fabs(a[2].d[0] - a[1].d[2]) < 1e-9
+              && fabs(a[2].d[1] - a[1].d[3]) < 1e-9);
+    check("終了 のあとは新しい鎖", ok);
+
+    /* 終了 が点くのは一本引けてから */
+    {
+        unsigned char *bb;
+        long n;
+        rect_t r;
+        jw_drawing *d;
+        int e0, e1, e2, e3;
+
+        bb = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(bb, n);
+        free(bb);
+        app_command(32883);
+        if (jw_cmd_bar_check(2492) > 0)
+            jw_cmd_bar((jw_drawing *)app_drawing(), 2492);
+        d = (jw_drawing *)app_drawing();
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        e0 = jw_cmd_bar_enabled(d, 1064);
+        app_press(r.x + ABC[0][0], r.y + ABC[0][1], 0);
+        e1 = jw_cmd_bar_enabled(d, 1064);
+        app_press(r.x + ABC[1][0], r.y + ABC[1][1], 0);
+        e2 = jw_cmd_bar_enabled(d, 1064);
+        jw_cmd_bar(d, 1064);
+        e3 = jw_cmd_bar_enabled(d, 1064);
+        check("終了 の点き具合（0 0 1 0）", !e0 && !e1 && e2 && !e3);
+    }
+
+    /* 弧反転: 二つ目の弧が同じ円の反対回りになる（中心・半径・始角は同じ、
+       掃きは 2π ずれて符号が逆） */
+    na = drive(1, ABC, 0, 4, 0, 1, a, 16);
+    nb = drive(1, ABC, 3, 4, 1067, 1, b, 16);
+    ok = na == 2 && nb == 2 && same_obj(&a[0], &b[0])
+         && a[1].cls == JW_ENKO && b[1].cls == JW_ENKO;
+    for (i = 0; ok && i < 4; i++)
+        ok = fabs(a[1].d[i] - b[1].d[i]) < 1e-9;
+    ok = ok && a[1].d[4] * b[1].d[4] < 0.0
+         && fabs(fabs(a[1].d[4] - b[1].d[4]) - 2.0 * 3.141592653589793) < 1e-9;
+    check("弧反転 1067: 続きの弧が反対回り", ok);
+
+    /* 二度押せば元どおり */
+    nb = drive(1, ABC, 3, 4, -1067, 1, b, 16);
+    ok = na == 2 && nb == 2 && same_obj(&a[0], &b[0]) && same_obj(&a[1], &b[1]);
+    check("弧反転 を二度押すと元の回り", ok);
+}
+
 int main(void)
 {
     static const int RECT[4][2] = { {300,300}, {600,300}, {600,500}, {900,500} };
@@ -149,6 +285,7 @@ int main(void)
         run("p163_c3r", 0, 0, ABC, 3, 2, 1, 0);
         run("p163_c2", 0, 0, ABC, 2, -1, 1, 0);
     }
+    end_flip();
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }
