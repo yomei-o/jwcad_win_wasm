@@ -133,6 +133,9 @@ const char *app_blkedit_name(void);
 int  app_kihon_open(void);
 int  app_colordlg_open(void);  /* 色の設定。基本設定の上に重なります */
 int  app_kihon_tab(void);
+/* what box i of the 基本設定 tab shows (CP932), whether it is centred
+   (ES_CENTER) and whether it has the caret */
+const char *app_kihon_text(int tab, int i, int *center, int *caret);
 /* 軸角・目盛・オフセット: whether it is up, and what its 軸角 box holds */
 int  app_jikkaku_open(void);
 const char *app_jikkaku_angle(void);

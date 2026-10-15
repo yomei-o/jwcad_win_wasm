@@ -2459,6 +2459,51 @@ int ui_kihon_id(int tab, int i)
     return jw_kihon_tabs[tab].c[i].id;
 }
 
+/* 1 for an edit box, 2 for a drop list, 0 for anything else */
+int ui_kihon_isbox(int tab, int i)
+{
+    if (tab < 0 || tab >= JW_NKIHON_TABS || i < 0
+        || i >= jw_kihon_tabs[tab].n)
+        return 0;
+    switch (jw_kihon_tabs[tab].c[i].kind) {
+    case JW_KH_EDIT:  return 1;
+    case JW_KH_COMBO: return 2;
+    }
+    return 0;
+}
+
+/* which control of the tab is under (x, y), by its index -- the edit boxes
+   of 線種 all share the id 1001, so the id alone does not say which.  An
+   edit wins over the drop list it sits in.  -1 for none */
+int ui_kihon_hit_index(int cw, int ch, int tab, int x, int y)
+{
+    rect_t r;
+    int i, n, got = -1;
+    const jw_kh_t *c;
+
+    if (tab < 0 || tab >= JW_NKIHON_TABS)
+        tab = 0;
+    c = jw_kihon_tabs[tab].c;
+    n = jw_kihon_tabs[tab].n;
+    ui_kihon_rect(cw, ch, &r);
+    x -= r.x + JW_KH_BORDER;
+    y -= r.y + JW_KH_CAPTION;
+    for (i = 0; i < n; i++) {
+        const jw_kh_t *z = &c[i];
+
+        if (z->kind == JW_KH_STATIC || z->kind == JW_KH_GROUP
+            || !z->shown || !z->enabled)
+            continue;
+        if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h) {
+            if (z->kind == JW_KH_EDIT)
+                return i;
+            if (got < 0)
+                got = i;
+        }
+    }
+    return got;
+}
+
 int ui_kihon_on(int tab, int i)
 {
     if (tab < 0 || tab >= JW_NKIHON_TABS || i < 0
@@ -2602,12 +2647,38 @@ void ui_kihon(fb_t *fb, int tab, const unsigned char *on)
                 zs_text(fb, x + (z->w - jw_text_px_fit_w(t, z->w - 6)) / 2,
                         y + (z->h - th) / 2, z->w - 6, t,
                         z->enabled ? C_BTNTEXT : C_GRAYTEXT);
+            } else {
+                /* 箱の字（app_kihon_text、原典の既定は src/gen/kihonval.h）。
+                   ES_CENTER なら真ん中、でなければ左から 3 画素 */
+                int center = 0, caret = 0, tw, tx, ty = y + (z->h - th) / 2;
+                const char *t = app_kihon_text(tab, i, &center, &caret);
+
+                if (t && *t) {
+                    tw = jw_text_px_fit_w(t, z->w - 6);
+                    tx = center ? x + (z->w - tw) / 2 : x + 3;
+                    if (tx < x + 3)
+                        tx = x + 3;
+                    zs_text(fb, tx, ty, z->w - 6, t,
+                            z->enabled ? C_BTNTEXT : C_GRAYTEXT);
+                    if (caret)
+                        fb_fill(fb, tx + tw, ty, 1, th, C_BTNTEXT);
+                } else if (caret) {
+                    fb_fill(fb, center ? x + z->w / 2 : x + 3, ty, 1, th,
+                            C_BTNTEXT);
+                }
             }
             break;
-        case JW_KH_COMBO:
+        case JW_KH_COMBO: {
+            const char *t = app_kihon_text(tab, i, 0, 0);
+
             mj_sunken(fb, x, y, z->w, z->h);
             mj_combo_button(fb, x, y, z->w, z->h);
+            /* 押し下げ一覧（CBS_DROPDOWNLIST）の字: 左から 3 画素 */
+            if (t && *t)
+                zs_text(fb, x + 3, y + (z->h - th) / 2, z->w - 22, t,
+                        z->enabled ? C_BTNTEXT : C_GRAYTEXT);
             break;
+        }
         case JW_KH_GROUP: {
             /* an etched frame -- shadow and then white going in -- that
                starts half a line down, with the label over its top */

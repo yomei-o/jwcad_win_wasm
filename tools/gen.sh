@@ -228,6 +228,7 @@ refenv >/dev/null
 cp orig/Test5.jww tmp/rect.jww
 ps -ExecutionPolicy Bypass -File tools/jwdraw.ps1     -Open tmp/rect.jww -NoSave -Out decomp/res/kihon.txt     -Clicks 'dlgat:32891,docs/ref_kihon1.png,12320,26,10;dlgat:32891,docs/ref_kihon2.png,12320,77,10;dlgat:32891,docs/ref_kihon3.png,12320,128,10;dlgat:32891,docs/ref_kihon4.png,12320,180,10;dlgat:32891,docs/ref_kihon5.png,12320,227,10;dlgat:32891,docs/ref_kihon6.png,12320,275,10;dlgat:32891,docs/ref_kihon7.png,12320,323,10;dlgat:32891,docs/ref_kihon8.png,12320,380,10' >/dev/null
 python tools/mkkihon.py
+python tools/mkkihonval.py                   # what its boxes hold
 
 say '色の設定 -- the Windows colour dialog the 色・画面 tab puts up'
 # これは Jw_cad の窓ではなく comdlg32 の共通ダイアログです。雛形は

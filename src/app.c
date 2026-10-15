@@ -1576,6 +1576,331 @@ static void kh_apply(void)
     jw_cmd_moji_point_first(kh_value(2466));
 }
 
+/* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が
+ * レジストリの控え tools/refenv.reg から、無いものは写し docs/ref_kihon*.png
+ * から作る）。OK で残り、次に開くとその字で出る（キャンセル は捨てる）。
+ *
+ * **図面の持ち物は図面から読んで OK で図面へ書く**（kh_live）: 色・画面 の
+ * 画面の線色 1〜8・補助線色（ペン 9）の 赤 緑 青 と線幅、グレー（gray_rgb）、
+ * 選択色・仮表示色（jw_row_rgb の 15・16）、背景色（ペン 0）、プリンタ出力の
+ * 線色 1〜8 と線幅・グレー（print_rgb 9）。文字 の 文字種 1〜10 の 横 縦
+ * 間隔 色No.（style[]）。どれも描く・置く ときにそのまま使われる値。
+ *
+ * それ以外（外部エディタ、画面横寸法、オートセーブ、Undo の回数、
+ * 線種のパターンとピッチ、AUTO のクロックメニュー、KEY の割り当て、SXF の
+ * 許容差 など）は**表示と保存だけ**: 移植のその働き（線種は src/draw.c の
+ * 固定表 LTYPE、キーは app の固定の割り当て、オートセーブ・外部エディタは
+ * 無い）がまだ設定を読まないため。 */
+#include "gen/kihonval.h"
+#define KH_TXT 48
+static char kh_txt[8][256][KH_TXT];
+static char kh_txt_saved[8][256][KH_TXT];
+static int kh_txt_have;
+/* the box being typed into (tab and index), or -1; and whether nothing has
+   been typed since it was clicked, so the first key replaces what is there */
+static int kh_ctab = -1, kh_ci = -1, kh_cfresh;
+static unsigned int kihon_row_rgb(int row);
+
+static const jw_khv_t *kh_val(int tab, int i)
+{
+    int id = ui_kihon_id(tab, i), nth = 0, k;
+
+    for (k = 0; k < i; k++)
+        if (ui_kihon_id(tab, k) == id && ui_kihon_isbox(tab, k))
+            nth++;
+    for (k = 0; k < JW_NKIHONVAL; k++)
+        if (jw_kihonval[k].tab == tab && jw_kihonval[k].id == id
+            && jw_kihonval[k].nth == nth)
+            return &jw_kihonval[k];
+    return 0;
+}
+
+/* 色・画面 の箱が図面のどの色のどの成分か。row は 1..9 画面ペン、0 背景色、
+   13 グレー、15 選択色、16 仮表示色、101..108 プリンタのペン、109 その
+   グレー。comp は 0 赤 1 緑 2 青 3 線幅。行と釦の対応は kihon_row の注 */
+static int kh_pen_box(int id, int *row, int *comp)
+{
+    static const short scr_r[8] = { 1571, 1575, 1576, 1577, 1578, 1579, 1580, 1581 };
+    int k;
+
+    for (k = 0; k < 8; k++) {
+        if (id == scr_r[k]) {
+            *row = k + 1;
+            *comp = 0;
+            return 1;
+        }
+    }
+    if (id >= 1572 && id <= 1574) {
+        *row = 1;
+        *comp = id - 1571;
+        return 1;
+    }
+    if (id >= 1583 && id <= 1603) {             /* 線色 2..8 の 緑 青 線幅 */
+        *row = 2 + (id - 1583) / 3;
+        *comp = 1 + (id - 1583) % 3;
+        return 1;
+    }
+    switch (id) {
+    case 1645: *row = 13; *comp = 0; return 1;  /* グレー */
+    case 1646: *row = 13; *comp = 1; return 1;
+    case 1647: *row = 13; *comp = 2; return 1;
+    case 1582: *row = 9; *comp = 0; return 1;   /* 補助線色 */
+    case 1604: *row = 9; *comp = 1; return 1;
+    case 1605: *row = 9; *comp = 2; return 1;
+    case 1606: *row = 9; *comp = 3; return 1;
+    case 1623: *row = 15; *comp = 0; return 1;  /* 選択色 */
+    case 1641: *row = 15; *comp = 1; return 1;
+    case 1642: *row = 15; *comp = 2; return 1;
+    case 1640: *row = 16; *comp = 0; return 1;  /* 仮表示色 */
+    case 1643: *row = 16; *comp = 1; return 1;
+    case 1644: *row = 16; *comp = 2; return 1;
+    case 2480: *row = 0; *comp = 0; return 1;   /* 背景色 */
+    case 2481: *row = 0; *comp = 1; return 1;
+    case 2482: *row = 0; *comp = 2; return 1;
+    case 1648: *row = 109; *comp = 0; return 1; /* プリンタのグレー */
+    case 1649: *row = 109; *comp = 1; return 1;
+    case 1650: *row = 109; *comp = 2; return 1;
+    }
+    /* プリンタ出力 線色 1..8: 赤 緑 青 線幅 が四つずつ（1623 は 選択色 が使う） */
+    if (id >= 1607 && id <= 1622) {
+        *row = 101 + (id - 1607) / 4;
+        *comp = (id - 1607) % 4;
+        return 1;
+    }
+    if (id >= 1624 && id <= 1639) {
+        *row = 105 + (id - 1624) / 4;
+        *comp = (id - 1624) % 4;
+        return 1;
+    }
+    return 0;
+}
+
+/* where a colour's red, green or blue sits in the row's word: the printer
+   pens are kept as the file has them, a COLORREF (0x00bbggrr), but the
+   screen ones and the 選択色・仮表示色 rows as 0x00rrggbb (docs/ref_kihon3.png:
+   線色 1 is 0 192 192 and 仮表示色 255 0 0) */
+static int kh_shift(int row, int comp)
+{
+    return row >= 101 ? 8 * comp : 8 * (2 - comp);
+}
+
+/* the colour and width a row has now */
+static unsigned int kh_row_get(int row, int *w)
+{
+    *w = -1;
+    if (row >= 101 && row <= 109) {
+        if (row <= 108)
+            *w = drawing.print_width[row - 100];
+        return drawing.print_rgb[row - 100];
+    }
+    if (row >= 1 && row <= 9) {
+        *w = drawing.pen_width[row];
+        return drawing.pen_rgb[row];
+    }
+    if (row == 0)
+        return drawing.pen_rgb[0];
+    return kihon_row_rgb(row);
+}
+
+static void kh_row_put(int row, unsigned int rgb, int w)
+{
+    if (row >= 101 && row <= 109) {
+        drawing.print_rgb[row - 100] = rgb;
+        if (row <= 108 && w >= 1 && w <= 500)   /* プリンタ出力線幅(1～500) */
+            drawing.print_width[row - 100] = w;
+    } else if (row >= 1 && row <= 9) {
+        drawing.pen_rgb[row] = rgb;
+        if (w >= 1 && w <= 16)                  /* 画面線幅(1～16) */
+            drawing.pen_width[row] = w;
+    } else if (row == 0) {
+        drawing.pen_rgb[0] = rgb;
+    } else if (row == 13) {
+        drawing.gray_rgb = rgb;
+    } else {
+        jw_row_rgb_set(row, rgb);
+    }
+}
+
+/* the boxes whose value is the drawing's: their text now */
+static int kh_live(int tab, int id, char *out)
+{
+    int row, comp, w;
+
+    if (!have_drawing)
+        return 0;
+    if (tab == 2 && kh_pen_box(id, &row, &comp)) {
+        unsigned int v = kh_row_get(row, &w);
+
+        if (comp == 3)
+            sprintf(out, "%d", w);
+        else
+            sprintf(out, "%u", (v >> kh_shift(row, comp)) & 255u);
+        return 1;
+    }
+    if (tab == 4 && id >= 2470 && id <= 2479) {     /* 横 */
+        sprintf(out, "%g", drawing.style[id - 2470].w);
+        return 1;
+    }
+    if (tab == 4 && id >= 1532 && id <= 1541) {     /* 縦 */
+        sprintf(out, "%g", drawing.style[id - 1532].h);
+        return 1;
+    }
+    if (tab == 4 && id >= 1542 && id <= 1551) {     /* 間隔 */
+        sprintf(out, "%g", drawing.style[id - 1542].sp);
+        return 1;
+    }
+    if (tab == 4 && id >= 1552 && id <= 1561) {     /* 色No. */
+        sprintf(out, "%d", drawing.style[id - 1552].color);
+        return 1;
+    }
+    return 0;
+}
+
+/* OK: what was typed into those boxes goes back into the drawing.  A box
+   that does not hold a number in range leaves the value as it was */
+static void kh_live_apply(void)
+{
+    int i, n, row, comp;
+
+    if (!have_drawing)
+        return;
+    n = ui_kihon_n(2);
+    for (i = 0; i < n && i < 256; i++) {
+        int id = ui_kihon_id(2, i), w;
+        const char *t = kh_txt[2][i];
+        char *e;
+        long v;
+        unsigned int rgb;
+
+        if (!ui_kihon_isbox(2, i) || !kh_pen_box(id, &row, &comp) || !*t)
+            continue;
+        v = strtol(t, &e, 10);
+        if (*e)
+            continue;
+        rgb = kh_row_get(row, &w);
+        if (comp == 3) {
+            kh_row_put(row, rgb, (int)v);
+        } else if (v >= 0 && v <= 255) {        /* 色要素(0～255) */
+            int sh = kh_shift(row, comp);
+
+            rgb = (rgb & ~(255u << sh)) | ((unsigned int)v << sh);
+            kh_row_put(row, rgb, -1);
+        }
+    }
+    n = ui_kihon_n(4);
+    for (i = 0; i < n && i < 256; i++) {
+        int id = ui_kihon_id(4, i), k;
+        const char *t = kh_txt[4][i];
+        char *e;
+        double v;
+
+        if (!ui_kihon_isbox(4, i) || !*t)
+            continue;
+        v = strtod(t, &e);
+        if (*e)
+            continue;
+        if (id >= 2470 && id <= 2479 && v >= 0.01 && v <= 500.0)
+            drawing.style[id - 2470].w = v;     /* 文字サイズ(0.01～500) */
+        else if (id >= 1532 && id <= 1541 && v >= 0.01 && v <= 500.0)
+            drawing.style[id - 1532].h = v;
+        else if (id >= 1542 && id <= 1551 && v >= 0.0 && v <= 500.0)
+            drawing.style[id - 1542].sp = v;
+        else if (id >= 1552 && id <= 1561) {
+            k = (int)v;
+            if (k == v && k >= 1 && k <= 9)     /* 文字ペンNo(1～9) */
+                drawing.style[id - 1552].color = k;
+        }
+    }
+}
+
+/* what box i of the tab shows, for ui_kihon: 0 when it has nothing */
+const char *app_kihon_text(int tab, int i, int *center, int *caret)
+{
+    const jw_khv_t *v;
+
+    if (tab < 0 || tab >= 8 || i < 0 || i >= 256)
+        return 0;
+    v = kh_val(tab, i);
+    if (center)
+        *center = v ? v->center : 0;
+    if (caret)
+        *caret = kh_ctab == tab && kh_ci == i;
+    return kh_txt[tab][i];
+}
+
+static void kh_txt_start(void)
+{
+    int t, i;
+
+    for (t = 0; t < ui_kihon_ntabs() && t < 8; t++)
+        for (i = 0; i < ui_kihon_n(t) && i < 256; i++) {
+            const jw_khv_t *v;
+            char *o = kh_txt[t][i];
+
+            o[0] = 0;
+            if (!ui_kihon_isbox(t, i))
+                continue;
+            if (kh_live(t, ui_kihon_id(t, i), o))
+                continue;
+            if (kh_txt_have) {
+                memcpy(o, kh_txt_saved[t][i], KH_TXT);
+                continue;
+            }
+            v = kh_val(t, i);
+            if (v && v->text) {
+                strncpy(o, v->text, KH_TXT - 1);
+                o[KH_TXT - 1] = 0;
+            }
+        }
+    kh_ctab = kh_ci = -1;
+    kh_cfresh = 0;
+}
+
+/* OK (the button or Enter): the ticks and the text stay, and what is known
+   is applied */
+static void kh_ok(void)
+{
+    memcpy(kh_saved, kh_on, sizeof kh_saved);
+    kh_have_saved = 1;
+    memcpy(kh_txt_saved, kh_txt, sizeof kh_txt_saved);
+    kh_txt_have = 1;
+    kh_live_apply();
+    kh_apply();
+    kh_ctab = kh_ci = -1;
+    kh_open = 0;
+}
+
+/* a key into the box being typed into.  Enter is not taken: it is the
+   dialog's OK, as in Windows */
+static int kh_key(int c)
+{
+    char *t;
+    size_t n;
+
+    if (kh_ctab < 0 || kh_ci < 0)
+        return 0;
+    t = kh_txt[kh_ctab][kh_ci];
+    n = strlen(t);
+    if (c == 8) {
+        if (n)
+            t[n - 1] = 0;
+        kh_cfresh = 0;
+        return 1;
+    }
+    if (c < 0x20 || c > 0x7e)
+        return 0;
+    if (kh_cfresh) {
+        t[0] = 0;
+        n = 0;
+        kh_cfresh = 0;
+    }
+    if (n + 1 < KH_TXT) {
+        t[n] = (char)c;
+        t[n + 1] = 0;
+    }
+    return 1;
+}
+
 static void kh_start(void)
 {
     int t, i;
@@ -1590,6 +1915,7 @@ static void kh_start(void)
         for (i = 0; i < ui_kihon_n(t) && i < 256; i++)
             if (ui_kihon_id(t, i) == 2112)
                 kh_on[t][i] = (unsigned char)!jw_moji_sjis();
+    kh_txt_start();
     kh_tab = 0;
     kh_open = 1;
 }
@@ -1658,18 +1984,27 @@ static unsigned int kihon_row_rgb(int row)
 static int press_kihon(int x, int y)
 {
     int id = ui_kihon_hit(fb.w, fb.h, kh_tab, x, y), i, n;
+    int at = ui_kihon_hit_index(fb.w, fb.h, kh_tab, x, y);
 
     if (id == -1000)
         return 0;                       /* outside it: the dialog is modal */
     if (id < 0) {                       /* one of the tabs */
         kh_tab = -id - 1;
+        kh_ctab = kh_ci = -1;
         return 1;
     }
-    if (id == 1) {                      /* OK: what is ticked stays, and what is known is applied */
-        memcpy(kh_saved, kh_on, sizeof kh_saved);
-        kh_have_saved = 1;
-        kh_apply();
+    if (id == 1) {                      /* OK: what is ticked and typed stays, and what is known is applied */
+        kh_ok();
+        return 1;
     }
+    /* an edit box takes the typing; the first key replaces what is in it */
+    if (at >= 0 && ui_kihon_isbox(kh_tab, at) == 1) {
+        kh_ctab = kh_tab;
+        kh_ci = at;
+        kh_cfresh = 1;
+        return 1;
+    }
+    kh_ctab = kh_ci = -1;
     if (id == 1 || id == 2 || id == 9) {
         /* キャンセル and ヘルプ do nothing; what most of the boxes mean
            has not been worked out */
@@ -4337,6 +4672,10 @@ int app_key(int c)
         app_paint();
         return 1;
     }
+    if (kh_open && !cd_open && kh_key(c)) {
+        app_paint();
+        return 1;
+    }
     if (sd_open && sd_caret && sd_key(c)) {
         app_paint();
         return 1;
@@ -4353,10 +4692,7 @@ int app_key(int c)
            寸法設定 and 画面倍率・文字表示 take what is set and close */
         if (c == 13 && !cd_open) {
             if (kh_open) {
-                memcpy(kh_saved, kh_on, sizeof kh_saved);
-                kh_have_saved = 1;
-                kh_apply();
-                kh_open = 0;
+                kh_ok();
             } else if (sd_open) {
                 sd_commit();
                 memcpy(sd_saved, sd_on, sizeof sd_saved);

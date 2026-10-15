@@ -210,6 +210,8 @@ int  ui_kihon_hit(int cw, int ch, int tab, int x, int y);
 int  ui_kihon_n(int tab);
 int  ui_kihon_id(int tab, int i);
 int  ui_kihon_on(int tab, int i);
+int  ui_kihon_isbox(int tab, int i);
+int  ui_kihon_hit_index(int cw, int ch, int tab, int x, int y);
 int  ui_kihon_ntabs(void);
 
 /* 軸角・目盛・オフセット -- the dialog 32842 puts up.  `angle` is what its
