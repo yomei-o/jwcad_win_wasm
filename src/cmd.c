@@ -5143,6 +5143,24 @@ static void blank(jw_obj *o)
     o->color = 2;
 }
 
+/* 箱の中の整数。atoi は桁があふれたときの振る舞いが決まっておらず、
+ * 移植の試験機（msvcrt）では回り込んで「-999999999999999999999」が大きな
+ * 正の数にもなった。それで 矩形 の 多重 (1417) が配列を越えて書き、点を
+ * 打つと落ちていた。strtol で読み、±10 億に収めて返す（空なら 0）。 */
+static int box_int(const char *t)
+{
+    long v;
+
+    if (!t || !*t)
+        return 0;
+    v = strtol(t, 0, 10);
+    if (v > 1000000000L)
+        v = 1000000000L;
+    if (v < -1000000000L)
+        v = -1000000000L;
+    return (int)v;
+}
+
 /* The circle through three points.  Nought when they are in a line. */
 static int three_circle(double x1, double y1, double x2, double y2,
                         double x3, double y3, double *cx, double *cy)
@@ -5615,10 +5633,10 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
              * 173.178 x 86.589, then 115.452 x 57.726 (two thirds), then a
              * third of it, all centred on (39.831, -92.650). */
             const char *t = jw_cmd_box(1417);
-            int rings = t && *t ? atoi(t) : 0, r, made = 4;
+            int rings = box_int(t), r, made = 4;
             double mx = (sx + x) / 2.0, my = (sy + y) / 2.0;
             if (rings > 1) {
-                if (rings * 4 > max)
+                if (rings > max / 4)    /* rings * 4 はあふれうる */
                     rings = max / 4;
                 for (r = rings - 1; r >= 1; r--) {
                     double f = (double)r / (double)rings;
@@ -5692,7 +5710,7 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
              * added 57.725948 and 28.862974 -- two thirds and one third,
              * written outermost first after the one clicked. */
             const char *t = jw_cmd_box(1417);
-            int rings = t && *t ? atoi(t) : 0, k, made = 1;
+            int rings = box_int(t), k, made = 1;
             if (rings > 1) {
                 if (rings > max)
                     rings = max;
@@ -9341,7 +9359,7 @@ static void curve_draw(jw_drawing *d)
     double nx = -cv_uy, ny = cv_ux;
     double ox = cv_x[0], oy = cv_y[0];
     double sm, hm, L = 0, a = 0, s0, s1, ss, s, px, py;
-    int nd = sz ? atoi(sz) : 0, sine = cv_mode == 1689, k, made = 0;
+    int nd = box_int(sz), sine = cv_mode == 1689, k, made = 0;
 
     if (nd < 1)
         return;
@@ -9751,7 +9769,7 @@ static void kyokusen(jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
     double px, py;
-    int n = sz ? atoi(sz) : 0, k, made = 0;
+    int n = box_int(sz), k, made = 0;
 
     if (cv_mode != 1691 && cv_mode != 1692)
         return;                 /* サイン and ２次 go through curve_draw */
@@ -10709,7 +10727,7 @@ static jw_obj *sek_add(jw_drawing *d, double cx, double cy, double r)
 static int sek_draw(jw_drawing *d, double cx, double cy, double r)
 {
     const char *sn = jw_cmd_box(1417);
-    int n = sn ? atoi(sn) : 0, k, made = 0;
+    int n = box_int(sn), k, made = 0;
 
     if (n < 1)
         n = 1;
@@ -17225,7 +17243,7 @@ static void takaku(jw_drawing *d, double cx, double cy)
     const char *sz = jw_cmd_box(1411), *ns = jw_cmd_box(1413);
     const char *ang = jw_cmd_box(1414);
     double r = box_num(sz, 0.0), a0 = box_num(ang, 0.0);
-    int n = ns ? atoi(ns) : 0, i, wg = 0;
+    int n = box_int(ns), i, wg = 0;
 
     if (tk_any) {
         /* 同じ点をもう一度は受けない（FUN_00498960 の比べ） */
@@ -20886,7 +20904,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             /* 測定点表示: 2216 に番号があれば 点・「No.n」・「測定点 No.n」を出す
                （原典 hk_s9、3 を入れて No.3） */
             bs = jw_cmd_box(2216);
-            if (bs && *bs && atoi(bs) > 0) {
+            if (box_int(bs) > 0) {
                 o.show_point = 1;
             }
             /* 目盛間隔 (2209): 5・10・15・30・45・90 度（原典の行 1〜6）。ほかの字は なし */
@@ -20909,7 +20927,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                隠れる面積は 原典と同じく 建物ごとの射影折れ線 × 光線 で足し上げる
                （src/tenku.c の jw_tenku_ratio、FUN_00748da0） */
             o.show_area = o.calc && jw_cmd_bar_check(1324) > 0;
-            o.number = o.show_point ? atoi(jw_cmd_box(2216)) : tn_count + 1;
+            o.number = o.show_point ? box_int(jw_cmd_box(2216)) : tn_count + 1;
             /* 太陽軌跡 (1325)・10分間隔点表示 (2113)・四季 (2115)、FUN_0073ea50（src/tenku.c の
                sun_path）。原典 hk_s5〜s8・s15〜s23。緯度 doc+0x83c0・日赤緯 doc+0x83c8 は
                日影図 の 緯度 (1493)・季節 (2436) の箱から取る（日影図で 45・夏至 にすると

@@ -633,6 +633,16 @@ int main(int argc, char **argv)
     app_press(300 + 78, 200 + 34, 0);
     d = app_drawing();
     ck(d->ndrawn == before, "clicking with nothing typed places nothing");
+    /* 入力が空のクリックは そこにある文字を拾う（移動・変更(L)、5316。
+       原典 FUN_006c71f0 の読み）。拾っていれば 戻る で放してから打つ
+       （FUN_006bd270、jw_cmd_back）— 放さないと 打った字は拾った字に
+       足され、次のクリックは移動になる */
+    if (jw_cmd_line()[0]) {
+        jw_cmd_back(app_drawing());
+        d = app_drawing();
+        ck(jw_cmd() == 0x8026 && !jw_cmd_line()[0] && d->ndrawn == before,
+           "戻る lets go of the text it picked up and stays in 文字");
+    }
     {
         const char *t = "ABCDEF";
         while (*t)
