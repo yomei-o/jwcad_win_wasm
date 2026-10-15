@@ -6029,3 +6029,40 @@ int ui_msgbox3_hit(int cw, int ch, int x, int y)
     }
     return 0;
 }
+
+/* 札（知らせ）。原典の CMsgDialog（FUN_00588100・FUN_00588380）: 押した画素 (x, y) の
+ * 32 下に、字の大きさ + 4 の箱。枠は黒の一画素（窓なら WS_BORDER、じかに描くなら
+ * BLACK_PEN の Rectangle）、地は 0xc8c8c8、字は黒で (2, 2) から。窓の札は字を地の色で
+ * 不透明に書くだけで面の色の一画素が残るかもしれないが（WM_PAINT を持たない）、そこは
+ * 写しが無いので じかの札と同じく箱の中を全部 0xc8c8c8 にした。原典は画面の外まで
+ * はみ出せる（ポップアップ）が、移植は一枚の絵なので はみ出す分だけ左・上へ寄せる。
+ * 逆コンパイルの読み、原典では押していない。 */
+#define NT_BG 0xc8c8c8u
+
+void ui_notice_rect(int cw, int ch, int x, int y, const char *s, rect_t *r)
+{
+    r->w = jw_text_px_w(s) + 4;
+    r->h = jw_text_height() + 4;
+    r->x = x;
+    r->y = y + 32;
+    if (r->x + r->w > cw)
+        r->x = cw - r->w;
+    if (r->y + r->h > ch)
+        r->y = ch - r->h;
+    if (r->x < 0)
+        r->x = 0;
+    if (r->y < 0)
+        r->y = 0;
+}
+
+void ui_notice(fb_t *fb, int x, int y, const char *s)
+{
+    rect_t r;
+
+    if (!s || !*s)
+        return;
+    ui_notice_rect(fb->w, fb->h, x, y, s, &r);
+    fb_fill(fb, r.x, r.y, r.w, r.h, NT_BG);
+    fb_edge(fb, r.x, r.y, r.w, r.h, 0x000000u, 0x000000u);
+    jw_text_px(fb, r.x + 2, r.y + 2, s, 0x000000u);
+}

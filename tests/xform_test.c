@@ -605,7 +605,9 @@ static void mae_hani(void)
         return;
     }
     app_command(32804);                 /* 複写 */
-    ck(jw_cmd_bar(d, 1065) == 0, "前範囲: まだ選んだことが無ければ 何もしない");
+    jw_cmd_bar(d, 1065);
+    ck(jw_cmd_sel_count(d) == 0 && jw_cmd_notice_id() == 5522,
+       "前範囲: まだ選んだことが無ければ 札「データがありません」だけ（FUN_006fcb00）");
     app_press(350, 250, 0);
     app_press(550, 350, 0);             /* the upper line only */
     ck(d->obj[0].sel && !d->obj[1].sel, "  範囲で上の線を選ぶ");

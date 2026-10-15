@@ -376,4 +376,8 @@ int  ui_msgbox_hit(int cw, int ch, int ncancel, int x, int y);
 void ui_msgbox3(fb_t *fb, const char *title, const char *text);   /* はい／いいえ／キャンセル */
 int  ui_msgbox3_hit(int cw, int ch, int x, int y);               /* 1 はい・3 いいえ・2 キャンセル・0・-1 */
 
+/* 札（知らせ、jw_cmd_notice）: 押した画素 (x, y) の 32 下に出る小さな箱と、その場所 */
+void ui_notice_rect(int cw, int ch, int x, int y, const char *s, rect_t *r);
+void ui_notice(fb_t *fb, int x, int y, const char *s);
+
 #endif

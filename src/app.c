@@ -3842,10 +3842,36 @@ static void gz_check(void)
     }
 }
 
+/* 札（jw_cmd_notice）の置き場。原典は札を出す命令が view の +0x8f24/+0x8f28（押した
+   画素）を渡すので、最後に押した所を持っておき、新しい札が出た（seq が進んだ）とき
+   その所に据える。押すと下ろす（view の WM_LBUTTONDOWN・WM_RBUTTONDOWN が
+   FUN_004fb9f0 を呼ぶ）。マウスが札に乗っても下ろす（CMsgDialog の WM_SETCURSOR、
+   FUN_005889c0 が隠す）。逆コンパイルの読み、原典では押していない。 */
+static int nt_px, nt_py, nt_x, nt_y;
+static unsigned nt_seen;
+
+static const char *notice_at(rect_t *r)
+{
+    const char *s = jw_cmd_notice_text();
+
+    if (!s)
+        return 0;
+    if (jw_cmd_notice_seq() != nt_seen) {
+        nt_seen = jw_cmd_notice_seq();
+        nt_x = nt_px;
+        nt_y = nt_py;
+    }
+    ui_notice_rect(fb.w, fb.h, nt_x, nt_y, s, r);
+    return s;
+}
+
 int app_press(int x, int y, int button)
 {
     int k, id, g, n;
 
+    jw_cmd_notice_clear();
+    nt_px = x;
+    nt_py = y;
     if (ll_pend || ll_start) {
         if (button == 0 && abs(x - ll_x) < 2 && abs(y - ll_y) < 2
             && have_drawing && jw_cmd() == JW_CMD_NISEN) {
@@ -4640,6 +4666,14 @@ int app_move(int x, int y)
     if ((ll_pend || ll_start) && (abs(x - ll_x) >= 2 || abs(y - ll_y) >= 2))
         ll_flush();
 
+    {   /* マウスが札に乗れば札は隠れる */
+        rect_t r;
+
+        if (notice_at(&r) && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+            jw_cmd_notice_clear();
+            return 1;
+        }
+    }
     if (ui_popup_up())
         return ui_popup_move(x, y);
     if (!view_ready || !in_view(x, y))
@@ -5237,6 +5271,13 @@ void app_paint(void)
         ui_msgbox(&fb, "jw_win", mb_kind ? mb_text : MB_TEXT, mb_kind != 2);
     if (mb3_open)
         ui_msgbox3(&fb, "jw_win", MB3_TEXT);
+    {   /* 札（知らせ）: 原典はポップアップの窓なので 図面の窓たちの上に */
+        rect_t r;
+        const char *s = notice_at(&r);
+
+        if (s)
+            ui_notice(&fb, nt_x, nt_y, s);
+    }
     /* last of all, so it covers everything: the menu that is open */
     ui_popup_draw(&fb);
     if (chrome_on && chrome.px) {

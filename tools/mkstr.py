@@ -140,6 +140,23 @@ WANT = [
     (10171, 'transparent colour: the picture to set it on'),
     (5410, 'parametric: a typed offset -- confirm with (L) or Enter'),
     (6010, 'parametric: done (the message after each change)'),
+    (5201, 'notice: there is no element'),
+    (5205, 'notice: it cannot be worked out'),
+    (5207, 'notice: a whole circle -- cut it into an arc first'),
+    (5214, 'notice: an ellipse cannot be worked out'),
+    (5231, 'notice: it is a block'),
+    (5262, 'notice: it is the layer being written'),
+    (5342, 'notice: not a straight line'),
+    (5343, 'notice: the same point'),
+    (5351, 'notice: the same line'),
+    (5498, 'notice: blocks, dimension figures and protected layers do not move (parallel)'),
+    (5522, 'notice: there is no data'),
+    (6009, 'notice: the figure was moved'),
+    (10038, 'notice: figure registered'),
+    (5529, 'notice: the data does not fit (shadow diagram wall)'),
+    (5208, 'notice: it is a circle'),
+    (5611, 'notice: reverse division (division helper)'),
+    (5612, 'notice: division by length ratio (division helper)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'
