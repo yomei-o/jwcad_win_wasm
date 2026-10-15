@@ -9,7 +9,7 @@
 #define JW_BR_CH  266
 #define JW_BR_BORDER 8
 #define JW_BR_CAPTION 31
-#define JW_BR_TITLE "\x89\xe6\x96\xca\x94{\x97\xa6\x81" "E\x95\xb6\x8e\x9a\x95\x5c\x8e\xa6"
+#define JW_BR_TITLE "\x89\xe6\x96\xca\x94{\x97\xa6\x81" "E\x95\xb6\x8e\x9a\x95\x5c\x8e\xa6" " \x81\x40\x90\xdd\x92\xe8"
 
 enum { JW_BR_OK, JW_BR_CHECK, JW_BR_PUSH, JW_BR_STATIC,
        JW_BR_COMBO, JW_BR_GROUP, JW_BR_EDIT };

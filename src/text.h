@@ -17,6 +17,14 @@
    CP932; returns where the next character would start. */
 int jw_text_px(fb_t *fb, int x, int y, const char *s, unsigned int col);
 
+/* jw_text_px into a box `w` pixels wide: as it is if it fits, otherwise
+   each character set as narrow as its ink (the original's dialog font is
+   proportional) and whatever still will not go in left off.  _w is how wide
+   that comes out, drawing nothing. */
+int jw_text_px_fit(fb_t *fb, int x, int y, const char *s, unsigned int col,
+                   int w);
+int jw_text_px_fit_w(const char *s, int w);
+
 /* Whether that byte starts a two byte CP932 character. */
 int jw_is_lead(unsigned char c);
 
