@@ -33,6 +33,12 @@ int app_key(int c);
    has to be repainted. */
 int app_shift_enter(void);
 
+/* Shift and Ctrl as they are for the press about to be handed over: Ctrl
+   with the left button on a layer cell or an All button protects it
+   (src/app.c's press_layer_in).  A front end that never calls this has
+   neither. */
+void app_keymods(int shift, int ctrl);
+
 /* What an IME is still converting: -1 clears it, otherwise a CP932 byte. */
 int app_compose(int c);
 

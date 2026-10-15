@@ -1647,7 +1647,9 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONDOWN: {
-        int redraw = app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 0);
+        int redraw;
+        app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
+        redraw = app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 0);
         redraw |= do_action(wnd);
         if (redraw) {
             app_paint();
@@ -1673,6 +1675,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_RBUTTONUP:
         dragging = 0;
         ReleaseCapture();
+        app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
         if (msg == WM_RBUTTONUP && !moved
             && app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 1)) {
             app_paint();

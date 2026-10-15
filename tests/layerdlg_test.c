@@ -139,6 +139,115 @@ static void shot(const unsigned char *b, long n, const char *path,
     ck(!app_layerdlg_open(), "  OK で閉じる");
 }
 
+/* the names, 戻す and 1323.  Read off the decompilation (CBN_EDITCHANGE
+ * FUN_005615f0 / FUN_00561690, 戻す FUN_00560eb0, the status line's
+ * "[%X-%X]%s" in FUN_0050ede0), not pressed in the original. */
+static void names(const unsigned char *b, long n)
+{
+    jw_drawing *d;
+    jw_drawing r;
+    unsigned char *out = 0;
+    long m = 0;
+    const char *t;
+    int g, w, k, ok;
+
+    if (!app_open((unsigned char *)b, n)) {
+        ck(0, "open");
+        return;
+    }
+    d = (jw_drawing *)app_drawing();
+    for (g = 0, k = 0; k < 16; k++)
+        if (d->group[k].state == 3)
+            g = k;
+    w = d->group[g].write_layer & 15;
+
+    app_command(32808);
+    press(1838);
+    for (k = 0; k < 20; k++)
+        app_key(8);
+    app_key('A');
+    app_key('b');
+    app_key(0x88);                      /* 一 (0x88ea), a byte at a time */
+    app_key(0xea);
+    ck(!strcmp(jw_str(d, d->group[g].name), "Ab\x88\xea"),
+       "グループ名を打つとそのまま名前になる");
+    press(1839);
+    for (k = 0; k < 20; k++)
+        app_key(8);
+    app_key('x');
+    app_key('1');
+    ck(!strcmp(jw_str(d, d->group[g].layer_name[w]), "x1"),
+       "レイヤ名は書込レイヤの名前");
+    app_key(8);
+    ck(!strcmp(jw_str(d, d->group[g].layer_name[w]), "x"), "  後退で消える");
+    ck(!strcmp(jw_str(d, d->group[g].name), "Ab\x88\xea"), "  グループ名はそのまま");
+
+    /* 戻す: greyed until 全レイヤ非表示 has something to take back */
+    d->group[g].c = 0;
+    d->group[g].layer[2].state = 2;
+    d->group[g].layer[2].state2 = 0;
+    press(2001);
+    ck(d->group[g].layer[2].state == 2, "戻す は初め押せない");
+    press(1073);
+    ck(d->group[g].layer[2].state == 0, "全レイヤ非表示");
+    press(2001);
+    ck(d->group[g].layer[2].state == 2, "  戻す で戻る");
+    ck(d->group[g].layer[w].state == 3, "  書込レイヤは 3");
+    press(1073);
+    press(2001);
+    press(2001);
+    ck(d->group[g].layer[2].state == 2, "  二度目の 戻す は何もしない");
+
+    /* 一括 sets them all to one state */
+    d->group[g].layer[2].state = 0;
+    d->group[g].layer[3].state = 1;
+    press(1141);
+    ok = 1;
+    for (k = 0; k < 16; k++)
+        if (k != w && d->group[g].layer[k].state2 != 2 && d->group[g].layer[k].state != 0)
+            ok = 0;
+    ck(ok, "一括 はみな同じ状態にする");
+
+    /* 1323, then OK: the group's name is on the status line */
+    press(1323);
+    press(1);
+    ck(!app_layerdlg_open(), "  OK で閉じる");
+
+    ck(jw_write(d, &out, &m) && out, "保存できる");
+    if (out && jw_parse(&r, out, m)) {
+        ck(!strcmp(jw_str(&r, r.group[g].name), "Ab\x88\xea"), "  グループ名が残る");
+        ck(!strcmp(jw_str(&r, r.group[g].layer_name[w]), "x"), "  レイヤ名も残る");
+        jw_free(&r);
+    } else
+        ck(0, "  読み直せる");
+    free(out);
+
+    /* the status line's layer box differs with 1323 on and off; the
+       check is kept for the next time the dialog comes up, so pressing it
+       again there turns it off */
+    {
+        static unsigned int on[70 * 17];
+        const fb_t *fb = app_fb();
+        int x, y, diff = 0;
+
+        app_paint();
+        for (y = 0; y < 17; y++)
+            for (x = 0; x < 70; x++)
+                on[y * 70 + x] = fb->px[(size_t)(724 + y) * fb->w + 1084 + x];
+        app_command(32808);
+        press(1323);                    /* off again */
+        press(1);
+        app_paint();
+        for (y = 0; y < 17; y++)
+            for (x = 0; x < 70; x++)
+                if (on[y * 70 + x] != fb->px[(size_t)(724 + y) * fb->w + 1084 + x])
+                    diff = 1;
+        ck(diff, "1323 でステータスのレイヤの箱にグループ名が出る");
+    }
+    (void)t;
+    (void)ok;
+}
+
 int main(int argc, char **argv)
 {
     const char *pre = argc > 1 ? argv[1] : "tests/out/layerdlg";
@@ -187,6 +296,8 @@ int main(int argc, char **argv)
     d = app_drawing();
     ck(d && d->group[1].state == 3, "  書込みグループは 1");
     free(p);
+
+    names(b, n);
 
     free(b);
     printf("%s\n", fails ? "SOME BAD" : "all ok");

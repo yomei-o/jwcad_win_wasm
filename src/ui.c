@@ -824,6 +824,10 @@ static const struct { short x, y, clip; } layer_grids[2] = {
     { 1227, 397, 1263 },        /* layer groups, plain ones */
 };
 
+/* the group bar put away by the button under the layers (0x805a
+   DispGLayerBar, FUN_0056a080 shows or hides the bar at +0x14a4) */
+static int glayer_hidden;
+
 /* The mark for "there is something on this one", two rows across the top.
  * It comes in two halves: nine pixels on the left when the layer holds
  * anything that is not text, eight on the right when it holds text.  The
@@ -866,7 +870,7 @@ static void paint_layer_grids(fb_t *fb, const jw_drawing *d)
         }
     }
 
-    for (g = 0; g < 2; g++) {
+    for (g = 0; g < (glayer_hidden ? 1 : 2); g++) {
         for (col = 0; col < 2; col++) {
             for (row = 0; row < 8; row++) {
                 int n = col * 8 + row;
@@ -936,7 +940,7 @@ int ui_layer_hit(int cw, int x, int y, int *n)
 {
     int g, col, row;
 
-    for (g = 0; g < 2; g++)
+    for (g = 0; g < (glayer_hidden ? 1 : 2); g++)
         for (col = 0; col < 2; col++)
             for (row = 0; row < 8; row++) {
                 int cx = ui_right(layer_grids[g].x, cw) + col * LAYER_CELL_W;
@@ -952,13 +956,37 @@ int ui_layer_hit(int cw, int x, int y, int *n)
 
 
 /* The four square buttons under the layer grids (All / 0 / All / X).  Same
- * chrome as a toolbar button, but 25x21 and their captions are text. */
+ * chrome as a toolbar button, but 25x21 and their captions are text.  What
+ * each does is src/app.c's press_layer_small. */
 static const struct { short x, y; } small_buttons[4] = {
-    { 1194, 564 }, { 1194, 587 },       /* under the layer-group grid */
-    { 1234, 567 }, { 1234, 590 },       /* under the layer grid       */
+    { 1194, 564 }, { 1194, 587 },       /* under the layer grid       */
+    { 1234, 567 }, { 1234, 590 },       /* under the layer-group grid */
 };
 #define SMALL_W 25
 #define SMALL_H 21
+
+int ui_layer_small_hit(int cw, int x, int y)
+{
+    int k;
+
+    for (k = 0; k < (glayer_hidden ? 2 : 4); k++) {
+        int bx = ui_right(small_buttons[k].x, cw), by = small_buttons[k].y;
+
+        if (x >= bx && x < bx + SMALL_W && y >= by && y < by + SMALL_H)
+            return k;
+    }
+    return -1;
+}
+
+void ui_glayer_show(int on)
+{
+    glayer_hidden = !on;
+}
+
+int ui_glayer_shown(void)
+{
+    return !glayer_hidden;
+}
 
 /* The line-type sample: a white box with a hand-drawn frame in raw greys
  * (0xc0c0c0 and 0x8c8c8c), not system colours, and the current line drawn
@@ -1016,6 +1044,14 @@ static const struct { short x0, x1; } panes[5] = {
 };
 #define PANE_T 724
 
+/* 1323 「レイヤグループ名をステータスバーに表示する」 (DAT_00a0ef58) */
+static int status_grpname;
+
+void ui_status_grpname(int on)
+{
+    status_grpname = on != 0;
+}
+
 /* What the original puts in the status line: a prompt on the left, then the
  * sheet size, the scale of the group being written to, which layer that is,
  * the current angle and the zoom.  The glyphs come out of the port's own
@@ -1040,8 +1076,31 @@ static void status_text(fb_t *fb, const jw_drawing *d, double zoom)
                ? PAPER[d->paper_size] : "?", C_BTNTEXT);
     sprintf(buf, "S=1/%g", d->group[wg].scale);
     jw_text_px(fb, ui_right(panes[1].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
-    sprintf(buf, "[%X-%X]", wg, d->group[wg].write_layer & 15);
-    jw_text_px(fb, ui_right(panes[2].x0 + 4, fb->w), ty, buf, C_BTNTEXT);
+    {
+        /* FUN_0050ede0: "[%X-%X]%s", the name being the write layer's, with
+         * the group's and " - " in front when 1323 is ticked and the group
+         * has one; a name that is "", " ", "  " or "　" is four spaces.
+         * The port puts it in the box, squeezed and cut if it must be. */
+        const jw_group *gp = &d->group[wg];
+        int wl = gp->write_layer & 15;
+        char nm[200], lb[240];
+        const char *t;
+
+        nm[0] = 0;
+        if (status_grpname) {
+            t = jw_str(d, gp->name);
+            if (*t) {
+                strncat(nm, t, 120);
+                strcat(nm, " - ");
+            }
+        }
+        strncat(nm, jw_str(d, gp->layer_name[wl]), sizeof nm - strlen(nm) - 1);
+        if (!strcmp(nm, " ") || !strcmp(nm, "  ") || !strcmp(nm, "\x81\x40"))
+            nm[0] = 0;
+        sprintf(lb, "[%X-%X]%s", wg, wl, nm);
+        jw_text_px_fit(fb, ui_right(panes[2].x0 + 4, fb->w), ty, lb,
+                       C_BTNTEXT, panes[2].x1 - panes[2].x0 - 5);
+    }
     {   /* 軸角: the angle the drawing is being worked at, which the
            status line's own box and the menu both set.  It was a fixed
            zero here, so setting it changed nothing on the screen. */
@@ -2834,6 +2893,14 @@ int ui_jikkaku_hit(int cw, int ch, int x, int y)
 #define JW_LD_SUNK_TL 0x696969u
 #define JW_LD_SUNK_BR 0xe3e3e3u
 
+static int ld_caret_id, ld_undo_en;
+
+void ui_layerdlg_state(int caret, int undo_en)
+{
+    ld_caret_id = caret;
+    ld_undo_en = undo_en != 0;
+}
+
 void ui_layerdlg_rect(int cw, int ch, rect_t *r)
 {
     r->w = JW_LD_W;
@@ -2959,7 +3026,10 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
         case JW_LD_OK:
         case JW_LD_PUSH: {
             const char *t = z->text;
-            unsigned col = z->en ? C_BTNTEXT : C_GRAYTEXT;
+            /* 戻す is greyed until 全レイヤ編集 / 全レイヤ非表示 has
+               something to take back (document +0x17a0) */
+            int en = z->id == 2001 ? ld_undo_en : z->en;
+            unsigned col = en ? C_BTNTEXT : C_GRAYTEXT;
             /* the write layer's button is drawn held down */
             int down = lay >= 0 && g && g->layer[lay].state == 3;
             fb_fill(fb, x, y, z->w, z->h, C_BTNFACE);
@@ -3046,6 +3116,11 @@ void ui_layerdlg(fb_t *fb, const jw_drawing *d, const unsigned char *on)
             if (t && *t)
                 zs_text(fb, x + 4, y + (z->h - th) / 2, z->w - 6, t,
                         C_BTNTEXT);
+            if (ld_caret_id == z->id) {
+                /* the caret, after the name */
+                int cw = t && *t ? jw_text_px_fit_w(t, z->w - 6) : 0;
+                fb_vline(fb, x + 4 + cw, y + (z->h - th) / 2, th, C_BTNTEXT);
+            }
             break;
         }
         case JW_LD_EDIT:
@@ -4733,7 +4808,7 @@ void ui_paint(fb_t *fb, const jw_drawing *d, double zoom, int saveable,
 
     {
         int k;
-        for (k = 0; k < 4; k++) {
+        for (k = 0; k < (glayer_hidden ? 2 : 4); k++) {
             int x = ui_right(small_buttons[k].x, fb->w);
             int y = small_buttons[k].y;
             button_frame(fb, x, y, SMALL_W, SMALL_H, 0);
