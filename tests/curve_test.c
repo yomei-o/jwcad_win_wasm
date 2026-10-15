@@ -27,6 +27,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
+#include "../src/jww.h"
 
 static int fails;
 
@@ -415,6 +416,283 @@ static void run_line(const char *path, int mode, const int *px,
     jw_free(&ref);
 }
 
+/* ---- スプラインの弦長・始・終点連続処理 (1323)・連結線指定 (1068) ----------
+ *
+ * 逆コンパイルの読み（FUN_006b5bc0・FUN_006b76e0・FUN_006b4690・
+ * FUN_006b6860）、原典では押していない。答えは原典の絵ではなく、同じ式を
+ * 別の形で書いたもの: 弦の長さ L を媒介変数にした三次エルミートの一階微分 m
+ * を密な連立一次方程式で解き、エルミート基底で値を出す。端は自然
+ * （2m1 + m2 = 3d/L）か、連結した要素の単位の向きに固定。 */
+static jw_drawing *dz;
+
+static void zfresh(void)
+{
+    app_resize(1264, 741);
+    app_new();
+    dz = (jw_drawing *)app_drawing();
+}
+
+static void zat(double x, double y) { jw_cmd_point(dz, app_view(), x, y, 0); }
+
+static void zline(double a, double b, double c, double e)
+{
+    jw_obj *o = jw_add(dz, JW_SEN);
+
+    o->d[0] = a;
+    o->d[1] = b;
+    o->d[2] = c;
+    o->d[3] = e;
+}
+
+static void zarc(double cx, double cy, double r, double a0, double sw)
+{
+    jw_obj *o = jw_add(dz, JW_ENKO);
+
+    o->d[0] = cx;
+    o->d[1] = cy;
+    o->d[2] = r;
+    o->d[3] = a0;
+    o->d[4] = sw;
+    o->d[5] = 0.0;
+    o->d[6] = 1.0;
+}
+
+/* 点 P[0..M-1] の弦長スプラインを解き、spans [s0, s1) を n 分割した頂点を
+   ox, oy に（各区間の始点は書かない）。ta/tb が非 0 ならその端を固定 */
+static int ref_spline(const double *px, const double *py, int M, int n,
+                      const double *ta, const double *tb, int s0, int s1,
+                      double *ox, double *oy)
+{
+    double A[80][81], m[2][80], L[80];
+    int c, i, j, k, no = 0;
+
+    for (i = 0; i < M - 1; i++)
+        L[i] = hypot(px[i + 1] - px[i], py[i + 1] - py[i]);
+    for (c = 0; c < 2; c++) {
+        const double *p = c ? py : px;
+
+        memset(A, 0, sizeof A);
+        if (ta) {
+            A[0][0] = 1;
+            A[0][M] = ta[c];
+        } else {
+            A[0][0] = 2;
+            A[0][1] = 1;
+            A[0][M] = 3 * (p[1] - p[0]) / L[0];
+        }
+        for (i = 1; i < M - 1; i++) {
+            A[i][i - 1] = L[i];
+            A[i][i] = 2 * (L[i - 1] + L[i]);
+            A[i][i + 1] = L[i - 1];
+            A[i][M] = 3 * (L[i - 1] * (p[i + 1] - p[i]) / L[i]
+                           + L[i] * (p[i] - p[i - 1]) / L[i - 1]);
+        }
+        if (tb) {
+            A[M - 1][M - 1] = 1;
+            A[M - 1][M] = tb[c];
+        } else {
+            A[M - 1][M - 2] = 1;
+            A[M - 1][M - 1] = 2;
+            A[M - 1][M] = 3 * (p[M - 1] - p[M - 2]) / L[M - 2];
+        }
+        for (i = 0; i < M; i++) {           /* ガウスの消去（ピボット選択） */
+            int b = i;
+            for (j = i + 1; j < M; j++)
+                if (fabs(A[j][i]) > fabs(A[b][i]))
+                    b = j;
+            for (k = 0; k <= M; k++) {
+                double t = A[i][k];
+                A[i][k] = A[b][k];
+                A[b][k] = t;
+            }
+            for (j = 0; j < M; j++)
+                if (j != i) {
+                    double f = A[j][i] / A[i][i];
+                    for (k = i; k <= M; k++)
+                        A[j][k] -= f * A[i][k];
+                }
+        }
+        for (i = 0; i < M; i++)
+            m[c][i] = A[i][M] / A[i][i];
+    }
+    for (i = s0; i < s1; i++)
+        for (k = 1; k <= n; k++) {
+            double s = k == n ? 1.0 : (0.58 + (k - 1)) / (n - 0.84);
+            double h00 = 2 * s * s * s - 3 * s * s + 1, h10 = s * s * s - 2 * s * s + s;
+            double h01 = -2 * s * s * s + 3 * s * s, h11 = s * s * s - s * s;
+
+            ox[no] = h00 * px[i] + h10 * L[i] * m[0][i] + h01 * px[i + 1]
+                   + h11 * L[i] * m[0][i + 1];
+            oy[no] = h00 * py[i] + h10 * L[i] * m[1][i] + h01 * py[i + 1]
+                   + h11 * L[i] * m[1][i + 1];
+            no++;
+        }
+    return no;
+}
+
+/* 描いた線 [from, ndrawn) が始点 (x0,y0) から ox,oy をつないだものか */
+static double zworst(int from, double x0, double y0, const double *ox,
+                     const double *oy, int no)
+{
+    double w = 0, e;
+    int i;
+
+    if (dz->ndrawn - from != no)
+        return 1e9;
+    for (i = 0; i < no; i++) {
+        const jw_obj *o = &dz->obj[from + i];
+        double sx = i ? ox[i - 1] : x0, sy = i ? oy[i - 1] : y0;
+
+        e = fabs(o->d[0] - sx) + fabs(o->d[1] - sy)
+          + fabs(o->d[2] - ox[i]) + fabs(o->d[3] - oy[i]);
+        if (e > w)
+            w = e;
+    }
+    return w;
+}
+
+static double seg_ang(const jw_obj *a, const jw_obj *b)
+{
+    double ux = a->d[2] - a->d[0], uy = a->d[3] - a->d[1];
+    double vx = b->d[2] - b->d[0], vy = b->d[3] - b->d[1];
+
+    return acos((ux * vx + uy * vy) / (hypot(ux, uy) * hypot(vx, vy)))
+           * 180.0 / 3.14159265358979;
+}
+
+static void spline_more(void)
+{
+    double ox[400], oy[400];
+    int before, no, i;
+
+    printf("スプラインの弦長（不等間隔）:\n");
+    {
+        static const double X[] = { 0, 30, 100, 120 }, Y[] = { 0, 10, 0, 60 };
+
+        zfresh();
+        zline(-50, -50, 200, 100);      /* 画面の広さのため */
+        app_fit();
+        before = dz->ndrawn;
+        jw_cmd_set(JW_CMD_KYOKUSEN);
+        type_box(1411, "5");
+        for (i = 0; i < 4; i++)
+            zat(X[i], Y[i]);
+        jw_cmd_bar(dz, 1800);
+        no = ref_spline(X, Y, 4, 5, 0, 0, 0, 3, ox, oy);
+        ck(zworst(before, 0, 0, ox, oy, no) < 1e-9,
+           "  弦の長さを媒介変数にした自然スプライン（FUN_006b76e0）");
+    }
+
+    printf("始・終点連続処理 (1323):\n");
+    {
+        static const double X[] = { 0, 100, 100, 0, 0 }, Y[] = { 0, 0, 100, 100, 0 };
+        /* P(N-2) P(N-1) P1..PN P2 P3 */
+        static const double CX[] = { 100, 0, 0, 100, 100, 0, 0, 100, 100 };
+        static const double CY[] = { 100, 100, 0, 0, 100, 100, 0, 0, 100 };
+        int n0;
+
+        zfresh();
+        zline(-50, -50, 150, 150);
+        app_fit();
+        jw_cmd_set(JW_CMD_KYOKUSEN);
+        ck(jw_cmd_bar_check(1323) == 1, "  既定で印あり");
+        type_box(1411, "6");
+        before = dz->ndrawn;
+        for (i = 0; i < 5; i++)
+            zat(X[i], Y[i]);
+        jw_cmd_bar(dz, 1800);
+        no = ref_spline(CX, CY, 9, 6, 0, 0, 2, 6, ox, oy);
+        ck(no == 24 && zworst(before, 0, 0, ox, oy, no) < 1e-9,
+           "  終点が始点なら前後に二点ずつ足して解き、もとの四区間だけ描く");
+        ck(seg_ang(&dz->obj[before], &dz->obj[dz->ndrawn - 1]) < 20.0,
+           "  始点でなめらかにつながる");
+
+        jw_cmd_bar(dz, 1323);
+        ck(jw_cmd_bar_check(1323) == 0, "  1323 を外す");
+        n0 = dz->ndrawn;
+        for (i = 0; i < 5; i++)
+            zat(X[i], Y[i]);
+        jw_cmd_bar(dz, 1800);
+        no = ref_spline(X, Y, 5, 6, 0, 0, 0, 4, ox, oy);
+        ck(zworst(n0, 0, 0, ox, oy, no) < 1e-9, "  外せば開いた自然スプライン");
+        ck(seg_ang(&dz->obj[n0], &dz->obj[dz->ndrawn - 1]) > 45.0,
+           "  始点で角が立つ");
+        jw_cmd_bar(dz, 1323);
+    }
+
+    printf("連結線指定 (1068):\n");
+    {
+        static const double X[] = { 0, 50, 120 }, Y[] = { 0, 40, 0 };
+        static const double ta[2] = { 1, 0 };
+
+        zfresh();
+        zline(-100, 0, 0, 0);
+        zline(-50, -50, 200, 100);
+        app_fit();
+        jw_cmd_set(JW_CMD_KYOKUSEN);
+        type_box(1411, "5");
+        before = dz->ndrawn;
+        ck(jw_cmd_bar(dz, 1068) == 1, "  押せる");
+        zat(-2, 0);                     /* 線の上: 近い端 (0,0) に */
+        zat(50, 40);
+        zat(120, 0);
+        jw_cmd_bar(dz, 1800);
+        no = ref_spline(X, Y, 3, 5, ta, 0, 0, 2, ox, oy);
+        ck(zworst(before, 0, 0, ox, oy, no) < 1e-9,
+           "  始点を線の端に置き、線の向き (1,0) で出る");
+    }
+    {
+        static const double X[] = { 0, 50, 100 }, Y[] = { 0, 50, 50 };
+        static const double tb[2] = { 0, -1 };
+        double a = 3.14159265358979 + 0.05;
+
+        zfresh();
+        zarc(200, 50, 100, 3.14159265358979, 3.14159265358979 / 2);
+        zline(-50, -50, 300, 100);
+        app_fit();
+        jw_cmd_set(JW_CMD_KYOKUSEN);
+        type_box(1411, "4");
+        before = dz->ndrawn;
+        zat(0, 0);
+        zat(50, 50);
+        /* (LL): 一つ目は普通の点、二つ目でそれを戻して円弧を拾う */
+        jw_cmd_point_ll(dz, app_view(), 200 + 100 * cos(a), 50 + 100 * sin(a));
+        jw_cmd_bar(dz, 1800);
+        no = ref_spline(X, Y, 3, 4, 0, tb, 0, 2, ox, oy);
+        ck(zworst(before, 0, 0, ox, oy, no) < 1e-9,
+           "  (LL) で円弧の始点へ、反時計回りに入る向き (0,-1) で着く");
+    }
+    {
+        int n0;
+
+        zfresh();
+        zarc(0, 0, 50, 0.0, 0.0);       /* 全円 */
+        zline(-100, -100, 100, 100);
+        app_fit();
+        jw_cmd_set(JW_CMD_KYOKUSEN);
+        type_box(1411, "4");
+        jw_cmd_bar(dz, 1068);
+        zat(0, 50);                     /* 全円は断る（0x1458） */
+        zat(0, 50);                     /* 印は下りたので普通の点 */
+        zat(60, 80);
+        zat(90, 20);
+        n0 = dz->ndrawn;
+        jw_cmd_bar(dz, 1800);
+        ck(dz->ndrawn - n0 == 8 && dz->obj[n0].d[0] == 0 && dz->obj[n0].d[1] == 50,
+           "  全円は連結しない、印は下りる");
+        jw_cmd_bar(dz, 1068);
+        jw_cmd_bar(dz, 1692);
+        jw_cmd_bar(dz, 1691);
+        n0 = dz->ndrawn;
+        zat(0, 49);
+        zat(60, 80);
+        zat(90, 20);
+        jw_cmd_bar(dz, 1800);
+        ck(dz->ndrawn - n0 == 8 && dz->obj[n0].d[1] == 49,
+           "  曲線の種類を替えると 連結線指定 は下りる（FUN_006b4090）");
+    }
+}
+
 int main(void)
 {
     run(3, "decomp/res/curve_n3.jww", 1);
@@ -452,6 +730,7 @@ int main(void)
         run_line("decomp/res/curve_q_c.jww", 1690, fx, fy, 4,
                  "２次曲線 along a sloping line:");
     }
+    spline_more();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }

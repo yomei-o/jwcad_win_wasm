@@ -247,9 +247,11 @@ static void read_points(void)
         ck(near(fabs(p[1]), g) && near(fabs(q[1]), g) && near(p[1], -q[1]),
            "  基準線から ±間隔");
     }
-    /* 読めない所の (R) は何もしない */
+    /* 終点のあとは同じ基準線で始点待ち（原典は state 2 へ）。そこで読めない
+       所の (R) は何もしない */
+    ck(jw_cmd_midway() && strcmp(jw_cmd_prompt(), JW_STR_5401) == 0,
+       "  終点のあとは同じ基準線で始点待ち");
     before = d->ndrawn;
-    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
     jw_cmd_point(d, app_view(), 0.0, -12.0, 1);
     ck(strcmp(jw_cmd_prompt(), JW_STR_5401) == 0, "  読めない (R) では始点待ちのまま");
     jw_cmd_set(JW_CMD_NISEN);
@@ -316,7 +318,8 @@ static void ll_corner(int rev)
         ck(has_end(d, before, 40 + g, 45) == 1 && has_end(d, before, 40 - g, 45) == 1,
            "  終わりは y=45");
     }
-    ck(!jw_cmd_midway(), "  終点で区切り");
+    ck(jw_cmd_midway() && strcmp(jw_cmd_prompt(), JW_STR_5401) == 0,
+       "  終点のあとは今の基準線で始点待ち");
     jw_cmd_set(JW_CMD_NISEN);
 }
 
@@ -352,6 +355,196 @@ static void tome_box(void)
     jw_cmd_set(JW_CMD_NISEN);
 }
 
+/* ---- 終点のあとの続き・角の組・指示線包絡 (RR) --------------------------
+ * CZukei2Sen の逆コンパイルの読み（src/cmd.c の nisen・nisen_rr・nisen_env の
+ * 注）。原典では押していない。 */
+static jw_drawing *empty(void)
+{
+    app_resize(1264, 741);
+    app_new();
+    return (jw_drawing *)app_drawing();
+}
+
+/* from 以降に (a,b)-(c,e) の線（向きは問わない）がいくつあるか */
+static int has_line(const jw_drawing *d, int from, double a, double b,
+                    double c, double e)
+{
+    int i, n = 0;
+
+    for (i = from; i < d->ndrawn; i++) {
+        const double *q = d->obj[i].d;
+
+        if (d->obj[i].cls != JW_SEN)
+            continue;
+        if ((near(q[0], a) && near(q[1], b) && near(q[2], c) && near(q[3], e))
+            || (near(q[0], c) && near(q[1], e) && near(q[2], a) && near(q[3], b)))
+            n++;
+    }
+    return n;
+}
+
+static void undo_press(jw_drawing *d)
+{
+    /* app.c の 戻る と同じ: 途中なら命令に、0 なら図面の 戻る */
+    if (jw_cmd_midway() && jw_cmd_back(d))
+        return;
+    jw_cmd_undo(d);
+}
+
+static void cont_and_back(void)
+{
+    jw_drawing *d = empty();
+    int before;
+    double g;
+
+    if (!d)
+        return;
+    add_line(d, -50, 0, 50, 0);
+    app_fit();
+    jw_cmd_set(JW_CMD_NISEN);
+    type_box(1412, "100");
+    g = 100.0 / wscale(d);
+    printf("終点のあとの続き（state 2 へ）と 戻る:\n");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), -40.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), -20.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), 10.0, 0.0, 0);   /* 同じ基準線の始点 */
+    jw_cmd_point(d, app_view(), 30.0, 0.0, 0);
+    ck(d->ndrawn == before + 4, "  基準線を拾い直さずに二組目");
+    ck(has_line(d, before, 10, -g, 30, -g) == 1 && has_line(d, before, 10, g, 30, g) == 1,
+       "  二組目は 10〜30");
+    undo_press(d);
+    ck(d->ndrawn == before + 2 && strcmp(jw_cmd_prompt(), JW_STR_5402) == 0,
+       "  戻る で二組目が消えて その終点待ち");
+    jw_cmd_point(d, app_view(), 40.0, 0.0, 0);
+    ck(d->ndrawn == before + 4 && has_line(d, before, 10, g, 40, g) == 1,
+       "  始点 10 のまま引き直せる");
+    jw_cmd_set(JW_CMD_NISEN);
+}
+
+/* 角の続きの座標系: 前の区間の始まりが今の基準線の左なら逆向きに見る。
+   隔たりの違う「100,300」で、縦の線が上向き（逆向きに見る）と下向き */
+static void corner_frame(int rev)
+{
+    jw_drawing *d = empty();
+    int before;
+    double g, h;
+
+    if (!d)
+        return;
+    add_line(d, -50, 0, 50, 0);
+    if (rev)
+        add_line(d, 40, 50, 40, -50);
+    else
+        add_line(d, 40, -50, 40, 50);
+    app_fit();
+    jw_cmd_set(JW_CMD_NISEN);
+    type_box(1412, "100,300");
+    g = 100.0 / wscale(d);
+    h = 300.0 / wscale(d);
+    printf("角の座標系と組（100,300、縦の線%s）:\n", rev ? "は下向き" : "は上向き");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), -40.0, 0.0, 0);
+    jw_cmd_point_ll(d, app_view(), 40.0, 30.0);
+    jw_cmd_point(d, app_view(), 40.0, 45.0, 0);
+    ck(d->ndrawn == before + 4, "  四本");
+    /* 一本目は右（−a）が y=−g、左が y=+h。縦の区間は基準線の向きに関わらず
+       前の始まり (−40,0) が右に来る向き（下向き）に見るので、−a は x=40−g */
+    ck(has_line(d, before, -40, -g, 40 + h, -g) == 1
+       && has_line(d, before, -40, h, 40 - g, h) == 1,
+       "  前の二本は 40+h と 40−g まで");
+    ck(has_line(d, before, 40 + h, -g, 40 + h, 45) == 1
+       && has_line(d, before, 40 - g, h, 40 - g, 45) == 1,
+       "  今の二本は x=40+h と x=40−g、交点から");
+    jw_cmd_set(JW_CMD_NISEN);
+}
+
+static void rr_start(int inside)
+{
+    jw_drawing *d = empty();
+    int before;
+    double g, hy;
+
+    if (!d)
+        return;
+    add_line(d, -50, 0, 50, 0);
+    g = 100.0 / wscale(d);
+    add_line(d, -30, -5 * g, -30, 5 * g);       /* 指示線 */
+    add_line(d, 50, -6 * g, 50, 6 * g);         /* 画面の広さのため */
+    app_fit();
+    jw_cmd_set(JW_CMD_NISEN);
+    type_box(1412, "100");
+    hy = inside ? 0.5 * g : 3 * g;
+    printf("始点の 指示線包絡 (RR)、押した所が二本の%s:\n", inside ? "あいだ" : "外");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), -30.0, hy, 1);
+    jw_cmd_point(d, app_view(), -30.0, hy, 1);
+    ck(strcmp(jw_cmd_prompt(), JW_STR_5402) == 0 && d->ndrawn == before,
+       "  (RR) で終点待ち、まだ何も書かない");
+    jw_cmd_point(d, app_view(), 30.0, 0.0, 0);
+    ck(has_line(d, 0, -30, -g, 30, -g) == 1 && has_line(d, 0, -30, g, 30, g) == 1,
+       "  二本は指示線から");
+    ck(!has_line(d, 0, -30, -5 * g, -30, 5 * g), "  指示線は消える");
+    if (inside)
+        ck(d->ndrawn == before + 2 && has_line(d, 0, -30, -g, -30, g) == 1
+           && near(d->obj[before - 1].d[0], -30) && near(d->obj[before - 1].d[2], -30),
+           "  あいだを押せば二本のあいだだけ残る（蓋になる）、残りが先");
+    else
+        ck(d->ndrawn == before + 3 && has_line(d, 0, -30, -5 * g, -30, -g) == 1
+           && has_line(d, 0, -30, g, -30, 5 * g) == 1,
+           "  外を押せば二本のあいだが抜ける");
+    undo_press(d);
+    ck(has_line(d, 0, -30, -5 * g, -30, 5 * g) == 1 && d->ndrawn == before,
+       "  戻る で指示線も戻る");
+    ck(strcmp(jw_cmd_prompt(), JW_STR_5402) == 0, "  終点待ちに戻る");
+    jw_cmd_point(d, app_view(), 20.0, 0.0, 0);
+    ck(has_line(d, 0, -30, -g, 20, -g) == 1 && !has_line(d, 0, -30, -5 * g, -30, 5 * g),
+       "  指示線包絡は残っていて、引き直すとまた効く");
+    jw_cmd_set(JW_CMD_NISEN);
+}
+
+static void rr_end(void)
+{
+    jw_drawing *d = empty();
+    int before;
+    double g;
+
+    if (!d)
+        return;
+    add_line(d, -50, 0, 50, 0);
+    g = 100.0 / wscale(d);
+    add_line(d, 30, -5 * g, 30, 5 * g);         /* 終点の指示線 */
+    add_line(d, -50, -6 * g, -50, 6 * g);
+    app_fit();
+    jw_cmd_set(JW_CMD_NISEN);
+    type_box(1412, "100");
+    printf("終点の 指示線包絡 (RR):\n");
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), -20.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), 30.0, 3 * g, 1);
+    jw_cmd_point(d, app_view(), 30.0, 3 * g, 1);
+    ck(d->ndrawn == before + 3, "  二本と指示線の残り二本（指示線は消える）");
+    if (d->ndrawn == before + 3) {
+        ck(has_line(d, before - 1, -20, -g, 30, -g) == 1
+           && has_line(d, before - 1, -20, g, 30, g) == 1, "  二本は指示線まで");
+        ck(has_line(d, before - 1, 30, -5 * g, 30, -g) == 1
+           && has_line(d, before - 1, 30, g, 30, 5 * g) == 1,
+           "  指示線は二本のあいだが抜ける");
+        ck(near(d->obj[d->ndrawn - 1].d[0], 30) && near(d->obj[d->ndrawn - 3].d[0], 30) == 0,
+           "  書く順は 二本・指示線の残り");
+    }
+    ck(strcmp(jw_cmd_prompt(), JW_STR_5401) == 0, "  同じ基準線で始点待ちへ");
+    undo_press(d);
+    ck(d->ndrawn == before && has_line(d, 0, 30, -5 * g, 30, 5 * g) == 1
+       && strcmp(jw_cmd_prompt(), JW_STR_5402) == 0,
+       "  戻る で二本が消え、指示線が戻って終点待ち");
+    jw_cmd_set(JW_CMD_NISEN);
+}
+
 int main(void)
 {
     run("decomp/res/nisen.jww",
@@ -363,6 +556,12 @@ int main(void)
     ll_corner(0);
     ll_corner(1);
     tome_box();
+    cont_and_back();
+    corner_frame(0);
+    corner_frame(1);
+    rr_start(0);
+    rr_start(1);
+    rr_end();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
