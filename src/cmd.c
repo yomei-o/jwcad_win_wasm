@@ -1869,6 +1869,14 @@ static void sok_value(char *out, int n, const jw_drawing *d, double v)
  */
 static int kyo_step;
 static double kyo_x, kyo_y;
+/* 連続 (1066): 置いた回数（原典 +0xb0）、向き、ここまでの距離の合計。
+ * CZukeiKyori の 27 番 FUN_006ba0b0 → 作図 FUN_006baad0 → FUN_006b9940 は
+ * 箱の距離を毎回読み直して配列 +0x100 に足し、始点から読取点の向きへ
+ * その合計だけ進んだ所に点を置く（1000 回まで、距離が 1e-7 未満なら
+ * 札 0x1455 で回数 0）。釦は回数が 1 以上で生きる（FUN_006baa70）。
+ * 左右のクリック・中断で回数 0。逆コンパイルの読み、原典では押していない */
+static int kyo_n;
+static double kyo_ux, kyo_uy, kyo_sum;
 
 /* the 傾き box, in radians */
 static double box_angle(int id)
@@ -3514,6 +3522,7 @@ void jw_cmd_set(int id)
     sok_reset();                /* a 測定 run does not cross a command */
     sok_mode = SOK_LEN;         /* and it comes up on 距離測定 */
     kyo_step = 0;
+    kyo_n = 0;
     /* 測定 shows its readout from the moment it is entered, before any
        point is down (tools/probe125.sh) */
     if (id == JW_CMD_SOKUTEI)
@@ -14721,6 +14730,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
         return sel_step == 2 && !sel_cut && !sel_outside;
     if (current == JW_CMD_PARAM && sel_step == 3 && id == 1069)
         return 1;                   /* 二枚目の 1069 は 再選択 */
+    if (current == JW_CMD_KYORITEN && id == 1066)
+        return kyo_n > 0;           /* 連続: 一つ置いてから（FUN_006baa70） */
     switch (id) {
     case 1120:
         /* 寸法 has 実行 here, and it is alive at exactly one
@@ -15503,6 +15514,29 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
     }
 
+    if (current == JW_CMD_KYORITEN && id == 1066) {
+        /* 距離指定点の 連続: 前の点の先へ、いまの箱の距離をもう一つ（kyo_n の注） */
+        double mm;
+        jw_obj *o;
+
+        if (!d || kyo_n <= 0)
+            return 0;
+        mm = box_mm(d, 1412);
+        if (fabs(mm) < 1e-7 || kyo_n >= 1000) {
+            kyo_n = 0;
+            return 1;
+        }
+        kyo_sum += mm;
+        kyo_n++;
+        o = jw_add(d, JW_TEN);
+        if (o) {
+            o->d[0] = kyo_x + kyo_ux * kyo_sum;
+            o->d[1] = kyo_y + kyo_uy * kyo_sum;
+            o->n = jw_cmd_bar_check(1323) > 0;  /* 仮点 */
+            op_push(1);
+        }
+        return 1;
+    }
     if (current == JW_CMD_GAZOU && gz_bar(d, id))
         return 1;
     if (bar_press(d, id))
@@ -21347,6 +21381,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_KYORITEN) {
         double rx = x, ry = y, dx, dy, len, mm;
 
+        kyo_n = 0;                      /* 押すたびに連続は切れる */
         if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
             return;
         if (!kyo_step) {
@@ -21372,6 +21407,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 o->d[1] = kyo_y + dy / len * mm;
                 o->n = jw_cmd_bar_check(1323) > 0;      /* 仮点 */
                 op_push(1);
+                kyo_ux = dx / len;
+                kyo_uy = dy / len;
+                kyo_sum = mm;
+                kyo_n = 1;
             }
         }
         return;

@@ -935,6 +935,56 @@ static void moji_pick_move(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 距離指定点 (32930) の 連続 (1066): 置いた点の先へ、いまの箱の距離を
+   もう一つ足した所に点。CZukeiKyori の 27 番 FUN_006ba0b0 → FUN_006baad0
+   → FUN_006b9940 の読み（逆コンパイルの読み、原典では押していない）。
+   釦は一つ置いてから生き、新しいクリックで死ぬ（FUN_006baa70）。 */
+static int ten_count(const jw_drawing *d)
+{
+    int i, n = 0;
+
+    for (i = 0; i < d->ndrawn; i++)
+        n += d->obj[i].cls == JW_TEN;
+    return n;
+}
+
+static void kyori_ren(void)
+{
+    jw_drawing *d;
+    const jw_obj *o;
+    double s;
+    int n0;
+
+    app_new();
+    d = app_drawing();
+    s = scale_of(d);
+    app_command(JW_CMD_KYORITEN);
+    type_into(1412, "1000");
+    jw_cmd_box_key(13);
+    jw_cmd_box_click(0);
+    ck(jw_cmd_bar_enabled(d, 1066) == 0, "距離指定点の 連続 は始めは死んでいる");
+    n0 = ten_count(d);
+    click(0.0, 0.0);
+    click(50.0, 0.0);
+    o = last_of(d, JW_TEN);
+    ck(ten_count(d) == n0 + 1 && o && fabs(o->d[0] - 1000.0 / s) < 1e-6
+       && fabs(o->d[1]) < 1e-6, "  一つ目は始点から 1000 の所");
+    ck(jw_cmd_bar_enabled(d, 1066) > 0, "  置くと 連続 が生きる");
+    ck(jw_cmd_bar(d, 1066), "  連続 を押す");
+    o = last_of(d, JW_TEN);
+    ck(ten_count(d) == n0 + 2 && o && fabs(o->d[0] - 2000.0 / s) < 1e-6,
+       "  二つ目は 2000 の所");
+    type_into(1412, "500");
+    jw_cmd_box_key(13);
+    jw_cmd_box_click(0);
+    jw_cmd_bar(d, 1066);
+    o = last_of(d, JW_TEN);
+    ck(ten_count(d) == n0 + 3 && o && fabs(o->d[0] - 2500.0 / s) < 1e-6,
+       "  箱を 500 にすると その先 500 の所");
+    click(10.0, 10.0);
+    ck(jw_cmd_bar_enabled(d, 1066) == 0, "  新しいクリックで 連続 は切れる");
+}
+
 int main(void)
 {
     const jw_drawing *d;
@@ -1034,6 +1084,8 @@ int main(void)
     moji_point_first();
     moji_pick_move();
     moji_hani_clip();
+
+    kyori_ren();
 
     /* Jw_cadの終了 (57665): 表側に窓を閉じさせる（ネイティブは WM_CLOSE） */
     app_take_action();
