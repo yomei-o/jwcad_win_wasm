@@ -126,9 +126,16 @@ EMSCRIPTEN_KEEPALIVE int jw_box_focus(void)
     return jw_cmd_box_focus();
 }
 
+static int finish(int redraw);
+
+/* A key can leave an action behind too -- Enter that settles 外部エディタ's
+   range, or a 外部変形 step -- so what it asked for comes back the way a
+   press's does (finish).  app_key has painted already. */
 EMSCRIPTEN_KEEPALIVE int jw_key(int c)
 {
-    return app_key(c);
+    int r = app_key(c), f = finish(0);
+
+    return f ? f : r;
 }
 
 /* Shift+Enter: see app_shift_enter.  A DOM keydown carries shiftKey itself,
@@ -136,7 +143,9 @@ EMSCRIPTEN_KEEPALIVE int jw_key(int c)
    (RESUME.md 2026-10-13). */
 EMSCRIPTEN_KEEPALIVE int jw_shift_enter(void)
 {
-    return app_shift_enter();
+    int r = app_shift_enter(), f = finish(0);
+
+    return f ? f : r;
 }
 
 /* One UTF-16 unit from the page, converted here.  This is the way the page
@@ -212,7 +221,18 @@ static int finish(int redraw)
     case JW_ACT_OPEN:
     case JW_ACT_TAG:        /* タグジャンプ: the page has no folder to look in, so it
                                lets the user pick the file */
+    case JW_ACT_OPEN_DXF:   /* DXF・SFC・JWC ファイルを開く: the page reads the */
+    case JW_ACT_OPEN_SFC:   /* kind off the name it was given, so the same */
+    case JW_ACT_OPEN_JWC:   /* file window does for all of them */
         return 2;
+    case JW_ACT_SAVE_DXF:
+        return 17;              /* DXF形式で保存 (the menu's, not only the page's button) */
+    case JW_ACT_SAVE_SFC:
+        return 18;              /* SFC形式で保存 */
+    case JW_ACT_SAVE_JWC:
+        return 19;              /* JWC形式で保存 */
+    case JW_ACT_PLOT:
+        return 20;              /* 印刷 (Ctrl+P too): the sheet as a PDF */
     case JW_ACT_SAVE:
     case JW_ACT_SAVE_AS:
         return 3;
@@ -241,6 +261,9 @@ static int finish(int redraw)
     case JW_ACT_GAIBU_RUN:
     case JW_ACT_GAIBU:
         return 12;              /* 外部変形: a browser cannot run a BAT */
+    case JW_ACT_CLIP_PUT:
+        app_paint();            /* 切り取り は図面を変えている */
+        return 16;              /* コピー・切り取り: システムのクリップボードへ */
     }
     if (redraw)
         app_paint();
@@ -510,6 +533,27 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_clip_get(void)
 EMSCRIPTEN_KEEPALIVE int jw_clip_set(unsigned char *b, int n)
 {
     return jw_cmd_clip_set(b, n);
+}
+
+/* コピー・切り取りで選んでいた字（UTF-8、BOM 付き、一行一字）。原典は図形と
+   一緒に CF_UNICODETEXT にも置くので、ページは text/plain で出す。字が
+   無ければ 0。長さは jw_saved_len、あとで jw_saved_free。 */
+EMSCRIPTEN_KEEPALIVE unsigned char *jw_moji_clip_get(void)
+{
+    const unsigned char *b;
+    long n;
+
+    free(saved);
+    saved = 0;
+    saved_n = 0;
+    if (!jw_cmd_moji_clip(&b, &n))
+        return 0;
+    saved = (unsigned char *)malloc((size_t)n);
+    if (!saved)
+        return 0;
+    memcpy(saved, b, (size_t)n);
+    saved_n = n;
+    return saved;
 }
 /* 「SFCファイルを開く」, the same way. */
 EMSCRIPTEN_KEEPALIVE int jw_open_sfc(unsigned char *b, int n)

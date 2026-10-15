@@ -77,7 +77,11 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        /* 文字の 範囲選択: 文書 (a .TXT to write), 外部エディタ, 貼付 */
        JW_ACT_MOJI_DOC, JW_ACT_MOJI_EDIT, JW_ACT_MOJI_PASTE,
        /* 外部変形: every step is answered, run the BAT (app_gaibu_run_begin) */
-       JW_ACT_GAIBU_RUN };
+       JW_ACT_GAIBU_RUN,
+       /* コピー・切り取りが図形を控えた: 表側はそれをシステムのクリップボード
+          へ（jw_cmd_clip_get の図形、選んだ字があれば jw_cmd_moji_clip の
+          字を文字列として。原典 FUN_004fb140 の CF_UNICODETEXT） */
+       JW_ACT_CLIP_PUT };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */

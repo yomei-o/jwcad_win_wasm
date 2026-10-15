@@ -809,7 +809,8 @@ static void moji_hani_clip(void)
     moji_box(-80.0, 60.0, 60.0, -10.0);
     ck(jw_cmd() == JW_CMD_MOJI && jw_cmd_moji_ready() && jw_cmd_moji_count(d) == 2,
        "2407 の範囲で二つとも選ぶ");
-    ck(app_command(57634) && jw_cmd_moji_clip(&b, &n)
+    ck(app_command(57634) && app_take_action() == JW_ACT_CLIP_PUT
+       && jw_cmd_moji_clip(&b, &n)
        && n == 9 && !memcmp(b, "\xef\xbb\xbf" "AB\nCD\n", 9),
        "コピーは字も控える（データの順、一字一行、LF）");
     ck(jw_cmd_moji_count(d) == 2 && moji_texts(d) == 2, "  コピーでは何も変わらない");

@@ -3455,6 +3455,23 @@ static int ll_wanted(int button)
     return button == 0 && have_drawing && jw_cmd() == JW_CMD_NISEN && jw_cmd_midway();
 }
 
+/* ほかに (LL) を受けるのは 文字 の 連（文字を指示…移動（LL)、5473）と
+ * 曲線 の スプライン（連結する線・弧指示（LL)、1691）。どちらも原典は
+ * 一つ目を普通の左で受けてから WM_LBUTTONDBLCLK が来るので、一つ目は
+ * その場で渡し、2 画素未満でもう一度 (L) が来たら、一つ目が進めた分を
+ * jw_cmd_back で戻して jw_cmd_point_ll（ダブルクリック一つ分）にする。
+ * 連 は一つ目で字を拾ったときだけ（5474）、曲線は点を持っているときだけ戻す */
+static int ll_cmd;
+
+static int ll_other(int button)
+{
+    if (button != 0 || !have_drawing)
+        return 0;
+    if (jw_cmd() == JW_CMD_MOJI)
+        return strcmp(jw_cmd_prompt(), JW_STR_5473) == 0;
+    return jw_cmd() == JW_CMD_KYOKUSEN && jw_cmd_bar_radio(1691) == 1;
+}
+
 static void ll_flush(void)
 {
     int was;
@@ -3625,7 +3642,10 @@ int app_command(int cmd)
         /* Both want a range picked first; the original's bar and status
            line do not change when they are pressed, so there is nothing
            to show for it either way (tools/probe56.sh). */
-        return jw_cmd_clip_copy(&drawing, cmd == 57635);
+        if (!jw_cmd_clip_copy(&drawing, cmd == 57635))
+            return 0;
+        action = JW_ACT_CLIP_PUT;       /* 表側がシステムのクリップボードへ */
+        return 1;
     case 57637:                         /* 同        貼り付け Ctrl+V */
         /* which puts up 図形読込's own command, figure and all */
         return jw_cmd_clip_paste(&drawing);
@@ -3848,10 +3868,16 @@ int app_press(int x, int y, int button)
 
     if (ll_pend || ll_start) {
         if (button == 0 && abs(x - ll_x) < 2 && abs(y - ll_y) < 2
-            && have_drawing && jw_cmd() == JW_CMD_NISEN) {
+            && have_drawing && jw_cmd() == ll_cmd) {
             int was = drawing.ndrawn;
 
-            if (ll_start)
+            if (ll_cmd == JW_CMD_MOJI) {
+                if (strcmp(jw_cmd_prompt(), JW_STR_5474) == 0)
+                    jw_cmd_back(&drawing);      /* 一つ目で拾った字を放す */
+            } else if (ll_cmd == JW_CMD_KYOKUSEN) {
+                if (jw_cmd_midway())
+                    jw_cmd_back(&drawing);      /* 一つ目の点を捨てる */
+            } else if (ll_start)
                 jw_cmd_back(&drawing);  /* 始点を取り消して 始点待ち に */
             ll_pend = ll_start = 0;
             jw_cmd_point_ll(&drawing, &view, ll_mx, ll_my);
@@ -4086,6 +4112,7 @@ int app_press(int x, int y, int button)
         jw_cmd_box_click(0);            /* the caret leaves the bar */
         to_paper(x, y, &mx, &my);
         if (ll_wanted(button)) {        /* ２線: (LL) かどうか */
+            ll_cmd = JW_CMD_NISEN;
             ll_x = x;
             ll_y = y;
             ll_mx = mx;
@@ -4101,6 +4128,7 @@ int app_press(int x, int y, int button)
                the block's definition rather than into the drawing -- see
                jw_cmd_block_take. */
             int was = have_drawing ? drawing.ndrawn : 0;
+            int other = ll_other(button);   /* 連・曲線: (LL) の一つ目かもしれない */
 
             jw_cmd_point(have_drawing ? &drawing : 0, &view, mx, my, button);
             if (have_drawing && jw_cmd_block_editing()
@@ -4109,6 +4137,14 @@ int app_press(int x, int y, int button)
             gaibu_after();
             if (jw_cmd_figure_base(&fig_bx, &fig_by))
                 action = JW_ACT_SAVE_FIG;   /* 図形登録 wants a file name */
+            if (other) {
+                ll_cmd = jw_cmd();
+                ll_x = x;
+                ll_y = y;
+                ll_mx = mx;
+                ll_my = my;
+                ll_start = 1;
+            }
         }
         return 1;
     }

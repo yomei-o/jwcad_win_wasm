@@ -1123,6 +1123,45 @@ static int moji_file(HWND wnd, int what)
     return ok;
 }
 
+/* コピー・切り取りで選んでいた字を CF_UNICODETEXT へ（原典 FUN_004fb140 が
+   図形と一緒に置く分）。控えは UTF-8・BOM 付き・一行一字の LF なので、
+   UTF-16 にして行末を CRLF に。字が無ければ何もしない（図形は移植の中だけ） */
+static void clip_put(HWND wnd)
+{
+    const unsigned char *b;
+    long n, i, k = 0;
+    int wl;
+    wchar_t *w, *g;
+    HGLOBAL h;
+
+    if (!jw_cmd_moji_clip(&b, &n) || n <= 3)
+        return;
+    wl = MultiByteToWideChar(CP_UTF8, 0, (const char *)b + 3, (int)(n - 3), NULL, 0);
+    if (wl <= 0 || !(w = (wchar_t *)malloc((size_t)wl * sizeof *w)))
+        return;
+    MultiByteToWideChar(CP_UTF8, 0, (const char *)b + 3, (int)(n - 3), w, wl);
+    h = GlobalAlloc(GMEM_MOVEABLE, ((size_t)wl * 2 + 1) * sizeof *w);
+    g = h ? (wchar_t *)GlobalLock(h) : NULL;
+    if (g) {
+        for (i = 0; i < wl; i++) {
+            if (w[i] == L'\n')
+                g[k++] = L'\r';
+            g[k++] = w[i];
+        }
+        g[k] = 0;
+        GlobalUnlock(h);
+        if (OpenClipboard(wnd)) {
+            EmptyClipboard();
+            if (SetClipboardData(CF_UNICODETEXT, h))
+                h = NULL;               /* 窓の側のものになった */
+            CloseClipboard();
+        }
+    }
+    if (h)
+        GlobalFree(h);
+    free(w);
+}
+
 /* A command from a menu item is taken the same way a toolbar press is: what
    needs a file or a dialog comes back through app_take_action().
    Whatever app_command() or app_press() asked for that needs a file or a
@@ -1194,6 +1233,9 @@ static int do_action(HWND wnd)
         return moji_file(wnd, 1);
     case JW_ACT_MOJI_PASTE:
         return moji_file(wnd, 2);
+    case JW_ACT_CLIP_PUT:
+        clip_put(wnd);
+        return 1;                       /* 切り取り は図面を変えている */
     case JW_ACT_GAIBU:
         return pick_gaibu(wnd);
     case JW_ACT_GAIBU_RUN:
@@ -1713,6 +1755,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             int done = (GetKeyState(VK_SHIFT) & 0x8000) ? app_shift_enter() : 0;
             if (!done)
                 done = app_key(13);
+            done |= do_action(wnd);     /* Enter が残した 外部エディタ・外部変形 など */
             if (done) {
                 app_paint();
                 InvalidateRect(wnd, NULL, FALSE);
@@ -1720,7 +1763,10 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             return 0;
         }
         if (wp >= 0x20 || wp == 8 || wp == 27) {
-            if (app_key((int)wp)) {
+            int done = app_key((int)wp);
+
+            done |= do_action(wnd);
+            if (done) {
                 app_paint();
                 InvalidateRect(wnd, NULL, FALSE);
             }
