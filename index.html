@@ -57,6 +57,7 @@
   <button id="dxf" type="button">DXF で保存</button>
   <button id="sfc" type="button">SFC で保存</button>
   <button id="jwc" type="button">JWC で保存</button>
+  <button id="printtab" type="button" title="PDF を新しいタブで開く（そこから印刷）">印刷</button>
   <button id="pdf" type="button">PDF で印刷</button>
   <button id="png" type="button">PNG で印刷</button>
   <span id="msg" role="status" aria-live="polite">—— 図面はここで読むだけで、どこにも送られません。</span>
@@ -86,6 +87,10 @@ const EN = {
   'SFC で保存': 'Save as SFC',
   'JWC で保存': 'Save as JWC',
   'PDF で印刷': 'Print to PDF',
+  '印刷': 'Print',
+  'PDF を新しいタブで開く（そこから印刷）': 'Open the PDF in a new tab (print it from there)',
+  '新しいタブの PDF から印刷してください': 'Print from the PDF in the new tab',
+  '印刷の窓を開きました': 'The print dialog is open',
   'PNG で印刷': 'Print to PNG',
   '—— 図面はここで読むだけで、どこにも送られません。': '-- Drawings are read here only and are never sent anywhere.',
   'ホイールで拡大縮小、右ドラッグで移動、Home で全体、Ctrl+Z 戻る・Ctrl+Y 進む・Ctrl+S 保存。タッチは 指一本で位置、二本で移動・拡大縮小（二本でちょんと触れると右ボタン）。': 'Wheel zooms, right-drag pans, Home fits the sheet, Ctrl+Z undo, Ctrl+Y redo, Ctrl+S save. Touch: one finger points, two fingers pan and pinch (a two-finger tap is the right button).',
@@ -661,6 +666,41 @@ if (LANG === 'en') {
     const ext = asPng ? '.png' : '.pdf';
     offer(plot(asPng ? 1 : 0, 0), curName().replace(/\.[^.]*$/, '') + ext);
   }
+  // 印刷 to a printer after all: the same PDF, opened in a new tab where the
+  // browser's own viewer prints it.  When the tab is not allowed (a pop-up
+  // blocker), the PDF goes into a hidden frame and that frame's print dialog
+  // is opened; if even that fails, it is downloaded as before.
+  function printPlot() {
+    const p = plot(0, 0);
+    if (!p) return;
+    const bytes = mod.HEAPU8.slice(p, p + savedLen());
+    savedFree();
+    const name = curName().replace(/\.[^.]*$/, '') + '.pdf';
+    const msg = document.getElementById('msg');
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const later = () => URL.revokeObjectURL(url);
+    const w = window.open(url, '_blank');
+    if (w) {
+      msg.textContent = T('新しいタブの PDF から印刷してください');
+      setTimeout(later, 600000);        /* the tab reads it when it likes */
+      return;
+    }
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    f.title = name;
+    f.onload = () => {
+      try {
+        f.contentWindow.focus();
+        f.contentWindow.print();
+        msg.textContent = T('印刷の窓を開きました');
+      } catch (e) {
+        saveLink(bytes, name);
+      }
+      setTimeout(() => { later(); f.remove(); }, 600000);
+    };
+    f.src = url;
+    document.body.appendChild(f);
+  }
 
   // 文読 (1069) asks for a text file; the next one picked goes to jw_text
   let askedText = false;
@@ -912,6 +952,7 @@ if (LANG === 'en') {
   document.getElementById('dxf').addEventListener('click', () => downloadDxf());
   document.getElementById('sfc').addEventListener('click', () => downloadSfc());
   document.getElementById('jwc').addEventListener('click', () => downloadJwc());
+  document.getElementById('printtab').addEventListener('click', () => printPlot());
   document.getElementById('pdf').addEventListener('click', () => downloadPlot(false));
   document.getElementById('png').addEventListener('click', () => downloadPlot(true));
 

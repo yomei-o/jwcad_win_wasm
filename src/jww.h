@@ -297,6 +297,15 @@ int jw_write(const jw_drawing *d, unsigned char **out, long *n);
 /* Write the drawing out as DXF, the way 「DXF形式で保存」 does (src/dxf.c).
    The caller frees *out. */
 int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
+/* 基本設定 DXF・SXF・JWC タブの DXF書出し の三つを渡すもの（src/dxf.c の注）。
+   jw_dxf_write は 原典の既定（番号 入、点 切、Shift-JIS）と同じ */
+typedef struct {
+    int point_circle;           /* 2202 点を円で出力する                 */
+    int layer_number;           /* 2203 レイヤ名に番号を付加する          */
+    int utf8;                   /* 2214 UTF-8（切なら 2205 Shift-JIS）     */
+} jw_dxf_opt;
+int jw_dxf_write_opt(const jw_drawing *d, const jw_dxf_opt *opt,
+                     unsigned char **out, long *n);
 
 /* Read a JWC into the drawing, the way 「JWCファイルを開く」 does
    (src/jwcread.c).  Returns 0 if the bytes are not a JWC. */

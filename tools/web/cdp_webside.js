@@ -140,6 +140,28 @@ const server = http.createServer((req, res) => {
     const rc = await ev('window.__jw._jw_command(32961)');
     check(rc === 17, 'DXF形式で保存 (32961) は 17 を返す');
 
+    // ---- 印刷 の釦: PDF を新しいタブで（止められたら隠した枠の印刷の窓で）
+    const opened = await ev(`(async () => {
+      const got = [];
+      window.open = (u, t) => { got.push([u, t]); return {}; };
+      document.getElementById('printtab').click();
+      const u = got.length && got[0][0];
+      const b = u ? await (await fetch(u)).blob() : null;
+      const head = b ? new TextDecoder().decode(await b.slice(0, 5).arrayBuffer()) : '';
+      return [got.length, u && u.startsWith('blob:'), got.length && got[0][1], b && b.type, head];
+    })()`);
+    check(opened[0] === 1 && opened[1] && opened[2] === '_blank' && opened[3] === 'application/pdf' && opened[4] === '%PDF-',
+      '印刷 は PDF を新しいタブで開く (' + JSON.stringify(opened) + ')');
+    const framed = await ev(`(async () => {
+      window.open = () => null;
+      const n0 = document.querySelectorAll('iframe').length;
+      document.getElementById('printtab').click();
+      const f = [...document.querySelectorAll('iframe')].pop();
+      return [document.querySelectorAll('iframe').length - n0, !!(f && f.src.startsWith('blob:'))];
+    })()`);
+    check(framed[0] === 1 && framed[1], '  タブが止められたら 隠した枠で印刷する (' + JSON.stringify(framed) + ')');
+    check((await ev('window.__dl')).length === 0, '  どちらもダウンロードはしない');
+
     // ---- 文字 の 連 で ダブルクリック
     await load();
     h = await texts();

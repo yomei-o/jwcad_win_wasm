@@ -13,6 +13,7 @@
 #include "fb.h"
 #include "png.h"
 #include "view.h"
+#include "umekomi.h"
 
 #define PI 3.14159265358979323846
 
@@ -555,7 +556,8 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
            is the height and the horizontal scale is width over height;
            the spacing goes in as Tc, which PDF scales the same way, so
            it is divided by that scale first. */
-        const char *s = jw_str((jw_drawing *)p->d, o->text);
+        const char *s = jw_umekomi_text(p->d, o,     /* 埋め込み文字 */
+                                        jw_str((jw_drawing *)p->d, o->text), 1);
         double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
         double dir = (dx != 0.0 || dy != 0.0) ? atan2(dy, dx) : 0.0;
         double h = o->d[5] > 0.0 ? o->d[5] : 3.0;
@@ -751,7 +753,14 @@ unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
         paper.obj = own;
     }
     fb_fill(&fb, 0, 0, w, h, 0xffffffu);
-    jw_draw(&fb, &v, &paper);
+    {   /* 刷るときは 埋め込み文字を置き換える (src/umekomi.c) */
+        const char *(*was_subst)(const jw_drawing *, const jw_obj *,
+                                 const char *) = jw_draw_text_subst;
+
+        jw_draw_text_subst = jw_umekomi_print_hook;
+        jw_draw(&fb, &v, &paper);
+        jw_draw_text_subst = was_subst;
+    }
     jw_mm_per_bit = was_bit;
     free(own);
 
@@ -1217,3 +1226,6 @@ unsigned char *jw_plot_png_at(const jw_drawing *d, const jw_plot_frame *f,
     free(own);
     return r;
 }
+
+/* 埋め込み文字。ビルドの一覧を触らずに済むよう ここで一緒に作る */
+#include "umekomi.c"
