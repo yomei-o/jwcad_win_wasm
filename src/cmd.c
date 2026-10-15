@@ -746,6 +746,10 @@ static void en_kihon_shift(double *cx, double *cy, double *rad,
 static int nisen_flip;          /* 間隔反転 (1064) */
 static int nisen_obj = -1, nisen_step;
 static double nisen_x, nisen_y;
+/* ２線 の 基準線変更 (LL) で角を回った続き（原典の +0xe6bf0 の鎖を一段だけ
+   持つ形）: 書き出し待ちの前の二本・その向きの隔たり・前の基準線 */
+static int nisen_chain;
+static double nisen_pl[2][4], nisen_ps[2], nisen_pv[4];
 
 /* The boxes on the command bar that hold a number.  Jw_cad keeps these in
  * the command itself, not in the registry, and the values below are the ones
@@ -3029,6 +3033,7 @@ void jw_cmd_set(int id)
     if (id == JW_CMD_NISEN) {
         nisen_step = 0;
         nisen_obj = -1;
+        nisen_chain = 0;
     }
     auto_back = 0;
     au_reset();
@@ -3143,6 +3148,7 @@ void jw_cmd_escape(void)
     tracking = 0;
     nisen_step = 0;
     nisen_obj = -1;
+    nisen_chain = 0;
     ses_step = 0;
     ses_a = -1;
     sek_step = 0;
@@ -3503,6 +3509,15 @@ int jw_cmd_back(jw_drawing *d)
         nisen_step--;
         if (nisen_step < 1)
             nisen_obj = -1;
+        if (nisen_chain) {
+            /* 角を回った続きの途中。原典（同じ slot 16）は鎖を一段戻して
+               前の区間の終点待ちに返り、書いた分を図面から戻すが、移植は
+               鎖を一段しか持たないので、書き出し待ちの二本ごと捨てて
+               基準線から（逆コンパイルの読み、原典では押していない） */
+            nisen_chain = 0;
+            nisen_step = 0;
+            nisen_obj = -1;
+        }
         tracking = 0;
         return 1;
     }
@@ -7005,79 +7020,212 @@ static int nisen_gap(const jw_drawing *d)
  * 書き出す順も原典のとおり —— 蓋・一本目・二本目、常駐ならそのあとに
  * もう一つの蓋。
  */
-#define NISEN_TOME 0.5          /* 図寸mm。上の注 */
+#define NISEN_TOME 0.5          /* 図寸mm。留線出の箱が空のとき。上の注 */
 
-static void nisen(jw_drawing *d, double x, double y)
+/* 留線出 (1413) —— 蓋の付く端が外へ伸びる量。
+ *
+ * 原典の FUN_006295e0 は留線の値の 10 の余りが 1 以上なら FUN_005bb0d0
+ * を呼び、それはバーの +0x2c8 の箱（DoDataExchange 0x5baf3b の DDX_Control
+ * で 0x585 = 1413）の数を書込レイヤグループの縮尺で割って返します（図面の
+ * 単位 → 図寸）。箱が空のときの 0.5 図寸mm は上の注の実測のまま
+ * （1/100 で 50 なので、空 = 50 なのか 0.5mm 固定なのかは分かれていません）。
+ * 逆コンパイルの読み、原典では押していない。 */
+static double nisen_tome_len(const jw_drawing *d)
+{
+    const char *t = jw_cmd_box(1413);
+
+    if (!t || !*t)
+        return NISEN_TOME;
+    return box_num(t, 0.0) / write_scale(d);
+}
+
+/* 二本の線（無限に伸ばして）の交点。原典 FUN_00629400 と同じく、交わらない・
+   交点の x か y が 100000 を超えるなら 0 */
+static int nisen_meet(const double *p, const double *q, double *x, double *y)
+{
+    double ax = p[2] - p[0], ay = p[3] - p[1];
+    double bx = q[2] - q[0], by = q[3] - q[1];
+    double den = ax * by - ay * bx, t;
+
+    if (fabs(den) <= 1e-12 * sqrt((ax * ax + ay * ay) * (bx * bx + by * by)))
+        return 0;
+    t = ((q[0] - p[0]) * by - (q[1] - p[1]) * bx) / den;
+    *x = p[0] + ax * t;
+    *y = p[1] + ay * t;
+    return fabs(*x) <= 100000.0 && fabs(*y) <= 100000.0;
+}
+
+static int nisen_put(jw_drawing *d, const double *q)
+{
+    jw_obj *n = jw_add(d, JW_SEN);
+
+    if (!n)
+        return 0;
+    n->d[0] = q[0];
+    n->d[1] = q[1];
+    n->d[2] = q[2];
+    n->d[3] = q[3];
+    return 1;
+}
+
+/* 二本を引く。`ll` は終点を 基準線変更 (LL) で指示したとき —— 原典の
+ * slot 12 (FUN_00624fa0) の state 5 の枝で、今の区間を書き出し待ちにして
+ * 鎖を一つ進め、ダブルクリックした線を次の基準線にします。
+ *
+ * 角の扱い（FUN_00627c30 の +0xdeed0 が 1 の枝）: 続きの区間の始まりは
+ * 前の基準線と今の基準線の交点の射影。前の二本と今の二本を四通り交わらせ
+ * (FUN_004619b0 ×4)、その交点で前の二本の終わりと今の二本の始まりを
+ * 揃えてから、前の二本を書き、今の二本（とその後の蓋）を書きます。
+ * 始点の蓋（留線）は鎖の最初の区間にしか付きません。
+ *
+ * 四つの交点のうちどの組を取るかは、原典では今の線の一本の上で二つの
+ * 交点の並びを比べて決めていますが、その線がどちら側の線なのかは
+ * Ghidra が FUN_00420110 の引数を落としていて読み切れませんでした。
+ * ここでは進む向きに対して同じ側どうし（隔たりの並びが同じもの）を
+ * 組にします —— 壁の角が交差しない取り方です。逆コンパイルの読み、
+ * 原典では押していない。 */
+static int nisen(jw_drawing *d, double x, double y, int ll)
 {
     jw_obj oline = d->obj[nisen_obj];     /* a copy: jw_add below may move the array */
     const jw_obj *o = &oline;
     double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
     double len = sqrt(dx * dx + dy * dy), ux, uy, vx, vy;
-    double s0, s1, t0, made = 0;
-    double oa, ob, e0 = 0.0, e1 = 0.0;
-    int k, tome = jw_cmd_bar_check(1323) > 0;
+    double s0, s1, made = 0, cx, cy, ext;
+    double off[2], sc[2], L[2][4], cap[4];
+    double e0 = 0.0, e1 = 0.0;
+    int k, tome = 0, cap0 = 0;
     int jochu = jw_cmd_bar_check(1324) > 0;
 
     if (len == 0.0)
-        return;
+        return 0;
     ux = dx / len;
     uy = dy / len;
     vx = -uy;
     vy = ux;
     /* the two points, along the line the pair runs on */
-    s0 = (nisen_x - o->d[0]) * ux + (nisen_y - o->d[1]) * uy;
     s1 = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
-    t0 = (o->d[0]) * 0.0;       /* the line itself is the zero of the offset */
-    (void)t0;
+    if (nisen_chain) {
+        if (!nisen_meet(nisen_pv, o->d, &cx, &cy))
+            return 0;
+        s0 = (cx - o->d[0]) * ux + (cy - o->d[1]) * uy;
+    } else {
+        s0 = (nisen_x - o->d[0]) * ux + (nisen_y - o->d[1]) * uy;
+        /* 留線 (1323) は一度きり: 原典 FUN_005bb410 は +0xd8（DDX_Check
+           0x52b = 1323）を読んだら 0 に戻す。常駐 (1324, +0xdc) は残る */
+        tome = jw_cmd_bar_check(1323) > 0;
+        if (tome) {
+            unsigned char *c = chk_slot(bar_cmd(), 1323);
+
+            if (c)
+                *c = 0;
+        }
+        cap0 = tome || jochu;
+    }
+    if (fabs(s1 - s0) < 1e-7)       /* FUN_00627c30: 長さ 0 は引かない */
+        return 0;
+    ext = nisen_tome_len(d);
     /* 蓋の付く端は外へ伸びます。どちらが外かは二点の並び順しだい */
-    if (tome || jochu)
-        e0 = s0 > s1 ? NISEN_TOME : -NISEN_TOME;
-    if (jochu)
-        e1 = s0 > s1 ? -NISEN_TOME : NISEN_TOME;
+    if (cap0)
+        e0 = s0 > s1 ? ext : -ext;
+    if (jochu && !ll)
+        e1 = s0 > s1 ? -ext : ext;
     s0 += e0;
     s1 += e1;
-    oa = nisen_flip ? nisen_a : -nisen_a;
-    ob = nisen_flip ? -nisen_b : nisen_b;
-    if (tome || jochu) {        /* 手前の蓋が先に出ます */
-        jw_obj *n = jw_add(d, JW_SEN);
-
-        if (n) {
-            n->d[0] = o->d[0] + ux * s0 + vx * oa;
-            n->d[1] = o->d[1] + uy * s0 + vy * oa;
-            n->d[2] = o->d[0] + ux * s0 + vx * ob;
-            n->d[3] = o->d[1] + uy * s0 + vy * ob;
-            made++;
-        }
-    }
+    /* 間隔反転 (1064) turns the pair over: the original left the two
+       numbers in the box alone when it was pressed, so what it reverses
+       is which side each of them goes */
+    off[0] = nisen_flip ? nisen_a : -nisen_a;
+    off[1] = nisen_flip ? -nisen_b : nisen_b;
     for (k = 0; k < 2; k++) {
-        /* 間隔反転 (1064) turns the pair over: the original left the two
-           numbers in the box alone when it was pressed, so what it reverses
-           is which side each of them goes */
-        double off = k ? nisen_b : -nisen_a;
-        jw_obj *n;
-        if (nisen_flip)
-            off = -off;
-        n = jw_add(d, JW_SEN);
-        if (!n)
-            break;
-        n->d[0] = o->d[0] + ux * s0 + vx * off;
-        n->d[1] = o->d[1] + uy * s0 + vy * off;
-        n->d[2] = o->d[0] + ux * s1 + vx * off;
-        n->d[3] = o->d[1] + uy * s1 + vy * off;
-        made++;
+        L[k][0] = o->d[0] + ux * s0 + vx * off[k];
+        L[k][1] = o->d[1] + uy * s0 + vy * off[k];
+        L[k][2] = o->d[0] + ux * s1 + vx * off[k];
+        L[k][3] = o->d[1] + uy * s1 + vy * off[k];
+        sc[k] = s1 > s0 ? off[k] : -off[k];     /* 進む向きの左が正 */
     }
-    if (jochu) {                /* 常駐なら向こうの端にも */
-        jw_obj *n = jw_add(d, JW_SEN);
+    if (nisen_chain) {          /* 角: 前の二本の終わりと今の二本の始まり */
+        int sw = (nisen_ps[0] < nisen_ps[1]) != (sc[0] < sc[1]);
 
-        if (n) {
-            n->d[0] = o->d[0] + ux * s1 + vx * oa;
-            n->d[1] = o->d[1] + uy * s1 + vy * oa;
-            n->d[2] = o->d[0] + ux * s1 + vx * ob;
-            n->d[3] = o->d[1] + uy * s1 + vy * ob;
-            made++;
+        for (k = 0; k < 2; k++) {
+            int j = sw ? 1 - k : k;
+
+            if (nisen_meet(nisen_pl[k], L[j], &cx, &cy)) {
+                nisen_pl[k][2] = cx;
+                nisen_pl[k][3] = cy;
+                L[j][0] = cx;
+                L[j][1] = cy;
+            }
         }
+        for (k = 0; k < 2; k++)
+            made += nisen_put(d, nisen_pl[k]);
     }
+    if (cap0) {                 /* 手前の蓋が先に出ます */
+        cap[0] = L[0][0];
+        cap[1] = L[0][1];
+        cap[2] = L[1][0];
+        cap[3] = L[1][1];
+        made += nisen_put(d, cap);
+    }
+    if (ll) {                   /* 書き出し待ちにして、次の区間へ */
+        memcpy(nisen_pl, L, sizeof L);
+        nisen_ps[0] = sc[0];
+        nisen_ps[1] = sc[1];
+        memcpy(nisen_pv, o->d, sizeof nisen_pv);
+        nisen_chain = 1;
+        if (made)
+            op_push((int)made);
+        return 1;
+    }
+    for (k = 0; k < 2; k++)
+        if (!nisen_put(d, L[k]))
+            break;
+        else
+            made++;
+    if (jochu) {                /* 常駐なら向こうの端にも */
+        cap[0] = L[0][2];
+        cap[1] = L[0][3];
+        cap[2] = L[1][2];
+        cap[3] = L[1][3];
+        made += nisen_put(d, cap);
+    }
+    nisen_chain = 0;
     op_push((int)made);
+    return 1;
+}
+
+/* ２線 の ダブルクリック (LL)。案内 5401/5402 の「基準線変更(LL)」。
+ *
+ * 原典はダブルクリックの一つ目を普通の左 (slot 9) で受けて 始点なら
+ * state 4、終点なら state 5 に置き、マウスが 2 画素以上動くまで
+ * (FUN_00629330) そのまま待ちます。そこへ WM_LBUTTONDBLCLK (slot 12,
+ * FUN_00624fa0) が来ると:
+ *
+ *   始点 (state 4)  そこで拾った線を今の基準線に差し替え、始点待ちに
+ *                   戻る（同じ線なら 0x14e7、線でなければ 0x14de で何も
+ *                   しない）
+ *   終点 (state 5)  拾った線が今の基準線と交わるなら (FUN_00629400)、
+ *                   今の区間をそこまでとして書き出し待ちにし、拾った線を
+ *                   次の基準線にして終点待ちのまま
+ *
+ * 移植の jw_cmd_point_ll はダブルクリック一つ分（連 と同じ作法、
+ * tools/jwdraw.ps1 の LL<x>,<y>）なので、その場で上をします。
+ * 逆コンパイルの読み、原典では押していない。 */
+static void nisen_ll(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int i = jw_pick(d, v, x, y, 3);
+    double cx, cy;
+
+    if (i < 0 || d->obj[i].cls != JW_SEN || i == nisen_obj
+        || nisen_obj < 0 || nisen_obj >= d->nobj)
+        return;
+    if (nisen_step == 1) {
+        nisen_obj = i;
+        return;
+    }
+    if (!nisen_meet(d->obj[nisen_obj].d, d->obj[i].d, &cx, &cy))
+        return;
+    if (nisen(d, x, y, 1))
+        nisen_obj = i;
 }
 
 /* 中心線.
@@ -15588,8 +15736,9 @@ static int obj_middle(const jw_obj *o, double *mx, double *my)
     return 0;
 }
 
-/* A double left click.  Only 連 wants one -- it is how the original says
-   「移動（LL)」 -- and everywhere else it is just a left click. */
+/* A double left click.  連 wants one -- it is how the original says
+   「移動（LL)」 -- and so does ２線's 基準線変更(LL) (nisen_ll); everywhere
+   else it is just a left click. */
 void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 {
     if (d && current == JW_CMD_MOJI && ren_step == 1) {
@@ -15599,6 +15748,10 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
             ren_first = k;
             ren_step = 3;
         }
+        return;
+    }
+    if (d && current == JW_CMD_NISEN && nisen_step > 0) {
+        nisen_ll(d, v, x, y);   /* 基準線変更 (LL) */
         return;
     }
     jw_cmd_point(d, v, x, y, 0);
@@ -18714,8 +18867,22 @@ placed:
     }
     if (current == JW_CMD_NISEN) {
         int i;
-        if (button != 0 || !d)
+        double rx, ry;
+
+        if ((button != 0 && button != 1) || !d)
             return;
+        if (button == 1) {
+            /* (R)Read（案内 5401/5402）。原典 CZukei2Sen の右 (slot 11,
+               FUN_00626b20) は始点・終点のとき 6・7 に移り、マウスが動いて
+               から slot 6 (FUN_006236b0) が FUN_00451eb0 で点を読む。読めな
+               ければ元の状態のまま、読めればその点を始点・終点に。基準線
+               待ち (state 1) では読んだ点で左 (FUN_00625680) を呼ぶ。
+               逆コンパイルの読み、原典では押していない。 */
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return;
+            x = rx;
+            y = ry;
+        }
         if (nisen_step == 0) {
             i = jw_pick(d, v, x, y, 3);
             if (i < 0 || d->obj[i].cls != JW_SEN || !nisen_gap(d))
@@ -18731,9 +18898,10 @@ placed:
             return;
         }
         if (nisen_obj >= 0 && nisen_obj < d->nobj)
-            nisen(d, x, y);
+            nisen(d, x, y, 0);
         nisen_step = 0;         /* ready for the next line to run along */
         nisen_obj = -1;
+        nisen_chain = 0;
         return;
     }
     if (current == JW_CMD_BUNKATSU) {
