@@ -609,4 +609,18 @@ int  jw_cmd_release(jw_drawing *d, const jw_view *v, double x, double y);
    pixels cuts it there (線切断).  1 when the drawing changed. */
 int  jw_cmd_stretch_move(jw_drawing *d, const jw_view *v, double x, double y);
 
+/* 札（知らせ）: 原典の FUN_005168b0(文字列番号, 押した画素 +0x8f24/+0x8f28, 0, 0)。
+   命令が「計算できません」「図形がありません」などを出すところで呼ぶ。`s` は
+   その番号の文（CP932、src/gen/prompts.h の JW_STR_<番号>）。JW_NOTICE(5205) と
+   書けば番号と文が揃う。出たものは次に押すか、命令を替えるか、マウスが札の上に
+   乗るまで残る（消すのは app.c と jw_cmd_set、描くのは ui_notice）。
+   jw_cmd_notice_id は出ている札の番号（無ければ 0）、_seq は出すたびに一つ進む。
+   逆コンパイルの読み、原典では押していない（src/cmd.c の jw_cmd_notice の注）。 */
+void jw_cmd_notice(int id, const char *s);
+#define JW_NOTICE(n) jw_cmd_notice((n), JW_STR_##n)
+int  jw_cmd_notice_id(void);
+const char *jw_cmd_notice_text(void);
+unsigned jw_cmd_notice_seq(void);
+void jw_cmd_notice_clear(void);
+
 #endif

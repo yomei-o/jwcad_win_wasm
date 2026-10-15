@@ -3133,8 +3133,12 @@ static void fk_finish(jw_drawing *d, jw_obj *o)
         if (u)
             u->n = 1;
         para_obj = -1;
-    } else
+        JW_NOTICE(6009);                /* 【図形を移動しました】（FUN_0065e230） */
+    } else {
+        if (jw_cmd_bar_check(1323) > 0 && src >= 0 && src < d->ndrawn)
+            JW_NOTICE(5498);            /* 消せない元（ブロック・寸法図形）: 写しは残る */
         op_push(1);
+    }
     para_last = ni;
     para_last_obj = d->obj[ni];
 }
@@ -3440,6 +3444,7 @@ void jw_cmd_set(int id)
 
     prev = current;
     fk_sel_used = 0;
+    jw_cmd_notice_clear();              /* FUN_004fdc40 → FUN_004fb9f0: 札を下ろす */
     if (fh_state) {                     /* a stroke does not outlive its command: what it drew stays, as one step */
         fh_made = 0;                    /* (the step is already in: fh_sample opened it) */
         fh_state = 0;
@@ -4208,6 +4213,7 @@ void jw_cmd_reset(void)
        jw_cmd_set: the previous command and 水平・垂直 are left alone, the
        way the original leaves +0x8568 and +0x730 alone. */
     current = JW_CMD_SEN;
+    jw_cmd_notice_clear();      /* 前の図面への札も */
     jw_cmd_escape();            /* and nothing picked out of the last one:
                                    the indices meant its elements, not
                                    these */
@@ -6643,8 +6649,10 @@ static void corner_arc(jw_drawing *d, int a, double ax, double ay,
     } else {
         ok = corner_line_arc(&q, &p, ax, ay, &ix, &iy);
     }
-    if (!ok || !(fabs(ix) < 1e9 && fabs(iy) < 1e9))
-        return;                 /* string 5205: they do not meet */
+    if (!ok || !(fabs(ix) < 1e9 && fabs(iy) < 1e9)) {
+        JW_NOTICE(5205);        /* FUN_0046abe0: FUN_0045fa30 が交点を出さないと「計算できません」 */
+        return;
+    }
     cp = p.cls == JW_ENKO ? corner_arc_to(&p, ix, iy, ax, ay)
                           : corner_line_to(&p, ix, iy, ax, ay);
     cq = q.cls == JW_ENKO ? corner_arc_to(&q, ix, iy, bx, by)
@@ -7044,8 +7052,18 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
     qdx = q->d[2] - q->d[0];
     qdy = q->d[3] - q->d[1];
     den = pdx * qdy - pdy * qdx;
-    if (den == 0.0)
-        return;                 /* parallel: there is no corner */
+    if (den == 0.0) {
+        /* parallel: there is no corner.  FUN_0046abe0 は q の両端が p の線の上
+           （線の座標で |y| < 1e-7）なら一本につなぐ（0x145a〜0x145d、移植は未）、
+           そうでなければ FUN_0045fa30 が交点を出さず 札「計算できません」 */
+        double l = sqrt(pdx * pdx + pdy * pdy);
+        double e0 = l > 0.0 ? fabs((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / l : 0.0;
+        double e1 = l > 0.0 ? fabs((q->d[2] - p->d[0]) * pdy - (q->d[3] - p->d[1]) * pdx) / l : 0.0;
+
+        if (!(e0 < 1e-7 && e1 < 1e-7))
+            JW_NOTICE(5205);
+        return;
+    }
     tp = ((q->d[0] - p->d[0]) * qdy - (q->d[1] - p->d[1]) * qdx) / den;
     tq = ((q->d[0] - p->d[0]) * pdy - (q->d[1] - p->d[1]) * pdx) / den;
     ix = p->d[0] + tp * pdx;
@@ -8811,6 +8829,12 @@ static void nisen_ll(jw_drawing *d, const jw_view *v, double x, double y)
        右が同じ所なので (RR) と取って一つ前の区間を戻していた
        （tests/workflow_test.c の外壁の一筆） */
     nisen_rwait = 0;
+    if (i >= 0 && nisen_obj >= 0 && nisen_obj < d->nobj) {
+        if (i == nisen_obj)
+            JW_NOTICE(5351);            /* FUN_00624fa0 の札「同一線です」 */
+        else if (d->obj[i].cls != JW_SEN)
+            JW_NOTICE(5342);            /* 札「直線ではありません。」 */
+    }
     if (i < 0 || d->obj[i].cls != JW_SEN || i == nisen_obj
         || nisen_obj < 0 || nisen_obj >= d->nobj)
         return;
@@ -8818,8 +8842,10 @@ static void nisen_ll(jw_drawing *d, const jw_view *v, double x, double y)
         nisen_obj = i;
         return;
     }
-    if (!nisen_meet(d->obj[nisen_obj].d, d->obj[i].d, &cx, &cy))
+    if (!nisen_meet(d->obj[nisen_obj].d, d->obj[i].d, &cx, &cy)) {
+        JW_NOTICE(5205);                /* FUN_00629400 の札「計算できません」 */
         return;
+    }
     nisen_track = i;
     if (nisen(d, x, y, 1, 0))
         nisen_obj = nisen_track;    /* 始点の指示線を消せば番号がずれる */
@@ -9485,8 +9511,10 @@ static int cv_click(jw_drawing *d, const jw_view *v, double x, double y)
     if (cv_n >= CV_MAX)
         return 0;
     if (cv_n > 0 && fabs(cv_x[cv_n - 1] - x) < 1e-6
-        && fabs(cv_y[cv_n - 1] - y) < 1e-6)
+        && fabs(cv_y[cv_n - 1] - y) < 1e-6) {
+        JW_NOTICE(5343);                /* 札「同一点です」 */
         return 0;
+    }
     if (!cv_link || cv_mode != 1691) {
         if (cv_n == 0)
             cv_has_a = 0;
@@ -9504,6 +9532,8 @@ static int cv_click(jw_drawing *d, const jw_view *v, double x, double y)
         o = &d->obj[i];
         if ((o->cls != JW_SEN && o->cls != JW_ENKO)
             || (o->cls == JW_ENKO && !chain_ends(o, ex, ey))) {
+            if (o->cls == JW_ENKO)
+                JW_NOTICE(5208);        /* 全円: 札「円です」 */
             cv_link = 0;
             return 0;
         }
@@ -14872,10 +14902,15 @@ static int bar_press(jw_drawing *d, int id)
             return 1;
         }
         if (id == 1068) {       /* 選択図形登録 */
-            if (ht_sel != 3 || !d || !hatch_register(d))
+            if (ht_sel != 3 || !d)
                 return 0;
+            if (!hatch_register(d)) {
+                JW_NOTICE(5201);        /* FUN_006fb760 の札「図形がありません」 */
+                return 1;
+            }
             sel_clear(d);
             ht_sel = 0;
+            JW_NOTICE(10038);           /* 札「《図形登録》」 */
             return 1;
         }
         if (id == 1149) {       /* クリアー */
@@ -15136,14 +15171,21 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_BUNKATSU && (id == 1064 || id == 1066)) {
         /* 補助設定の釦: 1066 逆分割（FUN_00763ee0）・1064 線長割合分割
            （FUN_00763cd0、馬目地は切る）。出ているときだけ効く。押したあとの
-           札（FUN_00763f20 が 「逆分割 , 線長割合分割」をカーソルのそばに
-           出す）は移植に札が無いので出さない */
+           札は FUN_00763f20(0): 立っているものを 5611「逆分割」・5612
+           「線長割合分割」（・5609 馬目地、移植は持たない）の順に " , " で
+           つなぎ、空でなければ FUN_00516ac0 で押した所に出す */
+        static char bk_note[64];
+
         if (!jw_cmd_bunkatsu_hojo())
             return 0;
         if (id == 1066)
             bk_gyaku = !bk_gyaku;
         else
             bk_senchou = !bk_senchou;
+        snprintf(bk_note, sizeof bk_note, "%s%s%s", bk_gyaku ? JW_STR_5611 : "",
+                 bk_gyaku && bk_senchou ? " , " : "", bk_senchou ? JW_STR_5612 : "");
+        if (bk_note[0])
+            jw_cmd_notice(5611, bk_note);
         return 1;
     }
     if (current == JW_CMD_SESSEN) {
@@ -15303,8 +15345,10 @@ static int bar_press(jw_drawing *d, int id)
                     d->obj[i].sel = 1;
                     n++;
                 }
-            if (!n)
-                return 0;
+            if (!n) {
+                JW_NOTICE(5522);        /* 札「データがありません」 */
+                return 1;
+            }
             sel_step = 2;
             return 1;
         }
@@ -15440,14 +15484,17 @@ int jw_cmd_bar(jw_drawing *d, int id)
            （FUN_00454900）選んだものの写しを入れ、10038「《図形登録》」。範囲も
            選択もそのまま残る。ハッチの 選択図形登録（CZukeiHachi の 29 番目
            FUN_00674450）も同じ FUN_006fb760 を呼ぶので、入れ先は ハッチの 図形
-           (1693) が使う ht_pat（hatch_register、文字は入れない）。札は移植に
-           出す所がないので出さない。逆コンパイルの読み、原典では押していない */
+           (1693) が使う ht_pat（hatch_register、文字は入れない）。札は
+           jw_cmd_notice。逆コンパイルの読み、原典では押していない */
         if (!d || sel_step != 2 || sel_cut || sel_outside)
             return 0;
         sel_keep = sel_sub = 0;
-        if (jw_cmd_sel_count(d) <= 0)
+        if (jw_cmd_sel_count(d) <= 0) {
+            JW_NOTICE(5201);
             return 1;
+        }
         hatch_register(d);
+        JW_NOTICE(10038);
         return 1;
     }
     if (current == JW_CMD_FUKUSEN && id == 1067) {
@@ -18614,6 +18661,8 @@ static int get_click_(jw_drawing *d, const jw_view *v,
                     wg = k;
             if (!(g == wg && l == (d->group[wg].write_layer & 15)))
                 d->group[g].layer[l].state = layhide_shown ? 1 : 0;
+            else
+                JW_NOTICE(5262);        /* 札「書込レイヤです」 */
         }
         get_mode = 0;
         return 1;
@@ -19137,7 +19186,8 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
  *   0x146f「ブロック図形です」、保護されたレイヤ・グループ（FUN_0042dcb0: グループの保護 か レイヤの
  *   保護。移植の group.c と layer.state2）なら FUN_00516e40 の知らせで、何もしない。右（param_5 = 1）は
  *   保護を見ないので 保護レイヤの線でも 複線。ブロックは右でも拾えない（移植の jw_pick と同じ）。
- *   移植は知らせを出さない。ブロックは ふつうの要素が拾えなかったときだけ見る */
+ *   ブロックは 札 5231 を出す（jw_cmd_notice）。保護の知らせ（FUN_00516e40、0x14aa ほかを
+ *   つないだ文）はまだ出さない。ブロックは ふつうの要素が拾えなかったときだけ見る */
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button);
 static void au_back_check(void);
@@ -19205,8 +19255,10 @@ static int au_reject(const jw_drawing *d, const jw_view *v, double x, double y)
         return au_locked(d, &d->obj[i]);
     for (i = 0; i < d->ndrawn; i++)
         if (d->obj[i].cls == JW_BLOCK && jw_pick_editable(d, &d->obj[i])
-            && au_block_hit(d, v, &d->obj[i], &d->obj[i], x, y, 0))
+            && au_block_hit(d, v, &d->obj[i], &d->obj[i], x, y, 0)) {
+            JW_NOTICE(5231);            /* FUN_0044a270 の札「ブロック図形です」 */
             return 1;
+        }
     return 0;
 }
 
@@ -19275,7 +19327,7 @@ static void au_ll(jw_drawing *d, const jw_view *v, double x, double y)
 /* 日影図の 壁面 (1069)。逆コンパイルの読み、原典では押していない（答え hk_w2 は 壁を決めたあとの
    日影図に何も書かれないことだけ）。
    壁線待ち（+0xbc = 6、案内 0x159f）で左を押すと CZukeiHikage の FUN_0068f980:
-   拾えなければ何もしない、直線でなければ 0x14de「直線ではありません。」（移植は出さない）、
+   拾えなければ何もしない、直線でなければ 札 0x14de「直線ではありません。」、
    直線なら 壁にして（+0xb4）FUN_00541130 で 書込みのできる層の 高さの字（旗 0x80）が壁のどちら側か
    （hk_wall_sides）。無ければ 0x1599 で壁を捨てて初めへ、片側だけなら 初めへ、両側なら
    作図する方向待ち（+0xbc = 7、案内 0x159b）で もう一度押すと初めへ。初めへ戻るとき
@@ -19332,6 +19384,8 @@ static void hk_wall_click(jw_drawing *d, const jw_view *v, double x, double y)
         return;
     }
     k = jw_pick(d, v, x, y, 0);
+    if (k >= 0 && k < d->ndrawn && d->obj[k].cls != JW_SEN)
+        JW_NOTICE(5342);                /* 札「直線ではありません。」 */
     if (k < 0 || k >= d->ndrawn || d->obj[k].cls != JW_SEN)
         return;
     w = &d->obj[k];
@@ -19346,7 +19400,8 @@ static void hk_wall_click(jw_drawing *d, const jw_view *v, double x, double y)
     }
     r = hk_wall_sides(w->d[0], w->d[1], w->d[2], w->d[3], px, py, n);
     if (r < 0) {
-        hk_wall_step = 0;           /* 0x1599 データが不適当 */
+        JW_NOTICE(5529);            /* FUN_00541130 の札「データが不適当」 */
+        hk_wall_step = 0;
         return;
     }
     hk_wall_on = 1;
@@ -21990,8 +22045,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     return;
             } else if (button != 0)
                 return;
-            if (fk_ten == 2 && hypot(px - fk_tp[0], py - fk_tp[1]) < 1e-7)
-                return;         /* 始点と同じ点は受けない（原典は 0x14df を出す） */
+            if (fk_ten == 2 && hypot(px - fk_tp[0], py - fk_tp[1]) < 1e-7) {
+                JW_NOTICE(5343);        /* FUN_0065c930 の札「同一点です」 */
+                return;         /* 始点と同じ点は受けない */
+            }
             fk_tp[fk_ten == 3 ? 0 : 2] = px;
             fk_tp[fk_ten == 3 ? 1 : 3] = py;
             fk_ten--;
@@ -22279,12 +22336,15 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 int was = chu_b;
                 double wx = chu_bx, wy = chu_by;
 
-                if (chu_a == CHU_PT && fabs(rx - chu_ax) < 1e-7 && fabs(ry - chu_ay) < 1e-7)
+                if (chu_a == CHU_PT && fabs(rx - chu_ax) < 1e-7 && fabs(ry - chu_ay) < 1e-7) {
+                    JW_NOTICE(5343);    /* FUN_0063f0e0 の札「同一点です」 */
                     return;     /* the same point twice: 0x14df */
+                }
                 chu_b = CHU_PT;
                 chu_bx = rx;
                 chu_by = ry;
                 if (!chushin_line(d, &px, &py, &ux, &uy)) {
+                    JW_NOTICE(5205);    /* FUN_0063f0e0 の札「計算できません」 */
                     chu_b = was;  /* no middle: 0x1455, and it waits on */
                     chu_bx = wx;
                     chu_by = wy;
@@ -22315,6 +22375,8 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             double px, py, ux, uy;
 
             i = jw_pick_tie(d, v, x, y, 3, 1);
+            if (i >= 0 && i == chu_a)
+                JW_NOTICE(5351);        /* FUN_0063dff0 の札「同一線です」 */
             if (i < 0 || i == chu_a || !chu_takes(&d->obj[i]))
                 return;
             chu_b = i;
@@ -22322,6 +22384,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             chu_by = y;
             if (!chushin_line(d, &px, &py, &ux, &uy)
                 && (d->obj[i].cls != JW_SEN || chu_a == CHU_PT || d->obj[chu_a].cls != JW_SEN)) {
+                JW_NOTICE(5205);        /* CZukeiChuushinSen FUN_0063dff0 の札 */
                 chu_b = -1;     /* no middle (0x1455): it waits on */
                 return;
             }
@@ -22442,6 +22505,20 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             return;
         if (pt && !jw_read(d, v, x, y, &rx, &ry))
             return;
+        if (!pt && sek_step <= 1) {
+            /* FUN_00707130: 左で拾った円弧の扁平率が 1 から 1e-7 以上離れていれば
+               札「楕円は計算できません。」で何もしない（どの段でも） */
+            i = sek_step == 0 ? jw_pick(d, v, x, y, 3) : jw_pick_tie(d, v, x, y, 3, 1);
+            if (i >= 0 && d->obj[i].cls == JW_ENKO && !(fabs(d->obj[i].d[6] - 1.0) < 1e-7)) {
+                JW_NOTICE(5214);
+                return;
+            }
+            if (sek_step == 1 && i >= 0 && i == sek_a) {
+                JW_NOTICE(5351);        /* 同じものを二度: 札「同一線です」 */
+                return;
+            }
+            i = -1;
+        }
         if (sek_step == 0) {
             if (!pt) {
                 i = jw_pick(d, v, x, y, 3);
@@ -22467,6 +22544,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                then and there: the left button waits for another second,
                the right one starts over (FUN_00707130 / FUN_00707a50) */
             if (sek_radius(d) > 0.0 && sek_count(d, i, pt, rx, ry) < 1) {
+                JW_NOTICE(5205);        /* FUN_00707130 / FUN_00707a50 の札「計算できません」 */
                 if (pt) {
                     sek_step = 0;
                     sek_a = sek_b = -1;
@@ -22971,6 +23049,8 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             /* a line or an arc; a whole circle is refused (FUN_0063aa60,
                string 5207 -- 逆コンパイルの読み、原典では押していない) */
             i = jw_pick(d, v, x, y, 3);
+            if (i >= 0 && d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i]))
+                JW_NOTICE(5208);        /* 札「円です」（案内は 5207） */
             if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO)
                 || (d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i])))
                 return;
@@ -22983,8 +23063,12 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         /* the second pick flips view+0x82bc, so a tie goes the other way and
            the same line is not found twice */
         i = jw_pick_tie(d, v, x, y, 3, 1);
-        if (i >= 0 && d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i]))
+        if (i >= 0 && d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i])) {
+            JW_NOTICE(5208);    /* FUN_0063aa60 の札「円です」 */
             return;             /* refused, 線【A】 stays picked (slot 9's mode 2) */
+        }
+        if (i >= 0 && i == corner_obj)
+            JW_NOTICE(5351);    /* FUN_0046abe0: 同じものなら札「同一線です」 */
         if (i >= 0 && i != corner_obj)
             corner(d, corner_obj, corner_x, corner_y, i, x, y);
         corner_step = 0;
@@ -25333,4 +25417,59 @@ int jw_cmd_release(jw_drawing *d, const jw_view *v, double x, double y)
     fh_made = 0;
     fh_op = -1;
     return r;
+}
+
+/* 札（知らせ）。原典の FUN_005168b0(文字列, x, y, p4, p5) の読み:
+ *
+ *   - 文字列を LoadString し、view の +0x8ec8 に札（CMsgDialog、0xf0 バイト）が無ければ
+ *     作り（FUN_00588100）、あれば字だけ替える（FUN_00588380、場所はそのまま、箱は
+ *     広がるだけ）。命令から出るものはほとんどが x, y = view の +0x8f24/+0x8f28（押した
+ *     画素）、p4 = p5 = 0。DAT_00a0b3bc が立っていれば一度だけ出さずに下ろす。
+ *     (9999, 9999) ならカーソルの 10 画素左（下端から 50 画素以内なら 55 上）
+ *   - 置き場は (x, y + 32)（FUN_004f74b0(0x20) は表示倍率 1 なら 32 のまま）。p4 = 0 は
+ *     DIALOG 274（WS_POPUP|WS_BORDER|WS_DISABLED、ＭＳ Ｐゴシック 9）を ClientToScreen
+ *     した所へ出し、SetWindowPos で字の大きさ + 4 に。字は地 0xc8c8c8 不透明、黒、(1,1)。
+ *     p4 = 1 は view へじかに黒の枠（BLACK_PEN）と 0xc8c8c8 の Rectangle、字は (2,2)。
+ *     p5 は色: 1 字が赤、2 地が緑、3 地が水色、4 地が 0xff9664、5 黒地に白
+ *   - 消えるのは FUN_004fb9f0（+0x8ecc が 0 なら札を壊す。窓は DestroyWindow、じかの札は
+ *     RedrawWindow(RDW_INVALIDATE|ERASE|UPDATENOW) で箱を描き直す）。呼ぶのは view の
+ *     WM_LBUTTONDOWN（FUN_00507d00）・WM_RBUTTONDOWN（FUN_0050d070）・命令の切り替え
+ *     FUN_004fdc40 と、札を出し直す命令たち。窓のほうは WM_SETCURSOR（FUN_005889c0、
+ *     マウスが札に乗った）で隠れ、WM_KILLFOCUS で 5 秒の時計を掛け、時計（FUN_00588a60）
+ *     でフォーカスが無ければ隠れる
+ *
+ * 移植は一枚の札を持つ。出すのはここ、置き場（最後に押した画素の 32 下）と消すのは
+ * app.c（押したとき・札の上へ動いたとき）、jw_cmd_set（命令の切り替え）、描くのは
+ * ui_notice。字の大きさは移植の 12 画素の字で測る（原典はＭＳ Ｐゴシック）。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int nt_id;
+static const char *nt_text;
+static unsigned nt_seq;
+
+void jw_cmd_notice(int id, const char *s)
+{
+    nt_id = id;
+    nt_text = s;
+    nt_seq++;
+}
+
+int jw_cmd_notice_id(void)
+{
+    return nt_text ? nt_id : 0;
+}
+
+const char *jw_cmd_notice_text(void)
+{
+    return nt_text;
+}
+
+unsigned jw_cmd_notice_seq(void)
+{
+    return nt_seq;
+}
+
+void jw_cmd_notice_clear(void)
+{
+    nt_id = 0;
+    nt_text = 0;
 }
