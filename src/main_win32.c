@@ -1798,7 +1798,13 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         p.x = (short)LOWORD(lp);
         p.y = (short)HIWORD(lp);
         ScreenToClient(wnd, &p);
-        app_zoom((short)HIWORD(wp) > 0 ? 1.25 : 1.0 / 1.25, p.x / uiscale, p.y / uiscale);
+        {   /* 基本設定 ﾏｳｽﾎｲｰﾙ ＋・－ なら 拡大・縮小率 (1952) で（app_wheel_factor） */
+            double f = app_wheel_factor((short)HIWORD(wp));
+
+            if (!(f > 0.0))
+                f = (short)HIWORD(wp) > 0 ? 1.25 : 1.0 / 1.25;
+            app_zoom(f, p.x / uiscale, p.y / uiscale);
+        }
         app_paint();
         InvalidateRect(wnd, NULL, FALSE);
         return 0;

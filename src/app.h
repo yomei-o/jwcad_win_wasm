@@ -58,6 +58,9 @@ void app_zoom_all(int paper);
 /* 基本設定 2362 が立っていれば ←↑→↓（vk 0x25〜0x28）で画面を 移動率 (1951) ずつ、
    PageUp・PageDown（0x21・0x22）で 拡大率 (1952) ずつ。受けたら 1（描き直しは呼び手） */
 int app_arrow_key(int vk);
+/* 基本設定 一般(2) ﾏｳｽﾎｲｰﾙ ＋・－ (2266・2267): ホイール一刻みで app_zoom に渡す
+   倍率（delta > 0 は奥へ回した向き）。0 なら設定が無いので 表側の 1.25 のまま */
+double app_wheel_factor(int delta);
 const jw_view *app_view(void);
 void app_paint(void);                   /* redraw into the framebuffer */
 /* 0: draw the drawing afresh on every paint rather than reuse the picture of

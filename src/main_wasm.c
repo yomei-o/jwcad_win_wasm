@@ -108,6 +108,13 @@ EMSCRIPTEN_KEEPALIVE int jw_arrow(int vk)
     return 1;
 }
 
+/* 基本設定 一般(2) ﾏｳｽﾎｲｰﾙ ＋・－ (2266・2267): ホイール一刻みの倍率（delta > 0 は
+   奥へ）。0 なら 表側の 1.25 のまま（src/kihon3.h） */
+EMSCRIPTEN_KEEPALIVE double jw_wheel_factor(int delta)
+{
+    return app_wheel_factor(delta);
+}
+
 EMSCRIPTEN_KEEPALIVE void jw_fit(void)
 {
     app_fit();

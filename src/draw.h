@@ -45,6 +45,10 @@ extern int jw_draw_images_first;
 extern int jw_draw_transparent;
 extern int jw_draw_reverse;
 extern int jw_draw_texts_last;   /* 1887 文字を最後に描画 (on by default) */
+/* 基本設定 文字 1886 文字の輪郭を背景色で (1)・1900 文字列範囲を背景色で (2)、
+   その範囲増寸法 1563 (mm) */
+extern int jw_draw_text_bg;
+extern double jw_draw_text_bg_expand;
 /* 画面倍率・文字表示 の【文字枠】を表示する (2104, DAT_00a0c794): 文字の
    字に加えて その枠も描く。画面だけで、印刷は描かない（app が描く間だけ立てる） */
 extern int jw_draw_textframe;

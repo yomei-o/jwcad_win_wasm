@@ -2551,7 +2551,7 @@ int ui_kihon_hit_index(int cw, int ch, int tab, int x, int y)
         const jw_kh_t *z = &c[i];
 
         if (z->kind == JW_KH_STATIC || z->kind == JW_KH_GROUP
-            || !z->shown || !z->enabled)
+            || !z->shown || !app_kihon_enabled(tab, i, z->enabled))  /* 1563 は 1900 で押せる */
             continue;
         if (x >= z->x && x < z->x + z->w && y >= z->y && y < z->y + z->h) {
             if (z->kind == JW_KH_EDIT)
