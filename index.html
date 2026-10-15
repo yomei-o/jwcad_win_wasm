@@ -1061,7 +1061,10 @@ if (LANG === 'en') {
     if (e.ctrlKey) dy *= 4;
     dy = Math.max(-300, Math.min(300, dy));
     if (!dy) return;
-    zoom(Math.pow(1.25, -dy / 100),
+    // 基本設定 ﾏｳｽﾎｲｰﾙ ＋・－ (2266・2267) なら 一刻み (100) を 拡大・縮小率 (1952) に。
+    // 0 なら設定なしで 1.25 のまま（古い jwcad.wasm には jw_wheel_factor が無い）
+    const wf = mod._jw_wheel_factor ? mod._jw_wheel_factor(dy < 0 ? 120 : -120) : 0;
+    zoom(wf > 0 ? Math.pow(wf, Math.abs(dy) / 100) : Math.pow(1.25, -dy / 100),
          Math.round((e.clientX - r.left) * k), Math.round((e.clientY - r.top) * k));
   }, { passive: false });
 

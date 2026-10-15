@@ -553,6 +553,8 @@ void jw_cmd_moji_point_first(int on);
    いれば 複線 で元を拾い間隔を打ったあとの Enter が、マウスの側へその間隔で写し、
    写しを次の元にする（Enter を押すたびに一本）。写したら 1 */
 void jw_cmd_fukusen_enter_on(int on);
+/* 基本設定 一般(2) 2525: 箱の式の一つの \ を 1000 に（\\ は x のまま断る） */
+void jw_cmd_yen_m(int on);
 int  jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);

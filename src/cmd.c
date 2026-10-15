@@ -18631,8 +18631,9 @@ int jw_cmd_box_focus(void)
    leaving the answer in the box; each of two numbers either side of a comma
    is worked out on its own.  The reader is the original's, read off the
    decompile (box_calc below): + - * / % ^ and brackets, the functions
-   s c a q b i l n j, p and pp ppp, m, 0x / &, e and 度:分'秒".  What it
-   cannot do -- @ \ x y, which are values the original takes from elsewhere,
+   s c a q b i l n j, p and pp ppp, m, 0x / &, e and 度:分'秒", and with
+   基本設定 2525 a single \ as 1000.  What it
+   cannot do -- @ x y and \ without 2525, which are values the original takes from elsewhere,
    and its "@@" / "**" way of writing degrees -- is left as typed, as is a sum
    the original would refuse with a message.  The 日影・天空図・2.5D boxes are
    left alone, their height box has a syntax of its own. */
@@ -18661,6 +18662,13 @@ static int box_calc(const char *t, double *out);
    0 when the original would have shown one of its messages (or the text
    has something the port does not carry: @ \ x y, @@ / ** degrees). */
 #define BC_DEG ':'                      /* the original's +0x2f4, a ':' read as one */
+
+static int bc_yen_m;                    /* 基本設定 2525 (DAT_00a0d860) */
+
+void jw_cmd_yen_m(int on)
+{
+    bc_yen_m = on != 0;
+}
 
 static int bc_class(int c)              /* FUN_004f3a30 */
 {
@@ -18738,6 +18746,8 @@ static int bc_atom(const int *t, int *pos, double *val, int *err)    /* FUN_004f
                 *val = sqrt(2.0) * 1.0 / sqrt(3.0);
             else if (c == '$')
                 *val = 1.0 / sqrt(3.0);
+            else if (c == '\\')
+                *val = 1000.0;          /* 2525 YenM（box_calc の注） */
             else
                 break;
         }
@@ -18961,6 +18971,16 @@ static int box_calc(const char *text, double *out)
                 s[n++] = h;
                 i++;
             }
+            continue;
+        }
+        /* 基本設定 一般(2) 2525「［10\］を10,000(10m)にする」(DAT_00a0d860, YenM):
+           FUN_004f2480 は旗が立っていれば 一つの \ をそのまま残し（\\ は x、
+           x\ は y）、FUN_004f3b80 が \ を 1000 と読む。旗が無ければ \ は x。
+           x・y・@ は移植が持たない値なので 前のとおり断る */
+        if (c == '\\' && bc_yen_m && nx != '\\' && !(n > 0 && s[n - 1] == 'x')) {
+            if (n >= 72)
+                return 0;
+            s[n++] = c;
             continue;
         }
         if (c == '@' || c == '\\' || c == 'x' || c == 'y')
@@ -19201,7 +19221,7 @@ int jw_cmd_box_key(int ch)
         /* ２線's box holds two numbers with a comma between them, and any
            box takes a sum (box_sum) */
         if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ','
-            || (ch > ' ' && ch < 127 && strchr("+*/()^%:'\"&[]", ch))
+            || (ch > ' ' && ch < 127 && strchr("+*/()^%:'\"&[]\\", ch))   /* \ は 2525 */
             || (ch > ' ' && ch < 127 && strchr("aAbBcCeEiIjJlLmMnNpPqQsSxX", ch))) {
             if (box_fresh) {
                 t[0] = 0;

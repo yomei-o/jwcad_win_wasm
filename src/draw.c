@@ -3207,6 +3207,13 @@ int jw_draw_reverse = 0;
    jw_draw, before the pictures.  Off, they go down in element order. */
 int jw_draw_texts_last = 1;
 int jw_draw_textframe;
+/* 基本設定 文字 1886「文字の輪郭を背景色で描画」(1)・1900「文字列範囲を背景色で
+   描画」(2)、範囲増寸法 1563 (-1〜10 mm)。原典の 文字 の OK FUN_00584920 が
+   doc+0x8240（ページの in_ECX[0x30] は doc+0x88 なので +0x82c8 と書く）と
+   +0x8248 へ。読み手は 字の描き手（text_bg の注）。逆コンパイルの読み、
+   原典では押していない */
+int jw_draw_text_bg;
+double jw_draw_text_bg_expand;
 const char *(*jw_draw_text_subst)(const jw_drawing *, const jw_obj *,
                                   const char *);
 
@@ -3248,6 +3255,75 @@ void jw_draw_frame(fb_t *fb, const jw_view *v, const jw_drawing *d)
     one.obj = o;
     one.nobj = one.ndrawn = 4;
     jw_draw(fb, v, &one);
+}
+
+/* 1886・1900: 字を描く前に 背景色（ペン 0。刷るときは plot.c が入れたプリンタの
+ * 地の色）で下地を作る。逆コンパイルの読み、原典では押していない。
+ *
+ *  - どちらも 字の +0x44 に 0x40・0x80・0x8000 が立つものと 画像（^@BM）は
+ *    しない（FUN_00486f60 が +0xa4 = 1 にする）。字の高さが画素で
+ *    1.5 × FrameDotMax（MOJI\FrameDotMax、既定 6。移植は小さい字を枠で描かない
+ *    ので既定のまま 9 画素）より小さいときもしない
+ *  - 1886 輪郭 (doc+0x8240 == 1): FUN_00486f60 が 字の描き手 FUN_00481d50 を
+ *    +0xa0 = 6..0 で七回呼び、6..1 は ペン -n（FUN_00456e10 の負は色 0 = 背景色）、
+ *    0 がふつうの字。ずらしは 字を出す所 0x48c043 の表（0x48c5bc）:
+ *    d = 高さ/30 + 1、e = 高さ/80 + 1 画素（0x48b6e4..）で
+ *    6 (+d,+e) 5 (-d,-e) 4 (+d,+d) 3 (-d,+d) 2 (+d,-d) 1 (-d,-d)（画面の x 右・y 下）
+ *  - 1900 範囲 (== 2): FUN_00481d50 の 0x48467c.. が 字の枠を 範囲増寸法
+ *    (doc+0x8248、mm) だけ四方へ広げ、背景色の面（FUN_004238c0）で塗る */
+static void text_bg(fb_t *fb, const jw_view *v, const jw_drawing *d,
+                    const jw_obj *o, const char *ts)
+{
+    double hpx = o->d[5] / v->mmpp;
+    unsigned int bg = d->pen_rgb[0];
+
+    if (hpx < 0.0)
+        hpx = -hpx;
+    if ((o->flags & 0x80c0u) || hpx < 9.0)
+        return;
+    if (jw_draw_text_bg == 1) {
+        static const int SX[6] = { 1, -1, 1, -1, 1, -1 };
+        static const int SY[6] = { 2, -2, 1, 1, -1, -1 };   /* ±2: e、±1: d */
+        int dd = (int)hpx / 30 + 1, ee = (int)hpx / 80 + 1, k;
+
+        for (k = 0; k < 6; k++) {
+            double mx = SX[k] * dd * v->mmpp;
+            double my = -(SY[k] == 2 ? ee : SY[k] == -2 ? -ee : SY[k] * dd) * v->mmpp;
+
+            jw_text_run_face(fb, v, ts, o->d[0] + mx, o->d[1] + my,
+                             o->d[2] + mx, o->d[3] + my, o->d[4], o->d[5], bg,
+                             (o->flags & 0x20) != 0,
+                             o->face >= 0 ? jw_str(d, o->face) : 0,
+                             (o->n / 10000) & 3);
+        }
+    } else if (jw_draw_text_bg == 2) {
+        double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+        double len = sqrt(dx * dx + dy * dy), ux, uy, m = jw_draw_text_bg_expand;
+        double ch = o->d[5], lx[4], ly[4];
+        short pts[8];
+        int k;
+
+        if (len < 1e-9) {
+            ux = 1.0;
+            uy = 0.0;
+            len = jw_text_count(ts) * o->d[4];
+        } else {
+            ux = dx / len;
+            uy = dy / len;
+        }
+        lx[0] = -m;       ly[0] = -m;
+        lx[1] = len + m;  ly[1] = -m;
+        lx[2] = len + m;  ly[2] = ch + m;
+        lx[3] = -m;       ly[3] = ch + m;
+        for (k = 0; k < 4; k++) {
+            double x = o->d[0] + ux * lx[k] - uy * ly[k];
+            double y = o->d[1] + uy * lx[k] + ux * ly[k];
+
+            pts[2 * k] = (short)jw_sx(v, x);
+            pts[2 * k + 1] = (short)jw_sy(v, y);
+        }
+        fill_ring(fb, v, pts, 4, bg);
+    }
 }
 
 static jw_obj *tl_obj;
@@ -3505,6 +3581,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
 
                 if (jw_draw_text_subst)     /* 埋め込み文字 (src/umekomi.c) */
                     ts = jw_draw_text_subst(d, o, ts);
+                if (jw_draw_text_bg)        /* 1886・1900（text_bg の注） */
+                    text_bg(fb, v, d, o, ts);
                 jw_text_run_face(fb, v, ts, o->d[0], o->d[1],
                                  o->d[2], o->d[3], o->d[4], o->d[5], col,
                                  (o->flags & 0x20) != 0,

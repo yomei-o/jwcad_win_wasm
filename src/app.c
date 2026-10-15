@@ -2299,6 +2299,7 @@ static int cross_have;                  /* マウスが図面の上にある（c
 static double cross_x, cross_y;
 static double kh_move_rate = 0.5, kh_zoom_rate = 1.5;   /* 移動率 1951・拡大率 1952 */
 static double kh_num(int tab, int id, double dflt);
+#include "kihon3.h"                     /* 2527・2525・ホイール・1886・1900・1883 */
 
 /* OK: the boxes whose meaning is read from the decompile or the dialog's words:
    画像･ソリッドを最初に描画 (2405) and 透過属性 (2860), see src/draw.c */
@@ -2342,6 +2343,7 @@ static void kh_apply(void)
        切なら 1）。app_paint の cross_paint */
     kh_cross = !kh_value_tab(0, 2437) ? 0 : kh_value_tab(0, 2438) ? 2
                : kh_value_tab(0, 2439) ? 3 : 1;
+    kh3_apply();                        /* src/kihon3.h */
 }
 
 /* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が
@@ -2643,11 +2645,15 @@ static void kh_txt_start(void)
    is applied */
 static void kh_ok(void)
 {
+    kh3_style_t was[10];
+
     memcpy(kh_saved, kh_on, sizeof kh_saved);
     kh_have_saved = 1;
     memcpy(kh_txt_saved, kh_txt, sizeof kh_txt_saved);
     kh_txt_have = 1;
+    kh3_style_take(was);
     kh_live_apply();
+    kh3_restyle(was);                   /* 1883（src/kihon3.h） */
     kh_apply();
     kh_ctab = kh_ci = -1;
     kh_open = 0;
@@ -3249,6 +3255,7 @@ int app_prefs_read(const unsigned char *b, long n)
         kh_txt_have = 1;
         kh_apply();                     /* as OK does, but not into the drawing */
         jw_moji_sjis_set(sjis);         /* 2112 is the front end's (see above) */
+        kh3_startup();                  /* 2527 初期コマンド AUTO（src/kihon3.h） */
     }
     if (sd_any) {
         memcpy(sd_saved, son, sizeof sd_saved);
@@ -3353,6 +3360,9 @@ static void kh_on_set(int tab, int id, int on)
 int app_kihon_enabled(int tab, int i, int deflt)
 {
     int id;
+
+    if (i >= 0 && tab >= 0 && (id = kh3_enabled(tab, ui_kihon_id(tab, i))) >= 0)
+        return id;                      /* 文字 の 1884・1563 ほか（src/kihon3.h） */
 
     if (tab == 1 && i >= 0 && ui_kihon_id(tab, i) == 1325)
         return kh_on_get(1, 2362);      /* 軸角方向移動 は 矢印キーで画面移動 の下の段 */
@@ -3473,10 +3483,13 @@ static int press_kihon(int x, int y)
             return 1;
         }
     }
+    if (kh3_press(kh_tab, id))          /* 1884 の丸釦（src/kihon3.h） */
+        return 1;
     n = ui_kihon_n(kh_tab);
     for (i = 0; i < n && i < 256; i++)
         if (ui_kihon_id(kh_tab, i) == id)
             kh_on[kh_tab][i] = (unsigned char)!kh_on[kh_tab][i];
+    kh3_after_press(kh_tab, id);        /* 1886・1900 の連れ */
     /* 押したときの連れ（窓の受け手）。一般(2): 2362 を切ると 1325 も切れ、入れると
        2093 が切れる（FUN_005d1a50）、2093 を入れると 2362・1325 が切れる
        （FUN_005d1930）。一般(1): 2438 範囲指定のみ と 2439 範囲始点のみ は
@@ -7194,6 +7207,8 @@ static void draw_drawing(void)
     h = mix(h, &jw_draw_texts_last, sizeof jw_draw_texts_last);
     h = mix(h, &jw_draw_textframe, sizeof jw_draw_textframe);   /* 【文字枠】 */
     h = mix(h, &jw_draw_paper_frame, sizeof jw_draw_paper_frame);   /* 用紙枠 */
+    h = mix(h, &jw_draw_text_bg, sizeof jw_draw_text_bg);           /* 1886・1900 */
+    h = mix(h, &jw_draw_text_bg_expand, sizeof jw_draw_text_bg_expand);
     {   /* an outline font arriving changes how its texts come out */
         int fg = jw_outfont_gen();
 
