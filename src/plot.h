@@ -79,4 +79,89 @@ unsigned char *jw_plot_pdf(const jw_drawing *d, int colour, long *len);
 unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
                            long *len);
 
+/* ------------------------------------------------------------------------
+ * 印刷の命令 —— 印刷範囲を設定 (32851 = 0x8053、CZukeiPrintHanni)。
+ * 逆コンパイルの読み、原典では押していない（印刷は Windows の印刷の窓を
+ * 通らないと入らないので、無人では駆動していない）。
+ *
+ * 原典の 印刷 (57607) は OnPreparePrinting（FUN_0050be70）で印刷の窓を出し、
+ * OK なら FUN_004fdba0(0x8053) でこの命令に入る。入るとき FUN_004fccb0 が
+ * プリンタの GetDeviceCaps(HORZSIZE/VERTSIZE)（mm の整数）を doc+0x8f08/0x8f0c
+ * に取る。移植にはプリンタが無いので、紙は図面の用紙（jw_plot_paper）。
+ *
+ * 枠（slot 8 FUN_006d2cb0）: 半幅 = (int)((紙の幅/2 の整数割り) / 倍率)、
+ * 半高も同じ。回転 (+0x3030) が 0 でなければ縦横を入れ替える。四本の線は
+ * 左下 → 右下 → 右上 → 左上 → 左下。基準点 (+0x3048、0..8 = 左・下 中・下
+ * 右・下 左・中 … 右・上) は 枠のどこがマウスに付くか: 左なら中心から −半幅、
+ * 中なら 0、右なら +半幅（縦も 下・中・上 で同じ）。
+ *
+ * 段 (+0x8560):
+ *   0「印刷範囲を確認してください。(L)印刷 (R)変更」（5334）—— 枠は中心
+ *     (+0x3038/+0x3040) に止まっている。(L) は slot 9 が 1 を返して slot 3
+ *     → slot 26 で印刷。(R)（slot 11）は 枠の基準点にマウスを置いて段 1 へ。
+ *   1「印刷範囲を指示してください。(L)free (R)Read」（5335）—— 枠の基準点が
+ *     マウスに付いて動く。(L) はその点、(R) は読取点（FUN_00451eb0）で 中心を
+ *     決めて段 0 へ。戻る (slot 16) は段 0 へ戻すだけ。
+ *
+ * バー（DIALOG 291、decomp/res/bars8.txt）:
+ *   1065 印刷 (L)     slot 26。段 0 のときだけ刷る
+ *   1064 範囲変更 (R) slot 25。段を 0 にしてマウスの所で (R) を送る ＝ 段 1 へ
+ *   1066 基準点       左で 次（8 の次は 0、FUN_00550280）。字は 5222..5230。
+ *                     右押しで 左・下 に戻す（FUN_00550310）のは、移植のバーが
+ *                     釦の右押しを命令へ渡さないので入れていない
+ *   1411 倍率         200% 141% 100% 71% 50% 35% 25%（DLGINIT 291）と
+ *                     任意倍率。倍率は 2・√2・1・1/√2・0.5・1/(2√2)・0.25
+ *                     （FUN_005adde0 が 1e-5 で突き合わせる値）
+ *   1070 回転         slot 31。0 → 1 → 2 → 0。字は「回転 　０°」「９０°回転」
+ *                     「－９０°回転」（5772..5776、FUN_005ae8a0）
+ *   1343 カラー印刷   刷る前に doc+0x8288 へ（FUN_006d4920）
+ *   1068 枠書込       slot 29。枠の四本を図面に書く
+ *   1067 プリンタの設定・1069 出力方法設定 は移植に窓が無いので押せない
+ *
+ * 刷り方: 回転は 刷るときだけ（FUN_0044b760 が IsPrinting のとき
+ * FUN_00452e30）、要素を 枠の中心のまわりに ９０° なら −π/2、−９０° なら
+ * +π/2 回して描く（FUN_0046d5b0）。紙の中心に 枠の中心が来て、倍率を掛ける
+ * （倍率 1・中心 0 で 用紙の中心が紙の中心に来るのは原典の PDF で測った。
+ * それ以外の倍率と中心は読み）。線幅・線種の刻み・点の大きさは倍率を掛けない
+ * （プリント出力形式 の「線幅も倍率」(1330) が既定で切れているので。その窓は
+ * 移植に無い）。
+ */
+#define JW_PRINT_CMD 0x8053
+
+typedef struct {
+    double cx, cy;      /* 枠の中心（用紙の mm）: 紙の中心に来る */
+    double scale;       /* 倍率 */
+    int rot;            /* 0 ０°、1 ９０°（−π/2 回す）、2 −９０°（+π/2） */
+    int colour;         /* カラー印刷 */
+} jw_plot_frame;
+
+/* 枠と倍率と回転のとおりに刷る。f が 0 なら上の二つと同じ */
+unsigned char *jw_plot_pdf_at(const jw_drawing *d, const jw_plot_frame *f,
+                              long *len);
+unsigned char *jw_plot_png_at(const jw_drawing *d, const jw_plot_frame *f,
+                              double dpmm, long *len);
+
+/* いまの印刷の設定（命令の外でも、最後に決めた枠・倍率・回転・カラー印刷） */
+void jw_pr_settings(jw_plot_frame *f);
+
+/* 命令の側（src/cmd.c が呼ぶ） */
+void jw_pr_enter(void);
+int  jw_pr_stage(void);                 /* 0 確認、1 指示 */
+/* クリック。button 0 左・1 右。read_ok は (R) で読取点が取れたか（rx, ry）。
+   刷ることになったら 1 */
+int  jw_pr_click(const jw_drawing *d, double x, double y, int button,
+                 int read_ok, double rx, double ry);
+void jw_pr_track(double x, double y);
+int  jw_pr_bar(const jw_drawing *d, int id);   /* 受けたら 1 */
+int  jw_pr_enabled(int id);
+const char *jw_pr_label(int id);        /* 字の動く釦。無ければ 0 */
+const char *jw_pr_prompt(void);
+int  jw_pr_back(void);                  /* 段 1 → 0 なら 1 */
+int  jw_pr_frame(const jw_drawing *d, double *x0, double *y0,
+                 double *x1, double *y1);
+int  jw_pr_write_frame(jw_drawing *d);  /* 枠書込: 足した線の数 */
+int  jw_pr_want(void);                  /* 刷る頼み（読むと消える） */
+double jw_pr_scale_of(const char *box); /* 倍率の箱の字から倍率（0 は読めない） */
+void jw_pr_reset(void);                 /* 試験用: 素に戻す */
+
 #endif

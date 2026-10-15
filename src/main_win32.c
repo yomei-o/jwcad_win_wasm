@@ -574,8 +574,13 @@ static int save_plot(HWND wnd)
     png = i > 4 && (path[i - 3] == L'p' || path[i - 3] == L'P')
               && (path[i - 2] == L'n' || path[i - 2] == L'N')
               && (path[i - 1] == L'g' || path[i - 1] == L'G');
-    b = png ? jw_plot_png(app_drawing(), 4.0, 0, &n)
-            : jw_plot_pdf(app_drawing(), 0, &n);
+    {
+        jw_plot_frame fr;               /* 印刷の命令の枠・倍率・回転・カラー印刷 */
+
+        jw_pr_settings(&fr);
+        b = png ? jw_plot_png_at(app_drawing(), &fr, 4.0, &n)
+                : jw_plot_pdf_at(app_drawing(), &fr, &n);
+    }
     if (!b)
         return 0;
     f = _wfopen(path, L"wb");
@@ -1582,7 +1587,12 @@ static int print_gdi(HWND wnd)
     dpmm = dpix / 25.4;
     if (dpmm > 6.0)
         dpmm = 6.0;                     /* more than that is only a bigger file */
-    png = jw_plot_png(app_drawing(), dpmm, 0, &pn);
+    {
+        jw_plot_frame fr;               /* 印刷の命令の枠・倍率・回転・カラー印刷 */
+
+        jw_pr_settings(&fr);
+        png = jw_plot_png_at(app_drawing(), &fr, dpmm, &pn);
+    }
     if (!png || !jw_img_decode(png, pn, &im)) {
         free(png);
         DeleteDC(dc);

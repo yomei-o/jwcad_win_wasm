@@ -633,14 +633,19 @@ EMSCRIPTEN_KEEPALIVE unsigned char *jw_save_jwc(void)
 EMSCRIPTEN_KEEPALIVE unsigned char *jw_plot(int as_png, int colour)
 {
     const jw_drawing *d = app_drawing();
+    jw_plot_frame f;
 
     free(saved);
     saved = 0;
     saved_n = 0;
     if (!d)
         return 0;
-    saved = as_png ? jw_plot_png(d, 4.0, colour, &saved_n)
-                   : jw_plot_pdf(d, colour, &saved_n);
+    /* the print command's frame, 倍率, 回転 and カラー印刷 (src/plot.h);
+       untouched they are the sheet one to one, as before */
+    jw_pr_settings(&f);
+    f.colour = f.colour || colour;
+    saved = as_png ? jw_plot_png_at(d, &f, 4.0, &saved_n)
+                   : jw_plot_pdf_at(d, &f, &saved_n);
     return saved;
 }
 

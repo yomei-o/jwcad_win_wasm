@@ -38,7 +38,10 @@ import re
 # bars, which are the same two dialogs.  See the file's own head.
 SRC = ['decomp/res/bars.txt', 'decomp/res/bars2.txt',
        'decomp/res/bars3.txt', 'decomp/res/bars5.txt', 'decomp/res/bars6.txt',
-       'decomp/res/bars7.txt']
+       'decomp/res/bars7.txt', 'decomp/res/bars8.txt']
+# bars8.txt is the print command's bar (印刷範囲を設定 32851), likewise not
+# read out of the original: it is DIALOG 291 laid out with the dialog-unit
+# rule the captured bars bear out.  See the file's own head.
 OUT = 'src/gen/bars.h'
 
 # the windows that make up the frame itself, not the bar
