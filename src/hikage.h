@@ -47,6 +47,39 @@ int hk_wall_sun_side(double lat_deg, double dec_deg, int t_sec, double wall_dx, 
  * 両側にあれば 1（原典は 0x159b「作図する方向を マウスで指示」へ）。 */
 int hk_wall_sides(double x0, double y0, double x1, double y1,
                   const double *px, const double *py, int n);
+/* 同じで、最初に数えた点の側（1 = 左・-1 = 右・0 = 無し）も返す。原典は 片側のとき 左（> 0）なら
+ * 壁の線の始点と終点を入れ替える（FUN_00541130 の末尾）。 */
+int hk_wall_sides_ex(double x0, double y0, double x1, double y1,
+                     const double *px, const double *py, int n, int *first);
+
+/* 壁面日影（逆コンパイルの読み、原典では押していない）。壁は 向きを決めたあとの線で、
+ * 建物（影を落とす側）は 右（FUN_005f8c20 の距離 < 0）、壁の立面は 左へ倒して書く。
+ *   [D 0x00542310] 模型を作るとき FUN_005f9950 で壁の枠（始点・単位の向き・長さ）を作り、
+ *                  辺ごとに FUN_005415e0 で 壁で切る。切った点（印 -1）は 組ごとに
+ *                  壁に沿った位置の順につなぐ（閉じる辺）。
+ *   [D 0x0053fee0] 時刻ごとに 壁の面に日が当たるか（ux*sy*100 − uy*sx*100 > 1e-5）を見て、
+ *                  当たらなければ その時刻は 線を書かない（等時間は 全部の格子に 1、指定点は 影）。
+ *                  外形の点は FUN_00545fc0 で 壁の立面へ移し、壁を横切る辺は 壁の上で切る。
+ *   [D 0x0053f880] 線は FUN_0053e800 で 壁の左（立面の側）と 壁の両端の間に切る。 */
+typedef struct hk_wall_s {
+    double x0, y0, x1, y1;      /* 壁（文書の座標） */
+    double ux, uy, len;         /* 単位の向きと長さ（FUN_005f97f0） */
+    double north, ox, oy;       /* 模型の枠: 真北の角度で回し、いちばん下の頂点が原点（±2000 の検査） */
+    int ends;                   /* 切った点が 壁の端の 0.1 以内（原典 +0x4a528） */
+    int flag;                   /* 文書 +0x83d8（jwf の FLG_1 の二つ目、ふつう 0） */
+} hk_wall;
+
+void hk_wall_init(hk_wall *w, double x0, double y0, double x1, double y1, double north);
+/* その時刻に 壁の面に日が当たるか（FUN_0053fee0 の入口）。(sx,sy) は 文書の向きの影 */
+int hk_wall_lit(const hk_wall *w, double sx, double sy);
+/* FUN_00545fc0: 地面の影の点を 壁の立面へ。*side は 壁の左の距離 × 壁の長さ（> 1 なら移す） */
+void hk_wall_lift(const hk_wall *w, double sx, double sy, double px, double py,
+                  double *ox, double *oy, double *side);
+/* lift の逆: 立面の点 (x,y) が どの地面の点の影か（指定点・等時間の数え上げ） */
+void hk_wall_unlift(const hk_wall *w, double sx, double sy, double x, double y,
+                    double *px, double *py);
+/* FUN_0053f880 の 壁の切り取り（FUN_0053e800 を 3 回）。残れば 1。tol は 端の許し（ふつう 100） */
+int hk_wall_cut(const hk_wall *w, double tol, double *x0, double *y0, double *x1, double *y1);
 
 /* [D 0x00694840][V sample]  影倍率 = hypot(x,y); azimuth (deg, as printed in the
  * 方位角倍率図) = atan2(-x, y) in degrees. */
@@ -112,6 +145,15 @@ int  hk_point_in_quads(const hk_quad *q, int n, double px, double py);
 typedef struct { hk_pt a, b; } hk_seg;
 int  hk_outline(const hk_edge *e, int n, double sx, double sy,
                 hk_seg *out, int *chain_start, int maxout);
+/* FUN_005415e0 と 閉じる辺。out に 切った辺を書き、数を返す。原典の札で終わるときは
+ * -5534（0x159e「壁面線が建物通過」）か -5532（0x159c「中庭等、建物を分割してください」）。
+ * 模型の枠の原点（w->ox, oy）と w->ends もここで決める。 */
+int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout);
+/* 壁面日影の 一時刻: 外形の線を 壁の立面へ移して切る（FUN_0053fee0 の壁の枝と FUN_0053f880）。
+ * lab[k] = 1 は 時刻の文字を付ける線（数えが 0 から 1 になった線: 原典は 線が切り捨てられるか
+ * 鎖が切れると 数えを 0 に戻し、壁のときは 1 本目に付ける）。返り値は 線の数、日が当たらなければ 0。 */
+int  hk_wall_segs(const hk_wall *w, double sx, double sy, const hk_seg *in, const int *chain_start,
+                  int n, hk_seg *out, int *lab, int maxout);
 
 /* Index (1-based, within the chain) of the segment that carries the hour label:
  * 2 if hour <= 12.0 else 3 (this[0x1291f], [D 0x0053edd0]). [V sample] */
@@ -156,6 +198,7 @@ typedef struct {
     int n15, step;
     int range;                  /* 1: 範囲指定（世界の 4 隅 rx・ry） */
     double rx[4], ry[4];
+    const hk_wall *wall;        /* 壁面日影（NULL = 無し）。数えは 立面の点を地面へ戻して、線は 壁で切る */
 } hk_iso_in;
 int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int maxout);
 

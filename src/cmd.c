@@ -551,6 +551,7 @@ static int hk_ask_time;
 static int hk_wall_step;                /* 6 壁線待ち・7 作図する方向待ち（原典の +0xbc） */
 static int hk_wall_on;                  /* 壁が決まっている（原典の CZukeiHikage +0xb4） */
 static int hk_wall_swapped;             /* 測定高の箱を 壁面用の値に入れ替えた */
+static double hk_wall_xy[4];            /* 壁の線（向きを決めたあと）。計算は hikage.c の hk_wall_* */
 static char hk_meas_ground[40], hk_meas_wall[40] = "0";
 static void hk_wall_clear(void);
 static void hk_height_text(char *out, size_t cap, const char *box, int d25);
@@ -20978,9 +20979,39 @@ static void au_ll(jw_drawing *d, const jw_view *v, double x, double y)
    測定高の箱 (1492) に 壁面用の測定高（文書 +0x83b8、初めは 0。FUN_004b2760）を "%lg" で書く。
    壁がある間に箱で入れた値は +0x83b8 へ、壁を消すと箱は ふつうの測定高（+0x83b0）に戻る。
    右は 壁線待ち・方向待ちでは何もしない（FUN_006900c0 は +0xbc が 0 と 5 のときだけ）。
-   壁があるときの 日影図・等時間・指定点（FUN_006936a0 ほかに 壁を渡し、FUN_00542310 の
-   FUN_005415e0 で壁に映す）は **入れていない**: 壁がある間は 何も書かない */
+   壁の向き: 片側のとき 字が左なら（FUN_00541130 の末尾）、方向待ちで押した点が右なら（FUN_0053eca0）
+   原典は 壁の線そのものの 始点と終点を入れ替える（文書の線が変わる。戻すの記録は無い）。
+   壁があるときの 日影図・等時間・指定点は 壁を FUN_00542310 → FUN_005415e0 で切り、
+   FUN_0053fee0 → FUN_00545fc0 で立面に映す（hikage.c の hk_wall_*、hk_wall_prep） */
 static double hk_eval(const char *t);
+
+static void hk_wall_swap_line(jw_drawing *d, int k)
+{
+    double t;
+
+    t = hk_wall_xy[0]; hk_wall_xy[0] = hk_wall_xy[2]; hk_wall_xy[2] = t;
+    t = hk_wall_xy[1]; hk_wall_xy[1] = hk_wall_xy[3]; hk_wall_xy[3] = t;
+    if (k >= 0 && k < d->ndrawn && d->obj[k].cls == JW_SEN) {
+        jw_obj *o = &d->obj[k];
+
+        t = o->d[0]; o->d[0] = o->d[2]; o->d[2] = t;
+        t = o->d[1]; o->d[1] = o->d[3]; o->d[3] = t;
+    }
+}
+
+/* 壁で 辺を切る（ed → ed2）。返り値 切った辺の数、原典が札で終わるところなら 札を出して -1 */
+static int hk_wall_prep(const hk_edge *ed, int ne, hk_edge *ed2, int max, hk_wall *w, double north)
+{
+    int m;
+
+    hk_wall_init(w, hk_wall_xy[0], hk_wall_xy[1], hk_wall_xy[2], hk_wall_xy[3], north);
+    m = hk_wall_clip(w, ed, ne, ed2, max);
+    if (m == -5534)
+        JW_NOTICE(5534);            /* 壁面線が建物通過 */
+    else if (m == -5532)
+        JW_NOTICE(5532);            /* 中庭等、建物を分割してください */
+    return m < 0 ? -1 : m;
+}
 
 static void hk_wall_fmt(char *out, size_t cap, const char *box)
 {
@@ -21020,11 +21051,18 @@ static void hk_wall_done(void)
 static void hk_wall_click(jw_drawing *d, const jw_view *v, double x, double y)
 {
     static double px[2000], py[2000];
-    int k, n = 0, r;
+    static int wk = -1;
+    int k, n = 0, r, first = 0;
     const jw_obj *w;
 
     if (hk_wall_step == 7) {
-        hk_wall_done();             /* FUN_0053eca0: 押した側を 壁の向きにする（移植は持たない） */
+        /* FUN_0053eca0: 押した点が 壁の右（距離 < 0）なら 壁の線を入れ替えて 押した側を左（立面の側）に */
+        double l = hypot(hk_wall_xy[2] - hk_wall_xy[0], hk_wall_xy[3] - hk_wall_xy[1]);
+
+        if (l > 0.0 && ((y - hk_wall_xy[1]) * (hk_wall_xy[2] - hk_wall_xy[0]) -
+                        (x - hk_wall_xy[0]) * (hk_wall_xy[3] - hk_wall_xy[1])) / l < 0.0)
+            hk_wall_swap_line(d, wk);
+        hk_wall_done();
         return;
     }
     k = jw_pick(d, v, x, y, 0);
@@ -21033,6 +21071,7 @@ static void hk_wall_click(jw_drawing *d, const jw_view *v, double x, double y)
     if (k < 0 || k >= d->ndrawn || d->obj[k].cls != JW_SEN)
         return;
     w = &d->obj[k];
+    wk = k;
     for (k = 0; k < d->ndrawn && n < 2000; k++) {
         const jw_obj *t = &d->obj[k];
 
@@ -21042,13 +21081,19 @@ static void hk_wall_click(jw_drawing *d, const jw_view *v, double x, double y)
         py[n] = t->d[1];
         n++;
     }
-    r = hk_wall_sides(w->d[0], w->d[1], w->d[2], w->d[3], px, py, n);
+    r = hk_wall_sides_ex(w->d[0], w->d[1], w->d[2], w->d[3], px, py, n, &first);
     if (r < 0) {
         JW_NOTICE(5529);            /* FUN_00541130 の札「データが不適当」 */
         hk_wall_step = 0;
         return;
     }
     hk_wall_on = 1;
+    hk_wall_xy[0] = w->d[0];
+    hk_wall_xy[1] = w->d[1];
+    hk_wall_xy[2] = w->d[2];
+    hk_wall_xy[3] = w->d[3];
+    if (r == 0 && first > 0)
+        hk_wall_swap_line(d, wk);   /* 字（建物）を 壁の右に */
     if (r > 0)
         hk_wall_step = 7;
     else
@@ -21231,19 +21276,19 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m, do
 /* 等時間 (decomp/res/hk_i*.jww)。水準 level 時間の等高線を 一組（同じ id）で書く */
 static int hk_iso_n(jw_drawing *d, double level, double label)
 {
-    static hk_edge ed[1000];
+    static hk_edge ed[1000], ed2[2000];
     static hk_isoseg seg[4000];
     static const double sw[12] = { 1189, 841, 594, 420, 297, 514, 364, 257, 1682, 2378, 3364, 4756 };
     static const double sh[12] = { 841, 594, 420, 297, 210, 364, 257, 182, 1189, 1682, 2378, 3364 };
     hk_iso_in in;
     hk_cond_t cond;
+    hk_wall wall;
+    hk_edge *E = ed;
     const char *bs;
     double plane = 4.0, north = 0.0;
     int ne, n, k, made = 0, gid = 0, ps = d->paper_size, lab = -1;
     op_t *o;
 
-    if (hk_wall_on)
-        return 0;                   /* 壁面日影は 入れていない（hk_wall_click の注） */
     hk_cond(&cond);
     bs = jw_cmd_box(1492);
     if (bs && *bs)
@@ -21262,9 +21307,17 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
     ne = hk_edges(d, ed, 1000, plane, write_scale(d));
     if (ne < 2)
         return 0;
+    if (hk_wall_on) {               /* 壁面日影（FUN_0069ac30 は 壁を FUN_00542310・FUN_0054a0b0 へ渡す） */
+        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        if (ne < 1)
+            return 0;
+        E = ed2;
+    }
     if (ps < 0 || ps > 11)
         ps = 3;
     memset(&in, 0, sizeof in);
+    if (hk_wall_on)
+        in.wall = &wall;
     in.lat = cond.lat;
     in.dec = cond.dec;
     in.north = north;
@@ -21281,7 +21334,7 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
         in.step = 60;
     in.sheet_w = sw[ps];
     in.sheet_h = sh[ps];
-    n = hk_iso(ed, ne, &in, seg, 4000);
+    n = hk_iso(E, ne, &in, seg, 4000);
     o = op_new();
     gid++;
     for (k = 0; k < n; k++) {
@@ -21387,18 +21440,18 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
 /* 時間ごと（half: 30 分毎）の日影の線。作った数を返す */
 static int hk_outlines(jw_drawing *d, int half)
 {
-    static hk_edge ed[1000];
-    static hk_seg seg[400];
-    static int cs[400];
+    static hk_edge ed[1000], ed2[2000];
+    static hk_seg seg[400], wseg[800];
+    static int cs[400], wlab[800];
     const char *bs;
     double plane = 4.0, lat = 36.0, north = 0.0, hour, h0, h1;
     hk_cond_t cond;
     int ne, made = 0, k, gid = 0;
     hk_sun sun;
+    hk_wall wall;
+    hk_edge *E = ed;
     op_t *o;
 
-    if (hk_wall_on)
-        return 0;                   /* 壁面日影は 入れていない（hk_wall_click の注） */
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
@@ -21420,16 +21473,23 @@ static int hk_outlines(jw_drawing *d, int half)
     ne = hk_edges(d, ed, 1000, plane, write_scale(d));
     if (ne < 2)
         return 0;
+    if (hk_wall_on) {               /* 壁面日影: 壁で切った建物の影を 壁の立面に映す */
+        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        if (ne < 0)
+            return 0;
+        E = ed2;
+    }
     hk_sun_init(&sun, lat, cond.dec);
     o = op_new();
     for (hour = half == 2 ? hk_one_hour : h0; hour <= (half == 2 ? hk_one_hour : h1) + 1e-9;
          hour += half == 1 ? 0.5 : 1.0) {
         double x, y, sx, sy;
-        int ts = (int)floor((hour - 12.0) * 3600.0 + 0.5), n, j, start = 0, chain_n = 0;
+        int ts = (int)floor((hour - 12.0) * 3600.0 + 0.5), n, j, chain_n = 0;
+        hk_seg *S = seg;
 
         hk_sun_shadow(&sun, ts, &x, &y);
         hk_rot(x, y, north, &sx, &sy);
-        n = hk_outline(ed, ne, sx, sy, seg, cs, 400);
+        n = hk_outline(E, ne, sx, sy, seg, cs, 400);
         {
             /* 建物の平面の内側にある線は 影ではない（屋根は影に含まれる）。
                辺の集まりを 偶奇で見た「中」にある線は 外す */
@@ -21440,7 +21500,7 @@ static int hk_outlines(jw_drawing *d, int half)
                 int in = 0, q;
 
                 for (q = 0; q < ne; q++) {
-                    double ax = ed[q].a.x, ay = ed[q].a.y, bx = ed[q].b.x, by = ed[q].b.y;
+                    double ax = E[q].a.x, ay = E[q].a.y, bx = E[q].b.x, by = E[q].b.y;
 
                     if ((ay > my) != (by > my) &&
                         mx < ax + (my - ay) * (bx - ax) / (by - ay))
@@ -21457,27 +21517,30 @@ static int hk_outlines(jw_drawing *d, int half)
             }
             n = w2;
         }
+        if (hk_wall_on) {           /* 日が壁に当たらない時刻は 何も書かない。文字は 数えが 1 の線に */
+            n = hk_wall_segs(&wall, sx, sy, seg, cs, n, wseg, wlab, 800);
+            S = wseg;
+        }
         gid++;
         for (j = 0; j < n; j++) {
             jw_obj *l = jw_add(d, JW_SEN);
 
             if (!l)
                 break;
-            l->d[0] = seg[j].a.x;
-            l->d[1] = seg[j].a.y;
-            l->d[2] = seg[j].b.x;
-            l->d[3] = seg[j].b.y;
+            l->d[0] = S[j].a.x;
+            l->d[1] = S[j].a.y;
+            l->d[2] = S[j].b.x;
+            l->d[3] = S[j].b.y;
             l->id = gid;
             /* 整時は 線種 1、半時は 2、そのほかは 3（原典の組の印 1・2・3） */
             l->ltype = fabs(hour - floor(hour + 0.5)) < 1e-9 ? 1 : fabs(hour * 2.0 - floor(hour * 2.0 + 0.5)) < 1e-9 ? 2 : 3;
             made++;
-            if (cs[j]) {
-                start = j;
+            if (!hk_wall_on && cs[j])
                 chain_n = 1;
-            } else
+            else
                 chain_n++;
             /* 一つ目の線から数えて 午前は 2 本目、午後は 3 本目に 時刻の文字 */
-            if (chain_n == hk_label_segment_index(hour)) {
+            if (hk_wall_on ? wlab[j] : chain_n == hk_label_segment_index(hour)) {
                 char lab[24];
                 jw_tg_out to;
                 double wx[2], wy[2], w;
@@ -21486,7 +21549,7 @@ static int hk_outlines(jw_drawing *d, int half)
 
                 hk_fmt_hour_label(lab, sizeof lab, hour);
                 w = (double)strlen(lab) * 1.0;
-                hk_label_place(seg[start + chain_n - 1].a, seg[start + chain_n - 1].b, w, &a, &b, &w);
+                hk_label_place(S[j].a, S[j].b, w, &a, &b, &w);
                 wx[0] = a.x; wy[0] = a.y; wx[1] = b.x; wy[1] = b.y;
                 memset(&to, 0, sizeof to);
                 to.cls = JW_TG_TEXT_O;
@@ -21949,12 +22012,13 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     int ne, k, i, made = 0, nt, t0;
     hk_sun sun;
     hk_cond_t cond;
-    static hk_quad qd[1000];
+    static hk_quad qd[2000];
+    static hk_edge ed2[2000];
     static unsigned char in[28801];
+    hk_wall wall;
+    hk_edge *E = ed;
     op_t *rec;
 
-    if (hk_wall_on)
-        return 0;                   /* 壁面日影は 入れていない（hk_wall_click の注） */
     bs = jw_cmd_box(1492);
     if (bs && *bs)
         plane = atof(bs);
@@ -21973,6 +22037,12 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     ne = hk_edges(d, ed, 1000, plane, write_scale(d));
     if (ne < 2)
         return 0;
+    if (hk_wall_on) {               /* 壁面日影（FUN_0069e850 は 壁を FUN_00542310・FUN_005470d0 へ渡す） */
+        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        if (ne < 0)
+            return 0;
+        E = ed2;
+    }
     hk_sun_init(&sun, lat, cond.dec);
     rec = op_new();
     for (k = 0; k < hkp_n; k++) {
@@ -21986,11 +22056,20 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
         for (i = 0; i < nt; i++) {
             double x, y, sx, sy;
             int ts = t0 + i * step;
+            double qx = hkp_x[k], qy = hkp_y[k];
 
             hk_sun_shadow(&sun, ts, &x, &y);
             hk_rot(x, y, north, &sx, &sy);
-            hk_build_quads(ed, ne, sx, sy, qd);
-            in[i] = (unsigned char)hk_point_in_quads(qd, ne, hkp_x[k], hkp_y[k]);
+            if (hk_wall_on) {
+                /* [D 0x0053fee0] 壁に日が当たらない時刻は 影（11000）。立面の点は 地面へ戻して見る */
+                if (!hk_wall_lit(&wall, sx, sy)) {
+                    in[i] = 1;
+                    continue;
+                }
+                hk_wall_unlift(&wall, sx, sy, qx, qy, &qx, &qy);
+            }
+            hk_build_quads(E, ne, sx, sy, qd);
+            in[i] = (unsigned char)hk_point_in_quads(qd, ne, qx, qy);
         }
         niv = hk_intervals(in, nt, t0, step, iv, 40);
         hk_fmt_n0_line(line, sizeof line, hk_first_no + k, iv, niv, step);

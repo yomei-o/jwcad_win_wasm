@@ -154,6 +154,8 @@ WANT = [
     (6009, 'notice: the figure was moved'),
     (10038, 'notice: figure registered'),
     (5529, 'notice: the data does not fit (shadow diagram wall)'),
+    (5534, 'notice: the wall line goes through a building (shadow diagram wall)'),
+    (5532, 'notice: split the building (a courtyard) (shadow diagram wall)'),
     (5208, 'notice: it is a circle'),
     (5611, 'notice: reverse division (division helper)'),
     (5612, 'notice: division by length ratio (division helper)'),
