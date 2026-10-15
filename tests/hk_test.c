@@ -822,7 +822,7 @@ int main(int argc, char **argv)
         bx = jw_cmd_box(1492);
         ok = ok && p && !strstr(p, houkou) && bx && !strcmp(bx, "1.5");
         n0 = app_drawing()->ndrawn;
-        clicks(&r, "B:1064;B:1065;B:1121;");               /* 壁がある間は 日影図を書かない（移植は壁面日影が未） */
+        clicks(&r, "B:1064;B:1065;B:1121;");               /* 壁が建物の中を横切る: 0x159e で 何も書かない */
         ok = ok && app_drawing()->ndrawn == n0;
         clicks(&r, "B:1069;B:1069;650,400;B:1121;");       /* 方向待ちの ≪ は 壁を捨てる */
         bx = jw_cmd_box(1492);
@@ -834,6 +834,190 @@ int main(int argc, char **argv)
             fails++;
         } else
             puts("ok   日影図 壁面 (1069) の歩み");
+    }
+    /* 壁面日影の作図（逆コンパイルの読み、原典では押していない。答えは hk_w2 の「何も書かない」だけ）:
+       FUN_005415e0（壁で切る）・FUN_00542310（閉じる辺）・FUN_0053fee0（日の当たる面）・FUN_00545fc0（立面へ）・
+       FUN_0053e800（壁の左と 両端の間） */
+    {
+        static const int rc[2][8] = { { 10, -30, 30, -30, 30, -10, 10, -10 },
+                                      { 110, -10, 130, -10, 130, 10, 110, 10 } };
+        hk_wall w;
+        hk_edge e[4], o[16];
+        double x0, y0, x1, y1, px, py, qx, qy, sd;
+        int ok = 1, m, k, q, cl = 0;
+
+        hk_wall_init(&w, 0, 0, 100, 0, 0.0);
+        for (q = 0; q < 2; q++) {
+            for (k = 0; k < 4; k++) {
+                e[k].a.x = rc[q][k * 2];
+                e[k].a.y = rc[q][k * 2 + 1];
+                e[k].b.x = rc[q][(k * 2 + 2) % 8];
+                e[k].b.y = rc[q][(k * 2 + 3) % 8];
+                e[k].za_mm = e[k].zb_mm = 5.0;
+            }
+            m = hk_wall_clip(&w, e, 4, o, 16);
+            if (q == 0)
+                ok = ok && m == 4 && !w.ends;              /* 右だけの建物は そのまま */
+            else {
+                for (k = 0; k < m; k++)
+                    if (o[k].a.y == 0.0 && o[k].b.y == 0.0 && fabs(fabs(o[k].a.x - o[k].b.x) - 20.0) < 1e-9 &&
+                        o[k].za_mm == 5.0 && o[k].zb_mm == 5.0)
+                        cl++;
+                ok = ok && m == 4 && cl == 1;               /* 端の外で横切る: 下の辺・切った縦 2 本・閉じる辺 */
+            }
+        }
+        for (k = 0; k < 4; k++) {                           /* 壁の内で横切る建物は 0x159e */
+            e[k].a.x += -70.0;
+            e[k].b.x += -70.0;
+        }
+        ok = ok && hk_wall_clip(&w, e, 4, o, 16) == -5534;
+        if (!ok)
+            puts("     hk_wall_clip");
+        ok = ok && hk_wall_lit(&w, 0.0, 1.0) && !hk_wall_lit(&w, 0.0, -1.0);
+        hk_wall_lift(&w, 0.0, 2.0, 50.0, 30.0, &px, &py, &sd);
+        ok = ok && fabs(px - 50.0) < 1e-9 && fabs(py - 15.0) < 1e-9 && sd > 1.0;
+        hk_wall_unlift(&w, 0.0, 2.0, px, py, &qx, &qy);
+        ok = ok && fabs(qx - 50.0) < 1e-9 && fabs(qy - 30.0) < 1e-9;
+        hk_wall_lift(&w, 0.0, 2.0, 50.0, -30.0, &px, &py, &sd);      /* 壁の前（右）は 動かない */
+        ok = ok && px == 50.0 && py == -30.0 && sd < 0.0;
+        if (!ok)
+            puts("     hk_wall_lit・lift・unlift");
+        x0 = 50; y0 = -10; x1 = 50; y1 = 10;
+        ok = ok && hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1) && x0 == 50.0 && fabs(y0) < 1e-12 && y1 == 10.0;
+        x0 = -10; y0 = 5; x1 = 10; y1 = 5;
+        ok = ok && hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1) && fabs(x0) < 1e-12 && x1 == 10.0;
+        x0 = 20; y0 = -5; x1 = 30; y1 = -5;
+        ok = ok && !hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1);
+        if (!ok) {
+            puts("BAD  壁面日影の計算（hk_wall_clip・lit・lift・cut）");
+            fails++;
+        } else
+            puts("ok   壁面日影の計算（hk_wall_clip・lit・lift・cut）");
+    }
+    /* 壁面日影の 1時間毎・指定点・等時間: 建物の北 100 画素に 東西の壁を 東から西へ引く。字は壁の左（南）なので
+       壁の線を入れ替える（FUN_00541130）。線は 壁の左（北）で 両端の間だけ、正午の屋根の辺は 壁の上
+       h = z − 距離/|s|（地面の影 y_n + z s を 壁へ写す）に一本。指定点は 立面の低い点だけ 正午に影 */
+    {
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const jw_drawing *dd;
+        const jw_obj *wl = 0;
+        hk_sun sun;
+        double wx0, wy0, wx1, wy1, len, yn = -1e9, z, sx, sy, h, scale = 1.0;
+        int ok = 1, n0, k, nl = 0, nt = 0, hit = 0, low = 0, high = 0;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,400;600,400;600,400;600,500;600,500;400,500;400,500;400,400;700,300;300,300;");
+        app_command(32943);
+        clicks(&r, "b:10;405,400;595,400;595,500;405,500;B:1069;500,300;");
+        dd = app_drawing();
+        for (k = 0; k < dd->ndrawn; k++)
+            if (dd->obj[k].cls == JW_SEN) {
+                if (fabs(dd->obj[k].d[1] - dd->obj[k].d[3]) < 1e-9 && fabs(dd->obj[k].d[0] - dd->obj[k].d[2]) > 200.0)
+                    wl = &dd->obj[k];
+                else if (dd->obj[k].d[1] > yn)
+                    yn = dd->obj[k].d[1];
+            }
+        ok = ok && wl && wl->d[0] < wl->d[2];               /* 東向きに 入れ替わった */
+        if (!ok)
+            puts("     壁の線の入れ替え");
+        wx0 = wl ? wl->d[0] : 0; wy0 = wl ? wl->d[1] : 0; wx1 = wl ? wl->d[2] : 1; wy1 = wl ? wl->d[3] : 0;
+        len = hypot(wx1 - wx0, wy1 - wy0);
+        for (k = 0; k < 16; k++)
+            if (dd->group[k].state == 3 && dd->group[k].scale > 0.0)
+                scale = dd->group[k].scale;
+        {
+            const char *mb = jw_cmd_box(1492);              /* 壁面用の測定高（上の歩みで 1.5 が残る） */
+
+            z = (10.0 - (mb && *mb ? atof(mb) : 0.0)) * 1000.0 / scale;
+        }
+        hk_sun_init(&sun, 36.0, -23.45);
+        hk_sun_shadow(&sun, 0, &sx, &sy);
+        h = z - (wy0 - yn) / sy;
+        n0 = dd->ndrawn;
+        clicks(&r, "B:1064;B:1065;");
+        dd = app_drawing();
+        for (k = n0; k < dd->ndrawn; k++) {
+            const jw_obj *l = &dd->obj[k];
+            int e2;
+
+            if (l->cls == JW_MOJI)
+                nt++;
+            if (getenv("HKWALL"))
+                printf("  wall %d cls%d lt%d %.3f %.3f %.3f %.3f  (壁 y %.3f・北の辺 y %.3f)\n", k, l->cls, l->ltype,
+                       l->d[0], l->d[1], l->d[2], l->d[3], wy0, yn);
+            if (l->cls != JW_SEN)
+                continue;
+            nl++;
+            for (e2 = 0; e2 < 4; e2 += 2) {
+                double ex = l->d[e2] - wx0, ey = l->d[e2 + 1] - wy0;
+                double al = (ex * (wx1 - wx0) + ey * (wy1 - wy0)) / len, dv = (ey * (wx1 - wx0) - ex * (wy1 - wy0)) / len;
+
+                if (dv < -1e-6 || al < -1e-6 || al > len + 1e-6)
+                    ok = 0;
+            }
+            if (fabs(l->d[1] - (wy0 + h)) < 1e-6 && fabs(l->d[3] - (wy0 + h)) < 1e-6)
+                hit++;
+        }
+        ok = ok && nl > 4 && nt > 0 && hit == 1;
+        if (!ok)
+            printf("     1時間毎: 線 %d 本・字 %d・正午の屋根 %d（h %.3f）\n", nl, nt, hit, h);
+        n0 = dd->ndrawn;
+        {
+            char pts[120];
+
+            /* 立面の h/2 の高さ（影）と h + 20 mm（いつも日向）。1 mm = 1.6333 画素（addlines と同じ比） */
+            snprintf(pts, sizeof pts, "B:1121;B:1066;500,%d;500,%d;B:1065;750,650;",
+                     300 - (int)(h * 0.5 * 1.633333333), 300 - (int)((h + 20.0) * 1.633333333));
+            clicks(&r, pts);
+        }
+        dd = app_drawing();
+        for (k = n0; k < dd->ndrawn; k++) {
+            const jw_obj *t = &dd->obj[k];
+            const char *s;
+
+            if (t->cls != JW_MOJI || t->text < 0)
+                continue;
+            s = jw_str(dd, t->text);
+            if (getenv("HKWALL"))
+                printf("  wall 指定点 [%s]\n", s);
+            if (!strncmp(s, "N0.1", 4))
+                low = strstr(s, "(") != 0 ? 1 : -1;
+            if (!strncmp(s, "N0.2", 4))
+                high = strstr(s, "(") == 0 ? 1 : -1;
+        }
+        ok = ok && low == 1 && high == 1;
+        if (!ok)
+            printf("     指定点: 低い点 %d・高い点 %d\n", low, high);
+        n0 = dd->ndrawn;
+        clicks(&r, "B:1064;B:1065;B:1066;");               /* 指定点から戻って 等時間 2.5 時間 */
+        dd = app_drawing();
+        nl = 0;
+        for (k = n0; k < dd->ndrawn; k++) {
+            const jw_obj *l = &dd->obj[k];
+            int e2;
+
+            if (l->cls != JW_SEN)
+                continue;
+            nl++;
+            for (e2 = 0; e2 < 4; e2 += 2)
+                if (l->d[e2 + 1] - wy0 < -1e-6 || l->d[e2] - wx0 < -1.0 || l->d[e2] - wx1 > 1.0)
+                    ok = 0;
+        }
+        ok = ok && nl > 0;
+        if (!ok) {
+            printf("     等時間: 線 %d 本\n", nl);
+            puts("BAD  日影図 壁面日影（1時間毎・指定点・等時間）");
+            fails++;
+        } else
+            puts("ok   日影図 壁面日影（1時間毎・指定点・等時間）");
     }
     /* 測定点が建物の内側: 窓（はい／いいえ／キャンセル）を app の紙面から出して 釦で答える（hk_s29〜s31） */
     {

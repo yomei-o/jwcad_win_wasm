@@ -285,6 +285,10 @@
 #define JW_STR_10038 "\x81s\x90}\x8c`\x93o\x98^\x81t"
 /* 5529: notice: the data does not fit (shadow diagram wall) */
 #define JW_STR_5529 "\x83" "f\x81[\x83^\x82\xaa\x95s\x93K\x93\x96"
+/* 5534: notice: the wall line goes through a building (shadow diagram wall) */
+#define JW_STR_5534 "\x95\xc7\x96\xca\x90\xfc\x82\xaa\x8c\x9a\x95\xa8\x92\xca\x89\xdf"
+/* 5532: notice: split the building (a courtyard) (shadow diagram wall) */
+#define JW_STR_5532 "\x92\x86\x92\xeb\x93\x99\x81" "A\x8c\x9a\x95\xa8\x82\xf0\x95\xaa\x8a\x84\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2"
 /* 5208: notice: it is a circle */
 #define JW_STR_5208 "\x89~\x82\xc5\x82\xb7"
 /* 5611: notice: reverse division (division helper) */

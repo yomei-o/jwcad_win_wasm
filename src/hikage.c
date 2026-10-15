@@ -57,8 +57,8 @@ int hk_wall_sun_side(double lat_deg, double dec_deg, int t_sec, double wall_dx, 
     return v < 0.0 ? -1 : (v <= 0.001 ? 0 : 1);
 }
 
-int hk_wall_sides(double x0, double y0, double x1, double y1,
-                  const double *px, const double *py, int n)
+int hk_wall_sides_ex(double x0, double y0, double x1, double y1,
+                     const double *px, const double *py, int n, int *first)
 {
     /* [D 0x00541130]  線は FUN_005f8940 で 始点と向き（単位）に、距離は FUN_005f8c20(1, x, y)。
        最初に数えた点の側を覚え、反対側の点が出たら 1 */
@@ -76,10 +76,375 @@ int hk_wall_sides(double x0, double y0, double x1, double y1,
             continue;
         if (side == 0)
             side = d <= 0.0 ? -1 : 1;
-        else if ((side > 0 && d < 0.0) || (side < 0 && d > 0.0))
+        else if ((side > 0 && d < 0.0) || (side < 0 && d > 0.0)) {
+            if (first)
+                *first = side;
             return 1;
+        }
     }
+    if (first)
+        *first = side;
     return side == 0 ? -1 : 0;
+}
+
+int hk_wall_sides(double x0, double y0, double x1, double y1,
+                  const double *px, const double *py, int n)
+{
+    return hk_wall_sides_ex(x0, y0, x1, y1, px, py, n, 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* 壁面日影（逆コンパイルの読み、原典では押していない。答えは hk_w2 の「何も書かない」だけ）   */
+/* ------------------------------------------------------------------ */
+
+void hk_wall_init(hk_wall *w, double x0, double y0, double x1, double y1, double north)
+{
+    double dx = x1 - x0, dy = y1 - y0;
+
+    memset(w, 0, sizeof *w);
+    w->x0 = x0;
+    w->y0 = y0;
+    w->x1 = x1;
+    w->y1 = y1;
+    w->north = north;
+    /* [D 0x005f97f0] |dx| + |dy| < 1e-7 なら 向き (1,0)・長さ 1 */
+    if (fabs(dx) + fabs(dy) >= 1e-7) {
+        w->len = sqrt(dx * dx + dy * dy);
+        w->ux = dx / w->len;
+        w->uy = dy / w->len;
+    } else {
+        w->len = 1.0;
+        w->ux = 1.0;
+        w->uy = 0.0;
+    }
+}
+
+/* FUN_005f8c20(1,…) と FUN_005f8b60(1,…) を 壁の枠で */
+static double w_dist(const hk_wall *w, double x, double y)
+{
+    return (y - w->y0) * w->ux - (x - w->x0) * w->uy;
+}
+
+static double w_along(const hk_wall *w, double x, double y)
+{
+    return (x - w->x0) * w->ux + (y - w->y0) * w->uy;
+}
+
+/* [D 0x004619b0] 線 a と線 b（どちらも無限の線）の交点（b の上で求める）。0 = 無し */
+static int w_cross(double ax0, double ay0, double ax1, double ay1,
+                   double bx0, double by0, double bx1, double by1, double *x, double *y)
+{
+    double ex = ax1 - ax0, ey = ay1 - ay0;
+    double d4 = (by0 - ay0) * ex - (bx0 - ax0) * ey;
+    double d5 = (by1 - ay0) * ex - (bx1 - ax0) * ey, t;
+
+    if (fabs(d4 - d5) <= 1e-7)
+        return 0;
+    if (fabs(d4) > fabs(d4 - d5) * 10000000000.0)
+        return 0;
+    t = d4 / (d4 - d5);
+    *x = (bx1 - bx0) * t + bx0;
+    *y = (by1 - by0) * t + by0;
+    if (fabs(*x) + fabs(*y) > 139778713.93879598)
+        return 0;
+    if (ax0 == ax1)
+        *x = ax0;
+    if (ay0 == ay1)
+        *y = ay0;
+    if (bx0 == bx1)
+        *x = bx0;
+    if (by0 == by1)
+        *y = by0;
+    return 1;
+}
+
+int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout)
+{
+    /* [D 0x005415e0] 辺ごと: 両端とも 左（距離 >= -0.01）なら 捨てる（印 -2）、両端とも右なら そのまま。
+       片方だけ左なら その端を 壁の線との交点に替える（印 -1、高さは 長いほうの成分の比で）。
+       交点が辺の外枠を外れるか 求まらなければ 端をそのまま写す。右の端が 0.01 より奥に入っていて
+       交点が壁の内（端から 0.01 より内）なら 0x159e（文書 +0x83d8 が 2 以上なら見ない）。
+       [D 0x00542310 @LAB_00543a10] 切った点は 辺でつながる組ごとに 壁に沿った位置の小さい順に拾って
+       つなぐ（閉じる辺）。組の最小が -0.01 より手前で 最大が 長さ + 0.01 より先なら 0x159c、
+       最小か最大が 端（0 か 長さ）の 0.1 以内なら +0x4a528 を立てる。 */
+    static int cut[4000], grp[4000];
+    int i, j, m = 0, ng = 0, changed;
+    double best;
+
+    w->ends = 0;
+    for (i = 0; i < n && m < maxout && m < 4000; i++) {
+        double da = w_dist(w, in[i].a.x, in[i].a.y), db = w_dist(w, in[i].b.x, in[i].b.y);
+        hk_edge e = in[i];
+
+        if (!(da < -0.01 || db < -0.01))
+            continue;
+        cut[m] = 0;
+        if (da >= -0.01 || db >= -0.01) {
+            int left_b = da < -0.01;       /* 右は a、b を替える */
+            double ix, iy, z;
+            int ok = w_cross(w->x0, w->y0, w->x1, w->y1, e.a.x, e.a.y, e.b.x, e.b.y, &ix, &iy);
+
+            cut[m] = left_b ? 2 : 1;
+            if (!ok || (ix > e.a.x && ix > e.b.x) || (iy > e.a.y && iy > e.b.y) ||
+                (ix < e.a.x && ix < e.b.x) || (iy < e.a.y && iy < e.b.y)) {
+                /* 端をそのまま */
+            } else {
+                double dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, num, den;
+
+                if (w->flag < 2 && (0.01 < da || 0.01 < db)) {
+                    double al = w_along(w, ix, iy);
+
+                    if (0.01 < al && al < w->len - 0.01)
+                        return -5534;
+                }
+                if (1.0 <= fabs(dx) + fabs(dy)) {
+                    if (fabs(dx) <= fabs(dy)) {
+                        num = iy - e.a.y;
+                        den = dy;
+                    } else {
+                        num = ix - e.a.x;
+                        den = dx;
+                    }
+                    z = (e.zb_mm - e.za_mm) * num / den + e.za_mm;
+                    if (z < 0.0)
+                        z = 0.0;
+                } else
+                    z = left_b ? e.zb_mm : e.za_mm;
+                if (left_b) {
+                    e.b.x = ix;
+                    e.b.y = iy;
+                    e.zb_mm = z;
+                } else {
+                    e.a.x = ix;
+                    e.a.y = iy;
+                    e.za_mm = z;
+                }
+            }
+        }
+        out[m] = e;
+        grp[m] = m;
+        m++;
+    }
+    /* 辺の組（切った点は どの辺とも共有しない。ほかの端は 0.01 以内で同じ点） */
+    do {
+        changed = 0;
+        for (i = 0; i < m; i++)
+            for (j = i + 1; j < m; j++) {
+                int k1, k2, same = 0;
+
+                if (grp[i] == grp[j])
+                    continue;
+                for (k1 = 1; k1 <= 2 && !same; k1++)
+                    for (k2 = 1; k2 <= 2 && !same; k2++) {
+                        const hk_pt *p = k1 == 1 ? &out[i].a : &out[i].b, *q = k2 == 1 ? &out[j].a : &out[j].b;
+
+                        if (cut[i] == k1 || cut[j] == k2)
+                            continue;
+                        same = fabs(p->x - q->x) + fabs(p->y - q->y) < 0.01;
+                    }
+                if (same) {
+                    int g = grp[j] < grp[i] ? grp[j] : grp[i], h = grp[j] < grp[i] ? grp[i] : grp[j], k;
+
+                    for (k = 0; k < m; k++)
+                        if (grp[k] == h)
+                            grp[k] = g;
+                    changed = 1;
+                }
+            }
+    } while (changed);
+    ng = m;
+    for (i = 0; i < ng; i++) {
+        static int used[4000];
+        double lo = 9999.0, hi = -9999.0;
+        int k, prev = -1;
+
+        if (grp[i] != i)
+            continue;
+        memset(used, 0, sizeof used);
+        for (;;) {
+            int pick = -1;
+            hk_pt pp = { 0, 0 };
+            double pz = 0.0;
+
+            best = 9999.0;
+            for (k = 0; k < ng; k++) {
+                const hk_pt *p;
+                double al;
+
+                if (grp[k] != i || !cut[k] || used[k])
+                    continue;
+                p = cut[k] == 1 ? &out[k].a : &out[k].b;
+                al = w_along(w, p->x, p->y);
+                if (al < best) {
+                    best = al;
+                    pick = k;
+                }
+            }
+            if (pick < 0)
+                break;
+            used[pick] = 1;
+            if (best < lo)
+                lo = best;
+            if (hi < best)
+                hi = best;
+            pp = cut[pick] == 1 ? out[pick].a : out[pick].b;
+            pz = cut[pick] == 1 ? out[pick].za_mm : out[pick].zb_mm;
+            if (prev >= 0) {
+                hk_pt qp = cut[prev] == 1 ? out[prev].a : out[prev].b;
+
+                if ((qp.x != pp.x || qp.y != pp.y) && m < maxout) {
+                    out[m].a = qp;
+                    out[m].za_mm = cut[prev] == 1 ? out[prev].za_mm : out[prev].zb_mm;
+                    out[m].b = pp;
+                    out[m].zb_mm = pz;
+                    m++;
+                }
+            }
+            prev = pick;
+        }
+        if (prev < 0)
+            continue;
+        if (lo < -0.01 && w->len + 0.01 < hi)
+            return -5532;
+        if (fabs(lo) < 0.1 || fabs(lo - w->len) < 0.1 || fabs(hi) < 0.1 || fabs(hi - w->len) < 0.1)
+            w->ends = 1;
+    }
+    /* [D 0x00542310 @0x5446c6..0x544802] 模型の枠: 真北の角度の枠で いちばん下（FUN_005f8c20 の最小）の
+       頂点を原点に。原典は 高さの字の点すべて（左で捨てた建物も）から選ぶ */
+    {
+        double c = cos(w->north * PI / 180.0), s = sin(w->north * PI / 180.0), lo = 90000000000.0;
+
+        for (i = 0; i < n; i++) {
+            const hk_pt *p2[2] = { &in[i].a, &in[i].b };
+
+            for (j = 0; j < 2; j++) {
+                double v = p2[j]->y * c - p2[j]->x * s;
+
+                if (v < lo) {
+                    lo = v;
+                    w->ox = p2[j]->x;
+                    w->oy = p2[j]->y;
+                }
+            }
+        }
+    }
+    return m;
+}
+
+int hk_wall_lit(const hk_wall *w, double sx, double sy)
+{
+    /* [D 0x0053fee0 の入口] 文書 +0x83d8 が 3 より大きいか 影が 0 なら いつも書く */
+    if (3 < w->flag || (sx == 0.0 && sy == 0.0))
+        return 1;
+    return 1e-05 < w->ux * sy * 100.0 - w->uy * sx * 100.0;
+}
+
+/* 壁の上の点 (ix,iy) が 模型の枠で x ±2000・y -1000..2000 の内か（FUN_00545fc0） */
+static int w_in_range(const hk_wall *w, double ix, double iy)
+{
+    double c = cos(w->north * PI / 180.0), s = sin(w->north * PI / 180.0);
+    double lx = (ix - w->ox) * c + (iy - w->oy) * s, ly = (iy - w->oy) * c - (ix - w->ox) * s;
+
+    return !(2000.0 < lx || lx < -2000.0 || 2000.0 < ly || ly < -1000.0);
+}
+
+void hk_wall_lift(const hk_wall *w, double sx, double sy, double px, double py,
+                  double *ox, double *oy, double *side)
+{
+    /* [D 0x00545fc0] 距離は 長さのままの壁の向き (dx,dy) との外積。1 を超えたら 太陽へ向かう線
+       (p, p − 100 s) と壁の線の交点 I を求め、高さ h = |p − I| / |s|（成分の大きいほうで）。
+       立面の点 = 壁の始点 + 位置 × u + h × n（n = (−uy, ux)、壁の左） */
+    double dx = w->x1 - w->x0, dy = w->y1 - w->y0, ix, iy, h, al;
+
+    *ox = px;
+    *oy = py;
+    *side = (py - w->y0) * dx - (px - w->x0) * dy;
+    if (!(1.0 < *side))
+        return;
+    if (!w_cross(w->x0, w->y0, w->x1, w->y1, px, py, px - sx * 100.0, py - sy * 100.0, &ix, &iy))
+        return;
+    if (!w_in_range(w, ix, iy))
+        return;
+    if (fabs(sx) <= fabs(sy))
+        h = fabs(py - iy) / fabs(sy);
+    else
+        h = fabs(px - ix) / fabs(sx);
+    al = w_along(w, ix, iy);
+    *ox = (w->ux * al - w->uy * h) + w->x0;
+    *oy = w->ux * h + w->uy * al + w->y0;
+}
+
+void hk_wall_unlift(const hk_wall *w, double sx, double sy, double x, double y,
+                    double *px, double *py)
+{
+    /* lift は 壁の左の半平面を 左の半平面へ写す 1 対 1 の写し（I + h s → I + h n）。その逆。
+       原典は 写した外形の多角形に点が入るかを数える（FUN_005487c0・FUN_0053f410）ので 同じこと */
+    double dx = w->x1 - w->x0, dy = w->y1 - w->y0, al, h, ix, iy;
+
+    *px = x;
+    *py = y;
+    if (!(1.0 < (y - w->y0) * dx - (x - w->x0) * dy))
+        return;
+    al = w_along(w, x, y);
+    h = w_dist(w, x, y);
+    ix = w->x0 + al * w->ux;
+    iy = w->y0 + al * w->uy;
+    if (!w_in_range(w, ix, iy))
+        return;
+    *px = ix + h * sx;
+    *py = iy + h * sy;
+}
+
+/* [D 0x0053e800] (ax,ay)→(bx,by) の左（外積 > tol）に残す。mode < 0 は 見るだけ */
+static int w_half(int mode, double tol, double ax, double ay, double bx, double by,
+                  double *x0, double *y0, double *x1, double *y1)
+{
+    double d2 = (bx - ax) * (*y0 - ay) - (*x0 - ax) * (by - ay);
+    double d3 = (bx - ax) * (*y1 - ay) - (*x1 - ax) * (by - ay), t;
+
+    if (mode < 0)
+        return !(tol < d2 || tol < d3);
+    if (!(tol < d2 || tol < d3))
+        return 0;
+    if (!(d2 <= tol || d3 <= tol))
+        return 1;
+    t = d2 / (d2 - d3);
+    if (t < 0.0 || 1.0 < t)
+        return 1;
+    {
+        double qx = (*x1 - *x0) * t + *x0, qy = (*y1 - *y0) * t + *y0;
+
+        if (tol < d2) {
+            *x1 = qx;
+            *y1 = qy;
+        } else {
+            *x0 = qx;
+            *y0 = qy;
+        }
+    }
+    return !(*x1 == *x0 && *y1 == *y0);
+}
+
+int hk_wall_cut(const hk_wall *w, double tol, double *x0, double *y0, double *x1, double *y1)
+{
+    /* [D 0x0053f880] 文書 +0x83d8 が 4 より小さければ 壁の左だけ、6 より小さければ 両端の垂線の間だけ。
+       端の垂線は 始点 + 100n → 始点、終点 → 終点 + 100n（[D 0x00542310] +0x3ec8・+0x3ed0） */
+    double nx = -w->uy * 100.0, ny = w->ux * 100.0;
+
+    if (*x0 == *x1 && *y0 == *y1)
+        return 0;
+    if (w->flag < 4) {
+        if (!w_half(0, 100.0, w->x0, w->y0, w->x1, w->y1, x0, y0, x1, y1))
+            return 0;
+    } else
+        w_half(-1, 100.0, w->x0, w->y0, w->x1, w->y1, x0, y0, x1, y1);
+    if (w->flag < 6) {
+        if (!w_half(1, tol, w->x0 + nx, w->y0 + ny, w->x0, w->y0, x0, y0, x1, y1))
+            return 0;
+        if (!w_half(1, tol, w->x1, w->y1, w->x1 + nx, w->y1 + ny, x0, y0, x1, y1))
+            return 0;
+    }
+    return 1;
 }
 
 double hk_shadow_mult(double x, double y) { return sqrt(x * x + y * y); }
@@ -412,6 +777,60 @@ int hk_outline(const hk_edge *e, int n, double sx, double sy,
     }
 }
 
+int hk_wall_segs(const hk_wall *w, double sx, double sy, const hk_seg *in, const int *chain_start,
+                 int n, hk_seg *out, int *lab, int maxout)
+{
+    /* [D 0x0053fee0] 外形の一点ずつ FUN_00545fc0 で立面へ。前の点の距離 > 1 で今の点 < -1（または逆）なら
+       壁を横切るので 生の辺と壁の線の交点で 二本に分ける。[D 0x0053f880] 一本ずつ 壁で切り、残れば書く。
+       数え（uStack_6524）は 切り捨てで 0 に戻り、1 になった線に 時刻の文字（+0x1291f = 1、FUN_005459b0 は
+       長さが 0.0001 未満なら書かずに 数えを戻す） */
+    int j, m = 0, cnt = 0;
+
+    if (!hk_wall_lit(w, sx, sy))
+        return 0;
+    for (j = 0; j < n && m < maxout; j++) {
+        double ax, ay, bx, by, sa, sb, ix, iy, px[3], py[3];
+        int np = 2, k;
+
+        if (chain_start[j])
+            cnt = 0;
+        hk_wall_lift(w, sx, sy, in[j].a.x, in[j].a.y, &ax, &ay, &sa);
+        hk_wall_lift(w, sx, sy, in[j].b.x, in[j].b.y, &bx, &by, &sb);
+        px[0] = ax;
+        py[0] = ay;
+        if (((1.0 < sa && sb < -1.0) || (sa < -1.0 && 1.0 < sb)) &&
+            w_cross(w->x0, w->y0, w->x1, w->y1, in[j].a.x, in[j].a.y, in[j].b.x, in[j].b.y, &ix, &iy)) {
+            px[1] = ix;
+            py[1] = iy;
+            np = 3;
+        }
+        px[np - 1] = bx;
+        py[np - 1] = by;
+        for (k = 0; k + 1 < np && m < maxout; k++) {
+            double x0 = px[k], y0 = py[k], x1 = px[k + 1], y1 = py[k + 1];
+
+            if (!hk_wall_cut(w, 100.0, &x0, &y0, &x1, &y1)) {
+                cnt = 0;
+                continue;
+            }
+            out[m].a.x = x0;
+            out[m].a.y = y0;
+            out[m].b.x = x1;
+            out[m].b.y = y1;
+            cnt++;
+            lab[m] = 0;
+            if (cnt == 1) {
+                if (fabs(x1 - x0) < 0.0001 && fabs(y1 - y0) < 0.0001)
+                    cnt--;
+                else
+                    lab[m] = 1;
+            }
+            m++;
+        }
+    }
+    return m;
+}
+
 int hk_label_segment_index(double hour) { return hour > 12.0 ? 3 : 2; }
 
 void hk_label_place(hk_pt a, hk_pt b, double w, hk_pt *start, hk_pt *end, double *angle_deg)
@@ -583,6 +1002,8 @@ typedef struct {
     /* 追跡の状態 */
     int e0, bc;
     double best;
+    const hk_wall *wall;    /* 壁面日影 */
+    double wtol;            /* 壁の端の許し（FUN_0053e800: +0x4a528 なら 格子の間隔の大きいほう × 200） */
 } grid_t;
 
 #define V(g, c, r) ((g)->v[((r) - 1) * ((g)->nx + 1) + (c)])
@@ -620,6 +1041,8 @@ static int emit(grid_t *g, int valid, double x0, double y0, double x1, double y1
     s = &g->out[g->nout];
     to_world(g, x0, y0, &s->x0, &s->y0);
     to_world(g, x1, y1, &s->x1, &s->y1);
+    if (g->wall && !hk_wall_cut(g->wall, g->wtol, &s->x0, &s->y0, &s->x1, &s->y1))
+        return 0;                       /* FUN_00546600 も 壁を FUN_0053f880 へ渡す */
     s->label = 0;
     g->nout++;
     g->e0++;
@@ -899,6 +1322,8 @@ int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int ma
     g.v = val;
     g.out = out;
     g.maxout = maxout;
+    g.wall = in->wall;
+    g.wtol = in->wall && in->wall->ends ? (dxs < dys ? dys : dxs) * 200.0 : 100.0;
     g.T = in->level * 3600.0 / (double)step - 0.1;
 
     /* 建物の平面の中と そのまわり（左右 1 点・上 1 段）に 印 */
@@ -939,6 +1364,14 @@ int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int ma
 
         hk_sun_shadow(&sun, t, &x, &y);
         hk_rot(x, y, in->north, &sx, &sy);
+        if (in->wall && !hk_wall_lit(in->wall, sx, sy)) {
+            /* [D 0x0053fee0] 壁の面に日が当たらない時刻は 全部の格子に 1 */
+            for (j = 1; j <= ny; j++)
+                for (i = 1; i <= nx; i++)
+                    V(&g, i, j)++;
+            nsamp++;
+            continue;
+        }
         hk_build_quads(e, ne, sx, sy, qd);
         /* 原典は 影の先の点を 0.01 mm の整数に切り捨てて 走査する（0 に向かって） */
         for (i = 0; i < ne; i++)
@@ -951,6 +1384,8 @@ int hk_iso(const hk_edge *e, int ne, const hk_iso_in *in, hk_isoseg *out, int ma
                 double lx = g.ox + (double)i * g.dx, ly = g.oy + (double)j * g.dy, wx, wy;
 
                 to_world(&g, lx, ly, &wx, &wy);
+                if (in->wall)               /* 立面の点は その影を落とす地面の点で見る */
+                    hk_wall_unlift(in->wall, sx, sy, wx, wy, &wx, &wy);
                 if (hk_point_in_quads(qd, ne, wx, wy))
                     V(&g, i, j)++;
             }
