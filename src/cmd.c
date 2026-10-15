@@ -839,6 +839,7 @@ static struct { unsigned short cmd, id; char t[64]; } box[] = {
                                            the way the original's is */
     { JW_CMD_BUNKATSU, 1411, "" },      /* 分割数, likewise */
     { JW_CMD_NISEN, 1412, "" },         /* ２線の間隔, "a,b"         */
+    { JW_CMD_CHUSHIN, 1412, "" },       /* 中心線寸法 -- 空は 終点まで */
     { JW_CMD_SEKIEN, 1411, "" },        /* 接円の半径, likewise */
     { JW_CMD_SEKIEN, 1417, "" },        /* 多重円 -- empty is one circle */
     { JW_CMD_KYOKUSEN, 1411, "7" },     /* 曲線の分割数; the original
@@ -8149,6 +8150,19 @@ static void chushin(jw_drawing *d, double x, double y)
         return;
     t0 = (chu_x - px) * ux + (chu_y - py) * uy;
     t1 = (x - px) * ux + (y - py) * uy;
+    /* 中心線寸法 (1412): FUN_0063cc50 (逆コンパイルの読み、原典では押して
+       いない) takes FUN_004cac50's length -- the box's absolute value over
+       the write group's scale -- and, when it is over 1e-7, the line runs
+       that far from the start point's foot towards the end point's side
+       (the end at or past the start counts as forward).  The end point
+       only gives the side.  FUN_004cac50's extra factor DAT_00a0d630
+       (when DAT_00a0d62c is set) is not taken. */
+    {
+        double len = fabs(box_num(jw_cmd_box(1412), 0.0)) / write_scale(d);
+
+        if (len > 1e-07)
+            t1 = t1 < t0 ? t0 - len : t0 + len;
+    }
     if (t0 == t1)
         return;
     o = jw_add(d, JW_SEN);
@@ -19330,7 +19344,22 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
            for a line, straight out from the centre for a circle (a read
            beside the r=15 circle at (60,-30) came back exactly 15 away from
            it, along the line from the centre to where it was clicked).
-           Only line-crosses-line is done for 《交点》. */
+
+           The second click is CSunpouZukeiKa's slot 20, FUN_0076fae0
+           (逆コンパイルの読み、原典では押していない).  (L) is its case 5:
+           a line or a circle under the click (FUN_0044a270 mode 3) that is
+           not the same line or the same circle over again is crossed with
+           the first by FUN_0045fa30 -- line and line, line and arc, arc and
+           arc, the crossing nearer the click -- and the crossing is the
+           point.  (R) is case 6: the read point (FUN_00451f30), and with
+           nothing to read nothing happens and the line stays picked.
+           Either way the point then goes onto the first element
+           (FUN_0045b6c0: the foot on a line, on an arc FUN_0045b790's point
+           of the ellipse at the click's angle). */
+        const jw_obj *o;
+        double px = x, py = y;
+        int had = read_pick;
+
         if (read_pick < 0) {
             int i = jw_pick(d, v, x, y, 1);
 
@@ -19340,54 +19369,75 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             read_pick = i;
             return;
         }
-        if (d->obj[read_pick].cls == JW_ENKO) {
-            const jw_obj *o = &d->obj[read_pick];
-            double dx = x - o->d[0], dy = y - o->d[1];
-            double len = sqrt(dx * dx + dy * dy);
-
-            read_pick = -1;
-            read_mode = 0;
-            if (len <= 0.0)
+        o = &d->obj[had];
+        if (button != 0) {
+            if (!jw_read(d, v, x, y, &px, &py))
                 return;
-            x = o->d[0] + o->d[2] * dx / len;
-            y = o->d[1] + o->d[2] * dy / len;
-            button = 0;
         } else {
-            const jw_obj *o = &d->obj[read_pick];
-            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
-            double len = dx * dx + dy * dy, t;
-            int j = jw_pick(d, v, x, y, 1), had = read_pick;
+            /* 《交点》: a second line or circle under the click wins over
+               the foot.  Driving the original bears it out for two lines --
+               crossing at (-3.463557, 37.233236) and a click on the second
+               gave exactly that (decomp/res/snapcross.jww). */
+            int j = jw_pick(d, v, x, y, 1);
 
-            read_pick = -1;
-            read_mode = 0;
-            if (len <= 0.0)
-                return;
-            /* 《交点》: a second line under the click wins over the foot of
-               the perpendicular.  Driving the original bears it out -- two
-               lines crossing at (-3.463557, 37.233236) and a click on the
-               second gave exactly that (decomp/res/snapcross.jww). */
-            if (j >= 0 && j != had && d->obj[j].cls == JW_SEN) {
+            if (j >= 0 && j != had && (d->obj[j].cls == JW_SEN || d->obj[j].cls == JW_ENKO)) {
                 const jw_obj *q = &d->obj[j];
-                double ex = q->d[2] - q->d[0], ey = q->d[3] - q->d[1];
-                double den = dx * ey - dy * ex;
+                double ix, iy;
+                int got = 0;
 
-                if (den != 0.0) {
-                    double u = ((q->d[0] - o->d[0]) * ey
-                                - (q->d[1] - o->d[1]) * ex) / den;
+                if (o->cls == JW_SEN && q->cls == JW_SEN) {
+                    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+                    double ex = q->d[2] - q->d[0], ey = q->d[3] - q->d[1];
+                    double den = dx * ey - dy * ex;
 
-                    x = o->d[0] + u * dx;
-                    y = o->d[1] + u * dy;
-                    button = 0;
-                    goto placed;
+                    if (den != 0.0) {
+                        double u = ((q->d[0] - o->d[0]) * ey
+                                    - (q->d[1] - o->d[1]) * ex) / den;
+
+                        ix = o->d[0] + u * dx;
+                        iy = o->d[1] + u * dy;
+                        got = 1;
+                    }
+                } else if (o->cls == JW_SEN) {
+                    got = corner_line_arc(o, q, x, y, &ix, &iy);
+                } else if (q->cls == JW_SEN) {
+                    got = corner_line_arc(q, o, x, y, &ix, &iy);
+                } else if (!(fabs(o->d[0] - q->d[0]) <= 1e-07 && fabs(o->d[1] - q->d[1]) <= 1e-07
+                             && fabs(o->d[2] - q->d[2]) <= 1e-07
+                             && fabs(o->d[6] - q->d[6]) <= 1e-07
+                             && (fabs(1.0 - o->d[6]) <= 1e-07
+                                 || fabs(o->d[5] - q->d[5]) <= 1e-07))) {
+                    got = corner_arc_arc(o, q, x, y, &ix, &iy);
+                }
+                if (got) {
+                    px = ix;
+                    py = iy;
                 }
             }
-            t = ((x - o->d[0]) * dx + (y - o->d[1]) * dy) / len;
+        }
+        if (o->cls == JW_SEN) {
+            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+            double len = dx * dx + dy * dy, t;
+
+            read_pick = -1;
+            read_mode = 0;
+            if (len <= 0.0)
+                return;
+            t = ((px - o->d[0]) * dx + (py - o->d[1]) * dy) / len;
             x = o->d[0] + t * dx;
             y = o->d[1] + t * dy;
-            button = 0;
+        } else {
+            double f = o->d[6] > 0.0 ? o->d[6] : 1.0;
+
+            read_pick = -1;
+            read_mode = 0;
+            if (fabs(px - o->d[0]) + fabs(py - o->d[1]) < 1e-07 || o->d[2] < 1e-07 || f < 1e-07)
+                return;         /* FUN_0045b790 gives up: no point */
+            corner_foot(o, &px, &py);
+            x = px;
+            y = py;
         }
-placed:
-        ;
+        button = 0;
     }
     if (read_mode == 33016 && d) {
         int i = jw_pick(d, v, x, y, 1);
