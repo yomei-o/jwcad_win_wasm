@@ -225,11 +225,127 @@ static void protrude(void)
     }
 }
 
+/* 円弧の伸縮（FUN_0044cfb0 → FUN_0044d190、逆コンパイルの読み、原典では
+   押していない）。図面の座標で直に押す */
+static jw_drawing *arcs(void)
+{
+    jw_drawing *d;
+    jw_obj *o;
+
+    app_resize(1264, 741);
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_ENKO);                 /* 0: 中心 (0,0) 半径 50、0〜90 度 */
+    o->d[0] = 0; o->d[1] = 0; o->d[2] = 50; o->d[3] = 0; o->d[4] = 3.141592653589793 / 2;
+    o->d[5] = 0; o->d[6] = 1;
+    o = jw_add(d, JW_ENKO);                 /* 1: 全円 (200,0) 半径 30 */
+    o->d[0] = 200; o->d[1] = 0; o->d[2] = 30; o->d[3] = 0; o->d[4] = 2 * 3.141592653589793;
+    o->d[5] = 0; o->d[6] = 1; o->n = 1;
+    o = jw_add(d, JW_SEN);                  /* 2: 縦線 x = 30 */
+    o->d[0] = 30; o->d[1] = -400; o->d[2] = 30; o->d[3] = -200;
+    o = jw_add(d, JW_ENKO);                 /* 3: 中心 (0,-300) 半径 50、-60〜60 度 */
+    o->d[0] = 0; o->d[1] = -300; o->d[2] = 50; o->d[3] = -3.141592653589793 / 3;
+    o->d[4] = 2 * 3.141592653589793 / 3; o->d[5] = 0; o->d[6] = 1;
+    app_fit();
+    jw_cmd_set(JW_CMD_SHINSHUKU);
+    return d;
+}
+
+static double deg(double a)
+{
+    return a * 180.0 / 3.141592653589793;
+}
+
+static void arc_point(void)
+{
+    jw_drawing *d = arcs();
+    const jw_obj *a;
+    double pi = 3.141592653589793;
+
+    /* 60 度で指して 120 度（半径の倍の所でも中心から寄せる）: 終わりが伸びる */
+    jw_cmd_point(d, app_view(), 50 * cos(pi / 3), 50 * sin(pi / 3), 0);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5338), "arc: 円弧を指すと 0x14da");
+    jw_cmd_point(d, app_view(), 100 * cos(2 * pi / 3), 100 * sin(2 * pi / 3), 0);
+    a = &d->obj[0];
+    ck(near_(a->d[3], 0.0) && near_(deg(a->d[4]), 120.0), "arc: 終わりが 120 度まで伸びる");
+    /* 20 度で指して 60 度: 始まりの側を残して縮む */
+    jw_cmd_point(d, app_view(), 50 * cos(pi / 9), 50 * sin(pi / 9), 0);
+    jw_cmd_point(d, app_view(), 50 * cos(pi / 3), 50 * sin(pi / 3), 0);
+    ck(near_(a->d[3], 0.0) && near_(deg(a->d[4]), 60.0), "arc: 終わりが 60 度へ縮む");
+    /* 戻る で一つずつ */
+    app_command(JW_CMD_UNDO);
+    ck(near_(deg(d->obj[0].d[4]), 120.0), "arc: 戻る で 120 度に");
+    app_command(JW_CMD_UNDO);
+    ck(near_(deg(d->obj[0].d[4]), 90.0), "arc: もう一度で元の 90 度");
+    /* 全円は断る（札 0x1458「円です」） */
+    jw_cmd_notice_clear();
+    jw_cmd_point(d, app_view(), 230, 0, 0);
+    ck(jw_cmd_notice_id() == 5208 && !strcmp(jw_cmd_prompt(), JW_STR_5336),
+       "arc: 全円は 札「円です」で拾わない");
+}
+
+static void arc_base(void)
+{
+    jw_drawing *d = arcs();
+    const jw_obj *a;
+    double pi = 3.141592653589793;
+
+    /* 縦線 x = 30 を (RR) で基準線に、-60〜60 度の弧を 20 度で指す:
+       終わりが中心から (30,40) の 53.13 度へ */
+    jw_cmd_point(d, app_view(), 30, -390, 1);
+    jw_cmd_point(d, app_view(), 30, -390, 1);
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5337), "arcbase: 基準線を持つ");
+    jw_cmd_point(d, app_view(), 50 * cos(pi / 9), -300 + 50 * sin(pi / 9), 0);
+    a = &d->obj[3];
+    ck(near_(a->d[3], -pi / 3) && near_(a->d[3] + a->d[4], atan2(40.0, 30.0)),
+       "arcbase: 円弧の終わりが基準線との交点へ");
+    ck(!strcmp(jw_cmd_prompt(), JW_STR_5337), "arcbase: 基準線は残る");
+}
+
+/* 伸縮の中の 戻る（FUN_007164d0 と FUN_00719c30 の履歴）: 基準線までの伸縮を
+   一つずつ戻すあいだ基準線は持ったまま、その次で基準線を放し、その次から
+   図面の 戻る */
+static void back_hist(void)
+{
+    const jw_obj *h;
+    double x1, x2;
+    int nd;
+
+    fresh();
+    line(700, 200, 700, 400);           /* 0: 基準線 */
+    line(300, 300, 500, 300);           /* 1 */
+    line(300, 350, 500, 350);           /* 2 */
+    x1 = obj(1)->d[2];
+    x2 = obj(2)->d[2];
+    nd = app_drawing()->ndrawn;
+    app_command(32791);
+    press(700, 300, 1);
+    press(700, 300, 1);
+    press(350, 300, 0);
+    press(350, 350, 0);
+    ck(!near_(obj(1)->d[2], x1) && !near_(obj(2)->d[2], x2), "back: 二本とも伸びた");
+    app_command(JW_CMD_UNDO);
+    h = obj(2);
+    ck(near_(h->d[2], x2) && !near_(obj(1)->d[2], x1)
+       && !strcmp(jw_cmd_prompt(), JW_STR_5337), "back: 一つ目の 戻る で二本目だけ、基準線は持ったまま");
+    app_command(JW_CMD_UNDO);
+    ck(near_(obj(1)->d[2], x1) && !strcmp(jw_cmd_prompt(), JW_STR_5337),
+       "back: 二つ目で一本目も");
+    app_command(JW_CMD_UNDO);
+    ck(app_drawing()->ndrawn == nd && !strcmp(jw_cmd_prompt(), JW_STR_5336),
+       "back: 三つ目で基準線を放す（図面はそのまま）");
+    app_command(JW_CMD_UNDO);
+    ck(app_drawing()->ndrawn == nd - 1, "back: 四つ目から図面の 戻る（最後に引いた線が消える）");
+}
+
 int main(void)
 {
     base_line();
     cut_move();
     protrude();
+    arc_point();
+    arc_base();
+    back_hist();
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }

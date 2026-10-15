@@ -168,6 +168,14 @@ static double stretch_rx, stretch_ry;
 static int stretch_based;
 static jw_obj stretch_base;
 static double stretch_bx, stretch_by;
+/* 円弧を指したときの一点目（FUN_0044d190 に渡す 残す側、+0x230） */
+static double stretch_kx, stretch_ky;
+/* 伸縮の中の 戻る の履歴（+0x278 の数と +0x27c の並び）。FUN_00719c30 が
+   一手ごとに積む: 2 点までの伸縮、3 基準線の指定、4 基準線までの伸縮、
+   5 (R) 線切断。下ろすのは slot 16 の FUN_007164d0 */
+#define STRETCH_NH 64
+static int stretch_hk[STRETCH_NH];
+static int stretch_nh;
 
 /* 文字: what has been typed but not placed yet.  The original wants it that
    way round -- type into its floating box first, then click where it goes;
@@ -3476,6 +3484,7 @@ void jw_cmd_set(int id)
     shk_sel = shk_rep = 0;
     corner_step = 0;
     stretch_step = stretch_rwait = stretch_based = 0;
+    stretch_nh = 0;             /* 入り直せば履歴は新しい命令の分だけ */
     para_step = 0;
     if (carry_para) {
         para_obj = carry_obj;
@@ -3934,7 +3943,8 @@ int jw_cmd_midway(void)
     case JW_CMD_CORNER:
     case JW_CMD_MENTORI:
     case JW_CMD_BUNKATSU:  return corner_step != 0 || bk_rr_n > 0;
-    case JW_CMD_SHINSHUKU: return stretch_step != 0 || stretch_based || stretch_rwait;
+    case JW_CMD_SHINSHUKU: return stretch_step != 0 || stretch_based || stretch_rwait
+                                  || stretch_nh > 0;
     case JW_CMD_FUKUSEN:   return para_step != 0;
     case JW_CMD_NISEN:     return nisen_step != 0;
     case JW_CMD_SESSEN:    return ses_step != 0;
@@ -3984,9 +3994,9 @@ int jw_cmd_midway(void)
  *   分割 (CZukeiBunkatsu)  from one line picked straight back to the start
  *
  * The rest go back to their start, which is what jw_cmd_escape does; how
- * far each of them steps has not been read (コーナー and 伸縮 keep a
- * history of their own and step through it, which the port does not
- * have). */
+ * far each of them steps has not been read (コーナー keeps a history of
+ * its own and steps through it, which the port does not have; 伸縮's is
+ * below). */
 int jw_cmd_back(jw_drawing *d)
 {
     if (current == JW_CMD_KIGOU && sk_step == 4) {
@@ -4188,6 +4198,43 @@ int jw_cmd_back(jw_drawing *d)
      * 段ではありません。何なのかは分かっていません。） */
     if (current == JW_CMD_ENKO)
         return 0;
+    /* 伸縮 (CZukeiShinshuku, slot 16 FUN_007164d0)。線を指しただけ（状態 1）
+     * なら放して 0 へ。そうでなければ自前の履歴（FUN_00719c30 が積んだ分）の
+     * 上を見て、
+     *   2・4・5（図面を変えた一手）  図面の 戻る を一つ（FUN_00458a80）。
+     *                              基準線は持ったまま
+     *   3（基準線の指定）           基準線を持っていれば放して 0 へ。持って
+     *                              いなければ（Esc で放した後）捨てて次を見る
+     * 履歴が尽きたら 0 を返して呼んだ側の 戻る に任せる。図面を戻す枝も、
+     * 移植は 0 を返して app の jw_cmd_undo に回す（２線と同じ形）。
+     * 原典は戻した一手を 進む 用にも積む（FUN_00719d70）が、移植の 進む は
+     * 図面だけを進める。図面に戻せる段が一つも無いときの枝（FUN_004146c0、
+     * 履歴を空にして押しを受け取る）は何の並びか読み切れていないので入れて
+     * いない。(R) を一度押したまま（+0x210 == 6）の 戻る は原典では見ていない
+     * 状態で、移植は待ちをやめるだけ。逆コンパイルの読み、原典では押して
+     * いない。 */
+    if (current == JW_CMD_SHINSHUKU) {
+        tracking = 0;
+        if (stretch_rwait) {
+            stretch_rwait = 0;
+            return 1;
+        }
+        if (stretch_step == 1) {
+            stretch_step = 0;
+            return 1;
+        }
+        while (stretch_nh > 0) {
+            int k = stretch_hk[--stretch_nh];
+
+            if (k != 3)
+                return 0;
+            if (stretch_based) {
+                stretch_based = 0;
+                return 1;
+            }
+        }
+        return 0;
+    }
     /* 分割 (CZukeiBunkatsu) goes from its state 2 straight back to 0, which
        is the start; so does the rest, as far as anyone has read */
     jw_cmd_escape();
@@ -7323,6 +7370,437 @@ static void mentori(jw_drawing *d, int a, double ax, double ay,
         if (rec)
             rec->n = 3 + extra;
     }
+}
+
+/* 面取 の 丸面 (1691) に円弧が入る組 —— 線と円弧・円弧どうし。
+ *
+ * 原典は 面取 も CZukeiCorner（+0xa03c）で、拾う所 FUN_0063aa60 が、面取では
+ * 線のほかに **丸面のときだけ** 円弧を通す（バーの +0x548 == 2。全円は札
+ * 0x1458「円です」、扁平は 0x145e「楕円は計算できません。」、それ以外は
+ * 0x14de「直線ではありません。」で断る）。実行 FUN_00634b70 は、丸面で片方でも
+ * 円弧なら FUN_006377b0(一つ目, 二つ目, 寸法) へ回す。その読み（逆コンパイルと
+ * 命令の読み、原典では押していない）:
+ *
+ *   r = |寸法|（寸法は箱 / 縮尺、FUN_0056fdf0）。r < 1e-7 は何もしない
+ *   線と円弧  線を、円弧を指した点の側へ r だけずらす。円は R + r、ただし
+ *             線を指した点のほうが円を指した点より中心に近ければ R − r
+ *             （0 以下なら計算できない）。二つの交点のうち、二つの指示点の
+ *             中点に近いほう（FUN_00462070、差の絶対値の和）が丸の中心 C
+ *   円弧どうし それぞれ R ± r（相手を指した点がこの円の内なら −）。交点は
+ *             FUN_00460710 で同じく中点に近いほう
+ *   接点      中心と C を結ぶ線と丸の円の交点のうち、中心に近いほう（内側の
+ *             ときは遠いほう = FUN_00462070 が +0x6370 に残すもう一つ）。
+ *             線の接点は C を線に落とした足
+ *   線を切る  元の二つの交点 X（C に近いほう、無ければ円の中心の足）が、線を
+ *             指した点より線の始点の側なら始点を、そうでなければ終点を足へ。
+ *             長さ 1e-5 以下になるなら元のまま
+ *   弧を切る  X（無ければ相手の中心か足）と弧の中心を結ぶ線に対して C が
+ *             どちら側かで、接点から X と反対の向きへ、その向きの端まで
+ *             （FUN_0045c760: 接点・C を 0.001 だけ外へ出した点・端の三点で
+ *             始まりと振りを決める）。振りが 1e-5 以下なら元のまま
+ *   丸        中心 C、半径 r、線の接点（円弧どうしなら一つ目の接点）から
+ *             もう一方の接点へ、X を通る向き
+ *             （X が無ければ線と円は円の中心とその足の中点、円どうしは中心の
+ *             中点）。寸法が負なら残りの側（振りを 2π 戻す）
+ *
+ * 書いた要素は 線の面取 と同じく、切ったものを消して末尾へ（線・一つ目が
+ * 先）、そのあとに丸。C がもう一つの交点と同じ（接する）ときの扱い
+ * （+0x6c1c: C の代わりに指示点を使い、X が無ければ寸法の向きを返す）も
+ * 入れた。できなければ 0（呼ぶ側が 札 0x1455「計算できません」で 状態 2 に
+ * 戻す、FUN_006374e0）。 */
+
+/* FUN_00462070 の円の形: 線 (x0,y0)-(x1,y1)（延ばして）と円の交点のうち
+   (hx,hy) に近いほうを n、もう一つを f（接していれば同じ点）。0 で交わらない */
+static int mt_line_circ(double x0, double y0, double x1, double y1,
+                        double cx, double cy, double r, double hx, double hy,
+                        double n[2], double f[2])
+{
+    double dx = x1 - x0, dy = y1 - y0, len = dx * dx + dy * dy;
+    double ux, uy, ax, ay, along, perp, h = 0.0, q[2][2];
+    int k, near_;
+
+    if (len <= 1e-07)
+        return 0;
+    len = sqrt(len);
+    ux = dx / len;
+    uy = dy / len;
+    ax = x0 - cx;
+    ay = y0 - cy;
+    along = ux * -ax + uy * -ay;
+    perp = fabs(ux * -ay - uy * -ax);
+    if (1e-07 < perp - r)
+        return 0;
+    if (1e-07 < fabs(perp - r))
+        h = sqrt(r * r - perp * perp);
+    q[0][0] = x0 + ux * (along - h);
+    q[0][1] = y0 + uy * (along - h);
+    q[1][0] = x0 + ux * (along + h);
+    q[1][1] = y0 + uy * (along + h);
+    for (k = 0; k < 2; k++) {
+        if (x0 == x1)
+            q[k][0] = x0;
+        if (y0 == y1)
+            q[k][1] = y0;
+    }
+    near_ = fabs(q[0][0] - hx) + fabs(q[0][1] - hy)
+            < fabs(q[1][0] - hx) + fabs(q[1][1] - hy) ? 0 : 1;
+    n[0] = q[near_][0];
+    n[1] = q[near_][1];
+    f[0] = q[!near_][0];
+    f[1] = q[!near_][1];
+    return 1;
+}
+
+/* FUN_00460710 の円の形（corner_arc_arc の円の枝と同じ）: 二つの円の交点の
+   うち (hx,hy) に近いほうを n、もう一つを f */
+static int mt_circ_circ(double ax, double ay, double r1, double bx, double by,
+                        double r2, double hx, double hy, double n[2], double f[2])
+{
+    double dx = bx - ax, dy = by - ay, dist = dx * dx + dy * dy;
+    double al, h, ux, uy, p1x, p1y, p2x, p2y;
+
+    if (dist < 1e-07)
+        return 0;
+    dist = sqrt(dist);
+    if (r1 + r2 + 1e-07 < dist || dist < fabs(r1 - r2) - 1e-07)
+        return 0;
+    if (r1 + r2 - 1e-07 <= dist || dist <= fabs(r1 - r2) + 1e-07) {
+        al = r1;
+        if (dist <= fabs(r1 - r2) + 1e-07 && r1 < r2)
+            al = -r1;
+        h = 0.0;
+    } else {
+        al = (r1 * r1 - r2 * r2 + dist * dist) / (dist * 2.0);
+        h = sqrt(fabs(r1 * r1 - al * al));
+    }
+    ux = dx / dist;
+    uy = dy / dist;
+    p1x = ux * al - uy * h + ax;
+    p1y = ux * h + uy * al + ay;
+    p2x = ux * al + uy * h + ax;
+    p2y = -ux * h + uy * al + ay;
+    if (fabs(p2x - hx) + fabs(p2y - hy) <= fabs(p1x - hx) + fabs(p1y - hy)) {
+        n[0] = p2x; n[1] = p2y; f[0] = p1x; f[1] = p1y;
+    } else {
+        n[0] = p1x; n[1] = p1y; f[0] = p2x; f[1] = p2y;
+    }
+    return 1;
+}
+
+/* FUN_0045c760: 中心 c の弧で、s から e まで m を通る向きの振り（始まりは s の
+   角度、0〜2π）。s と e が同じ角度なら一周。振りが 1e-5 未満、どれかが中心と
+   同じ点なら 0 */
+static double mt_sweep(double cx, double cy, double mx, double my,
+                       double sx, double sy, double ex, double ey, double *start)
+{
+    double am, as, ae, sw = 0.0;
+
+    *start = 0.0;
+    mx -= cx; my -= cy;
+    sx -= cx; sy -= cy;
+    ex -= cx; ey -= cy;
+    if ((fabs(my) < 1e-07 && fabs(mx) < 1e-07)
+        || (fabs(sy) < 1e-07 && fabs(sx) < 1e-07)
+        || (fabs(ey) < 1e-07 && fabs(ex) < 1e-07))
+        return 0.0;
+    am = atan2(my, mx);
+    if (am < 0.0)
+        am += 2 * PI;
+    as = atan2(sy, sx);
+    if (as < 0.0)
+        as += 2 * PI;
+    ae = atan2(ey, ex);
+    if (ae < 0.0)
+        ae += 2 * PI;
+    if (fabs(as - ae) < 1e-07)
+        sw = 2 * PI;
+    else if (as <= am && am < ae)
+        sw = ae - as;
+    else if (ae < am && am <= as)
+        sw = ae - as;
+    else if (as < ae)
+        sw = (ae - as) - 2 * PI;
+    else if (ae < as)
+        sw = 2 * PI - (as - ae);
+    *start = as;
+    return fabs(sw) >= 1e-05 ? sw : 0.0;
+}
+
+/* 弧 e を、接点（中心から見て q の向き）から X と反対の向きへ端まで残す形に。
+   (ox,oy)→(tx,ty) が FUN_005f97f0 の座標（原点と x の向き）。y > 0 なら
+   +0.001・二つ目の端（振りが負なら一つ目）、そうでなければ −0.001・一つ目
+   （負なら二つ目）を、flip が立てば逆に取る（二つ目の円は座標が X から中心へ
+   向くので）。1 で変えた */
+static int mt_trim_arc(jw_obj *e, double ox, double oy, double tx, double ty,
+                       double qx, double qy, double cx, double cy, int flip)
+{
+    double ux = tx - ox, uy = ty - oy, l = sqrt(ux * ux + uy * uy);
+    double lx, ly, dl, k1x, k1y, k2x, k2y, kx, ky, mx, my, st, sw, a1, a2;
+    int second;
+
+    if (l > 1e-12) {
+        ux /= l;
+        uy /= l;
+    } else {
+        ux = 1.0;
+        uy = 0.0;
+    }
+    lx = (qx - ox) * ux + (qy - oy) * uy;
+    ly = -(qx - ox) * uy + (qy - oy) * ux;
+    a1 = e->d[3] + e->d[5];
+    a2 = e->d[3] + e->d[4] + e->d[5];
+    k1x = e->d[0] + e->d[2] * cos(a1);
+    k1y = e->d[1] + e->d[2] * sin(a1);
+    k2x = e->d[0] + e->d[2] * cos(a2);
+    k2y = e->d[1] + e->d[2] * sin(a2);
+    if (ly > 0.0) {
+        dl = 0.001;
+        second = !flip;
+    } else {
+        dl = -0.001;
+        second = flip;
+    }
+    if (e->d[4] < 0.0)
+        second = !second;
+    kx = second ? k2x : k1x;
+    ky = second ? k2y : k1y;
+    mx = ux * lx - uy * (ly + dl) + ox;
+    my = uy * lx + ux * (ly + dl) + oy;
+    sw = mt_sweep(e->d[0], e->d[1], mx, my, cx, cy, kx, ky, &st);
+    if (!(fabs(sw) > 1e-05))
+        return 0;
+    e->d[3] = st;
+    e->d[4] = sw;
+    e->d[5] = 0.0;
+    e->n = 0;
+    return 1;
+}
+
+static int mentori_arc(jw_drawing *d, int a, double ax, double ay,
+                       int b, double bx, double by)
+{
+    const char *sz = jw_cmd_box(1411);
+    double size = box_num(sz, 0.0) / write_scale(d), r;
+    jw_obj na = d->obj[a], nb = d->obj[b];
+    double C[2], Cf[2], X[2], Xf[2], T1[2], T2[2], th[2], n2[2], f2[2];
+    double mx = (ax + bx) / 2.0, my = (ay + by) / 2.0, st, sw;
+    int ca = 0, cb = 0, touch, hasx, k, lo, hi;
+    op_t *rec;
+    jw_obj *n;
+
+    if (!sz || !*sz)
+        size = 0.1;             /* 線の面取と同じく空欄は 0.1 */
+    r = fabs(size);
+    if (r < 1e-07 || (na.cls == JW_SEN && nb.cls == JW_SEN))
+        return 0;
+    if (na.cls == JW_SEN || nb.cls == JW_SEN) {
+        /* 線と円弧。L は線、E は円弧、(plx,ply)・(pex,pey) がそれぞれを指した点 */
+        jw_obj *L = na.cls == JW_SEN ? &na : &nb, *E = na.cls == JW_SEN ? &nb : &na;
+        double plx = na.cls == JW_SEN ? ax : bx, ply = na.cls == JW_SEN ? ay : by;
+        double pex = na.cls == JW_SEN ? bx : ax, pey = na.cls == JW_SEN ? by : ay;
+        double l0x = L->d[0], l0y = L->d[1];
+        double lx = L->d[2] - l0x, ly = L->d[3] - l0y, ll = sqrt(lx * lx + ly * ly);
+        double c, s, off, R = E->d[2], R2, xc, xref, fx, fy, ox, oy, xe, ye;
+        int inside = 0;
+
+        if (ll < 1e-12)
+            return 0;
+        c = lx / ll;
+        s = ly / ll;
+#define MT_LX(X_, Y_) (((X_) - l0x) * c + ((Y_) - l0y) * s)
+#define MT_LY(X_, Y_) (-((X_) - l0x) * s + ((Y_) - l0y) * c)
+        off = MT_LY(pex, pey) < 0.0 ? -r : r;
+        R2 = R + r;
+        if (hypot(pex - E->d[0], pey - E->d[1]) > hypot(plx - E->d[0], ply - E->d[1])) {
+            R2 = R - r;
+            inside = 1;
+        }
+        if (R2 <= 0.0)
+            return 0;
+        if (!mt_line_circ(l0x - s * off, l0y + c * off,
+                          l0x + c * ll - s * off, l0y + s * ll + c * off,
+                          E->d[0], E->d[1], R2, mx, my, C, Cf))
+            return 0;
+        touch = fabs(C[0] - Cf[0]) < 1e-07 && fabs(C[1] - Cf[1]) < 1e-07;
+        if (!mt_line_circ(E->d[0], E->d[1], C[0], C[1], C[0], C[1], r,
+                          E->d[0], E->d[1], n2, f2))
+            return 0;
+        T2[0] = inside ? f2[0] : n2[0];
+        T2[1] = inside ? f2[1] : n2[1];
+        hasx = mt_line_circ(L->d[0], L->d[1], L->d[2], L->d[3],
+                            E->d[0], E->d[1], R, C[0], C[1], X, Xf);
+        xe = MT_LX(E->d[0], E->d[1]);
+        ye = MT_LY(E->d[0], E->d[1]);
+        xref = hasx ? MT_LX(X[0], X[1]) : xe;
+        ox = hasx ? X[0] : l0x + c * xe;
+        oy = hasx ? X[1] : l0y + s * xe;
+        /* 線: C の足まで、指した点の側を残す */
+        xc = MT_LX(C[0], C[1]);
+        fx = l0x + c * xc;
+        fy = l0y + s * xc;
+        T1[0] = fx;
+        T1[1] = fy;
+        if (xref <= MT_LX(plx, ply)) {
+            L->d[0] = fx;
+            L->d[1] = fy;
+        } else {
+            L->d[2] = fx;
+            L->d[3] = fy;
+        }
+        k = hypot(L->d[2] - L->d[0], L->d[3] - L->d[1]) > 1e-05;
+        if (L == &na)
+            ca = k;
+        else
+            cb = k;
+        /* 円弧: X から中心へ向く座標で */
+        k = mt_trim_arc(E, ox, oy, E->d[0], E->d[1], touch ? pex : C[0],
+                        touch ? pey : C[1], C[0], C[1], 1);
+        if (E == &na)
+            ca = k;
+        else
+            cb = k;
+        if (hasx) {
+            th[0] = X[0];
+            th[1] = X[1];
+        } else {
+            th[0] = l0x + c * xe - s * (ye / 2.0);
+            th[1] = l0y + s * xe + c * (ye / 2.0);
+            if (touch) {
+                th[0] = mx;
+                th[1] = my;
+                size = -size;
+            }
+        }
+#undef MT_LX
+#undef MT_LY
+        /* 丸は線の接点から円弧の接点へ */
+        sw = mt_sweep(C[0], C[1], th[0], th[1], T1[0], T1[1], T2[0], T2[1], &st);
+    } else {
+        /* 円弧どうし。A が一つ目（指した点 a）、B が二つ目 */
+        double RA = na.d[2], RB = nb.d[2], RA2 = RA + r, RB2 = RB + r;
+        int ina = 0, inb = 0;
+
+        if (RA > hypot(bx - na.d[0], by - na.d[1])) {
+            RA2 = RA - r;
+            ina = 1;
+        }
+        if (RA2 <= 0.0)
+            return 0;
+        if (RB > hypot(ax - nb.d[0], ay - nb.d[1])) {
+            RB2 = RB - r;
+            inb = 1;
+        }
+        if (RB2 <= 0.0)
+            return 0;
+        if (!mt_circ_circ(na.d[0], na.d[1], RA2, nb.d[0], nb.d[1], RB2, mx, my, C, Cf))
+            return 0;
+        touch = fabs(C[0] - Cf[0]) < 1e-07 && fabs(C[1] - Cf[1]) < 1e-07;
+        if (!mt_line_circ(na.d[0], na.d[1], C[0], C[1], C[0], C[1], r,
+                          na.d[0], na.d[1], n2, f2))
+            return 0;
+        T1[0] = ina ? f2[0] : n2[0];
+        T1[1] = ina ? f2[1] : n2[1];
+        if (!mt_line_circ(nb.d[0], nb.d[1], C[0], C[1], C[0], C[1], r,
+                          nb.d[0], nb.d[1], n2, f2))
+            return 0;
+        T2[0] = inb ? f2[0] : n2[0];
+        T2[1] = inb ? f2[1] : n2[1];
+        hasx = mt_circ_circ(na.d[0], na.d[1], RA, nb.d[0], nb.d[1], RB, C[0], C[1], X, Xf);
+        /* 一つ目は 中心 → X（無ければ相手の中心）、二つ目は X（無ければ相手の
+           中心）→ 中心 の座標 */
+        ca = mt_trim_arc(&na, na.d[0], na.d[1], hasx ? X[0] : nb.d[0],
+                         hasx ? X[1] : nb.d[1], touch ? ax : C[0], touch ? ay : C[1],
+                         C[0], C[1], 0);
+        cb = mt_trim_arc(&nb, hasx ? X[0] : d->obj[a].d[0], hasx ? X[1] : d->obj[a].d[1],
+                         nb.d[0], nb.d[1], touch ? bx : C[0], touch ? by : C[1],
+                         C[0], C[1], 1);
+        if (hasx) {
+            th[0] = X[0];
+            th[1] = X[1];
+        } else {
+            th[0] = (na.d[0] + nb.d[0]) / 2.0;
+            th[1] = (na.d[1] + nb.d[1]) / 2.0;
+            if (touch) {
+                th[0] = mx;
+                th[1] = my;
+                size = -size;
+            }
+        }
+        sw = mt_sweep(C[0], C[1], th[0], th[1], T1[0], T1[1], T2[0], T2[1], &st);
+    }
+    if (size < 0.0)
+        sw += sw > 0.0 ? -2 * PI : 2 * PI;
+    if (!(fabs(C[0]) < 1e9 && fabs(C[1]) < 1e9))
+        return 0;
+
+    /* 書く: 切ったものを消して末尾へ（線・一つ目が先）、そのあとに丸 */
+    rec = op_new();
+    lo = a < b ? a : b;
+    hi = a < b ? b : a;
+    if (hi == a ? ca : cb) {
+        op_keep(rec, d, hi, 1);
+        jw_remove(d, hi);
+    }
+    if (lo == a ? ca : cb) {
+        op_keep(rec, d, lo, 1);
+        jw_remove(d, lo);
+    }
+    k = 0;
+    {
+        /* 線と円弧なら線が先、円弧どうしなら一つ目が先 */
+        jw_obj *first = &na, *second = &nb;
+        int cf = ca, cs = cb;
+
+        if (na.cls != JW_SEN && nb.cls == JW_SEN) {
+            first = &nb;
+            second = &na;
+            cf = cb;
+            cs = ca;
+        }
+        if (cf && (n = jw_add(d, first->cls)) != 0) {
+            *n = *first;
+            k++;
+        }
+        if (cs && (n = jw_add(d, second->cls)) != 0) {
+            *n = *second;
+            k++;
+        }
+    }
+    n = jw_add(d, JW_ENKO);
+    if (n) {
+        n->n = 0;
+        n->d[0] = C[0];
+        n->d[1] = C[1];
+        n->d[2] = r;
+        n->d[3] = st;
+        n->d[4] = sw;
+        n->d[5] = 0.0;
+        n->d[6] = 1.0;
+        k++;
+    }
+    if (rec)
+        rec->n = k;
+    return 1;
+}
+
+/* FUN_0063aa60 の 面取 の枝: 拾ってよいか（だめなら札を出して 0） */
+static int mt_takes(const jw_obj *o)
+{
+    if (o->cls == JW_SEN)
+        return 1;
+    if (o->cls == JW_ENKO && mt_mode == 1691) {
+        if (corner_whole(o)) {
+            JW_NOTICE(5208);    /* 「円です」 */
+            return 0;
+        }
+        if (fabs(o->d[6] - 1.0) > 1e-07) {
+            JW_NOTICE(5214);    /* 「楕円は計算できません。」 */
+            return 0;
+        }
+        return 1;
+    }
+    JW_NOTICE(5342);            /* 「直線ではありません。」 */
+    return 0;
 }
 
 /* 分割（等距離分割）between two lines.
@@ -20585,6 +21063,46 @@ static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
     }
 }
 
+/* 伸縮の履歴に一手積む（FUN_00719c30）。原典は 基準線までの伸縮 で交点が
+   無くても 4 を積むが、そのまま 戻る が図面の別の一手を戻してしまうので、
+   移植は図面が変わったときだけ積む */
+static void stretch_push(int k)
+{
+    if (stretch_nh == STRETCH_NH) {
+        memmove(stretch_hk, stretch_hk + 1, (STRETCH_NH - 1) * sizeof stretch_hk[0]);
+        stretch_nh--;
+    }
+    stretch_hk[stretch_nh++] = k;
+}
+
+/* (R) の線切断（FUN_00715f50 が 5 を積む） */
+static void stretch_cut(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int was = nop;
+
+    cut_gap_at(d, v, x, y);
+    if (nop > was)
+        stretch_push(5);
+}
+
+/* 円弧の伸縮（FUN_0044cfb0 → FUN_0044d190、コーナーと同じ corner_arc_to）:
+ * 弧を (ix,iy) まで、(kx,ky) の側を残して伸ばす・縮める。全円になったら
+ * FUN_0044d190 の札 0x1458「円です」。1 で図面が変わった。逆コンパイルの読み、
+ * 原典では押していない。 */
+static int stretch_arc_to(jw_drawing *d, int i, double ix, double iy,
+                          double kx, double ky)
+{
+    jw_obj c = d->obj[i];
+
+    if (c.cls != JW_ENKO || !corner_arc_to(&c, ix, iy, kx, ky))
+        return 0;
+    op_keep(op_new(), d, i, 0);
+    d->obj[i] = c;
+    if (c.n == 1)
+        JW_NOTICE(5208);
+    return 1;
+}
+
 /* States 3 and 4 (FUN_0071a050 → FUN_0046e550): the line picked at (x, y)
    goes to where it meets the 基準線 -- the crossing nearest where the
    基準線 was picked, the hint FUN_0045fa30 is given when the line is not an
@@ -20592,12 +21110,19 @@ static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
    and a 基準線 that is a line, the 基準線 is first moved off itself by that
    much, away from the side the line was picked on, so the line goes past
    it (a minus one stops short).  No crossing (parallel) leaves it alone
-   (0x1455).  A circle as the 基準線 is taken whole (circle_of). */
-static void stretch_to_base(jw_drawing *d, int i, double x, double y)
+   and puts up 0x1455「計算できません」.
+ *
+ * 円弧が入る組（FUN_0046e550 の読み、原典では押していない）: 交点は
+ * FUN_0045fa30 → 線と円弧 FUN_00462070・円弧どうし FUN_00460710（移植は
+ * corner_line_arc・corner_arc_arc。楕円も解く）。ヒントは、指した側が線なら
+ * 基準線を拾った点、円弧なら指した点、両方円弧ならその二点の中点。円弧は
+ * corner_arc_to で、指した点の側を残して交点まで。1 で図面が変わった。 */
+static int stretch_to_base(jw_drawing *d, int i, double x, double y)
 {
     jw_obj base = stretch_base;
     const jw_obj *q = &d->obj[i];
     double out = stretch_out(d), px, py, ex, ey, l2;
+    int ok;
 
     if (base.cls == JW_SEN && out != 0.0) {
         double bx = base.d[2] - base.d[0], by = base.d[3] - base.d[1];
@@ -20616,14 +21141,28 @@ static void stretch_to_base(jw_drawing *d, int i, double x, double y)
             base.d[3] += oy;
         }
     }
-    if (!cross_obj(&base, q, stretch_bx, stretch_by, &px, &py))
-        return;
+    if (base.cls == JW_SEN && q->cls == JW_SEN)
+        ok = cross_obj(&base, q, stretch_bx, stretch_by, &px, &py);
+    else if (base.cls == JW_ENKO && q->cls == JW_ENKO)
+        ok = corner_arc_arc(&base, q, (x + stretch_bx) / 2.0, (y + stretch_by) / 2.0,
+                            &px, &py);
+    else if (q->cls == JW_ENKO)
+        ok = corner_line_arc(&base, q, x, y, &px, &py);
+    else
+        ok = corner_line_arc(q, &base, stretch_bx, stretch_by, &px, &py);
+    if (!ok || !(fabs(px) < 1e9 && fabs(py) < 1e9)) {
+        JW_NOTICE(5205);        /* FUN_0046e550 の札 0x1455 */
+        return 0;
+    }
+    if (q->cls == JW_ENKO)
+        return stretch_arc_to(d, i, px, py, x, y);
     ex = q->d[2] - q->d[0];
     ey = q->d[3] - q->d[1];
     l2 = ex * ex + ey * ey;
     if (l2 < 1e-14)
-        return;
+        return 0;
     stretch_end(d, i, ((x - q->d[0]) * ex + (y - q->d[1]) * ey) / l2, px, py, 0.0);
+    return 1;
 }
 
 /* The mouse moved with the right button pressed once in 伸縮: 線切断 there
@@ -20634,7 +21173,7 @@ int jw_cmd_stretch_move(jw_drawing *d, const jw_view *v, double x, double y)
         || !stretch_far(v, x, y))
         return 0;
     stretch_rwait = 0;
-    cut_gap_at(d, v, stretch_rx, stretch_ry);
+    stretch_cut(d, v, stretch_rx, stretch_ry);
     return 1;
 }
 
@@ -22256,7 +22795,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         if (stretch_rwait) {
             if (stretch_far(v, x, y)) {
                 stretch_rwait = 0;      /* it moved: 線切断 at the first point */
-                cut_gap_at(d, v, stretch_rx, stretch_ry);
+                stretch_cut(d, v, stretch_rx, stretch_ry);
             } else if (button != 0) {
                 stretch_rwait = 0;      /* (RR): the 基準線, picked at the first point */
                 stretch_step = 0;
@@ -22267,6 +22806,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     stretch_bx = stretch_rx;
                     stretch_by = stretch_ry;
                     stretch_based = 1;
+                    stretch_push(3);    /* FUN_00719580 → FUN_00719c30(3) */
                 }
                 return;
             } else {
@@ -22289,18 +22829,31 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             x = rx;             /* and on as the left would (FUN_00718e60) */
             y = ry;
         }
+        /* 円弧も伸び縮みする（FUN_0044cfb0 が CDataEnko を FUN_0044d190 へ）。
+           全円は FUN_0071ab70 が断る: 案内 0x1457 と 札 0x1458「円です」 */
         if (stretch_based) {
             i = jw_pick(d, v, x, y, 3);
-            if (i >= 0 && d->obj[i].cls == JW_SEN)
-                stretch_to_base(d, i, x, y);
+            if (i >= 0 && d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i])) {
+                JW_NOTICE(5208);
+                return;
+            }
+            if (i >= 0 && (d->obj[i].cls == JW_SEN || d->obj[i].cls == JW_ENKO)
+                && stretch_to_base(d, i, x, y))
+                stretch_push(4);        /* FUN_0071a050 状態 4 */
             return;
         }
         if (stretch_step == 0) {
             i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i >= 0 && d->obj[i].cls == JW_ENKO && corner_whole(&d->obj[i])) {
+                JW_NOTICE(5208);
+                return;
+            }
+            if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
                 return;
             stretch_obj = i;
-            {
+            stretch_kx = x;
+            stretch_ky = y;
+            if (d->obj[i].cls == JW_SEN) {
                 jw_obj *q = &d->obj[i];
                 double ex = q->d[2] - q->d[0], ey = q->d[3] - q->d[1];
                 double l2 = ex * ex + ey * ey;
@@ -22311,8 +22864,25 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         }
         stretch_step = 0;
         i = stretch_obj;
-        if (i >= 0 && i < d->ndrawn && d->obj[i].cls == JW_SEN)
+        if (i >= 0 && i < d->ndrawn && d->obj[i].cls == JW_SEN) {
+            int was = nop;
+
             stretch_end(d, i, stretch_t0, x, y, stretch_out(d));
+            if (nop > was)
+                stretch_push(2);        /* FUN_0071a050 状態 2 */
+        } else if (i >= 0 && i < d->ndrawn && d->obj[i].cls == JW_ENKO) {
+            /* 状態 2 の円弧: 指示点を弧へ中心から寄せて（FUN_0045b6c0 →
+               FUN_0045b790、corner_foot）、一点目の側を残してそこまで。
+               中心を指せば寄せられず何もしない。突出寸法は線だけ */
+            const jw_obj *q = &d->obj[i];
+            double px = x, py = y;
+
+            if (fabs(x - q->d[0]) + fabs(y - q->d[1]) < 1e-07 || q->d[6] < 1e-07)
+                return;
+            corner_foot(q, &px, &py);
+            if (stretch_arc_to(d, i, px, py, stretch_kx, stretch_ky))
+                stretch_push(2);
+        }
         return;
     }
     if (current == JW_CMD_CHUSHIN) {
@@ -23011,9 +23581,13 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             line_cut_r(d, v, x, y, 1413);
             return;
         }
+        /* 拾えるのは線、丸面なら円弧も（FUN_0063aa60、mt_takes）。二つ目を
+           断ったら一つ目は拾ったまま（FUN_00636b10 の状態 2）。円弧が入れば
+           mentori_arc（FUN_006377b0）、できなければ 札 0x1455 で状態 2 に
+           戻る（FUN_006374e0）。逆コンパイルの読み、原典では押していない */
         if (corner_step == 0) {
             i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || d->obj[i].cls != JW_SEN)
+            if (i < 0 || !mt_takes(&d->obj[i]))
                 return;
             corner_obj = i;
             corner_x = x;
@@ -23022,7 +23596,15 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             return;
         }
         i = jw_pick_tie(d, v, x, y, 3, 1);
-        if (i >= 0 && i != corner_obj)
+        if (i >= 0 && i != corner_obj && !mt_takes(&d->obj[i]))
+            return;
+        if (i >= 0 && i != corner_obj && corner_obj < d->ndrawn
+            && (d->obj[i].cls == JW_ENKO || d->obj[corner_obj].cls == JW_ENKO)) {
+            if (!mentori_arc(d, corner_obj, corner_x, corner_y, i, x, y)) {
+                JW_NOTICE(5205);        /* 「計算できません」 */
+                return;
+            }
+        } else if (i >= 0 && i != corner_obj)
             mentori(d, corner_obj, corner_x, corner_y, i, x, y);
         corner_step = 0;
         return;
