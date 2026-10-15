@@ -163,6 +163,7 @@ int main(int argc, char **argv)
            いけません**: 線 をもう一度送ると原典も移植も 水平・垂直 を
            裏返すので（src/cmd.c の jw_cmd_set）、段ごとの送り直しと
            合わなくなります。 */
+        jw_cmd_renzoku_reset();         /* 命令ごとに起動し直すのと同じ */
         app_command(32771);
         if (jw_cmd_bar_check(1333) > 0)
             jw_cmd_bar((jw_drawing *)app_drawing(), 1333);
@@ -307,6 +308,9 @@ int main(int argc, char **argv)
             free(b);
             d = app_drawing();
             fb = app_fb();
+            /* 原典は一枚ごとに起動し直す。レジストリに控える つまみ
+               （連続線 の 基準角度・基点）も素から */
+            jw_cmd_renzoku_reset();
             app_command(32771);
             if (jw_cmd_bar_check(1333) > 0)
                 jw_cmd_bar((jw_drawing *)d, 1333);

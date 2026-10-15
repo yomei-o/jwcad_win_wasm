@@ -256,6 +256,223 @@ static void end_flip(void)
     check("弧反転 を二度押すと元の回り", ok);
 }
 
+/* 基準角度 (1065)・基点 (1066) と、前の線の上へ戻るクリックを捨てる決まり。
+   原典の答えは bsw_32883_1065_solo・1066_solo（tools/barsweep.sh）だけで、
+   ほかは逆コンパイルの読み（FUN_006de7a0・FUN_006dcff0、src/cmd.c の
+   rn_next の注）から組んだ期待値。 */
+static int kj_drive(const int (*pt)[2], int npt, int kak, int kiten,
+                    int resend, jw_obj *out, int max)
+{
+    unsigned char *b;
+    long n;
+    const jw_drawing *d;
+    rect_t r;
+    int i, base, k = 0;
+
+    b = slurp("decomp/res/new.jww", &n);
+    if (!b)
+        return -1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    free(b);
+    jw_cmd_renzoku_reset();
+    app_command(32883);
+    if (jw_cmd_bar_check(2492) > 0)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 2492);
+    jw_cmd_box_put(1411, "");
+    if (jw_cmd_bar_check(2096) > 0)
+        jw_cmd_bar((jw_drawing *)app_drawing(), 2096);
+    d = app_drawing();
+    for (i = 0; i < kak; i++)
+        jw_cmd_bar((jw_drawing *)d, 1065);
+    if (kiten)
+        jw_cmd_bar((jw_drawing *)d, 1066);
+    base = d->ndrawn;
+    ui_view_rect(app_fb()->w, app_fb()->h, &r);
+    for (i = 0; i < npt; i++)
+        app_press(r.x + pt[i][0], r.y + pt[i][1], 0);
+    if (resend)
+        app_command(32883);
+    d = app_drawing();
+    for (i = base; i < d->ndrawn && k < max; i++)
+        if (d->obj[i].cls == JW_SEN || d->obj[i].cls == JW_ENKO)
+            out[k++] = d->obj[i];
+    jw_cmd_renzoku_reset();
+    return k;
+}
+
+/* 画面の点が図面のどこか: 素の連続線で一本引いて読む */
+static void kj_where(int x, int y, double *px, double *py)
+{
+    int pt[2][2];
+    jw_obj o[4];
+
+    pt[0][0] = x;
+    pt[0][1] = y;
+    pt[1][0] = x + 100;
+    pt[1][1] = y + 37;
+    *px = *py = 1e30;
+    if (kj_drive((const int (*)[2])pt, 2, 0, 0, 1, o, 4) == 1) {
+        *px = o[0].d[0];
+        *py = o[0].d[1];
+    }
+}
+
+static int kj_near(double a, double b)
+{
+    return fabs(a - b) < 1e-6;
+}
+
+/* 刻み st（度）の倍数の向きか */
+static int kj_mult(double dx, double dy, double st)
+{
+    double v = atan2(dy, dx) * 180.0 / 3.141592653589793 / st;
+
+    return fabs(v - floor(v + 0.5)) < 1e-9;
+}
+
+static void kijun(void)
+{
+    static const int ABC[3][2] = { { 400, 350 }, { 600, 450 }, { 500, 420 } };
+    static const int Q[3][2] = { { 300, 300 }, { 600, 280 }, { 620, 500 } };
+    static const int COL[4][2] = { { 300, 300 }, { 600, 300 }, { 900, 300 }, { 600, 500 } };
+    static const int K[3][2] = { { 300, 300 }, { 600, 300 }, { 700, 500 } };
+    const double PI = 3.141592653589793;
+    double ax, ay, bx, by, cx, cy, l, a, ex, ey;
+    jw_obj o[8];
+    int n, ok;
+
+    /* 原典の答え: 素から 1065 だけ押して三クリックすると何も入らない */
+    {
+        unsigned char *b;
+        long nb;
+        jw_drawing ref, *d;
+        rect_t r;
+        int i, have = 0;
+        const char *ans[2] = { "decomp/res/bsw_32883_1065_solo.jww",
+                               "decomp/res/bsw_32883_1066_solo.jww" };
+        int id[2] = { 1065, 1066 };
+
+        for (i = 0; i < 2; i++) {
+            int j, m;
+
+            b = slurp("decomp/res/sweep_base.jww", &nb);
+            app_new();
+            app_resize(1264, 741);
+            if (!b || !app_open(b, nb)) {
+                free(b);
+                check("sweep_base.jww が開ける", 0);
+                return;
+            }
+            free(b);
+            jw_cmd_renzoku_reset();
+            d = (jw_drawing *)app_drawing();
+            app_command(32771);
+            if (jw_cmd_bar_check(1333) > 0)
+                jw_cmd_bar(d, 1333);
+            app_command(32785);
+            app_command(32883);
+            if (jw_cmd_bar_check(2492) > 0)
+                jw_cmd_bar(d, 2492);
+            jw_cmd_bar(d, id[i]);
+            ui_view_rect(app_fb()->w, app_fb()->h, &r);
+            for (j = 0; j < 3; j++)
+                app_press(r.x + ABC[j][0], r.y + ABC[j][1], 0);
+            d = (jw_drawing *)app_drawing();
+            memset(&ref, 0, sizeof ref);
+            b = slurp(ans[i], &nb);
+            have = b && jw_parse(&ref, b, nb);
+            free(b);
+            /* 文字は並びが違うので数えず、線・円は一つずつ相手を探す */
+            ok = have && ref.ndrawn == d->ndrawn;
+            for (m = 0; ok && m < ref.ndrawn; m++) {
+                int k, q, hit = 0;
+
+                if (ref.obj[m].cls == JW_MOJI)
+                    continue;
+                for (q = 0; !hit && q < d->ndrawn; q++) {
+                    hit = ref.obj[m].cls == d->obj[q].cls;
+                    for (k = 0; hit && k < 4; k++)
+                        hit = fabs(ref.obj[m].d[k] - d->obj[q].d[k]) < 1e-6;
+                }
+                ok = hit;
+            }
+            check(i == 0 ? "1065 だけ押して三クリック = 原典（何も入らない）"
+                         : "1066 だけ押して三クリック = 原典（素と同じ一本）", ok);
+            jw_free(&ref);
+        }
+        jw_cmd_renzoku_reset();
+    }
+
+    /* 同じ三点を送り直しで締めると、一本目だけが -30° に丸まって入る */
+    kj_where(ABC[0][0], ABC[0][1], &ax, &ay);
+    kj_where(ABC[1][0], ABC[1][1], &bx, &by);
+    n = kj_drive(ABC, 3, 1, 0, 1, o, 8);
+    l = hypot(bx - ax, by - ay);
+    ok = n == 1 && kj_near(o[0].d[0], ax) && kj_near(o[0].d[1], ay)
+         && kj_near(o[0].d[2], ax + l * cos(-PI / 6.0))
+         && kj_near(o[0].d[3], ay + l * sin(-PI / 6.0));
+    check("基準角度 15°: 一本目は -30°・長さそのまま、三点目は捨てる", ok);
+
+    /* 二度押すと 45°: 一本目は 0°、二本目は前の終わりから -90° */
+    kj_where(Q[0][0], Q[0][1], &ax, &ay);
+    kj_where(Q[1][0], Q[1][1], &bx, &by);
+    kj_where(Q[2][0], Q[2][1], &cx, &cy);
+    n = kj_drive(Q, 3, 2, 0, 1, o, 8);
+    l = hypot(bx - ax, by - ay);
+    ex = ax + l;                        /* 0° に丸まった一本目の終わり */
+    ey = ay;
+    a = hypot(cx - ex, cy - ey);
+    ok = n == 2 && kj_near(o[0].d[2], ex) && kj_near(o[0].d[3], ey)
+         && kj_near(o[1].d[0], ex) && kj_near(o[1].d[1], ey)
+         && kj_near(o[1].d[2], ex) && kj_near(o[1].d[3], ey - a);
+    check("基準角度 45°（二度押し）: 0° と -90°", ok);
+
+    /* 三度押すと元へ（丸めない） */
+    n = kj_drive(Q, 3, 3, 0, 1, o, 8);
+    ok = n == 2 && kj_near(o[0].d[2], bx) && kj_near(o[0].d[3], by)
+         && kj_near(o[1].d[2], cx) && kj_near(o[1].d[3], cy);
+    check("基準角度 三度押しで 0 に戻る", ok);
+
+    /* 丸めなしでも、前の線（延長）の上のクリックは捨てる */
+    kj_where(COL[0][0], COL[0][1], &ax, &ay);
+    kj_where(COL[1][0], COL[1][1], &bx, &by);
+    kj_where(COL[3][0], COL[3][1], &cx, &cy);
+    n = kj_drive(COL, 4, 0, 0, 1, o, 8);
+    ok = n == 2 && kj_near(o[0].d[0], ax) && kj_near(o[0].d[2], bx)
+         && kj_near(o[1].d[0], bx) && kj_near(o[1].d[1], by)
+         && kj_near(o[1].d[2], cx) && kj_near(o[1].d[3], cy);
+    check("一直線のクリックは捨てる（FUN_006dcff0 の 1e-7）", ok);
+
+    /* 基点: クリックは動かさず、クリックから前の終わりへの向きを丸め、
+       前の線との交点が角になる */
+    kj_where(K[0][0], K[0][1], &ax, &ay);
+    kj_where(K[1][0], K[1][1], &bx, &by);
+    kj_where(K[2][0], K[2][1], &cx, &cy);
+    n = kj_drive(K, 3, 1, 1, 1, o, 8);
+    {
+        double v = atan2(by - cy, bx - cx) / (PI / 12.0);
+        double t = (v < 0.0 ? (int)(v - 0.5) : (int)(v + 0.5)) * (PI / 12.0);
+
+        /* 一本目は水平（ay == by）。角は y = ay の上で、(cx,cy) から t の向き */
+        ex = cx + (ay - cy) / sin(t) * cos(t);
+        ey = ay;
+    }
+    ok = n == 2 && kj_near(ay, by) && kj_near(o[0].d[0], ax)
+         && kj_near(o[0].d[2], ex) && kj_near(o[0].d[3], ey)
+         && kj_near(o[1].d[0], ex) && kj_near(o[1].d[1], ey)
+         && kj_near(o[1].d[2], cx) && kj_near(o[1].d[3], cy)
+         && kj_mult(cx - ex, cy - ey, 15.0) && !kj_near(ex, bx);
+    check("基点: クリックが終点、角は前の線の上へ動く", ok);
+
+    /* 基点だけ（基準角度 0）なら素と同じ */
+    n = kj_drive(K, 3, 0, 1, 1, o, 8);
+    ok = n == 2 && kj_near(o[0].d[2], bx) && kj_near(o[1].d[2], cx)
+         && kj_near(o[1].d[3], cy);
+    check("基点だけでは何も変わらない", ok);
+}
+
 int main(void)
 {
     static const int RECT[4][2] = { {300,300}, {600,300}, {600,500}, {900,500} };
@@ -286,6 +503,7 @@ int main(void)
         run("p163_c2", 0, 0, ABC, 2, -1, 1, 0);
     }
     end_flip();
+    kijun();
     printf(fails ? "SOME BAD\n" : "all ok\n");
     return fails != 0;
 }
