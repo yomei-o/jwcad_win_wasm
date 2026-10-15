@@ -628,6 +628,7 @@ static double tk_ax, tk_ay;
    circles of that radius is wanted -- the status line counts them 【 4 − n 】. */
 static int sek_a = -1, sek_b = -1, sek_step;
 static double sek_ax, sek_ay, sek_bx, sek_by;  /* where each was picked */
+static int sek_apt, sek_bpt;    /* 1: that one is a point read with (R) */
 /* 曲線: the points clicked so far, kept until 作図実行 is pressed. */
 #define CV_MAX 64
 static double cv_x[CV_MAX], cv_y[CV_MAX];
@@ -8436,12 +8437,14 @@ static void sesline(jw_drawing *d, const jw_view *v, double x, double y)
  */
 typedef struct {
     int circle;
+    int pt;                     /* a point read with (R): a circle of r 0 */
     double nx, ny, k;           /* a line: n.point == k */
     double cx, cy, r;           /* a circle */
 } sek_el;
 
 static int sek_elem(const jw_obj *o, sek_el *e)
 {
+    e->pt = 0;
     if (o->cls == JW_SEN) {
         double ux = o->d[2] - o->d[0], uy = o->d[3] - o->d[1];
         double L = sqrt(ux * ux + uy * uy);
@@ -8481,6 +8484,10 @@ static int sek_places(const sek_el *p, const sek_el *q, double r,
 
     for (s1 = -1; s1 <= 1; s1 += 2)
         for (s2 = -1; s2 <= 1; s2 += 2) {
+            /* a point is a circle of r 0, so r out and r in are the one
+               circle -- FUN_00707d60 takes it once (its cases 2, 3, 6) */
+            if ((p->pt && s1 < 0) || (q->pt && s2 < 0))
+                continue;
             if (!p->circle && !q->circle) {
                 double a1 = p->k + s1 * r, a2 = q->k + s2 * r;
                 double den = p->nx * q->ny - p->ny * q->nx;
@@ -8586,7 +8593,7 @@ static int sek_draw(jw_drawing *d, double cx, double cy, double r)
 static double sek_radius(const jw_drawing *d)
 {
     const char *sz = jw_cmd_box(1411);
-    double r = box_num(sz, 0.0);
+    double r = fabs(box_num(sz, 0.0));  /* the original takes its size */
     int wg = 0, i;
 
     if (r <= 0.0)
@@ -8599,24 +8606,60 @@ static double sek_radius(const jw_drawing *d)
     return r;
 }
 
-static void sekien(jw_drawing *d, int a, int b, double x, double y)
+/* One picked thing: element `i`, or with `pt` the point (x, y) read with
+ * the right button (the original keeps a null element and the point). */
+static int sek_get(const jw_drawing *d, int i, int pt, double x, double y,
+                   sek_el *e)
+{
+    if (pt) {
+        e->circle = 1;
+        e->pt = 1;
+        e->cx = x;
+        e->cy = y;
+        e->r = 0.0;
+        return 1;
+    }
+    if (i < 0 || i >= d->nobj)
+        return 0;
+    return sek_elem(&d->obj[i], e);
+}
+
+/* How many places the first two leave for the radius in the box -- the
+ * original counts them when the second is picked (FUN_00707d60) and says
+ * 「計算できません」 at once if there are none. */
+static int sek_count(const jw_drawing *d, int b, int bpt, double bx,
+                     double by)
 {
     sek_el p, q;
-    double px[SEK_MAX], py[SEK_MAX], r, bestd = 0;
+    double px[SEK_MAX], py[SEK_MAX], r = sek_radius(d);
+
+    if (r <= 0.0 || !sek_get(d, sek_a, sek_apt, sek_ax, sek_ay, &p)
+        || !sek_get(d, b, bpt, bx, by, &q))
+        return 0;
+    return sek_places(&p, &q, r, px, py);
+}
+
+/* The place nearest the click, by |dx| + |dy| and the first of a tie
+ * (FUN_0070b570, against the cursor kept at +0x108). */
+static void sekien(jw_drawing *d, double x, double y)
+{
+    sek_el p, q;
+    double px[SEK_MAX], py[SEK_MAX], r, bestd = 9999999.0;
     int i, n, best = -1;
 
-    if (a < 0 || b < 0 || a >= d->nobj || b >= d->nobj || a == b)
+    if (!sek_apt && !sek_bpt && sek_a == sek_b)
         return;
-    if (!sek_elem(&d->obj[a], &p) || !sek_elem(&d->obj[b], &q))
+    if (!sek_get(d, sek_a, sek_apt, sek_ax, sek_ay, &p)
+        || !sek_get(d, sek_b, sek_bpt, sek_bx, sek_by, &q))
         return;
     r = sek_radius(d);
     if (r <= 0.0)
         return;                 /* no radius typed in: nothing to draw */
     n = sek_places(&p, &q, r, px, py);
     for (i = 0; i < n; i++) {
-        double e = (px[i] - x) * (px[i] - x) + (py[i] - y) * (py[i] - y);
+        double e = fabs(px[i] - x) + fabs(py[i] - y);
 
-        if (best < 0 || e < bestd) {
+        if (e < bestd) {
             best = i;
             bestd = e;
         }
@@ -8760,18 +8803,29 @@ static int sek_circ3(const double *px, const double *py,
     return 1;
 }
 
-static void sekien3(jw_drawing *d, int a, int b, int c, double x, double y)
+static void sekien3(jw_drawing *d, int c, int cpt, double x, double y)
 {
     sek_el e[3];
     double tx[3], ty[3], ox = 0, oy = 0, R = 0;
-    int i, k;
+    int i, j, k;
 
-    if (a < 0 || b < 0 || c < 0 || a >= d->nobj || b >= d->nobj
-        || c >= d->nobj || a == b || b == c || a == c)
+    if (!sek_get(d, sek_a, sek_apt, sek_ax, sek_ay, &e[0])
+        || !sek_get(d, sek_b, sek_bpt, sek_bx, sek_by, &e[1])
+        || !sek_get(d, c, cpt, x, y, &e[2]))
         return;
-    if (!sek_elem(&d->obj[a], &e[0]) || !sek_elem(&d->obj[b], &e[1])
-        || !sek_elem(&d->obj[c], &e[2]))
-        return;
+    /* a point read off one of the other two picked elements: the original
+       makes the circle touch that element at the point, by a frame turned
+       onto it (FUN_0070b8f0 finds it, the 0x3c0 frame in FUN_00709940).
+       That frame was not read through, so nothing is drawn for it here. */
+    for (i = 0; i < 3; i++)
+        for (j = 0; j < 3; j++)
+            if (i != j && !e[i].pt && e[j].pt) {
+                double qx = e[j].cx, qy = e[j].cy;
+
+                if (sek_onto(&e[i], &qx, &qy) && fabs(qx - e[j].cx) < 1e-7
+                    && fabs(qy - e[j].cy) < 1e-7)
+                    return;
+            }
     tx[0] = sek_ax;
     ty[0] = sek_ay;
     tx[1] = sek_bx;
@@ -8785,13 +8839,13 @@ static void sekien3(jw_drawing *d, int a, int b, int c, double x, double y)
         for (i = 0; i < 3; i++) {
             was_x[i] = tx[i];
             was_y[i] = ty[i];
-            if (!sek_onto(&e[i], &tx[i], &ty[i]))
+            if (!e[i].pt && !sek_onto(&e[i], &tx[i], &ty[i]))
                 return;
         }
         if (!sek_circ3(tx, ty, &ox, &oy, &R))
             return;
         for (i = 0; i < 3; i++)
-            if (!sek_chord(&e[i], ox, oy, R, &tx[i], &ty[i]))
+            if (!e[i].pt && !sek_chord(&e[i], ox, oy, R, &tx[i], &ty[i]))
                 return;
         for (i = 0; i < 3; i++)
             if (fabs(tx[i] - was_x[i]) >= 1e-7
@@ -18922,39 +18976,68 @@ placed:
         return;
     }
     if (current == JW_CMD_SEKIEN) {
-        int i;
-        if (button != 0 || !d)
+        /* (R) reads a point in place of an element, 「読取点をﾏｳｽ(R)で」
+           (FUN_007078e0 -> FUN_00707a50: the element is left null and the
+           read point kept; nothing read, nothing happens).  With a radius
+           the right button also places the circle, by the cursor, once a
+           point is there to be read. */
+        int i = -1, pt = button != 0;
+        double rx = x, ry = y;
+
+        if (!d)
+            return;
+        if (pt && !jw_read(d, v, x, y, &rx, &ry))
             return;
         if (sek_step == 0) {
-            i = jw_pick(d, v, x, y, 3);
-            if (i < 0 || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
-                return;
+            if (!pt) {
+                i = jw_pick(d, v, x, y, 3);
+                if (i < 0
+                    || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
+                    return;
+            }
             sek_a = i;
-            sek_ax = x;
-            sek_ay = y;
+            sek_apt = pt;
+            sek_ax = rx;
+            sek_ay = ry;
             sek_step = 1;
             return;
         }
         if (sek_step == 1) {
-            i = jw_pick_tie(d, v, x, y, 3, 1);
-            if (i < 0 || i == sek_a
-                || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
+            if (!pt) {
+                i = jw_pick_tie(d, v, x, y, 3, 1);
+                if (i < 0 || i == sek_a
+                    || (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_ENKO))
+                    return;
+            }
+            /* with a radius, a pair that leaves no place is turned away
+               then and there: the left button waits for another second,
+               the right one starts over (FUN_00707130 / FUN_00707a50) */
+            if (sek_radius(d) > 0.0 && sek_count(d, i, pt, rx, ry) < 1) {
+                if (pt) {
+                    sek_step = 0;
+                    sek_a = sek_b = -1;
+                }
                 return;
+            }
             sek_b = i;
-            sek_bx = x;
-            sek_by = y;
+            sek_bpt = pt;
+            sek_bx = rx;
+            sek_by = ry;
             sek_step = 2;
             return;
         }
         if (sek_radius(d) <= 0.0) {
             /* an empty 半径: the third element settles it, and it is drawn
                the moment that is picked */
-            i = jw_pick_tie(d, v, x, y, 3, 1);
-            if (i < 0 || i == sek_a || i == sek_b)
-                return;
-            sekien3(d, sek_a, sek_b, i, x, y);
+            if (!pt) {
+                i = jw_pick_tie(d, v, x, y, 3, 1);
+                if (i < 0 || (!sek_apt && i == sek_a)
+                    || (!sek_bpt && i == sek_b))
+                    return;
+            }
+            sekien3(d, i, pt, rx, ry);
         } else {
-            sekien(d, sek_a, sek_b, x, y);
+            sekien(d, x, y);
         }
         sek_step = 0;                   /* ready for the next pair */
         sek_a = sek_b = -1;

@@ -478,6 +478,136 @@ static void circles3(void)
     ck(d->ndrawn == before + 1, "  where the same picks over a circle draw one");
 }
 
+/* (R) reads a point in place of an element, 「読取点をﾏｳｽ(R)で指示」.
+ *
+ * The original keeps the element null and the read point (FUN_007078e0 ->
+ * FUN_00707a50); with an empty 半径 the walk leaves that point where it is,
+ * so the circle passes through it (FUN_00709940), and with a radius a point
+ * is a circle of r 0 (FUN_00707d60's cases 2, 3 and 6).  Not driven in the
+ * original: this checks the reading, not digits read back.  The points are
+ * read off the ends of short lines kept out of the way.
+ */
+static jw_drawing *rp_setup(const double (*ln)[4], int n)
+{
+    jw_drawing *d;
+    int i;
+
+    app_resize(1264, 741);
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    for (i = 0; i < n; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        o->d[0] = ln[i][0];
+        o->d[1] = ln[i][1];
+        o->d[2] = ln[i][2];
+        o->d[3] = ln[i][3];
+    }
+    app_fit();
+    return d;
+}
+
+static void rpoints(void)
+{
+    jw_drawing *d;
+    int before;
+
+    printf("(R) three points read, an empty 半径: the circle through them:\n");
+    {
+        static const double ln[3][4] = {
+            { 0, 0, -10, -10 }, { 100, 0, 110, -10 }, { 0, 100, -10, 110 },
+        };
+        d = rp_setup(ln, 3);
+        before = d->ndrawn;
+        jw_cmd_set(JW_CMD_SEKIEN);
+        type_box(1411, "");
+        type_box(1417, "");
+        jw_cmd_set(JW_CMD_SEKIEN);
+        jw_cmd_point(d, app_view(), 0, 0, 1);
+        jw_cmd_point(d, app_view(), 100, 0, 1);
+        ck(d->ndrawn == before, "  two points draw nothing yet");
+        jw_cmd_point(d, app_view(), 0, 100, 1);
+        ck(d->ndrawn == before + 1, "  the third draws one circle");
+        if (d->ndrawn == before + 1) {
+            const jw_obj *o = &d->obj[before];
+
+            ck(near(o->d[0], 50) && near(o->d[1], 50)
+               && near(o->d[2], 50 * sqrt(2.0)), "  centre (50,50), r 50√2");
+        }
+    }
+
+    printf("two lines and a point read, an empty 半径:\n");
+    {
+        /* the axes, and a point at (60,30) on the end of a short line: the
+           circles touching both axes through it are r 30 and r 150 */
+        static const double ln[3][4] = {
+            { -200, 0, 300, 0 }, { 0, -200, 0, 300 }, { 60, 30, 70, 45 },
+        };
+        d = rp_setup(ln, 3);
+        before = d->ndrawn;
+        jw_cmd_set(JW_CMD_SEKIEN);
+        jw_cmd_point(d, app_view(), 40, 0, 0);
+        jw_cmd_point(d, app_view(), 0, 40, 0);
+        jw_cmd_point(d, app_view(), 60, 30, 1);
+        ck(d->ndrawn == before + 1, "  one circle");
+        if (d->ndrawn == before + 1) {
+            const jw_obj *o = &d->obj[before];
+            double R = o->d[2];
+
+            printf("     r=%.6f at %.6f,%.6f\n", R, o->d[0], o->d[1]);
+            ck(near(fabs(o->d[0]), R) && near(fabs(o->d[1]), R)
+               && near(hypot(o->d[0] - 60, o->d[1] - 30), R)
+               && (near(R, 30) || near(R, 150)),
+               "  touching both axes and through the point");
+        }
+        jw_cmd_undo(d);
+        ck(d->ndrawn == before, "  元に戻る takes it back");
+
+        /* the point read off the second picked line itself: the original
+           makes it touch there, by a frame not read through -- nothing */
+        jw_cmd_set(JW_CMD_SEKIEN);
+        jw_cmd_point(d, app_view(), 40, 0, 0);
+        jw_cmd_point(d, app_view(), 0, 300, 0);
+        jw_cmd_point(d, app_view(), 0, 300, 1);
+        ck(d->ndrawn == before, "  a point on a picked line: not drawn");
+    }
+
+    printf("a line and a point read, with a 半径:\n");
+    {
+        static const double ln[2][4] = {
+            { -200, 0, 200, 0 }, { 0, 50, -10, 60 },
+        };
+        char t[32];
+        int g, wg = 0;
+
+        d = rp_setup(ln, 2);
+        before = d->ndrawn;
+        /* r 40 on the paper: the box is in real size, the write group's */
+        for (g = 0; g < 16; g++)
+            if (d->group[g].state == 3)
+                wg = g;
+        snprintf(t, sizeof t, "%.6f",
+                 40 * (d->group[wg].scale > 0 ? d->group[wg].scale : 1));
+        jw_cmd_set(JW_CMD_SEKIEN);
+        type_box(1411, t);
+        jw_cmd_set(JW_CMD_SEKIEN);
+        jw_cmd_point(d, app_view(), 100, 0, 0);
+        jw_cmd_point(d, app_view(), 0, 50, 1);
+        ck(d->ndrawn == before, "  nothing until it is placed");
+        jw_cmd_point(d, app_view(), 40, 20, 0);
+        ck(d->ndrawn == before + 1, "  the placing click draws one");
+        if (d->ndrawn == before + 1) {
+            const jw_obj *o = &d->obj[before];
+            double R = o->d[2];
+
+            ck(R > 25 && near(o->d[1], R) && o->d[0] > 0
+               && near(hypot(o->d[0], o->d[1] - 50), R),
+               "  on the line, through the point, on the side clicked");
+        }
+        type_box(1411, "");
+    }
+}
+
 int main(void)
 {
     run("decomp/res/sekien_l.jww", "the circle placed to the left:");
@@ -499,6 +629,7 @@ int main(void)
     run_el("decomp/res/sekmul_b.jww", "", 3, 3,
            "three lines and 多重円 3, the same way:");
     circles3();
+    rpoints();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
