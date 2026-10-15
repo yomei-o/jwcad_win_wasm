@@ -99,6 +99,15 @@ EMSCRIPTEN_KEEPALIVE void jw_pan(int dx, int dy)
     app_paint();
 }
 
+/* 基本設定 2362: 矢印・PageUp・PageDown（Windows の仮想キーの番号で）。受けたら 1 */
+EMSCRIPTEN_KEEPALIVE int jw_arrow(int vk)
+{
+    if (!app_arrow_key(vk))
+        return 0;
+    app_paint();
+    return 1;
+}
+
 EMSCRIPTEN_KEEPALIVE void jw_fit(void)
 {
     app_fit();

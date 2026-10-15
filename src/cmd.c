@@ -15460,6 +15460,15 @@ int jw_cmd_param_preview(const jw_drawing *d, jw_drawing *out)
     return 1;
 }
 
+/* 範囲を取る命令の どの段か: 1 始点を待つ、2 終点を待つ、0 それ以外（範囲の
+   命令でない、または 追加・除外・置く段） */
+int jw_cmd_range_phase(void)
+{
+    if (!range_cmd(current))
+        return 0;
+    return sel_step == 0 ? 1 : sel_step == 1 ? 2 : 0;
+}
+
 int jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1)
 {
     if (sel_step != 1 || !tracking)
@@ -22164,6 +22173,50 @@ static void au_back_check(void)
         current = JW_CMD_AUTO;
         auto_back = 0;
     }
+}
+
+/* 基本設定 一般(1) 2094「複線のとき、数値入力後の[Enter]キーで連続複線にする」
+ * (DAT_00a0cb20)。原典は CZukeiFukusen の slot 36（Enter, FUN_0065c0a0）で、旗が
+ * 立ち、元が一つ（+0x218 == 1、FUN_0065a340 が仮表示のたびに数える）で、箱の間隔
+ * （FUN_004b2320）が 1e-7 を超えるとき、slot 3（FUN_0065e230、確定）で いまの仮表示
+ * ＝マウスの側にその間隔で写しを作り、その写し（+0x250）を選び直して元にし
+ * （FUN_00447b90・FUN_00659200）、状態 2（+0x204、「間隔を入力するか、複写する位置」）
+ * に戻る。Enter を押すたびに、前の写しから同じ側へもう一本。
+ * 移植: 元を拾って箱に数がある（para_step 1）ところで、マウスのいる点を (L) で
+ * 指したのと同じに写し、写しを元にして para_step 1 に戻す。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int fk_enter_on;
+
+void jw_cmd_fukusen_enter_on(int on)
+{
+    fk_enter_on = on != 0;
+}
+
+int jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v)
+{
+    int depth0 = nop, src;
+
+    if (!d || !v || !fk_enter_on || current != JW_CMD_FUKUSEN || !tracking
+        || para_step != 1 || fk_selmode || fk_ten || para_obj < 0
+        || para_obj >= d->ndrawn || !(box_mm(d, 1411) > 1e-7))
+        return 0;
+    src = d->obj[para_obj].cls;
+    if (src != JW_SEN && src != JW_ENKO)
+        return 0;
+    last_dr = d;
+    jw_cmd_point_(d, v, tx, ty, 0);
+    if (nop == depth0)
+        return 1;                       /* 写せなかった（長さ 0 の線など）: 元はそのまま */
+    if (!jw_numbers_sane(d)) {
+        jw_cmd_undo(d);
+        ntop = nop;
+        return 1;
+    }
+    if (para_last >= 0 && para_last < d->ndrawn) {
+        para_obj = para_last;           /* 写しが次の元（FUN_00659200） */
+        para_step = 1;
+    }
+    return 1;
 }
 
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,

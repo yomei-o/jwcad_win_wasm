@@ -38,5 +38,10 @@ extern int jw_draw_texts_last;   /* 1887 文字を最後に描画 (on by default
 /* 画面倍率・文字表示 の【文字枠】を表示する (2104, DAT_00a0c794): 文字の
    字に加えて その枠も描く。画面だけで、印刷は描かない（app が描く間だけ立てる） */
 extern int jw_draw_textframe;
+/* 基本設定 一般(1) 2532「用紙枠を表示する」(DAT_00a0c78c): 用紙の四辺を 線色 2 の
+   実線で、要素より先に描く（app が画面を描くときだけ jw_draw_frame を呼ぶ）。
+   読取り点（jw_read）も その四隅を拾う。 */
+extern int jw_draw_paper_frame;
+void jw_draw_frame(fb_t *fb, const jw_view *v, const jw_drawing *d);
 
 #endif
