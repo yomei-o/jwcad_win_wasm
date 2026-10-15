@@ -6748,6 +6748,8 @@ int app_move(int x, int y)
         return 1;                   /* 手書線: a stroke being drawn */
     if (have_drawing && jw_cmd_stretch_move(&drawing, &view, mx, my))
         return 1;                   /* 伸縮の (R) 線切断 */
+    if (jw_cmd_sunpo_move(&view, mx, my))
+        return 1;                   /* 寸法 ＝ の「ﾏｳｽ移動で確定」 */
     {   /* the range box and the selection being dragged both follow the
            mouse, so the window has to be told to paint again */
         double a, b, c, e;

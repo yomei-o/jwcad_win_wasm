@@ -1008,11 +1008,10 @@ static int    sun_tencol  = JW_SUN_TEN_COLOR;
  *   2082 累進 基点円の円半径     +0xa28 -> DAT_00a0bd50  StartENR   0.75
  *   2084 角度の小数点以下桁数    +0x6e8 -> DAT_00a0bd9c  DEGKETA    4（押せない箱）
  *
- * 作図に効くのは 2080 だけ（端部 が 逆矢印 のとき、sunpo_make）。1482〜1486
- * は バーの ＝ (1060) が使う値で、移植は ＝ を入れていない
- * （docs/notes-commands.md「＝ (1060) の受け手」）。2082 は 累進 の 基点円
- * (2417) が使い、移植の 累進 は基点円を描かない。2084 は 角度単位 が 度 の
- * ときの桁で、移植の角度は 度分秒 だけ。どれも表示と保存だけ。 */
+ * 作図に効くのは 2080（端部 が 逆矢印 のとき、sunpo_make）と 1482〜1486
+ * （バーの ＝ (1060) が使う値、sun_eq の注と sun_eq_geom）。2082 は 累進 の
+ * 基点円 (2417) が使い、移植の 累進 は基点円を描かない。2084 は 角度単位 が
+ * 度 のときの桁で、移植の角度は 度分秒 だけ。この二つは表示と保存だけ。 */
 static double sun_gyaku   = JW_SUN_GYAKUDE;
 static double sun_hiki1   = JW_SUN_HIKIDASHI1;
 static double sun_sen1    = JW_SUN_SUNPOSEN1;
@@ -1307,6 +1306,55 @@ static double sun_er;           /* the radius of the circle indicated */
  * 回す。バーの字は 0 が 5190「端部 ●」、1 が「->」、2 が「-<」——
  * 0x9746d8・0x9746e0 の字）。 */
 static int sun_arrow = -1;
+
+/* 寸法 の ＝ (1060、引出線タイプ)。2026-10-16、逆コンパイルの読み、原典では
+ * 押していない（照らす原典の答えは無い）。
+ *
+ *   sun_eq       DAT_00a0bcc0: 0 ふつう、1 ＝(1)、2 ＝(2)、3 －。バーの釦
+ *                （CMy3Button → 0x1402 → FUN_005da130 → FUN_005d9350(+1)）が
+ *                0〜3 で回す。回すのはバーの段 +0x25c が 2 より小さいとき
+ *                （FUN_0077ab30 が 段 0・1・7 で 0、段 2 で 1 にする）だけで、
+ *                その先は 引出角 の釦になる（移植は 引出角 を持たないので
+ *                押しても何もしない）。名札は FUN_005da770: 6155「＝」に
+ *                " (1)"・" (2)"、3 は 6214「－」
+ *   段の歩み     左 FUN_0077fda0: 段 0・1 のクリックを +0x558（基準点）へ置き、
+ *                sun_eq > 0 なら FUN_00783690 で ＝ は段 7、－ は段 3（始点）へ。
+ *                段 7 は「●ﾏｳｽ移動で確定 ●●同一点クリックで寸法位置間隔反転」
+ *                (5408): マウスが |dx|+|dy| > 2 画素動けば段 3 へ（FUN_0077ab30
+ *                の +0x44e0・+0x44e4 との比べ）、クリックすれば +0x4520 を立てて
+ *                段 3 へ。移植は sun_step の 7 を 円周 に使っているので、段 7 は
+ *                sun_eq_wait で持つ
+ *   置き場       マウスの動き FUN_00781520 が 基準点 B を傾きで回した座標で
+ *                +0x568（引出線の端）を B から縦に -s·HIKIDASHIn、+0x578（寸法線
+ *                の通る点）を -s·SUNPOSENn に置く（＝(1) は DAT_00a0bd60/bd68
+ *                = 1482/1483、＝(2) は bd70/bd78 = 1484/1485、s は +0x4520 で
+ *                ±1）。－ は +0x578 = B（寸法線は基準点を通る）
+ *   引出線       作図 FUN_00783730: ＝ は +0x568 の高さから（ふつうと同じ）。
+ *                － は端ごとに 測った点の寸法線からの隔たり d から 指示点
+ *                からの引出線位置 (1486, bd80) だけ寸法線へ寄せた所から、
+ *                d が 0 なら引かない（0x7855..・0x7859..）
+ *   案内         段 0 の ＝ は 5409 +「  [ =(1) ]」+ 5407、－ は 5330 +「  [ - ]」
+ */
+static int sun_eq;
+static int sun_eq_wait;         /* 原典の段 7 */
+static int sun_eq_flip;         /* +0x4520 */
+static double sun_eq_cx, sun_eq_cy;     /* 段 7 に入ったクリックの点 */
+
+int jw_cmd_sunpo_eq(void)
+{
+    return sun_eq;
+}
+
+/* ＝ の段 7 でマウスが動いた: クリックした画素から |dx|+|dy| が 2 を
+   超えれば 始点 を訊く段へ（FUN_0077ab30）。案内が変わるので 1 */
+int jw_cmd_sunpo_move(const jw_view *v, double x, double y)
+{
+    if (current != JW_CMD_SUNPO || !sun_eq_wait || !v || sun_kaku || sun_enshu
+        || (fabs(x - sun_eq_cx) + fabs(y - sun_eq_cy)) * v->scale <= 2.0)
+        return 0;
+    sun_eq_wait = 0;
+    return 1;
+}
 
 static int sun_arrows(void)
 {
@@ -3887,6 +3935,7 @@ void jw_cmd_set(int id)
         sun_step = 0;
         sun_made = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
+        sun_eq_wait = sun_eq_flip = 0;  /* ＝ の値 (sun_eq) は大域なので残る */
         /* 一括処理 is dead again until a dimension has been drawn */
         ika_step = ika_live = ika_ntog = 0;
         ika_lt = -1;
@@ -4057,6 +4106,7 @@ void jw_cmd_escape(void)
     ten_a = -1;
     sun_step = sun_chi ? 5 : sun_enshu ? 7 : sun_radius ? 2 : 0;
     sun_made = 0;
+    sun_eq_wait = 0;
     au_reset();
     if (current == JW_CMD_KIGOU && sk_step != 4)
         sk_step = 0;               /* 線・位置のとちゅうは捨てる（文字入力は別） */
@@ -4112,6 +4162,16 @@ void jw_cmd_esc_key(jw_drawing *d)
         if (sun_made && sun_step == 2) {
             sun_made = 0;
             sun_step = 3;
+            tracking = 0;
+            return;
+        }
+        /* ＝・－ は 寸法線の位置 を訊かないので、基準点のあと（段 7 も
+           始点待ちも）は基準点へ戻る（戻る の slot 16 FUN_0077b730 も
+           DAT_00a0bcc0 >= 1 なら段 3 から 0 へ） */
+        if (sun_eq > 0 && (sun_eq_wait || sun_step == 2)) {
+            sun_eq_wait = 0;
+            sun_step = 0;
+            sun_made = 0;
             tracking = 0;
             return;
         }
@@ -4578,6 +4638,14 @@ int jw_cmd_back(jw_drawing *d)
      */
     if (current == JW_CMD_SUNPO && !sun_chi && !sun_kaku && !sun_enshu
         && !sun_radius) {
+        if (sun_eq_wait) {
+            /* ＝ の段 7 は梯子の外（else の枝、vtable +0x18 で初めから
+               やり直す、と読んだ）。受け取って基準点へ */
+            sun_eq_wait = 0;
+            sun_step = 0;
+            tracking = 0;
+            return 1;
+        }
         if (sun_step == 2 || sun_step == 3) {
             sun_step = sun_step == 3 ? 2 : 0;
             tracking = 0;
@@ -5563,6 +5631,17 @@ const char *jw_cmd_prompt(void)
                  : sun_chi_done ? JW_STR_5333 : JW_STR_5576;
         if (sun_step == 7) {
             snprintf(tail, sizeof tail, "%s%s", JW_STR_5367, JW_STR_6158);
+            return tail;
+        }
+        /* ＝・－ (1060): 基準点 と 段 7（FUN_0077ab30） */
+        if (sun_eq_wait && !sun_radius && !sun_kaku && !sun_enshu)
+            return JW_STR_5408;
+        if (sun_step == 0 && !sun_kaku && !sun_enshu && sun_eq > 0) {
+            if (sun_eq == 3)
+                snprintf(tail, sizeof tail, "%s  [ - ]", JW_STR_5330);
+            else
+                snprintf(tail, sizeof tail, "%s  [ =(%d) ]%s", JW_STR_5409,
+                         sun_eq, JW_STR_5407);
             return tail;
         }
         if (sun_step == 0)
@@ -17731,6 +17810,8 @@ static int bar_press(jw_drawing *d, int id)
         return 0;
     }
     if (current == JW_CMD_SUNPO) {
+        if (id >= 1064 && id <= 1069)
+            sun_eq_wait = 0;    /* 半径・円周・角度・寸法値・リセット は ＝ の段 7 を捨てる */
         if (id == 1061) {       /* 小数桁: 2 -> 3 -> 0 -> 1 -> 2 */
             sun_keta = (sun_decimals() + 1) & 3;
             return 1;
@@ -17801,12 +17882,26 @@ static int bar_press(jw_drawing *d, int id)
             sun_chi = 0;
             sun_enshu = 0;
             sun_step = 0;
+            sun_eq_wait = 0;
             return 1;
         }
-        /* ＝ (1060, 引出線タイプ) は入れていない（docs/notes-commands.md
-           の「寸法 の ＝」）: 0〜3 を回すところまでは読めたが、=(1)(2) は
-           基準点のあと「マウス移動で確定」の段 (+0x1bc == 7) を通り、
-           クリックだけでは進み方が決まらない。 */
+        if (id == 1060) {
+            /* ＝ (引出線タイプ): バーの段 +0x25c < 2（基準点・寸法線位置・
+               段 7）のときだけ 0〜3 を回す（FUN_005d9350、左 +1）。その先は
+               引出角 の釦で、移植は持たない。sun_eq の注 */
+            if (sun_radius || sun_chi || sun_kaku || sun_enshu || ika_step
+                || (sun_step > 1 && !sun_eq_wait))
+                return 0;
+            sun_eq = (sun_eq + 1) & 3;
+            /* 段 7 で － やふつうに回ったときの原典の扱いは読み切って
+               いない。移植は待ちをやめ、ふつうなら 寸法線の位置 を訊く */
+            if (sun_eq_wait && (sun_eq == 0 || sun_eq == 3)) {
+                sun_eq_wait = 0;
+                if (sun_eq == 0)
+                    sun_step = 1;
+            }
+            return 1;
+        }
         if (id != 1059)
             return 0;
         /* ０º/９０º: the 傾き box turns over between the two.  Asked of
@@ -20497,6 +20592,38 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
     op_push(made);
 }
 
+/* ＝・－ (1060) の 寸法線 tl と 引出線の端 th（どちらも v 方向の高さ）。
+   sun_hx は基準点 B。＝ は寸法線が B から -s·SUNPOSENn、引出線の端が
+   -s·HIKIDASHIn（FUN_00781520 が置く +0x578・+0x568、s は +0x4520 で ±1）。
+   － は寸法線が B を通り（+0x578 = +0x568 = B）、引出線は端ごとに 測った点の
+   寸法線からの隔たり d から、d <= 0 なら d + 1486、正なら d - 1486 の所から
+   （FUN_00783730 の DAT_00a0bcc0 == 3 の二つの枝）。d がほぼ 0 なら引かない。
+   ふつう（sun_eq == 0）は tl・th をそのまま、両端とも th */
+static void sun_eq_geom(double vx, double vy, double bx, double by,
+                        double *tl, double *th, double eh[2], int ehi[2])
+{
+    int k;
+
+    ehi[0] = ehi[1] = 1;
+    if (sun_eq == 1 || sun_eq == 2) {
+        double sg = sun_eq_flip ? -1.0 : 1.0;
+        *tl = *th - sg * (sun_eq == 1 ? sun_sen1 : sun_sen2);
+        *th = *th - sg * (sun_eq == 1 ? sun_hiki1 : sun_hiki2);
+    } else if (sun_eq == 3) {
+        *tl = *th;
+    }
+    eh[0] = eh[1] = *th;
+    if (sun_eq != 3)
+        return;
+    for (k = 0; k < 2; k++) {
+        double dk = (k ? bx * vx + by * vy : sun_sx * vx + sun_sy * vy) - *tl;
+        eh[k] = *tl + (dk <= 0.0 ? dk + sun_hiki3 : dk - sun_hiki3);
+        ehi[k] = dk <= 0.0 ? 1 : 2;     /* 2 は測った点が +v の側 */
+        if (fabs(dk) < 1e-7 || fabs(eh[k] - *tl) <= 1e-7)
+            ehi[k] = 0;
+    }
+}
+
 static void sunpo_make(jw_drawing *d, double bx, double by)
 {
     double a = sun_angle() * PI / 180.0;
@@ -20505,15 +20632,22 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
     double s0 = sun_sx * ux + sun_sy * uy, s1 = bx * ux + by * uy;
     double tl = sun_lx * vx + sun_ly * vy;      /* the dimension line       */
     double th = sun_hx * vx + sun_hy * vy;      /* where the extensions end */
-    double x0 = s0 * ux + tl * vx, y0 = s0 * uy + tl * vy;
-    double x1 = s1 * ux + tl * vx, y1 = s1 * uy + tl * vy;
+    double x0, y0, x1, y1;
     double len = s1 > s0 ? s1 - s0 : s0 - s1;
     double cw, ch, sp, tw = 0.0;
     char txt[64];
     const char *p;
     int nch = 0, i, wg = 0, made = 0;
     jw_obj *o;
+    /* 引出線の端の高さ（端ごと）と、引くかどうか */
+    double eh[2];
+    int ehi[2];
 
+    sun_eq_geom(vx, vy, bx, by, &tl, &th, eh, ehi);
+    x0 = s0 * ux + tl * vx;
+    y0 = s0 * uy + tl * vy;
+    x1 = s1 * ux + tl * vx;
+    y1 = s1 * uy + tl * vy;
     if (len <= 0.0)
         return;
     for (i = 0; i < 16; i++)
@@ -20650,18 +20784,24 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
      * were at the same place across the new direction -- and wrote the
      * dimension line, the two points and the value with no extensions at
      * all. */
-    for (i = 0; th != tl + sun_tsuki && i < 2; i++) {
+    for (i = 0; i < 2; i++) {
         double s = i ? s1 : s0;
+        /* － は端ごと（sun_eq_geom）。突出寸法 は原典どおり測った点と
+           反対の側へ（0x7855..: 隔たりが正なら負に） */
+        double tk = sun_eq == 3 ? (ehi[i] == 2 ? -fabs(sun_tsuki) : fabs(sun_tsuki))
+                                : sun_tsuki;
+        if (!ehi[i] || eh[i] == tl + tk)
+            continue;
         o = jw_add(d, JW_SEN);
         if (!o)
             break;
         o->color = sun_hikicol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-        o->d[0] = s * ux + (tl + sun_tsuki) * vx;
-        o->d[1] = s * uy + (tl + sun_tsuki) * vy;
-        o->d[2] = s * ux + th * vx;
-        o->d[3] = s * uy + th * vy;
+        o->d[0] = s * ux + (tl + tk) * vx;
+        o->d[1] = s * uy + (tl + tk) * vy;
+        o->d[2] = s * ux + eh[i] * vx;
+        o->d[3] = s * uy + eh[i] * vy;
         made++;
     }
 
@@ -25005,6 +25145,32 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             sunpo_value(d, sun_sx, sun_sy, x, y);
             sun_chi_done = 1;
             sun_step = 5;
+            return;
+        }
+        if (sun_eq_wait && !sun_kaku && !sun_enshu) {
+            /* ＝ の段 7: クリックは点を使わず、+0x4520 を立てて（寸法線と
+               引出線を基準点の反対側へ）始点を訊く（FUN_0077fda0 の段 7。
+               右も slot 11 FUN_00780a70 が左へ回す） */
+            sun_eq_wait = 0;
+            sun_eq_flip = 1;
+            sun_step = 2;
+            return;
+        }
+        if (sun_step == 0 && sun_eq > 0 && !sun_kaku && !sun_enshu) {
+            /* ＝・－ の基準点（+0x558）。(L) free、(R) Read はふつうと同じ */
+            double cx = x, cy = y;
+            if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+                return;
+            sun_hx = x;
+            sun_hy = y;
+            sun_eq_flip = 0;
+            sun_made = 0;
+            sun_step = 2;               /* 原典の段 3（始点） */
+            if (sun_eq != 3) {          /* ＝ は段 7 を挟む（FUN_00783690） */
+                sun_eq_wait = 1;
+                sun_eq_cx = cx;
+                sun_eq_cy = cy;
+            }
             return;
         }
         if (sun_step == 4) {
