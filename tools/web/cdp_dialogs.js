@@ -93,12 +93,15 @@ const server = http.createServer((req, res) => {
       open(); const a2 = hashR(R);
       c.changed = a1 !== a0; c.escClosed = closedEsc; c.escReverts = a2 === a0;
       // Enter: OK; what comes back when it is opened again
-      open(); const b0 = hashR(R); press(x, y); const b1 = hashR(R);
+      // RI: R without its edge (the 2-3 px of drawing round the dialog and the blended shadow). A tick that
+      // changes the drawing behind (基本設定 2532 用紙枠を表示する draws the sheet's frame) shows only there
+      const RI = { x0: R.x0 + 4, y0: R.y0 + 4, x1: R.x1 - 4, y1: R.y1 - 4 };
+      open(); const b0 = hashR(R), i0 = hashR(RI); press(x, y);  // i0: the tick must have changed the inside too const b1 = hashR(R), i1 = hashR(RI);
       m._jw_key(13); if (m._jw_modal()) m._jw_key(13);     // the first Enter may only be taking what was typed in a box
       c.enterClosed = !m._jw_modal();
-      open(); const b2 = hashR(R);
+      open(); const b2 = hashR(R), i2 = hashR(RI);
       c.enterKeeps = b2 === b1 && b1 !== b0; c.enterReverts = b2 === b0;
-      // put it back the way it was: press again and OK
+      if (!c.enterKeeps && !c.enterReverts && i2 === i1 && i1 !== i0) { c.enterKeeps = true; c.behind = true; }      // put it back the way it was: press again and OK
       press(x, y); m._jw_key(13); if (m._jw_modal()) m._jw_key(13);
       res.controls.push(c);
     }
@@ -106,7 +109,10 @@ const server = http.createServer((req, res) => {
     return res;
   })`;
   // live: changes apply at once (Esc keeps them); pick: the dialog is a chooser that closes by itself (no OK to press)
-  const DIALOGS = [['線属性', 32807, 'pick'], ['基本設定', 32891], ['寸法設定', 32925], ['軸角・目盛・オフセット', 32842], ['レイヤ', 32808, 'live'], ['画面倍率・文字表示', 32811], ['縮尺・読取', 32944]];
+  // the fourth: bands [y0, y1) from the top of the dialog's rect whose controls act at once (Esc keeps them).
+  // 画面倍率・文字表示: レイヤグループ同時登録 (1327, FUN_004c64f0) と マークジャンプ範囲登録 〔1〕〜〔4〕
+  // (1323..1326, FUN_004c7480 が押したときに doc の +0x7a70.. へ書く) の二段
+  const DIALOGS = [['線属性', 32807, 'pick'], ['基本設定', 32891], ['寸法設定', 32925], ['軸角・目盛・オフセット', 32842], ['レイヤ', 32808, 'live'], ['画面倍率・文字表示', 32811, '', [[166, 206]]], ['縮尺・読取', 32944]];
   const only = process.env.DLG ? process.env.DLG.split(',').map(Number) : null;
   try {
     await send('Page.enable'); await send('Runtime.enable');
@@ -118,17 +124,19 @@ const server = http.createServer((req, res) => {
     const inp = (await send('DOM.querySelector', { nodeId: doc, selector: '#pick' })).result.nodeId;
     await send('DOM.setFileInputFiles', { nodeId: inp, files: [path.normalize(path.join(root, 'orig', 'Test1.jww'))] });
     await sleep(800);
-    for (const [name, cid, kind] of DIALOGS) {
+    for (const [name, cid, kind, liveBands] of DIALOGS) {
       if (only && !only.includes(cid)) continue;
       const t0 = Date.now();
       const r = await ev(PROBE + '(' + cid + ', ' + (process.env.STEP || 6) + ', ' + (process.env.MAXCTL || 30) + ')');
       const cs = r.controls || [];
-      const esc = cs.filter(c => c.changed);
+      const atOnce = c => !!(liveBands && r.rect && liveBands.some(([a, b]) => c.y - r.rect[1] >= a && c.y - r.rect[1] < b));
+      const esc = cs.filter(c => c.changed && !atOnce(c));
+      if (liveBands) console.log('     ' + name + ': ' + cs.filter(c => c.changed && atOnce(c)).length + ' controls act at once (Esc keeps them)');
       console.log('     ' + name + ' (' + cid + '): ' + (r.rect ? 'rect ' + r.rect.join(',') : '') + ', ' + r.nchanging + ' controls change the picture, '
         + cs.filter(c => c.enterKeeps).length + ' kept by Enter, ' + cs.filter(c => c.enterReverts).length + ' not kept, '
         + 'closers hit ' + r.closers + ' times (' + ((Date.now() - t0) / 1000).toFixed(0) + ' s)' + (r.notes.length ? ' ' + r.notes.join('; ') : ''));
       check(r.ok && !!r.rect, name + ' opens and paints');
-      check(esc.every(c => c.escClosed), name + ': Esc closes the dialog');
+      check(cs.every(c => !c.changed || c.escClosed),name + ': Esc closes the dialog');
       if (kind !== 'live') check(esc.every(c => c.escReverts), name + ': Esc throws away every change (' + esc.filter(c => !c.escReverts).map(c => c.x + ',' + c.y).join(' ') + ')');
       if (kind !== 'pick') check(cs.every(c => c.enterClosed), name + ': Enter closes the dialog');
       check(jsErrors.length === 0, name + ': no script errors ' + jsErrors.slice(0, 1).join('|'));
