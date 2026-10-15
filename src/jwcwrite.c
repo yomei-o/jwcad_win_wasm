@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "image.h"
 #include "gen/jwc.h"
 
 #define PI 3.14159265358979323846
@@ -166,6 +167,20 @@ static int style_of(const jw_drawing *d, const jw_obj *o)
     return best;
 }
 
+/* 画像（"^@BM" の字）は w・h を JWC の目盛（用紙幅の 518 分の 1）へ直した字で
+   書く。原典の JWC 書き出し FUN_00521d10 は 書く前に 画像ごとに w・h を
+   doc の 用紙幅/518 で割って FUN_0048f7f0 で書き直し、書いたあとで掛けて
+   戻す。逆コンパイルの読み、原典では押していない */
+static const char *jwc_text(const jw_drawing *d, const jw_obj *o, char *buf, int cap)
+{
+    const char *s = jw_str(d, o->text);
+    double hw = d->paper_hw;
+
+    if (hw > 0.0 && jw_pic_text_scaled(s, 1.0 / (hw * 2.0 / 518.0), buf, cap))
+        return buf;
+    return s;
+}
+
 /* How wide a text is in its 文字種: a full-width letter takes the 文字種's
    width plus its spacing, a half-width one takes half of that, and the last
    letter's spacing is not counted.  The original writes the far end of a
@@ -174,7 +189,8 @@ static int style_of(const jw_drawing *d, const jw_obj *o)
    instead -- Test5.jww's 20mm texts come out at 文字種 10's 10mm.  */
 static double text_len(const jw_drawing *d, const jw_obj *o, int style)
 {
-    const unsigned char *s = (const unsigned char *)jw_str(d, o->text);
+    char buf[400];
+    const unsigned char *s = (const unsigned char *)jwc_text(d, o, buf, (int)sizeof buf);
     double w = d->style[style - 1].w, sp = d->style[style - 1].sp;
     double half = 0.0;
 
@@ -238,10 +254,13 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
         switch (o->cls) {
         case JW_SEN:   nline++; break;
         case JW_ENKO:  narc++; break;
-        case JW_MOJI:
+        case JW_MOJI: {
+            char buf[400];
+
             ntext++;
-            pool += (int)strlen(jw_str(d, o->text)) + 1;
+            pool += (int)strlen(jwc_text(d, o, buf, (int)sizeof buf)) + 1;
             break;
+        }
         case JW_TEN:   npoint++; break;
         case JW_SOLID:
             /* a 円ソリッド is one arc and no lines at all -- the original
@@ -412,15 +431,20 @@ int jw_jwc_write(const jw_drawing *d, unsigned char **out, long *n)
             put_b(&w, o->layer & 15);
             put_b(&w, o->flags);
             put_b(&w, 0);
-            off += (int)strlen(jw_str(d, o->text)) + 1;
+            {
+                char buf[400];
+
+                off += (int)strlen(jwc_text(d, o, buf, (int)sizeof buf)) + 1;
+            }
         }
         for (i = 0; i < d->ndrawn; i++) {
             const jw_obj *o = &d->obj[i];
             const char *s;
+            char buf[400];
 
             if (o->cls != JW_MOJI || !jw_text_drawn(o))
                 continue;
-            s = jw_str(d, o->text);
+            s = jwc_text(d, o, buf, (int)sizeof buf);
             put(&w, s, (long)strlen(s) + 1);
         }
     }

@@ -33,6 +33,9 @@ int jw_pick_editable(const jw_drawing *d, const jw_obj *o);
 extern int jw_pick_shown_too;
 /* 基本設定 2445「逆順サーチ」: ties go to the last element */
 extern int jw_pick_reverse;
+/* 画面倍率・文字表示 の「文字のスペースを表示する」(2103, DAT_00a0c790)。
+   切れていれば 画像は枠の四辺だけで拾い、入っていれば字の箱でも拾う */
+extern int jw_pick_pic_text;
 /* 字だけ、原典の文字を指示する拾い（FUN_004500e0）で。-1 なら無し */
 int jw_pick_moji(const jw_drawing *d, const jw_view *v, double x, double y);
 

@@ -5,6 +5,7 @@
 #include "pick.h"
 #include "text.h"
 #include "draw.h"
+#include "image.h"
 
 #define TWO_PI 6.283185307179586
 /* The arc's own "is this a whole circle" constant is a hair under 2 pi --
@@ -241,6 +242,34 @@ static int dist_solid(box_t *b, const jw_obj *o, double px, double py)
  * string); here it is the distance between the two ends the file stores,
  * which is what the run is drawn between, and the only width that can be
  * right when the glyphs are a different typeface. */
+/* 画像（"^@BM" の字）は 画像の枠の四辺で拾う。FUN_0048a1e0 の頭: FUN_0048efe0
+   が画像と答えれば、始点を原点に 画像の角度で回した w×h の矩形の
+   (0,0)→(w,0)→(w,h)→(0,h)→(0,0) を線として順に FUN_0042c100 に掛け、
+   当たった所で返す。どれにも当たらなければ「文字のスペースを表示する」
+   (2103, DAT_00a0c790) が切れていれば拾わない、入っていれば ふつうの字の
+   箱へ。逆コンパイルの読み、原典では押していない */
+int jw_pick_pic_text;
+
+static int dist_pic(box_t *b, const jw_obj *o, const jw_pic *p, double px, double py)
+{
+    double x[4], y[4];
+    jw_obj e;
+    int k;
+
+    jw_pic_corners(o, p, x, y);
+    e = *o;
+    e.cls = JW_SEN;
+    for (k = 0; k < 4; k++) {
+        e.d[0] = x[k];
+        e.d[1] = y[k];
+        e.d[2] = x[(k + 1) & 3];
+        e.d[3] = y[(k + 1) & 3];
+        if (dist_sen(b, &e, px, py))
+            return 1;
+    }
+    return 0;
+}
+
 static int dist_moji(box_t *b, const jw_drawing *d, const jw_obj *o,
                      double px, double py)
 {
@@ -249,8 +278,15 @@ static int dist_moji(box_t *b, const jw_drawing *d, const jw_obj *o,
     double len = sqrt(dx * dx + dy * dy), cw = o->d[4], ch = o->d[5];
     double ux, uy, vx, vy;
     jw_obj e;
+    jw_pic pic;
     int k;
 
+    if (jw_pic_parse(d, o, &pic)) {
+        if (dist_pic(b, o, &pic, px, py))
+            return 1;
+        if (!jw_pick_pic_text)
+            return 0;
+    }
     if (ch <= 0.0)
         return 0;
     if (len < 1e-9) {
@@ -503,6 +539,34 @@ int jw_read(const jw_drawing *d, const jw_view *v, double x, double y,
         case JW_TEN:
             offer(&r, o->d[0], o->d[1]);
             break;
+        case JW_MOJI: {
+            /* 画像の四隅。原典の読取点 FUN_00451f30 は 箱に当たった要素
+               （+0x44、画像なら枠の四辺 = dist_pic）を並べ、字なら
+               FUN_0045d390 → FUN_0045d910 が 画像の (0,0)-(w,0) と
+               (0,h)-(w,h) の端、つまり四隅のいちばん近いものを出す。
+               ふつうの字の始点・終点の読取り（同じ関数の後半、画像でも
+               2103 が入っていれば）は移植にまだ無い。逆コンパイルの読み、
+               原典では押していない */
+            jw_pic pic;
+            box_t pb;
+            double t = jw_pick_tol(v), qx[4], qy[4];
+            int k;
+
+            if (!jw_pic_parse(d, o, &pic))
+                break;
+            pb.tol = t;
+            pb.x0 = x - t;
+            pb.x1 = x + t;
+            pb.y0 = y - t;
+            pb.y1 = y + t;
+            pb.d = 0;
+            if (!dist_pic(&pb, o, &pic, x, y))
+                break;
+            jw_pic_corners(o, &pic, qx, qy);
+            for (k = 0; k < 4; k++)
+                offer(&r, qx[k], qy[k]);
+            break;
+        }
         case JW_ENKO:
             if (arc_ends(o, ex, ey)) {
                 offer(&r, ex[0], ey[0]);

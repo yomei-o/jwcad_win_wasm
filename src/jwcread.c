@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "jww.h"
+#include "image.h"
 #include "gen/jwc.h"
 
 #define PI 3.14159265358979323846
@@ -230,8 +231,18 @@ int jw_jwc_read(jw_drawing *d, const unsigned char *b, long n)
 
             while (pool + off + m < n && s[m])
                 m++;
-            if (pool + off + m < n)
-                o->text = jw_add_str(d, s);
+            if (pool + off + m < n) {
+                /* 画像の w・h は JWC の目盛で書いてあるので 用紙幅/518 を掛けて
+                   mm に（原典の JWC 読み FUN_0051be70 が字ごとに FUN_0048f790 で
+                   画像なら doc+0x28 を掛けて FUN_0048f7f0 で書き直す。逆コンパイル
+                   の読み、原典では押していない） */
+                char pb[400];
+
+                if (jw_pic_text_scaled(s, half_w * 2.0 / 518.0, pb, (int)sizeof pb))
+                    o->text = jw_add_str(d, pb);
+                else
+                    o->text = jw_add_str(d, s);
+            }
         }
         at += 24;
     }

@@ -1,0 +1,218 @@
+/* 図面に貼った画像（"^@BM" で始まる字）を ほかの命令がどう扱うか。
+ *
+ * どれも原典の逆コンパイルの読み（原典では押していない）で、ここで確かめる
+ * のは その読みどおりに移植が動くこと:
+ *   拾い      FUN_0048a1e0: 画像は枠の四辺で拾い、字の箱では拾わない
+ *             （「文字のスペースを表示する」2103 が入っていれば箱でも）
+ *   読取点    FUN_00451f30 → FUN_0045d910: 枠が近ければ 四隅を読む
+ *   倍率      FUN_00465f40／FUN_00466e30 → FUN_0048f7f0: w・h を掛け、字の大きさは保つ
+ *   回転      FUN_0046d800 → FUN_0048fb30: 文字列の角度に足す（丸めない）
+ *   JWC       FUN_00521d10・FUN_0051be70: w・h を 用紙幅/518 の目盛で書き、読んで戻す
+ * src/imgpic.c の末尾の注。 */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "../src/image.h"
+#include "../src/jww.h"
+#include "../src/pick.h"
+#include "../src/view.h"
+
+static int fails;
+
+static void ck(int ok, const char *what)
+{
+    printf("%-4s %s\n", ok ? "ok" : "BAD", what);
+    if (!ok)
+        fails++;
+}
+
+static unsigned char *slurp(const char *path, long *n)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned char *b;
+
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    *n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)*n);
+    if (b && fread(b, 1, (size_t)*n, f) != (size_t)*n) {
+        free(b);
+        b = 0;
+    }
+    fclose(f);
+    return b;
+}
+
+static int near(double a, double b)
+{
+    return fabs(a - b) < 1e-6;
+}
+
+/* 字の要素を一つ。始点 (x,y)、字は 2mm、基線は字の長さだけ角 deg の向きへ */
+static int put_text(jw_drawing *d, const char *s, double x, double y, double deg)
+{
+    jw_obj *o = jw_add(d, JW_MOJI);
+    double len = (double)strlen(s) * 2.0 / 2.0, a = deg * 3.14159265358979323846 / 180.0;
+
+    o->d[0] = x;
+    o->d[1] = y;
+    o->d[2] = x + cos(a) * len;
+    o->d[3] = y + sin(a) * len;
+    o->d[4] = 2.0;
+    o->d[5] = 2.0;
+    o->d[6] = 0.0;
+    o->d[7] = deg;
+    o->color = 1;
+    o->ltype = 1;
+    o->face = -1;
+    o->text = jw_add_str(d, s);
+    d->ndrawn = d->nobj;
+    return d->nobj - 1;
+}
+
+static const char *txt(const jw_drawing *d, int i)
+{
+    return jw_str(d, d->obj[i].text);
+}
+
+int main(void)
+{
+    jw_drawing d;
+    jw_view v;
+    long n, wn = 0;
+    unsigned char *b = slurp("orig/Test5.jww", &n), *w = 0;
+    int a, r, k;
+    double rx, ry;
+
+    memset(&d, 0, sizeof d);
+    ck(b && jw_parse(&d, b, n), "Test5 を土台に");
+    while (d.nobj > 0)
+        jw_remove(&d, d.nobj - 1);
+    d.ndrawn = 0;
+    memset(&v, 0, sizeof v);
+    v.scale = 10.0;             /* 拾いの幅 1mm */
+    v.mmpp = 0.1;
+
+    /* ------------------------------------------------ 拾い・読取点 */
+    a = put_text(&d, "^@BMa.bmp,50,40", 10.0, 10.0, 0.0);              /* (10,10)-(60,50) */
+    r = put_text(&d, "^@BMb.bmp,50,40,0,0,1,90,255,255,255", 200.0, 10.0, 90.0);
+    ck(jw_pick(&d, &v, 35.0, 50.4, 0) == a, "画像の上の辺で拾う");
+    ck(jw_pick(&d, &v, 59.6, 30.0, 0) == a, "右の辺でも");
+    ck(jw_pick(&d, &v, 35.0, 30.0, 0) < 0, "枠の中ほどは拾わない");
+    ck(jw_pick(&d, &v, 14.0, 11.6, 0) < 0, "字の箱の縁（画像の枠からは 1.6mm）でも拾わない");
+    jw_pick_pic_text = 1;
+    ck(jw_pick(&d, &v, 14.0, 11.6, 0) == a, "  2103 が入っていれば字の箱でも拾う");
+    jw_pick_pic_text = 0;
+    ck(jw_pick_moji(&d, &v, 35.0, 50.4) == a, "文字を指示する拾いも枠で");
+    ck(jw_pick(&d, &v, 180.0, 60.3, 0) == r, "回した画像（90°）は回った枠で: 上の辺 (200,60)-(160,60)");
+    ck(jw_pick(&d, &v, 230.0, 10.5, 0) < 0, "  回す前の場所では拾わない");
+    ck(jw_read(&d, &v, 60.4, 50.3, &rx, &ry) && near(rx, 60.0) && near(ry, 50.0),
+       "(R) は 画像の右上の隅を読む");
+    ck(jw_read(&d, &v, 9.7, 49.6, &rx, &ry) && near(rx, 10.0) && near(ry, 50.0), "  左上も");
+    ck(jw_read(&d, &v, 160.3, 59.8, &rx, &ry) && near(rx, 160.0) && near(ry, 60.0),
+       "  回した画像の隅");
+    ck(!jw_read(&d, &v, 35.0, 30.0, &rx, &ry), "  枠から遠ければ読まない");
+
+    /* ------------------------------------------------ 倍率・回転 */
+    {
+        jw_obj was = d.obj[a], *o = &d.obj[a];
+
+        jw_obj_xform(o, 0.0, 0.0, 2.0, 0.0, 100.0, 0.0);
+        ck(jw_pic_xform(&d, o, &was, 2.0, 0.0) == 1, "倍率 2");
+        ck(!strcmp(txt(&d, a), "^@BMa.bmp,100,80"), "  w・h が倍、二つの形のまま");
+        ck(near(o->d[0], 120.0) && near(o->d[1], 20.0), "  始点（左下）は基準点まわりに倍");
+        ck(near(o->d[4], 2.0) && near(o->d[5], 2.0), "  字の大きさは保つ");
+        ck(near(o->d[2], 120.0 + 16.0) && near(o->d[3], 20.0), "  終点は 始点＋字の長さ");
+    }
+    {
+        jw_obj was = d.obj[a], *o = &d.obj[a];
+        double c = cos(30.0 * 3.14159265358979323846 / 180.0);
+        double s = sin(30.0 * 3.14159265358979323846 / 180.0);
+
+        jw_obj_xform(o, 120.0, 20.0, 1.0, 30.0 * 3.14159265358979323846 / 180.0, 0.0, 0.0);
+        jw_pic_xform(&d, o, &was, 1.0, 30.0 * 3.14159265358979323846 / 180.0);
+        ck(!strcmp(txt(&d, a), "^@BMa.bmp,100,80,0,0,1,30,255,255,255"),
+           "回転 30°: 九つの形になり 角度が 30");
+        ck(near(o->d[7], 30.0), "  字の角度も 30");
+        ck(near(o->d[2], 120.0 + c * 37.0) && near(o->d[3], 20.0 + s * 37.0),
+           "  基線は 30° の向きへ字の長さだけ");
+    }
+    {
+        int t = put_text(&d, "^@BMc.bmp,50,40,0,0,1,350,255,255,255", 0.0, 0.0, 350.0);
+        jw_obj was = d.obj[t], *o = &d.obj[t];
+
+        jw_obj_xform(o, 0.0, 0.0, 1.0, 20.0 * 3.14159265358979323846 / 180.0, 0.0, 0.0);
+        jw_pic_xform(&d, o, &was, 1.0, 20.0 * 3.14159265358979323846 / 180.0);
+        ck(!strcmp(txt(&d, t), "^@BMc.bmp,50,40,0,0,1,370,255,255,255"),
+           "350° に 20°: 文字列の角度は丸めず 370");
+        ck(near(o->d[7], 10.0), "  字の角度は (-180,180] へ 10");
+
+        was = d.obj[t];
+        jw_obj_xform(o, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0);
+        jw_pic_xform(&d, o, &was, -1.0, 0.0);
+        ck(!strcmp(txt(&d, t), "^@BMc.bmp,50,40,0,0,1,370,255,255,255"),
+           "倍率 -1: w・h が 0.001 未満になるので書き直さない");
+
+        was = d.obj[t];
+        jw_obj_xform(o, 0.0, 0.0, 1.0, 0.0, 5.0, 5.0);
+        ck(jw_pic_xform(&d, o, &was, 1.0, 0.0) == 1 && near(o->d[0], was.d[0] + 5.0)
+           && near(o->d[2], was.d[2] + 5.0) && !strcmp(txt(&d, t), txt(&d, t)),
+           "ずらすだけなら字はそのまま");
+    }
+    {
+        int t = put_text(&d, "ふつうの字", 0.0, 0.0, 0.0);
+        jw_obj was = d.obj[t];
+
+        jw_obj_xform(&d.obj[t], 0.0, 0.0, 2.0, 0.0, 0.0, 0.0);
+        ck(jw_pic_xform(&d, &d.obj[t], &was, 2.0, 0.0) == 0 && near(d.obj[t].d[4], 4.0),
+           "画像でない字は jw_obj_xform のまま");
+    }
+
+    /* ------------------------------------------------ JWC */
+    {
+        jw_drawing e;
+        double unit = 518.0 / (d.paper_hw * 2.0);
+        char want[64];
+        int found = 0;
+
+        while (d.nobj > 0)
+            jw_remove(&d, d.nobj - 1);
+        d.ndrawn = 0;
+        put_text(&d, "^@BMa.bmp,50,40,0,0,1,0,255,255,255", 10.0, 10.0, 0.0);
+        ck(jw_jwc_write(&d, &w, &wn) && w, "JWC に書く");
+        snprintf(want, sizeof want, "^@BMa.bmp,%g,%g,0,0,1,0,255,255,255", 50.0 * unit, 40.0 * unit);
+        for (k = 0; w && k + (long)strlen(want) <= wn; k++)
+            if (!memcmp(w + k, want, strlen(want) + 1))
+                found = 1;
+        ck(found, "  w・h は 用紙幅/518 の目盛で");
+        memset(&e, 0, sizeof e);
+        ck(jw_parse(&e, b, n), "  読む先");
+        while (e.nobj > 0)
+            jw_remove(&e, e.nobj - 1);
+        e.ndrawn = 0;
+        ck(jw_jwc_read(&e, w, wn), "  JWC を読む");
+        found = 0;
+        for (k = 0; k < e.nobj; k++) {
+            jw_pic p;
+
+            /* %g の六桁で行って帰るので 39.9999 のように端が欠ける（原典も
+               同じ書式で書いて読む） */
+            if (e.obj[k].cls == JW_MOJI && jw_pic_parse(&e, &e.obj[k], &p) && p.nfield == 9
+                && !strcmp(p.name, "a.bmp") && fabs(p.w - 50.0) < 1e-3 && fabs(p.h - 40.0) < 1e-3)
+                found = 1;
+        }
+        ck(found, "  読めば mm に戻る（六桁のうちで）");
+        for (k = 0; !found && k < e.nobj; k++)
+            if (e.obj[k].cls == JW_MOJI)
+                printf("     read back: %s\n", txt(&e, k));
+    }
+
+    free(w);
+    free(b);
+    printf("%s\n", fails ? "FAIL" : "all ok");
+    return fails != 0;
+}

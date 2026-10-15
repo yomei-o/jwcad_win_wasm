@@ -16962,6 +16962,8 @@ static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
             fk_xform_xy(&d->obj[at], base_x, base_y, sx, sy, ang, dx, dy);
+            /* 画像は w・h と角度も（src/imgpic.c の jw_pic_xform、倍率は X・Y の大きい方） */
+            jw_pic_xform(d, &d->obj[at], &sel_was[i], sx > sy ? sx : sy, ang);
             za_apply(d, &d->obj[at]);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
@@ -16982,6 +16984,8 @@ static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
             at = (int)(p - d->obj);
             *p = sel_was[i];
             fk_xform_xy(p, base_x, base_y, sx, sy, ang, dx, dy);
+            /* 画像は w・h と角度も（src/imgpic.c の jw_pic_xform、倍率は X・Y の大きい方） */
+            jw_pic_xform(d, p, &sel_was[i], sx > sy ? sx : sy, ang);
             za_apply(d, p);
             /* a copy is not itself selected: in the original the new
                elements come out in their own colours while the ones that
