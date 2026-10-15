@@ -104,6 +104,198 @@ static int two_points(const char *s, double *x0, double *y0,
         && sscanf(m + 3, "%lf %lf", x1, y1) == 2;
 }
 
+/* the first line of a PDF, in millimetres from the page's middle */
+static int pdf_line(const jw_drawing *d, const jw_plot_frame *f, double mm2pt,
+                    double *x0, double *y0, double *x1, double *y1)
+{
+    double wide, tall;
+    long n = 0;
+    unsigned char *b = jw_plot_pdf_at(d, f, &n);
+    char *t;
+    int ok;
+
+    if (!b)
+        return 0;
+    t = (char *)malloc((size_t)n + 1);
+    memcpy(t, b, (size_t)n);
+    t[n] = 0;
+    ok = two_points(t, x0, y0, x1, y1);
+    free(t);
+    free(b);
+    jw_plot_paper(d, &wide, &tall);
+    *x0 = *x0 / mm2pt - wide / 2.0;
+    *x1 = *x1 / mm2pt - wide / 2.0;
+    *y0 = *y0 / mm2pt - tall / 2.0;
+    *y1 = *y1 / mm2pt - tall / 2.0;
+    return ok;
+}
+
+static void frame_is(jw_drawing *d, double x0, double y0, double x1, double y1,
+                     const char *what)
+{
+    jw_obj o[JW_CMD_MAXFIG];
+    int n = jw_cmd_pending(d, o, JW_CMD_MAXFIG);
+    char buf[160];
+
+    ck(n == 4, what);
+    if (n != 4)
+        return;
+    snprintf(buf, sizeof buf, "  枠 (%.0f,%.0f)-(%.0f,%.0f)", x0, y0, x1, y1);
+    ck(fabs(o[0].d[0] - x0) < 1e-9 && fabs(o[0].d[1] - y0) < 1e-9
+       && fabs(o[0].d[2] - x1) < 1e-9 && fabs(o[1].d[3] - y1) < 1e-9
+       && fabs(o[3].d[2] - x0) < 1e-9 && fabs(o[3].d[3] - y0) < 1e-9, buf);
+    if (!(fabs(o[0].d[0] - x0) < 1e-9 && fabs(o[1].d[3] - y1) < 1e-9))
+        printf("     (%.3f,%.3f)-(%.3f,%.3f)\n", o[0].d[0], o[0].d[1],
+               o[0].d[2], o[1].d[3]);
+}
+
+/* 印刷の命令（印刷範囲を設定 0x8053、CZukeiPrintHanni）。逆コンパイルの読み
+   （src/plot.h の注）どおりに動くか。原典では押していない */
+static void print_command(double mm2pt)
+{
+    const double DOT = 25.4 / 600.0;
+    jw_drawing *d;
+    jw_plot_frame f;
+    double x0, y0, x1, y1;
+    int n0;
+
+    jw_pr_reset();
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        o->color = 2;
+        o->ltype = 1;
+        o->d[0] = 10.0;
+        o->d[1] = 0.0;
+        o->d[2] = 20.0;
+        o->d[3] = 0.0;
+    }
+
+    /* 刷り方: 枠の中心が紙の中心、倍率、回転は ９０° で −π/2 */
+    memset(&f, 0, sizeof f);
+    f.cx = 10.0;
+    f.scale = 2.0;
+    ck(pdf_line(d, &f, mm2pt, &x0, &y0, &x1, &y1), "印刷: 枠の中心 (10,0)・倍率 2 で刷れる");
+    cknear(x0, 0.0, DOT, "  線の始まりは紙の中心");
+    cknear(x1, 20.0, DOT, "  長さは倍率 2 で 20");
+    cknear(y1, 0.0, DOT, "  y はそのまま");
+    f.rot = 1;
+    ck(pdf_line(d, &f, mm2pt, &x0, &y0, &x1, &y1), "印刷: ９０°回転");
+    cknear(x1, 0.0, DOT, "  ９０° は −π/2 回す: 右向きの線が下向きに（x）");
+    cknear(y1, -20.0, DOT, "  （y）");
+    f.rot = 2;
+    ck(pdf_line(d, &f, mm2pt, &x0, &y0, &x1, &y1), "印刷: －９０°回転");
+    cknear(y1, 20.0, DOT, "  －９０° は +π/2: 上向きに");
+    f.rot = 0;
+    f.scale = 1.0;
+    f.cx = 0.0;
+    ck(pdf_line(d, &f, mm2pt, &x0, &y0, &x1, &y1) && fabs(x0 - 10.0) <= DOT,
+       "印刷: 素の枠は今までどおり用紙そのまま");
+
+    /* 命令に入る */
+    app_command(57607);
+    ck(jw_cmd() == JW_PRINT_CMD, "印刷 (57607) で 印刷範囲を設定 (0x8053) に入る");
+    ck(strcmp(jw_cmd_prompt(),
+              "\x88\xf3\x8d\xfc\x94\xcd\x88\xcd\x82\xf0\x8am\x94" "F\x82\xb5\x82\xc4"
+              "\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B(L)\x88\xf3\x8d\xfc (R)\x95\xcf\x8dX") == 0,
+       "  「印刷範囲を確認してください。(L)印刷 (R)変更」（5334）");
+    ck(app_take_action() == JW_ACT_NONE, "  入っただけでは刷らない");
+    /* A-2 は 594 x 420: 半分は 297 と 210 */
+    frame_is(d, -297, -210, 297, 210, "  枠は用紙（倍率 100%）");
+    ck(jw_cmd_box(1411) && jw_pr_scale_of(jw_cmd_box(1411)) == 1.0,
+       "  倍率の箱は 100% (A4→A4,A3→A3)");
+    ck(strcmp(jw_cmd_bar_label(1066), "\x8d\xb6\x81" "E\x89\xba") == 0,
+       "  基準点は 左・下");
+    ck(strcmp(jw_cmd_bar_label(1070), "\x89\xf1\x93] \x81@\x82O\x81\x8b") == 0,
+       "  回転は「回転 　０°」");
+    ck(jw_cmd_bar_enabled(d, 1067) == 0 && jw_cmd_bar_enabled(d, 1069) == 0
+       && jw_cmd_bar_enabled(d, 1065) != 0,
+       "  プリンタの設定・出力方法設定 は押せない（窓が無い）、印刷 (L) は押せる");
+
+    /* 回転 */
+    jw_cmd_bar(d, 1070);
+    ck(strcmp(jw_cmd_bar_label(1070), "\x82X\x82O\x81\x8b\x89\xf1\x93]") == 0,
+       "回転: 押すと「９０°回転」");
+    frame_is(d, -210, -297, 210, 297, "  枠の縦横が入れ替わる");
+    jw_cmd_bar(d, 1070);
+    ck(strcmp(jw_cmd_bar_label(1070), "\x81|\x82X\x82O\x81\x8b\x89\xf1\x93]") == 0,
+       "  もう一度で「－９０°回転」");
+    jw_cmd_bar(d, 1070);
+    ck(strcmp(jw_cmd_bar_label(1070), "\x89\xf1\x93] \x81@\x82O\x81\x8b") == 0,
+       "  三度目で ０° に戻る");
+
+    /* 倍率 */
+    jw_cmd_box_put(1411, " 50% (A2\x81\xa8" "A4,A1\x81\xa8" "A3)");
+    frame_is(d, -594, -420, 594, 420, "倍率 50%: 枠は倍の大きさ");
+    jw_cmd_box_put(1411, "141% (A4\x81\xa8" "A3,A3\x81\xa8" "A2)");
+    /* (int)(297 / 1.41421356) = 210, (int)(210 / 1.41421356) = 148 */
+    frame_is(d, -210, -148, 210, 148, "倍率 141%: 半分は 297/√2・210/√2 を整数に切ったもの");
+    jw_cmd_box_put(1411, "30");
+    jw_pr_settings(&f);
+    cknear(f.scale, 0.3, 1e-12, "打ち込んだ数は % の任意倍率");
+    jw_cmd_box_put(1411, "100% (A4\x81\xa8" "A4,A3\x81\xa8" "A3)");
+
+    /* (R) 変更 → 枠がマウスに付く → (L) で決める */
+    jw_cmd_point(d, 0, 5.0, 5.0, 1);
+    ck(jw_pr_stage() == 1
+       && strcmp(jw_cmd_prompt(),
+                 "\x88\xf3\x8d\xfc\x94\xcd\x88\xcd\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4"
+                 "\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B(L)free (R)Read") == 0,
+       "(R) で「印刷範囲を指示してください。(L)free (R)Read」（5335）");
+    frame_is(d, -297, -210, 297, 210, "  枠はマウスが動くまでそのまま");
+    jw_cmd_track(100.0, 50.0);
+    frame_is(d, 100, 50, 694, 470, "  左・下 がマウスに付いて動く");
+    jw_cmd_bar(d, 1066);
+    ck(strcmp(jw_cmd_bar_label(1066), "\x92\x86\x81" "E\x89\xba") == 0,
+       "  基準点を押すと 中・下");
+    frame_is(d, -197, 50, 397, 470, "  中・下 がマウスに付く");
+    jw_cmd_point(d, 0, 100.0, 50.0, 0);
+    ck(jw_pr_stage() == 0, "  (L) で決まって 確認 に戻る");
+    ck(app_take_action() == JW_ACT_NONE, "  決めるだけでは刷らない");
+    frame_is(d, -197, 50, 397, 470, "  枠はそこに止まる");
+    jw_pr_settings(&f);
+    cknear(f.cx, 100.0, 1e-9, "  中心 x");
+    cknear(f.cy, 260.0, 1e-9, "  中心 y");
+
+    /* 戻る・Esc は 指示 から 確認 へ */
+    jw_cmd_bar(d, 1064);
+    ck(jw_pr_stage() == 1, "範囲変更 (R) (1064) で 指示 へ");
+    ck(jw_cmd_back(d) == 1 && jw_pr_stage() == 0, "  戻る で 確認 へ（枠は動かない）");
+    frame_is(d, -197, 50, 397, 470, "  枠はもとのまま");
+
+    /* 枠書込 */
+    n0 = d->ndrawn;
+    jw_cmd_bar(d, 1068);
+    ck(d->ndrawn == n0 + 4, "枠書込 (1068) で 四本の線が図面に");
+    if (d->ndrawn == n0 + 4)
+        ck(d->obj[n0].cls == JW_SEN && fabs(d->obj[n0].d[0] + 197.0) < 1e-9
+           && fabs(d->obj[n0 + 2].d[1] - 470.0) < 1e-9,
+           "  枠の線（左下から 右下・右上・左上）");
+    jw_cmd_undo(d);
+    ck(d->ndrawn == n0, "  戻るで消える");
+
+    /* カラー印刷 と 刷る */
+    jw_cmd_bar(d, 1343);
+    ck(jw_cmd_bar_check(1343) > 0, "カラー印刷 (1343) が入る");
+    jw_cmd_point(d, 0, 0.0, 0.0, 0);
+    ck(app_take_action() == JW_ACT_PLOT, "確認 で (L) すると 刷る");
+    ck(app_take_action() == JW_ACT_NONE, "  一度だけ");
+    jw_pr_settings(&f);
+    ck(f.colour == 1 && f.rot == 0 && f.scale == 1.0, "  刷る設定にカラー印刷");
+    jw_cmd_bar(d, 1065);
+    ck(app_take_action() == JW_ACT_PLOT, "印刷 (L) (1065) でも刷る");
+    jw_cmd_bar(d, 1064);
+    jw_cmd_bar(d, 1065);
+    ck(app_take_action() == JW_ACT_NONE, "  指示 の段では 1065 は刷らない（slot 26）");
+    jw_cmd_escape();
+    ck(jw_pr_stage() == 0, "  Esc で 確認 へ");
+    jw_cmd_bar(d, 1343);
+    jw_cmd_set(JW_CMD_SEN);
+    jw_pr_reset();
+}
+
 int main(int argc, char **argv)
 {
     const double u2mm = 25.4 / 96.0;    /* the original's device units */
@@ -484,6 +676,7 @@ int main(int argc, char **argv)
            "線種のついた 1e9 mm の線八本も、PDF はすぐ書ける（用紙の上の破線だけ）");
         free(pdf);
     }
+    print_command(mm2pt);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

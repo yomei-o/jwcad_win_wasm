@@ -16,6 +16,7 @@
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
+#include "plot.h"               /* 印刷の命令 (JW_PRINT_CMD) */
 #include "gen/prompts.h"
 #include "gen/sunpo.h"
 
@@ -854,6 +855,7 @@ static struct { int obj, has_sa; double x, y; nisen_env_t sa; } nisen_hist[NISEN
 /* The ids are not unique: 1411 is the first combo of nearly every bar, so
    a box belongs to a command as well as to an id. */
 static struct { unsigned short cmd, id; char t[64]; } box[] = {
+    { JW_PRINT_CMD, 1411, "100% (A4\x81\xa8" "A4,A3\x81\xa8" "A3)" },   /* 印刷の倍率（DLGINIT 291 の三つ目） */
     { JW_CMD_25D, 1491, "10 , 0" },     /* 高さ , 奥行 */
     { JW_CMD_HIKAGE, 1491, "10" },      /* 高さ(m) */
     { JW_CMD_HIKAGE, 1492, "4" },       /* 測定高 */
@@ -1368,6 +1370,39 @@ static void op_push(int n)
 }
 
 #define PI 3.14159265358979323846
+
+/* 印刷の命令の枠: 四本の線（src/plot.c の jw_pr_frame）。左下から 右下・右上・左上。
+   色 1・線種 1 は slot 8 が +0x28 に入れる値、置き場は書込みレイヤ */
+static int pr_pending(jw_drawing *d, jw_obj *o, int max)
+{
+    double x0, y0, x1, y1, p[5][2];
+    int i, g, wg = 0;
+
+    if (!d || max < 4 || !jw_pr_frame(d, &x0, &y0, &x1, &y1))
+        return 0;
+    for (g = 0; g < 16; g++)
+        if (d->group[g].state == 3)
+            wg = g;
+    p[0][0] = x0; p[0][1] = y0;
+    p[1][0] = x1; p[1][1] = y0;
+    p[2][0] = x1; p[2][1] = y1;
+    p[3][0] = x0; p[3][1] = y1;
+    p[4][0] = x0; p[4][1] = y0;
+    for (i = 0; i < 4; i++) {
+        memset(&o[i], 0, sizeof o[i]);
+        o[i].text = o[i].face = -1;
+        o[i].cls = JW_SEN;
+        o[i].ltype = 1;
+        o[i].color = 1;
+        o[i].layer = (unsigned short)(d->group[wg].write_layer & 15);
+        o[i].lgroup = (unsigned short)wg;
+        o[i].d[0] = p[i][0];
+        o[i].d[1] = p[i][1];
+        o[i].d[2] = p[i + 1][0];
+        o[i].d[3] = p[i + 1][1];
+    }
+    return 4;
+}
 
 /* 画像編集 (see the block at the end of this file) */
 static void gz_reset(void);
@@ -3674,6 +3709,8 @@ void jw_cmd_set(int id)
         zh_type = zh_layer = 1;
     if (id == JW_CMD_GAZOU)
         gz_reset();
+    if (id == JW_PRINT_CMD)
+        jw_pr_enter();          /* 印刷の命令: 段 0 から（src/plot.c） */
     sel_flip = sel_base_wait = sel_dir = 0;
     sel_base_pick = sel_base_set = 0;
     if (id == JW_CMD_HATCH) {
@@ -3704,6 +3741,8 @@ void jw_cmd_escape(void)
 {
     if (current == JW_CMD_GAZOU)
         gz_reset();
+    if (current == JW_PRINT_CMD)
+        jw_pr_back();
     step = 0;
     en_step = 0;
     tk_step = 0;
@@ -4055,6 +4094,8 @@ int jw_cmd_midway(void)
  * have). */
 int jw_cmd_back(jw_drawing *d)
 {
+    if (current == JW_PRINT_CMD && jw_pr_back())
+        return 1;               /* 印刷の命令の slot 16: 段 1 → 0 */
     if (current == JW_CMD_KIGOU && sk_step == 4) {
         sk_step = 0;            /* 文字入力をやめる（置いたぶんはそのまま） */
         sk_run.active = 0;
@@ -5184,6 +5225,8 @@ const char *jw_cmd_prompt(void)
     }
     case JW_CMD_GAZOU:
         return jw_cmd_gazou_prompt();
+    case JW_PRINT_CMD:
+        return jw_pr_prompt();
     case JW_CMD_ENKO:
         /* CZukeiEnko asks for the centre first and then a point the circle
            goes through.  It leads with 円位置 instead only when a radius has
@@ -5205,6 +5248,8 @@ void jw_cmd_track(double x, double y)
     tx = x;
     ty = y;
     tracking = 1;
+    if (current == JW_PRINT_CMD)
+        jw_pr_track(x, y);
 }
 
 static void blank(jw_obj *o)
@@ -5855,6 +5900,8 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 
     if (current == JW_CMD_GAZOU)
         return gz_pending(d, o, max);
+    if (current == JW_PRINT_CMD)
+        return pr_pending(d, o, max);
 
     if (current == JW_CMD_AUTO && step > 0) {       /* 引きかけの線 */
         current = JW_CMD_SEN;
@@ -14756,6 +14803,8 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
 {
     if (current == JW_CMD_GAZOU)
         return jw_cmd_gazou_enabled(id);
+    if (current == JW_PRINT_CMD)
+        return jw_pr_enabled(id);
     if (current == JW_CMD_MOJI && ms_text) {
         /* texts picked: 貼付 and 文書 appear, 文読 gives way */
         if (id == 1065 || id == 1070)
@@ -15617,6 +15666,14 @@ int jw_cmd_bar(jw_drawing *d, int id)
     }
 
     if (current == JW_CMD_GAZOU && gz_bar(d, id))
+        return 1;
+    if (current == JW_PRINT_CMD && id == 1068) {
+        int made = jw_pr_write_frame(d);     /* 枠書込 */
+
+        op_push(made);
+        return made > 0;
+    }
+    if (current == JW_PRINT_CMD && jw_pr_bar(d, id))
         return 1;
     if (bar_press(d, id))
         return 1;
@@ -16600,6 +16657,8 @@ static void tg_place(jw_drawing *d, double x, double y)
 /* 建具立面の 基準点の釦の字: 押すたびに 左内法→中→右内法、下内法→中→上内法 */
 const char *jw_cmd_bar_label(int id)
 {
+    if (current == JW_PRINT_CMD)
+        return jw_pr_label(id);     /* 基準点・回転 */
     if (id == 2503 && current == JW_CMD_KIGOU && sk_step == 4) {
         const jw_senkigou *sg = jw_sk_load(sk_cat);
 
@@ -20787,6 +20846,15 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     }
     if (current == JW_CMD_GAZOU) {
         gz_point(d, v, x, y, button);
+        return;
+    }
+    if (current == JW_PRINT_CMD) {
+        /* 印刷の命令: (R) は段 1 なら読取点（slot 11 の FUN_00451eb0） */
+        double rx = x, ry = y;
+        int got = button == 1 && d && v && jw_pr_stage() == 1
+                  && jw_read(d, v, x, y, &rx, &ry);
+
+        jw_pr_click(d, x, y, button, got, rx, ry);
         return;
     }
     if (current == JW_CMD_HIKAGE && hk_wall_step && d) {

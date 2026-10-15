@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cmd.h"
 #include "draw.h"
 #include "fb.h"
 #include "png.h"
@@ -770,4 +771,438 @@ unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
     png = png_encode(rgb, w, h, len);
     free(rgb);
     return png;
+}
+
+/* ------------------------------------------------------------ 印刷の命令 --
+ * 印刷範囲を設定 (0x8053、CZukeiPrintHanni)。何を読んだかは src/plot.h の注。
+ * 逆コンパイルの読み、原典では押していない。
+ */
+
+static double pr_cx, pr_cy;     /* doc +0x3038 / +0x3040: 枠の中心 */
+static double pr_sc = 1.0;      /* doc +0x3028: 倍率（作り手が 1.0） */
+static int pr_rot;              /* doc +0x3030: 0 ０°・1 ９０°・2 −９０° */
+static int pr_base;             /* doc +0x3048: 基準点 0..8（素は 0 = 左・下） */
+static int pr_stage;            /* doc +0x8560 */
+static double pr_mx, pr_my;     /* doc +0x8f78: マウス */
+static int pr_colour;           /* カラー印刷 (1343) → doc +0x8288 */
+static int pr_want_;
+
+void jw_pr_reset(void)
+{
+    pr_cx = pr_cy = 0.0;
+    pr_sc = 1.0;
+    pr_rot = pr_base = pr_stage = 0;
+    pr_mx = pr_my = 0.0;
+    pr_colour = pr_want_ = 0;
+}
+
+/* 倍率の箱（1411）の字。DLGINIT 291 の七つの札は FUN_005adde0 が突き合わせる
+   値そのもの、任意倍率 は 印刷倍率入力 の窓（DIALOG 343「印刷倍率（%）を
+   入力してください。」）と同じく % の数。移植の箱は打ち込みなので、札でない
+   数はその % として読む（71 は 0.71 で、札の 1/√2 ではない） */
+static const char *const PR_ITEM[7] = {
+    "200% (A4\x81\xa8" "A2,A3\x81\xa8" "A1)",
+    "141% (A4\x81\xa8" "A3,A3\x81\xa8" "A2)",
+    "100% (A4\x81\xa8" "A4,A3\x81\xa8" "A3)",
+    " 71% (A3\x81\xa8" "A4,A2\x81\xa8" "A3)",
+    " 50% (A2\x81\xa8" "A4,A1\x81\xa8" "A3)",
+    " 35% (A0\x81\xa8" "A3,A1\x81\xa8" "A4)",
+    " 25% (A0\x81\xa8" "A4,A1\x81\xa8" "A5)"
+};
+static const double PR_SCALE[7] = {
+    2.0, 1.41421356, 1.0, 0.707106782373095, 0.5, 0.3535533911865475, 0.25
+};
+
+double jw_pr_scale_of(const char *t)
+{
+    char *end;
+    double v;
+    int i;
+
+    if (!t)
+        return 0.0;
+    for (i = 0; i < 7; i++)
+        if (strcmp(t, PR_ITEM[i]) == 0)
+            return PR_SCALE[i];
+    while (*t == ' ')
+        t++;
+    v = strtod(t, &end);
+    if (end == t || !(v > 0.0) || v != v)
+        return 0.0;
+    while (*end == ' ' || *end == '%')
+        end++;
+    if (*end)
+        return 0.0;             /* 札の残りなど、数でないもの */
+    v /= 100.0;
+    if (v < 0.001)
+        v = 0.001;
+    if (v > 1000.0)
+        v = 1000.0;
+    return v;
+}
+
+/* バーから 倍率 と カラー印刷 を拾う（命令に入っているときだけ。出たあとは
+   最後に拾ったまま、原典の doc +0x3028・+0x8288 と同じく残る） */
+static void pr_sync(void)
+{
+    const char *t;
+    double s;
+
+    if (jw_cmd() != JW_PRINT_CMD)
+        return;
+    t = jw_cmd_box(1411);
+    if (t && (s = jw_pr_scale_of(t)) > 0.0)
+        pr_sc = s;
+    pr_colour = jw_cmd_bar_check(1343) > 0;
+}
+
+/* 枠の半分（slot 8 FUN_006d2cb0）: 紙の mm の整数を 2 で整数割りしてから
+   倍率で割り、整数に切る。回転していれば縦横を入れ替える */
+static void pr_half(const jw_drawing *d, double *hw, double *hh)
+{
+    double w, h, a, b;
+    int iw, ih;
+
+    jw_plot_paper(d, &w, &h);
+    iw = (int)w;                        /* HORZSIZE / VERTSIZE は mm の整数 */
+    ih = (int)h;
+    a = (double)(long)((double)(iw / 2) / pr_sc);
+    b = (double)(long)((double)(ih / 2) / pr_sc);
+    if (pr_rot) {
+        *hw = b;
+        *hh = a;
+    } else {
+        *hw = a;
+        *hh = b;
+    }
+}
+
+/* 枠の中心から基準点まで（+0xeb8 / +0xec0） */
+static void pr_ref(double hw, double hh, double *ox, double *oy)
+{
+    int c = pr_base % 3, r = pr_base / 3;
+
+    *ox = c == 0 ? -hw : c == 1 ? 0.0 : hw;
+    *oy = r == 0 ? -hh : r == 1 ? 0.0 : hh;
+}
+
+void jw_pr_enter(void)
+{
+    pr_stage = 0;                       /* 作り手 FUN_006d09d0: +0x8560 = 0 */
+    pr_want_ = 0;
+    pr_sync();
+}
+
+int jw_pr_stage(void)
+{
+    return pr_stage;
+}
+
+int jw_pr_frame(const jw_drawing *d, double *x0, double *y0,
+                double *x1, double *y1)
+{
+    double hw, hh, ox, oy, cx, cy;
+
+    pr_sync();
+    pr_half(d, &hw, &hh);
+    pr_ref(hw, hh, &ox, &oy);
+    if (pr_stage == 0) {
+        cx = pr_cx;
+        cy = pr_cy;
+    } else {
+        cx = pr_mx - ox;
+        cy = pr_my - oy;
+    }
+    *x0 = cx - hw;
+    *y0 = cy - hh;
+    *x1 = cx + hw;
+    *y1 = cy + hh;
+    return 1;
+}
+
+/* 段 0 の (R)・範囲変更: 枠の基準点にマウスを置いて段 1 へ（slot 11 は
+   FUN_004fd520 でカーソルをそこへ動かす。移植はカーソルを動かせないので、
+   次にマウスが動くまで枠はそこに止まる） */
+static void pr_change(const jw_drawing *d)
+{
+    double hw, hh, ox, oy;
+
+    pr_half(d, &hw, &hh);
+    pr_ref(hw, hh, &ox, &oy);
+    pr_mx = pr_cx + ox;
+    pr_my = pr_cy + oy;
+    pr_stage = 1;
+}
+
+/* 段 1 の (L)・(R): その点を基準点にして中心を決める（slot 9） */
+static void pr_place(const jw_drawing *d, double x, double y)
+{
+    double hw, hh, ox, oy;
+
+    pr_half(d, &hw, &hh);
+    pr_ref(hw, hh, &ox, &oy);
+    pr_cx = x - ox;
+    pr_cy = y - oy;
+    pr_mx = x;
+    pr_my = y;
+    pr_stage = 0;
+}
+
+int jw_pr_click(const jw_drawing *d, double x, double y, int button,
+                int read_ok, double rx, double ry)
+{
+    pr_sync();
+    if (pr_stage == 0) {
+        if (button == 0) {              /* (L)印刷 */
+            pr_want_ = 1;
+            return 1;
+        }
+        if (button == 1)                /* (R)変更 */
+            pr_change(d);
+        return 0;
+    }
+    if (button == 0)                    /* (L)free */
+        pr_place(d, x, y);
+    else if (button == 1 && read_ok)    /* (R)Read */
+        pr_place(d, rx, ry);
+    return 0;
+}
+
+void jw_pr_track(double x, double y)
+{
+    pr_mx = x;
+    pr_my = y;
+}
+
+int jw_pr_bar(const jw_drawing *d, int id)
+{
+    pr_sync();
+    switch (id) {
+    case 1065:                          /* 印刷 (L): slot 26 は段 0 でだけ刷る */
+        if (pr_stage == 0)
+            pr_want_ = 1;
+        return 1;
+    case 1064:                          /* 範囲変更 (R): slot 25 */
+        pr_stage = 0;
+        pr_change(d);
+        return 1;
+    case 1066:                          /* 基準点: FUN_00550280 */
+        pr_base = pr_base + 1 > 8 ? 0 : pr_base + 1;
+        return 1;
+    case 1070:                          /* 回転: slot 31 */
+        pr_rot = pr_rot + 1 > 2 ? 0 : pr_rot + 1;
+        return 1;
+    case 1067:                          /* プリンタの設定・出力方法設定: 窓が無い */
+    case 1069:
+        return 1;
+    }
+    return 0;
+}
+
+int jw_pr_enabled(int id)
+{
+    return id != 1067 && id != 1069;
+}
+
+const char *jw_pr_label(int id)
+{
+    static const char *const BASE[9] = {
+        "\x8d\xb6\x81" "E\x89\xba", "\x92\x86\x81" "E\x89\xba",
+        "\x89" "E\x81" "E\x89\xba", "\x8d\xb6\x81" "E\x92\x86",
+        "\x92\x86\x81" "E\x92\x86", "\x89" "E\x81" "E\x92\x86",
+        "\x8d\xb6\x81" "E\x8f\xe3", "\x92\x86\x81" "E\x8f\xe3",
+        "\x89" "E\x81" "E\x8f\xe3"
+    };
+    static const char *const ROT[3] = {
+        "\x89\xf1\x93] \x81@\x82O\x81\x8b",         /* 回転 　０° */
+        "\x82X\x82O\x81\x8b\x89\xf1\x93]",          /* ９０°回転 */
+        "\x81|\x82X\x82O\x81\x8b\x89\xf1\x93]"      /* －９０°回転 */
+    };
+
+    if (id == 1066)
+        return BASE[pr_base];
+    if (id == 1070)
+        return ROT[pr_rot];
+    return 0;
+}
+
+const char *jw_pr_prompt(void)
+{
+    return pr_stage == 0
+        /* 5334 印刷範囲を確認してください。(L)印刷 (R)変更 */
+        ? "\x88\xf3\x8d\xfc\x94\xcd\x88\xcd\x82\xf0\x8am\x94" "F\x82\xb5\x82\xc4"
+          "\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B(L)\x88\xf3\x8d\xfc (R)\x95\xcf\x8dX"
+        /* 5335 印刷範囲を指示してください。(L)free (R)Read */
+        : "\x88\xf3\x8d\xfc\x94\xcd\x88\xcd\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4"
+          "\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81" "B(L)free (R)Read";
+}
+
+int jw_pr_back(void)
+{
+    if (pr_stage == 0)
+        return 0;
+    pr_stage = 0;                       /* slot 16: +0x8560 = 0 */
+    return 1;
+}
+
+/* 枠書込 (slot 29 FUN_006d2560): 枠の四本を 書込みの線で図面に */
+int jw_pr_write_frame(jw_drawing *d)
+{
+    double x0, y0, x1, y1, p[5][2];
+    int i, made = 0;
+
+    if (!d)
+        return 0;
+    jw_pr_frame(d, &x0, &y0, &x1, &y1);
+    p[0][0] = x0; p[0][1] = y0;
+    p[1][0] = x1; p[1][1] = y0;
+    p[2][0] = x1; p[2][1] = y1;
+    p[3][0] = x0; p[3][1] = y1;
+    p[4][0] = x0; p[4][1] = y0;
+    for (i = 0; i < 4; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        if (!o)
+            break;
+        o->d[0] = p[i][0];
+        o->d[1] = p[i][1];
+        o->d[2] = p[i + 1][0];
+        o->d[3] = p[i + 1][1];
+        made++;
+    }
+    return made;
+}
+
+int jw_pr_want(void)
+{
+    int w = pr_want_;
+
+    pr_want_ = 0;
+    return w;
+}
+
+void jw_pr_settings(jw_plot_frame *f)
+{
+    pr_sync();
+    f->cx = pr_cx;
+    f->cy = pr_cy;
+    f->scale = pr_sc;
+    f->rot = pr_rot;
+    f->colour = pr_colour;
+}
+
+/* 紙の上の位置: 枠の中心を原点に、回して（９０° は −π/2）倍率を掛ける。
+   cos・sin は 0 と ±1 をそのまま使う（cos(π/2) の 6e-17 を入れない） */
+static void pr_pt(const jw_plot_frame *f, double *x, double *y)
+{
+    double u = (*x - f->cx) * f->scale, v = (*y - f->cy) * f->scale;
+
+    if (f->rot == 1) {                  /* −π/2 */
+        *x = v;
+        *y = -u;
+    } else if (f->rot == 2) {           /* +π/2 */
+        *x = -v;
+        *y = u;
+    } else {
+        *x = u;
+        *y = v;
+    }
+}
+
+static void pr_obj(const jw_plot_frame *f, jw_obj *o)
+{
+    double ang = f->rot == 1 ? -PI / 2.0 : f->rot == 2 ? PI / 2.0 : 0.0;
+    int i, n;
+
+    switch (o->cls) {
+    case JW_SEN:
+        n = 2;
+        break;
+    case JW_ENKO:
+        pr_pt(f, &o->d[0], &o->d[1]);
+        o->d[2] *= f->scale;            /* 半径 */
+        o->d[3] += ang;                 /* 始まり */
+        o->d[5] += ang;                 /* 傾き */
+        return;
+    case JW_TEN:
+        n = 1;
+        break;
+    case JW_MOJI:
+        pr_pt(f, &o->d[0], &o->d[1]);
+        pr_pt(f, &o->d[2], &o->d[3]);
+        o->d[4] *= f->scale;            /* 字の幅・高さ・間隔 */
+        o->d[5] *= f->scale;
+        o->d[6] *= f->scale;
+        return;
+    case JW_SOLID:
+        if (o->ltype == 101 || o->ltype == 111) {   /* 円ソリッド */
+            pr_pt(f, &o->d[0], &o->d[1]);
+            o->d[2] *= f->scale;
+            o->d[4] += ang;
+            o->d[5] += ang;
+            return;
+        }
+        n = 4;
+        break;
+    case JW_BLOCK:
+        pr_pt(f, &o->d[0], &o->d[1]);   /* 置いた点、倍率 x・y、回転 */
+        o->d[2] *= f->scale;
+        o->d[3] *= f->scale;
+        o->d[4] += ang;
+        return;
+    default:
+        return;                         /* 2.5D は描かない */
+    }
+    for (i = 0; i < n; i++)
+        pr_pt(f, &o->d[i * 2], &o->d[i * 2 + 1]);
+}
+
+/* 図面を紙の上へ写したもの。描く要素だけ動かし、ブロックの定義（ndrawn の
+   あと）はそのまま（置いたブロックの位置・倍率・回転が持っていく）。
+   own は呼び手が free する */
+static int pr_paper(const jw_drawing *d, const jw_plot_frame *f,
+                    jw_drawing *out, jw_obj **own)
+{
+    long i;
+
+    *out = *d;
+    *own = 0;
+    if (!f || (f->cx == 0.0 && f->cy == 0.0 && f->scale == 1.0 && f->rot == 0))
+        return 1;
+    *own = (jw_obj *)malloc((size_t)(d->nobj > 0 ? d->nobj : 1) * sizeof **own);
+    if (!*own)
+        return 0;
+    memcpy(*own, d->obj, (size_t)d->nobj * sizeof **own);
+    for (i = 0; i < d->ndrawn; i++)
+        pr_obj(f, &(*own)[i]);
+    out->obj = *own;
+    return 1;
+}
+
+unsigned char *jw_plot_pdf_at(const jw_drawing *d, const jw_plot_frame *f,
+                              long *len)
+{
+    jw_drawing p;
+    jw_obj *own;
+    unsigned char *r;
+
+    if (!d || !len || !pr_paper(d, f, &p, &own))
+        return 0;
+    r = jw_plot_pdf(&p, f ? f->colour : 0, len);
+    free(own);
+    return r;
+}
+
+unsigned char *jw_plot_png_at(const jw_drawing *d, const jw_plot_frame *f,
+                              double dpmm, long *len)
+{
+    jw_drawing p;
+    jw_obj *own;
+    unsigned char *r;
+
+    if (!d || !len || !pr_paper(d, f, &p, &own))
+        return 0;
+    r = jw_plot_png(&p, dpmm, f ? f->colour : 0, len);
+    free(own);
+    return r;
 }
