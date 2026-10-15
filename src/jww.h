@@ -117,6 +117,10 @@ typedef struct {
        is 29.4 pixels and the minimum is 15, while 5 mm comes to 11.5 at
        best. */
     double mesh_min, mesh_ix, mesh_iy, mesh_ox, mesh_oy;
+    /* その前の long: 目盛の割り（doc+0x7984、0 は目盛なし）。原典の読み手は
+       負なら -v-1、10 以上なら 10 を引く（旗は +0x7988・+0x798c、移植は
+       持たない）。画面倍率 の 目盛 表示最小倍率 (1090) が使う */
+    int mesh_mode;
 
     /* the ten screen pens.  The file stores a COLORREF, 0x00bbggrr. */
     unsigned int pen_rgb[10];

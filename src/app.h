@@ -40,6 +40,15 @@ int app_compose(int c);
 void app_fit(void);
 void app_zoom(double factor, int sx, int sy);
 void app_pan(int dx, int dy);
+/* 原典の両ボタンドラッグの四つ（CZoom）。どれも 前倍率 の控えを使う:
+   範囲拡大 は画素の箱を窓いっぱいに、縮小 は押した点を真ん中に半分へ
+   （倍率 0.5 まで）、前倍率 はいまの画面と控えを入れ替え、全体 は
+   表示範囲記憶（無ければ用紙全体、paper が 0 でなければいつも用紙全体）。
+   ドラッグの作法そのもの（どの向きがどれか）は入れていない。 */
+void app_zoom_rect(int x0, int y0, int x1, int y1);
+void app_zoom_out(int sx, int sy);
+void app_zoom_prev(void);
+void app_zoom_all(int paper);
 const jw_view *app_view(void);
 void app_paint(void);                   /* redraw into the framebuffer */
 /* 0: draw the drawing afresh on every paint rather than reuse the picture of

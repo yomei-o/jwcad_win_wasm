@@ -3009,6 +3009,7 @@ int jw_draw_reverse = 0;
    so they come through here too) and put down at the end of the outermost
    jw_draw, before the pictures.  Off, they go down in element order. */
 int jw_draw_texts_last = 1;
+int jw_draw_textframe;
 static jw_obj *tl_obj;
 static int tl_n, tl_cap, tl_depth, tl_flushing;
 #define DRAW_AT(i, n) (rev ? (n) - 1 - (i) : (i))
@@ -3219,8 +3220,16 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
              * pixel.
              *
              * Only text that runs left to right has been held against
-             * the original; 縦書き goes through the same formula. */
-            if (jw_draw_kari) {
+             * the original; 縦書き goes through the same formula.
+             *
+             * 【文字枠】を表示する (jw_draw_textframe) では 置いた文字も
+             * 字の上にこの枠を描く: 原典の文字の描き手は DAT_00a0c794 が
+             * 立って印刷でなければ、字が小さすぎて枠で描くときと同じ
+             * 枝へ入る（FUN_00481d50 の local_8e4。逆コンパイルの
+             * 読み、原典では押していない）。枠の形は仮の文字の枠を借りた
+             * （原典は字の外形から取り直しているようで、そこは読み切って
+             * いない）。 */
+            if (jw_draw_kari || jw_draw_textframe) {
                 double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
                 double len = sqrt(dx * dx + dy * dy), ux, uy;
                 double ch = o->d[5], ppb = pix_per_bit(v);
@@ -3250,7 +3259,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                      jw_ux(v, ex), jw_uy(v, ey), col, wide, 1, ppb, 0);
                 line(fb, v, jw_ux(v, ex), jw_uy(v, ey),
                      jw_ux(v, ax), jw_uy(v, ay), col, wide, 1, ppb, 0);
-            } else {
+            }
+            if (!jw_draw_kari) {
                 jw_text_run_face(fb, v, jw_str(d, o->text), o->d[0], o->d[1],
                                  o->d[2], o->d[3], o->d[4], o->d[5], col,
                                  (o->flags & 0x20) != 0,
