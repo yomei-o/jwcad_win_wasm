@@ -1196,10 +1196,22 @@ if (LANG === 'en') {
       mod._free(p);
       present();
     }
+    // what the original keeps in its registry (基本設定 の箱と押し釦、寸法設定
+    // の押し釦: app_prefs_write), an ASCII string.  Before jw.sjis, which wins
+    const prefs = localStorage.getItem('jw.prefs');
+    if (prefs && mod._jw_open_prefs)
+      mod.ccall('jw_open_prefs', 'number', ['string'], [prefs]);
     if (mod._jw_moji_sjis_put && localStorage.getItem('jw.sjis') !== null)
       mod._jw_moji_sjis_put(localStorage.getItem('jw.sjis') === '0' ? 0 : 1);
     const keep = () => {
       try {
+        if (mod._jw_save_prefs) {
+          const p = mod._jw_save_prefs();
+          if (p) {
+            localStorage.setItem('jw.prefs', mod.UTF8ToString(p));
+            savedFree();
+          }
+        }
         const p = saveEnv('jw.jwf');
         if (p) {
           localStorage.setItem('jw.env', b64(mod.HEAPU8.slice(p, p + savedLen())));
