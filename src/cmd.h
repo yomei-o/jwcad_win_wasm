@@ -525,6 +525,10 @@ void jw_cmd_get_arc_length(int on);
 void jw_cmd_moji_point_first(int on);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
+/* 図形読込の 作図属性 (1067): 同じ四つ（0 書込線種・1 書込線色・2 書込レイヤ・
+   3 書込グループ）を図形の分として。既定は 書込レイヤ・書込グループ */
+int  jw_cmd_fzoku(int k);
+void jw_cmd_fzoku_set(int k, int on);
 
 /* 設定 > 環境設定ファイル: 書出し (the original's file with what the drawing
    holds put in) and 読込み (what it holds taken back).  The caller frees

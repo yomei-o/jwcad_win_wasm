@@ -1923,6 +1923,14 @@ static double kyo_x, kyo_y;
 static int kyo_n;
 static double kyo_ux, kyo_uy, kyo_sum;
 
+/* マウス角 (1068): 0 切、1 Ｘ方向、2 Ｙ方向（CZukeiTourokuZukei の +0x228）。
+   入りなら一つ目のクリックが置く点（+0x210、+0x220 = 1）、二つ目が角度の点
+   （+0x230）。slot 29 FUN_00758b40・左 FUN_00758da0・角度 FUN_00757c70・
+   置いたあと slot 3 が角度を回転角の箱に書いて 0 に戻す。逆コンパイルの
+   読み、原典では押していない */
+static int fig_mouse, fig_apt;
+static double fig_ax, fig_ay;
+
 /* the 傾き box, in radians */
 static double box_angle(int id)
 {
@@ -3570,6 +3578,7 @@ void jw_cmd_set(int id)
     sok_mode = SOK_LEN;         /* and it comes up on 距離測定 */
     kyo_step = 0;
     kyo_n = 0;
+    fig_mouse = fig_apt = 0;
     /* 測定 shows its readout from the moment it is entered, before any
        point is down (tools/probe125.sh) */
     if (id == JW_CMD_SOKUTEI)
@@ -3986,6 +3995,7 @@ int jw_cmd_midway(void)
     case JW_CMD_ENKO:      return en_step != 0;
     case JW_CMD_HOURAKU:   return hou_step != 0;
     case JW_CMD_SHOUKYO:   return cut_step != 0 || ikk_st != 0;
+    case JW_CMD_ZUKEI:     return fig_mouse != 0;
     case JW_CMD_CORNER:
     case JW_CMD_MENTORI:
     case JW_CMD_BUNKATSU:  return corner_step != 0 || bk_rr_n > 0;
@@ -4048,6 +4058,14 @@ int jw_cmd_back(jw_drawing *d)
     if ((current == JW_CMD_SHOUKYO || current == JW_CMD_SHINSHUKU) && ikk_st) {
         ikk_back(d);            /* 一括処理の段を戻る（FUN_00562880） */
         tracking = 0;
+        return 1;
+    }
+    if (current == JW_CMD_ZUKEI && fig_mouse) {
+        /* マウス角（FUN_00757b00）: 点の後なら点を、前ならマウス角をやめる */
+        if (fig_apt)
+            fig_apt = 0;
+        else
+            fig_mouse = 0;
         return 1;
     }
     if (current == JW_CMD_KIGOU && sk_step == 4) {
@@ -5034,6 +5052,8 @@ const char *jw_cmd_prompt(void)
             return ht_sel == 2 ? sel_prompt_corner() : JW_STR_5383;
         return ht_nchain == 0 ? JW_STR_5377 : JW_STR_5378;
     case JW_CMD_ZUKEI:
+        if (fig_mouse && fig_apt && jw_cmd_figure_ready())
+            return JW_STR_10118;    /* マウス角の 角度点 指示（slot 6 の 0x2786） */
         /* CZukeiTourokuZukei asks FUN_00572c70 whether there is a figure to
            place: no, and it puts up 0x14ea 「【図形】データがありません。
            再選沢してください。」; yes, and it puts up 0x14e9 「【図形】の
@@ -13155,6 +13175,7 @@ int jw_cmd_figure_load(jw_drawing *d, const unsigned char *b, long n)
     fig_coord = 0;
     fig_mag = 1.0;                      /* the bar comes up empty */
     fig_deg = 0.0;
+    fig_mouse = fig_apt = 0;
     jw_cmd_set(JW_CMD_ZUKEI);
     (void)d;
     return 1;
@@ -13372,6 +13393,25 @@ static void fig_boxes(void)
         fig_deg = box_num(g, 0.0);
 }
 
+/* 作図属性 (1067、CZukeiTourokuZukei の slot 28 FUN_00758840): 複写の 31 番と
+   同じ窓（雛形 342）で、図形の組 DAT_00a0c074・08c・0a4・0bc（+0x25c 書込線種・
+   +0x260 書込線色・+0x264 書込レイヤ・+0x268 書込グループ）。既定は .jwf の
+   S_COMM_5 が 0 のときの 0・0・1・1。置くとき（slot 3）書込グループでなければ
+   要素のグループ（縮尺もそのグループの）、書込レイヤでなければ要素のレイヤ。
+   逆コンパイルの読み、原典では押していない */
+static int fz_on[4] = { 0, 0, 1, 1 };
+
+int jw_cmd_fzoku(int k)
+{
+    return k >= 0 && k < 4 ? fz_on[k] : 0;
+}
+
+void jw_cmd_fzoku_set(int k, int on)
+{
+    if (k >= 0 && k < 4)
+        fz_on[k] = on != 0;
+}
+
 /* Which layer group and layer the figure goes on: the write ones. */
 static void fig_where(const jw_drawing *d, int *wg, int *wl)
 {
@@ -13393,12 +13433,22 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
                     double x, double y)
 {
     double fs = fig.group[p->lgroup & 15].scale;
-    double f = fs > 0.0 && d->group[wg].scale > 0.0
-                   ? fs / d->group[wg].scale : 1.0;
+    /* 書込レイヤは書込グループの中（元グループは元レイヤも伴う） */
+    int g = fz_on[3] || fz_on[2] ? wg : (p->lgroup & 15);
+    int l = fz_on[2] ? wl : (p->layer & 15);
+    double f = fs > 0.0 && d->group[g].scale > 0.0
+                   ? fs / d->group[g].scale : 1.0;
 
-    o->layer = (unsigned short)wl;
-    o->lgroup = (unsigned short)wg;
+    o->layer = (unsigned short)l;
+    o->lgroup = (unsigned short)g;
     o->sel = 0;
+    /* 作図属性の 書込線種・書込線色（複写の za_apply と同じ決まり） */
+    if (fz_on[0] && o->cls != JW_SOLID)
+        o->ltype = (unsigned char)(d->write_ltype ? d->write_ltype : 1);
+    if (fz_on[1] && o->cls != JW_MOJI) {
+        o->color = (unsigned short)(d->write_ltype ? d->write_color : 2);
+        o->width = (unsigned short)(d->write_ltype ? d->write_width : 0);
+    }
     jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
                  fig_deg * 3.141592653589793 / 180.0,
                  x - fig_bx, y - fig_by);
@@ -13420,6 +13470,47 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
            fills in from the same direction */
         o->d[7] = atan2(dy, dx) * 180.0 / 3.141592653589793;
     }
+}
+
+/* マウス角の角度（FUN_00757c70 と slot 3 の後半）: 置く点から (x, y) への
+   向きから軸角を引いて (-180, 180] に。Ｙ方向は 90° 引く。二点が重なれば 0 */
+static int fig_mouse_deg(double x, double y, double *deg)
+{
+    double a;
+
+    if (fabs(x - fig_ax) < 1e-7 && fabs(y - fig_ay) < 1e-7)
+        return 0;
+    a = atan2(y - fig_ay, x - fig_ax);
+    if (fig_mouse == 2)
+        a -= PI / 2.0;
+    a = a * 180.0 / PI - axis_deg;
+    while (a <= -180.0)
+        a += 360.0;
+    while (a > 180.0)
+        a -= 360.0;
+    if (fabs(a) < 1e-7)
+        a = 0.0;
+    *deg = a;
+    return 1;
+}
+
+/* 90ﾟ毎 (1064) の左（FUN_005f50c0）: 回転角を [0,360) に回し、次の 90 の倍数へ。
+   右（FUN_005f4fd0、一つ前へ）は移植のバーに右押しの口が無いので無い */
+static void fig_turn90(void)
+{
+    char *g = box_slot(JW_CMD_ZUKEI, 1412);
+    double a = g ? box_num(g, 0.0) : 0.0;
+    int k;
+
+    if (!g)
+        return;
+    a = fmod(a, 360.0);
+    if (a < 0.0)
+        a += 360.0;
+    k = (int)(a / 90.0) + 1;
+    if (k >= 4)
+        k = 0;
+    snprintf(g, 16, "%.10g", k * 90.0);
 }
 
 /* Put the figure down with its base point at (x, y). */
@@ -13548,9 +13639,24 @@ int jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out)
     }
     fig_boxes();
     fig_where(d, &wg, &wl);
-    for (i = 0; i < fig.ndrawn; i++) {
-        pv[i] = fig.obj[i];
-        fig_one(d, &fig, &pv[i], &fig.obj[i], wg, wl, tx, ty);
+    {
+        /* マウス角: 点の前は角度 0 でマウスに、点の後は置く点に、向きはマウスへ
+           （slot 6 FUN_00757470） */
+        double px = tx, py = ty, keep = fig_deg, deg = 0.0;
+
+        if (fig_mouse) {
+            if (fig_apt) {
+                px = fig_ax;
+                py = fig_ay;
+                fig_deg = fig_mouse_deg(tx, ty, &deg) ? deg : 0.0;
+            } else
+                fig_deg = 0.0;
+        }
+        for (i = 0; i < fig.ndrawn; i++) {
+            pv[i] = fig.obj[i];
+            fig_one(d, &fig, &pv[i], &fig.obj[i], wg, wl, px, py);
+        }
+        fig_deg = keep;
     }
     *out = *d;
     out->obj = pv;
@@ -15608,6 +15714,16 @@ int jw_cmd_bar(jw_drawing *d, int id)
         }
     }
 
+    if (current == JW_CMD_ZUKEI && id == 1064) {
+        fig_turn90();           /* 90ﾟ毎 */
+        return 1;
+    }
+    if (current == JW_CMD_ZUKEI && id == 1068) {
+        /* マウス角: 押すたびに 切→Ｘ方向→Ｙ方向→切、点は取り直し */
+        fig_mouse = (fig_mouse + 1) % 3;
+        fig_apt = 0;
+        return 1;
+    }
     if (current == JW_CMD_KYORITEN && id == 1066) {
         /* 距離指定点の 連続: 前の点の先へ、いまの箱の距離をもう一つ（kyo_n の注） */
         double mm;
@@ -23641,6 +23757,26 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if (current == JW_CMD_ZUKEI) {
         /* 図形読込: the figure hangs on the cursor and a point puts it
            down.  It stays on it, so another point puts down another. */
+        if (fig_mouse && fig_have) {
+            /* マウス角: 一つ目は置く点、二つ目の向きが回転角（fig_mouse の注） */
+            double deg;
+            char *g = box_slot(JW_CMD_ZUKEI, 1412);
+
+            if (!fig_apt) {
+                fig_ax = x;
+                fig_ay = y;
+                fig_apt = 1;
+                return;
+            }
+            if (!fig_mouse_deg(x, y, &deg))
+                return;
+            if (g)
+                snprintf(g, 16, "%.10g", deg);
+            fig_apt = 0;
+            figure_place(d, fig_ax, fig_ay);
+            fig_mouse = 0;
+            return;
+        }
         figure_place(d, x, y);
         return;
     }
