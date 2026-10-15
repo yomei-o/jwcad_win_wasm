@@ -285,7 +285,11 @@ static void prompts_of_the_commands(void)
     cksame(jw_cmd_prompt(), JW_STR_5420, "整理は確定すると実行項目を指示");
 
     /* 図形読込: 図形がなければ 0x14ea */
+    app_take_action();
     app_command(JW_CMD_ZUKEI);
+    ck(app_take_action() == JW_ACT_OPEN_FIG,
+       "図形 (32862) は表側にファイルの窓を出させる");
+    ck(jw_cmd() == JW_CMD_ZUKEI, "  命令には入っている");
     ck(!jw_cmd_figure_ready(), "まだ図形を読んでいない");
     cksame(jw_cmd_prompt(), JW_STR_5354,
            "  その間は「【図形】データがありません」");
@@ -1030,6 +1034,11 @@ int main(void)
     moji_point_first();
     moji_pick_move();
     moji_hani_clip();
+
+    /* Jw_cadの終了 (57665): 表側に窓を閉じさせる（ネイティブは WM_CLOSE） */
+    app_take_action();
+    ck(app_command(57665) && app_take_action() == JW_ACT_EXIT,
+       "Jw_cadの終了 は表側に閉じさせる");
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;

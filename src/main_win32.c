@@ -1205,6 +1205,15 @@ static int do_action(HWND wnd)
         /* the text file whose lines go down from the next click */
         return open_other(wnd, L"Text (*.txt)\0*.txt\0"
                                L"All (*.*)\0*.*\0\0", app_text);
+    case JW_ACT_OPEN_FIG:
+        /* 図形 (32862): 選んだ .jws が カーソルに付く（取り消せば命令のまま）。
+           .jwk（DOS 版の図形）は読み手が無いので出さない */
+        return open_other(wnd, L"図形 (*.jws)\0*.jws\0\0", app_figure);
+    case JW_ACT_EXIT:
+        /* Jw_cadの終了 (57665): 原典の ID_APP_EXIT と同じく主窓に WM_CLOSE
+           （保存の問いはそこで） */
+        PostMessageW(wnd, WM_CLOSE, 0, 0);
+        break;
     }
     return 0;
 }

@@ -3507,6 +3507,10 @@ int app_command(int cmd)
             action = JW_ACT_SAVE_COORD;
         if (cmd == 32913 && have_drawing)
             action = JW_ACT_GAIBU;          /* the front end picks the BAT */
+        /* 図形 (32862): 原典は命令に入ってファイルの窓を出す。移植は表側に
+           選ばせて app_figure で受ける */
+        if (cmd == JW_CMD_ZUKEI && have_drawing)
+            action = JW_ACT_OPEN_FIG;
         return 1;
     }
     /* a dialog put up from the original's own template (td_start) */
@@ -3656,10 +3660,19 @@ int app_command(int cmd)
         bt_close();
         return 1;
     case 32862:                         /* 図形読込 */
-        /* The original puts up a file window of its own here.  The port has
-           none: the front end reads the .jws and calls app_figure, which is
-           what enters the command. */
-        return 0;
+        /* 釦にあれば上で命令に入り JW_ACT_OPEN_FIG を置く。ここへ来るのは
+           釦の表に無いときだけ: 同じように命令に入って表側に選ばせる */
+        if (!have_drawing)
+            return 0;
+        jw_cmd_flush(&drawing);
+        jw_cmd_set(JW_CMD_ZUKEI);
+        bt_close();
+        action = JW_ACT_OPEN_FIG;
+        return 1;
+    case 57665:                         /* Jw_cadの終了 */
+        /* 原典は CWinApp の ID_APP_EXIT（主窓に WM_CLOSE）。窓は表側のもの */
+        action = JW_ACT_EXIT;
+        return 1;
     case JW_CMD_BLOCK_EDIT:             /* ブロック編集 */
         if (!have_drawing || jw_cmd_sel_count(&drawing) <= 0)
             return 0;

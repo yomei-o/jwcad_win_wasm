@@ -757,6 +757,7 @@ if (LANG === 'en') {
       pickFile();
     }
     else if (r === 10) document.getElementById('pickimg').click();
+    else if (r === 16) pickFile();      // 図形 (32862): 選んだ .jws は load() が jw_figure へ
     else if (r === 11) downloadImages();
     else if (r === 13 || r === 14 || r === 15) mojiAction(r);
     else if (r === 12) {

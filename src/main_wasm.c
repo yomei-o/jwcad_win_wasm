@@ -241,6 +241,10 @@ static int finish(int redraw)
     case JW_ACT_GAIBU_RUN:
     case JW_ACT_GAIBU:
         return 12;              /* 外部変形: a browser cannot run a BAT */
+    case JW_ACT_OPEN_FIG:
+        return 16;              /* 図形 (32862): .jws を選ばせて jw_figure へ */
+    case JW_ACT_EXIT:
+        break;                  /* Jw_cadの終了: 頁は自分を閉じられない */
     }
     if (redraw)
         app_paint();
