@@ -16719,6 +16719,8 @@ static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
             jw_obj_xform(&d->obj[at], base_x, base_y, sc, ang, dx, dy);
+            /* 画像は w・h と角度も（src/imgpic.c の jw_pic_xform） */
+            jw_pic_xform(d, &d->obj[at], &sel_was[i], sc, ang);
             za_apply(d, &d->obj[at]);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
@@ -16737,6 +16739,7 @@ static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang)
             at = (int)(p - d->obj);
             *p = sel_was[i];
             jw_obj_xform(p, base_x, base_y, sc, ang, dx, dy);
+            jw_pic_xform(d, p, &sel_was[i], sc, ang);
             za_apply(d, p);
             /* a copy is not itself selected: in the original the new
                elements come out in their own colours while the ones that

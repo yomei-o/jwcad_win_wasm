@@ -214,17 +214,23 @@ int jw_is_pic(const jw_drawing *d, const jw_obj *o)
     return t[0] == '^' && t[1] == '@' && t[2] == 'B' && t[3] == 'M';
 }
 
+static int pic_parse_str(const char *t, jw_pic *p);
+
 int jw_pic_parse(const jw_drawing *d, const jw_obj *o, jw_pic *p)
 {
-    const char *t;
+    if (!jw_is_pic(d, o)) return 0;
+    return pic_parse_str(jw_str(d, o->text) + 4, p);
+}
+
+/* the text after "^@BM" */
+static int pic_parse_str(const char *t, jw_pic *p)
+{
     char buf[400];
     char *tok[10];
     double v[10];
     int nt = 0, nv = 0, i;
     char *c;
 
-    if (!jw_is_pic(d, o)) return 0;
-    t = jw_str(d, o->text) + 4;
     memset(p, 0, sizeof *p);
     p->r = p->g = p->b = 255;
     p->c = 1.0;
@@ -511,5 +517,128 @@ int jw_pic_set_transparent(jw_drawing *d, jw_obj *o, int r, int g, int b)
     p.nfield = 9;
     base = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
     jw_pic_write(d, o, &p, o->d[0], o->d[1], base);
+    return 1;
+}
+
+/* ------------------------------------------- ほかの命令が画像をどう扱うか
+ *
+ * 原典で画像を画像として見ているのは、文字列を "^@BM" で読む FUN_0048efe0
+ * （とその包み FUN_0048f790）を呼ぶ所だけで、それは 描画・拾い・読取点・
+ * 再描画の範囲・倍率・回転・JWC/JWS の読み書き・SXF（.tif だけ）・図形・
+ * 画像編集 そのもの。範囲選択・消去・複写・移動（ずらし）・反転・ブロック化・
+ * DXF・SFC の文字 は どれも呼ばないので、画像は ただの文字 として扱われる。
+ * 逆コンパイルの読み、原典では押していない。 */
+
+/* "^@BM..." の w・h を k 倍した字。原典の FUN_0048f7f0: 名前のあとの数を
+   "%lg,%lg,%lg,%lg,%lg,%lg,%d,%d,%d" で読み、読めた数が 3 より少なければ
+   "^@BM%s,%lg,%lg"、そうでなければ九つで書き直す。新しい w か h が 0.001
+   より小さければ何もしない（0 を返す）。名前が "d:\data\030806\" で始まる
+   ときの作者の試し（1000×1000 にして始点を (-420,-270) へ）は入れない */
+int jw_pic_text_scaled(const char *t, double k, char *out, int cap)
+{
+    jw_pic p;
+    double w, h;
+
+    if (!t || t[0] != '^' || t[1] != '@' || t[2] != 'B' || t[3] != 'M')
+        return 0;
+    pic_parse_str(t + 4, &p);
+    w = p.w * k;
+    h = p.h * k;
+    if (!(w >= 0.001) || !(h >= 0.001))
+        return 0;
+    if (p.nfield < 3)
+        snprintf(out, (size_t)cap, "^@BM%s,%g,%g", p.name, w, h);
+    else
+        snprintf(out, (size_t)cap, "^@BM%s,%g,%g,%g,%g,%g,%g,%d,%d,%d", p.name, w, h,
+                 p.x, p.y, p.c, p.d, p.r, p.g, p.b);
+    return 1;
+}
+
+/* 字の長さ（半角 1、全角 2 を数え、字の幅＋間隔 の半分ずつ、最後の間隔は
+   数えない） */
+static double pic_text_len(const char *s, double cw, double sp)
+{
+    const unsigned char *q = (const unsigned char *)s;
+    double half = 0.0;
+
+    while (*q) {
+        if ((*q >= 0x81 && *q <= 0x9f) || (*q >= 0xe0 && *q <= 0xfc)) {
+            if (q[1])
+                q++;
+            half += 2.0;
+        } else {
+            half += 1.0;
+        }
+        q++;
+    }
+    return half > 0.0 ? half / 2.0 * (cw + sp) - sp : 0.0;
+}
+
+/* (-180, 180] へ。1e-7 以下は 0（FUN_0046d800） */
+static double pic_fold180(double a)
+{
+    while (a > 180.0)
+        a -= 360.0;
+    while (a <= -180.0)
+        a += 360.0;
+    return fabs(a) <= 1e-7 ? 0.0 : a;
+}
+
+/* 倍率・回転のあとの画像。jw_obj_xform(o, ..., sc, ang, ...) を掛けたあとに
+ * 呼ぶ（`was` は掛ける前）。原典の要素ごとの倍率 FUN_00465c40 → 文字
+ * FUN_00466e30／FUN_00465f40 と 回転 FUN_0046d5b0 → FUN_0046e210 →
+ * FUN_0046d800 の画像の枝:
+ *   倍率: 1 との差が 1e-7 未満なら何もしない。画像なら w・h を
+ *     max(倍率x, 倍率y)（符号つきの大きいほう）倍して FUN_0048f7f0 で書き直し、
+ *     字の大きさは保つ（「文字サイズ変更」(DAT_00a0cb58) が入っていても
+ *     画像は保つ側へ回す）。終点は 始点 ＋ 新しい字の長さ を 画像の角度 の向きへ。
+ *   回転: |角| < 1e-7 なら何もしない。字の角度 (+0xd0) は 足して (-180,180]、
+ *     画像なら FUN_0048fb30 が 文字列の角度（六つ目の数）に 度で足して
+ *     （丸めない）九つの形で書き直す（w か h が 0.001 未満なら書き直さない）。
+ * 移植の jw_obj_xform は字の大きさも掛けるので、それを戻してから。
+ * 逆コンパイルの読み、原典では押していない。0 なら画像ではない。 */
+int jw_pic_xform(jw_drawing *d, jw_obj *o, const jw_obj *was, double sc, double ang)
+{
+    jw_pic p;
+    char buf[400];
+    const char *t;
+    int scaled = fabs(sc - 1.0) >= 1e-7, turned = fabs(ang) >= 1e-7;
+    double dir, deg7, len, k;
+
+    if (!jw_pic_parse(d, o, &p))
+        return 0;
+    if (!scaled && !turned)
+        return 1;
+    o->d[4] = was->d[4];
+    o->d[5] = was->d[5];
+    o->d[6] = was->d[6];
+    /* 掛けたあとの基線の向き。長さ 0 なら字の角度 */
+    if (hypot(o->d[2] - o->d[0], o->d[3] - o->d[1]) > 1e-12)
+        dir = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
+    else
+        dir = was->d[7] + (turned ? ang * 180.0 / PI : 0.0);
+    deg7 = was->d[7];
+    if (scaled && fabs(sc) >= 1e-5 && fabs(sc) <= 1e5
+        && jw_pic_text_scaled(jw_str(d, o->text), sc, buf, (int)sizeof buf)) {
+        o->text = jw_add_str_w(d, buf, d->version > 0x275);
+        jw_pic_parse(d, o, &p);
+        /* FUN_0048f7f0 は 終点を画像の角度へ引き直し、+0xd0 をその角度に */
+        deg7 = pic_fold180(p.d);
+        dir = p.d + (turned ? ang * 180.0 / PI : 0.0);
+    }
+    if (turned) {
+        deg7 = pic_fold180(deg7 + ang * 180.0 / PI);
+        if (p.w >= 0.001 && p.h >= 0.001) {
+            snprintf(buf, sizeof buf, "^@BM%s,%g,%g,%g,%g,%g,%g,%d,%d,%d", p.name, p.w, p.h,
+                     p.x, p.y, p.c, p.d + ang * 180.0 / PI, p.r, p.g, p.b);
+            o->text = jw_add_str_w(d, buf, d->version > 0x275);
+        }
+    }
+    o->d[7] = deg7;
+    t = jw_str(d, o->text);
+    len = pic_text_len(t, o->d[4], o->d[6]);
+    k = dir * PI / 180.0;
+    o->d[2] = o->d[0] + cos(k) * len;
+    o->d[3] = o->d[1] + sin(k) * len;
     return 1;
 }

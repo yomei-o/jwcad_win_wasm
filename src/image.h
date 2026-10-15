@@ -93,4 +93,11 @@ int  jw_pic_trim(jw_drawing *d, jw_obj *o, double ax1, double ay1, double ax2, d
 int  jw_pic_untrim(jw_drawing *d, jw_obj *o);
 int  jw_pic_set_transparent(jw_drawing *d, jw_obj *o, int r, int g, int b);
 
+/* ほかの命令から（src/imgpic.c の末尾の注）。`t` が画像の字なら w・h を k 倍
+   した字を out に（FUN_0048f7f0。小さすぎれば 0）。jw_pic_xform は
+   jw_obj_xform(o, ..., sc, ang, ...) のあとに呼び、`was` は掛ける前の要素:
+   画像の w・h・角度を直し、字の大きさを戻す。画像でなければ 0 */
+int  jw_pic_text_scaled(const char *t, double k, char *out, int cap);
+int  jw_pic_xform(jw_drawing *d, jw_obj *o, const jw_obj *was, double sc, double ang);
+
 #endif

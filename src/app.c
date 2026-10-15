@@ -17,6 +17,7 @@
 #include "d25view.h"
 #include "tategu.h"
 #include "senkigou.h"
+#include "image.h"
 #include "gen/layout.h"
 #include "gen/cmds.h"
 #include "gen/tips.h"
@@ -880,6 +881,9 @@ static int sk_rescale(int g, double old, double nw, int moji, int ten)
                 continue;
             sk_xf(&t, s, moji, ten);
             if (pass) {
+                /* 画像は w・h も掛け、字の大きさは保つ（FUN_00465c40 →
+                   FUN_00466e30／FUN_00465f40 → FUN_0048f7f0） */
+                jw_pic_xform(&drawing, &t, &drawing.obj[i], s, 0.0);
                 drawing.obj[i] = t;
                 continue;
             }
@@ -1905,6 +1909,7 @@ static int press_bairitsu(int x, int y)
     if (id == 1933) {                   /* 設定 OK (FUN_004c73f0) */
         br_textframe = br_get(br_on, 2104);
         br_textspace = br_get(br_on, 2103);
+        jw_pick_pic_text = br_textspace;    /* 画像の拾い（pick.c の dist_moji） */
         br_open = 0;
         return 1;
     }
