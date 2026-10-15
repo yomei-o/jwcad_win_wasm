@@ -249,6 +249,8 @@ int  jw_cmd_pending(jw_drawing *d, jw_obj *o, int max);
  * -- 1120 選択確定, 1067 選択解除, 1066 全選択 -- which is how the original
  * dispatches them too.  Returns 1 when the screen has to be redrawn. */
 int  jw_cmd_bar(jw_drawing *d, int id);
+/* 同じ釦の右押し。右押しに意味のある釦（印刷の 基準点・図形読込の 90ﾟ毎）だけ受けて 1 */
+int  jw_cmd_bar_r(jw_drawing *d, int id);
 /* Whether that button is there to be pressed, for the drawing of the bar. */
 int  jw_cmd_bar_check(int id);
 /* 接円 (32872) の 接楕円 (1065) の間: 型（10 ３点指示・20 菱形内接・30 平行四辺内接・

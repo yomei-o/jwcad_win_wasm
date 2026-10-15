@@ -291,6 +291,20 @@
 #define JW_STR_5532 "\x92\x86\x92\xeb\x93\x99\x81" "A\x8c\x9a\x95\xa8\x82\xf0\x95\xaa\x8a\x84\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2"
 /* 5208: notice: it is a circle */
 #define JW_STR_5208 "\x89~\x82\xc5\x82\xb7"
+/* 5290: notice: data on a protected layer (FUN_00516e40 adds [group]-(layer)) */
+#define JW_STR_5290 "\x83v\x83\x8d\x83" "e\x83N\x83g\x83\x8c\x83" "C\x83\x84\x82\xcc\x83" "f\x81[\x83^\x82\xc5\x82\xb7"
+/* 5394: notice: it is a base line (stretch/erase all at once) */
+#define JW_STR_5394 "\x8a\xee\x8f\x80\x90\xfc\x82\xc5\x82\xb7"
+/* 5210: notice: the layers differ (all at once, same kind) */
+#define JW_STR_5210 "\x83\x8c\x83" "C\x83\x84\x82\xaa\x88\xd9\x82\xc8\x82\xe8\x82\xdc\x82\xb7"
+/* 5211: notice: the line types differ (all at once, same kind) */
+#define JW_STR_5211 "\x90\xfc\x8e\xed\x82\xaa\x88\xd9\x82\xc8\x82\xe8\x82\xdc\x82\xb7"
+/* 5212: notice: the line colours differ (all at once, same kind) */
+#define JW_STR_5212 "\x90\xfc\x90" "F\x82\xaa\x88\xd9\x82\xc8\x82\xe8\x82\xdc\x82\xb7"
+/* 5625: notice: text erased first (erase, selection order) */
+#define JW_STR_5625 "\x81y\x95\xb6\x8e\x9a\x81z\x97" "D\x90\xe6\x91I\x91\xf0\x8f\xc1\x8b\x8e"
+/* 5626: notice: lines erased first (erase, selection order) */
+#define JW_STR_5626 " \x90\xfc\x93\x99 \x97" "D\x90\xe6\x91I\x91\xf0\x8f\xc1\x8b\x8e"
 /* 5611: notice: reverse division (division helper) */
 #define JW_STR_5611 "\x8bt\x95\xaa\x8a\x84"
 /* 5612: notice: division by length ratio (division helper) */

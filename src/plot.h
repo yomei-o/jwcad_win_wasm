@@ -153,6 +153,7 @@ int  jw_pr_click(const jw_drawing *d, double x, double y, int button,
                  int read_ok, double rx, double ry);
 void jw_pr_track(double x, double y);
 int  jw_pr_bar(const jw_drawing *d, int id);   /* 受けたら 1 */
+int  jw_pr_bar_r(int id);               /* 釦の右押し。受けたら 1 */
 int  jw_pr_enabled(int id);
 const char *jw_pr_label(int id);        /* 字の動く釦。無ければ 0 */
 const char *jw_pr_prompt(void);

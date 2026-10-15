@@ -999,6 +999,17 @@ int jw_pr_bar(const jw_drawing *d, int id)
     return 0;
 }
 
+/* 基準点 (1066) の右押し: FUN_00550310（WM_RBUTTONUP）が +0x80 を 0（左・下）にして
+   字を付け直す。逆コンパイルの読み、原典では押していない */
+int jw_pr_bar_r(int id)
+{
+    pr_sync();
+    if (id != 1066)
+        return 0;
+    pr_base = 0;
+    return 1;
+}
+
 int jw_pr_enabled(int id)
 {
     return id != 1067 && id != 1069;
