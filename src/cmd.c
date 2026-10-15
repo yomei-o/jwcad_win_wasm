@@ -7899,6 +7899,77 @@ static void hatch_span(double ax, double ay, double *lo, double *hi);
 static int hatch_cut(double o, double ax, double ay, double bx, double by,
                      double *t);
 
+/* 属性変更の文字: 線種・文字種変更 (1352) のとき、文字は線の色・線種ではなく
+ * 書込みの文字種になる.  逆コンパイルの読み、原典では押していない.
+ * CZukeiHenkou の 3 番 FUN_0067b890 の CDataMoji の枝（0x67bcb0〜0x67bf27）:
+ *  - 文字種 +0xb4 = 書込文字種 DAT_00a0b4e8（0..10 でなければ 0）、幅 +0xb8・
+ *    高さ +0xc0・間隔 +0xc8・色 +0x2a はその文字種の表から
+ *  - 書体 +0xd8 = 書込みの書体（DAT_00a0ba84）
+ *  - flags の 0x20（縦字）は落としてから、バーの 縦字 (1325) なら立てる
+ *  - +0xdc は 0 にして、書込みの斜体（DAT_00a0bc28）・太字（DAT_00a0bc2c）
+ *  - そして FUN_0067adf0 で置き直す: 古い始点・終点を文字の角度 +0xd0 で
+ *    水平に戻し、新しい長さ L（FUN_004935b0）との差を基点で配る.
+ *      始点 x += (古い長さ - L) * 横 / 2、 y += (古い高さ - 新しい高さ) * 縦 / 2
+ *    （縦字なら高さの代わりに幅）、終点 = 始点 + L.  横・縦は文字の基点
+ *    （view+0x1a0 の +0xbc・+0xc0、0..2 = 左・中・右／下・中・上）
+ * 移植では: 書込文字種は cur_style（番号は moji() と同じく style[] との一致）、
+ * 斜体・太字は n の 10000・20000（moji() と同じ）、基点は 文字 と同じ moji_kijun
+ * （原典も同じ view+0x1a0 の値を読む）。角度は移植が d[7] を回転で直さない
+ * ので、始点→終点の向きから取る（長さ 0 なら d[7]）。長さ L は
+ * FUN_004935b0 の式: 半角の数 c（CP932 のバイト数）で 0 なら 0、1 なら W/2、
+ * でなければ (W+D)/2*c から 最後の字が全角なら D、半角なら D/2 を引く
+ * （縦字は W の代わりに H）。特殊文字・間隔 0.01 の比例の枝は入れていない. */
+static void zoku_moji(jw_drawing *d, jw_obj *o)
+{
+    double ow = o->d[4], oh = o->d[5];
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    double olen = sqrt(dx * dx + dy * dy);
+    double a = olen > 0.0 ? atan2(dy, dx) : o->d[7] * PI / 180.0;
+    double c = cos(a), s = sin(a), w, h, sp, run = 0.0, sx, sy;
+    const char *t = o->text >= 0 ? jw_str(d, o->text) : "";
+    int i, no = 0, nb = 0, wide = 0, hb = moji_kijun / 3, vb = 2 - moji_kijun % 3;
+
+    w = d->cur_style.w;
+    h = d->cur_style.h;
+    sp = d->cur_style.sp;
+    for (i = 0; i < 10; i++)
+        if (d->style[i].w == w && d->style[i].h == h && d->style[i].sp == sp) {
+            no = i + 1;
+            break;
+        }
+    o->n = no + (moji_italic ? 10000 : 0) + (moji_bold ? 20000 : 0);
+    o->d[4] = w;
+    o->d[5] = h;
+    o->d[6] = sp;
+    o->color = (unsigned short)d->cur_style.color;
+    o->face = jw_add_str(d, JW_MOJI_FACE);
+    o->flags = (unsigned short)(o->flags & ~0x20u);
+    if (jw_cmd_bar_check(1325) > 0)
+        o->flags = (unsigned short)(o->flags | 0x20u);
+    while (t && *t) {
+        wide = jw_is_lead((unsigned char)t[0]) && t[1];
+        nb += wide ? 2 : 1;
+        t += wide ? 2 : 1;
+    }
+    {
+        double cw = (o->flags & 0x20) ? h : w;
+
+        run = nb < 1 ? 0.0 : nb == 1 ? cw / 2.0
+            : (cw + sp) * 0.5 * nb - (wide ? sp : sp * 0.5);
+    }
+    {
+        double along = (olen - run) * hb / 2.0;
+        double across = ((o->flags & 0x20) ? ow - w : oh - h) * vb / 2.0;
+
+        sx = o->d[0] + along * c - across * s;
+        sy = o->d[1] + along * s + across * c;
+    }
+    o->d[0] = sx;
+    o->d[1] = sy;
+    o->d[2] = sx + run * c;
+    o->d[3] = sy + run * s;
+}
+
 /* Give an element the write attributes.  It comes back at the end of the
  * drawing, which is what the original does -- so what is drawn on top of what
  * changes with it. */
@@ -7924,7 +7995,9 @@ static void zoku_change(jw_drawing *d, int i)
     layer = o->layer;
     lgroup = o->lgroup;
     *o = was;
-    if (zh_type) {
+    if (zh_type && o->cls == JW_MOJI)
+        zoku_moji(d, o);
+    else if (zh_type) {
         o->color = colour;
         o->ltype = lt;
     }
@@ -18522,7 +18595,10 @@ placed:
 
         if (!d)
             return;
-        i = jw_pick(d, v, x, y, button ? 1 : 3);
+        /* (R) picks a text the way the original's slot 11 (FUN_0067b6d0)
+           does, with FUN_004500e0 -- jw_pick's mode 1 has no text pass at
+           all, so the right button never found one */
+        i = button ? jw_pick_moji(d, v, x, y) : jw_pick(d, v, x, y, 3);
         if (i < 0)
             return;
         if (button != 0) {

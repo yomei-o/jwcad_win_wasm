@@ -3976,12 +3976,12 @@ int app_press(int x, int y, int button)
             action = JW_ACT_OPEN_TEXT;
             return 1;
         }
-        if (id == 1064 && jw_cmd() == JW_CMD_MOJI) {
+        if (id == 1064 && (jw_cmd() == JW_CMD_MOJI || jw_cmd() == JW_CMD_ZOKUHEN)) {
             /* 基点(左下): the button puts up 文字基点設定 */
             mk_open = 1;
             return 1;
         }
-        if (id == 1843 && jw_cmd() == JW_CMD_MOJI) {
+        if (id == 1843 && (jw_cmd() == JW_CMD_MOJI || jw_cmd() == JW_CMD_ZOKUHEN)) {
             /* the 文字 bar's own button, which puts the dialog up */
             moji_style = moji_current();
             moji_open = 1;
