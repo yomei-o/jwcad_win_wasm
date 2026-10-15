@@ -18757,11 +18757,17 @@ static int obj_middle(const jw_obj *o, double *mx, double *my)
     return 0;
 }
 
+static void au_ll(jw_drawing *d, const jw_view *v, double x, double y);
+
 /* A double left click.  連 wants one -- it is how the original says
-   「移動（LL)」 -- and so does ２線's 基準線変更(LL) (nisen_ll); everywhere
-   else it is just a left click. */
+   「移動（LL)」 -- and so does ２線's 基準線変更(LL) (nisen_ll), and AUTO
+   (au_ll); everywhere else it is just a left click. */
 void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 {
+    if (d && current == JW_CMD_AUTO && step == 0) {
+        au_ll(d, v, x, y);      /* 円・(LL) の切断 */
+        return;
+    }
     if (d && current == JW_CMD_MOJI && ren_step == 1) {
         int k = jw_pick(d, v, x, y, 0);
 
@@ -18803,6 +18809,8 @@ void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 static int au_st = 0;
 static int au_a = -1;
 static double au_ax, au_ay, au_p2x, au_p2y;
+/* 何もないところを押して線を引き始めた（原典の 状態 5、+0xac）。押した画素（+0x110・+0x114） */
+static int au_line, au_lpx, au_lpy;
 
 static void au_reset(void)
 {
@@ -19090,6 +19098,160 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
         au_reset();
         return 1;
     }
+}
+
+/* ---- AUTO の 同じ点の円・(LL)・ブロックと保護レイヤの拒否 ----------------------------
+ * 逆コンパイルの読み、原典では押していない（CZukeiAuto: 左 slot 9 FUN_00631170・右 11 FUN_00631cf0・
+ * 左ダブル 12 FUN_00630f80・案内 6 FUN_0062f0a0・作図 3 FUN_00632950・下請けの切替 FUN_00630a10）。
+ *
+ * 同じ点の円: 何もないところの左は 状態 5 にして押した画素を +0x110 に取る。マウスが どちらかに
+ *   2 画素以上動けば（slot 6）線（0x8003）に渡す。動かないうちに もう一度 左で何もないところ、
+ *   または 右で点が読めれば 状態 0 にして 円 (0x8005) に渡す（案内 0x153d「円弧 ： 同一点再指示」）。
+ *   左は押した所、右は読んだ点が中心。移植は マウスの動きを持たないので、線を引き始めた押しから
+ *   縦横とも 2 画素未満の押しを「動かないうちの もう一度」とする。左で線を押した・右で読めない
+ *   ときは 状態 5 を捨てて ふつうの一押し（線編集・複線・矩形）。円が済めば AUTO に戻る（複線・矩形と同じ）
+ * (LL): ダブルクリックは 一つ目が slot 9、続いて slot 12。slot 12 は
+ *   線を持たず 状態 5 → 円、線を持たず ほか → slot 9 をもう一度、
+ *   線を持って 状態 0 → 状態 6（部分消しの二点目 P2 = その点）、状態 6 → 終点 = P2 で部分消し
+ *   （同じ点の部分消しは 切断。FUN_00470200、案内 0x2737「切断」）。
+ *   それで 線を押してから その線を (LL) で 切断、何も持たずに線を (LL) は 線と P2 を一度に決める
+ * 拒否: 左の拾い（FUN_0044a270 の 3、param_5 = 0）が ブロックの中の要素（+0x5f、FUN_0044f240）なら
+ *   0x146f「ブロック図形です」、保護されたレイヤ・グループ（FUN_0042dcb0: グループの保護 か レイヤの
+ *   保護。移植の group.c と layer.state2）なら FUN_00516e40 の知らせで、何もしない。右（param_5 = 1）は
+ *   保護を見ないので 保護レイヤの線でも 複線。ブロックは右でも拾えない（移植の jw_pick と同じ）。
+ *   移植は知らせを出さない。ブロックは ふつうの要素が拾えなかったときだけ見る */
+static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
+                          double x, double y, int button);
+static void au_back_check(void);
+
+static int au_locked(const jw_drawing *d, const jw_obj *o)
+{
+    const jw_group *g = &d->group[o->lgroup & 15];
+
+    return g->c != 0 || g->layer[o->layer & 15].state2 != 0;
+}
+
+/* ブロック ref の中の線・円が (x, y) で拾えるか。入れ子は draw.c の block() と同じ写し方 */
+static int au_block_hit(const jw_drawing *d, const jw_view *v, const jw_obj *ref,
+                        const jw_obj *top, double x, double y, int depth)
+{
+    jw_drawing one;
+    jw_obj o;
+    int i, at = -1;
+
+    if (depth > 8)
+        return 0;
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == ref->block) {
+            at = i;
+            break;
+        }
+    if (at < 0)
+        return 0;
+    one = *d;
+    one.obj = &o;
+    one.nobj = one.ndrawn = 1;
+    for (i = at + 1; i < d->nobj && i <= at + d->obj[at].n; i++) {
+        o = d->obj[i];
+        if (o.cls == JW_LIST)
+            break;
+        if (o.cls == JW_BLOCK) {
+            o.d[0] = o.d[0] * ref->d[2] + ref->d[0];
+            o.d[1] = o.d[1] * ref->d[3] + ref->d[1];
+            o.d[2] *= ref->d[2];
+            o.d[3] *= ref->d[3];
+            o.d[4] += ref->d[4];
+            if (au_block_hit(d, v, &o, top, x, y, depth + 1))
+                return 1;
+            continue;
+        }
+        if (o.cls != JW_SEN && o.cls != JW_ENKO)
+            continue;
+        jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4], ref->d[0], ref->d[1]);
+        o.layer = top->layer;
+        o.lgroup = top->lgroup;
+        o.flags = top->flags;
+        o.id = 0;
+        if (jw_pick(&one, v, x, y, 3) >= 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* 左の拾いが 断る（ブロック・保護）なら 1 */
+static int au_reject(const jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int i = jw_pick(d, v, x, y, 3);
+
+    if (i >= 0)
+        return au_locked(d, &d->obj[i]);
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_BLOCK && jw_pick_editable(d, &d->obj[i])
+            && au_block_hit(d, v, &d->obj[i], &d->obj[i], x, y, 0))
+            return 1;
+    return 0;
+}
+
+/* 押した画素（app.c の to_paper の逆。原典が比べるのは マウスの整数の画素） */
+static int au_pxx(const jw_view *v, double x)
+{
+    return jw_px_round(floor((x - v->ox) * v->scale + 0.5));
+}
+
+static int au_pxy(const jw_view *v, double y)
+{
+    return jw_px_round(floor((v->oy - y) * v->scale + 0.5));
+}
+
+static int au_same_px(const jw_view *v, double x, double y)
+{
+    return v && abs(au_pxx(v, x) - au_lpx) < 2 && abs(au_pxy(v, y) - au_lpy) < 2;
+}
+
+static void au_mark_line(const jw_view *v, double x, double y)
+{
+    au_line = v != 0;
+    if (v) {
+        au_lpx = au_pxx(v, x);
+        au_lpy = au_pxy(v, y);
+    }
+}
+
+/* 引きかけの線を捨てて 円に渡す。(cx, cy) が中心（FUN_00630a10 の 0x8005） */
+static void au_circle(jw_drawing *d, const jw_view *v, double cx, double cy)
+{
+    step = 0;
+    tracking = 0;
+    au_line = 0;
+    current = JW_CMD_ENKO;
+    en_step = 0;
+    auto_back = 1;
+    jw_cmd_point_(d, v, cx, cy, 0);
+}
+
+/* AUTO の (LL)。一つ目の左は ふつうに、そのあと slot 12 */
+static void au_ll(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    jw_cmd_point(d, v, x, y, 0);
+    if (current != JW_CMD_AUTO)
+        return;
+    if (step > 0 && au_line) {          /* 状態 5 → 円 */
+        au_circle(d, v, x, y);
+        au_back_check();
+        return;
+    }
+    if (au_st == 1) {                   /* 状態 0 で線あり → 状態 6、P2 */
+        au_p2x = x;
+        au_p2y = y;
+        au_st = 2;
+        return;
+    }
+    if (au_st == 2) {                   /* 状態 6 → 終点 = P2（切断） */
+        au_edit(d, v, au_p2x, au_p2y, 0);
+        return;
+    }
+    if (step == 0)
+        jw_cmd_point(d, v, x, y, 0);    /* 線を持たない: slot 9 をもう一度 */
 }
 
 /* 日影図の 壁面 (1069)。逆コンパイルの読み、原典では押していない（答え hk_w2 は 壁を決めたあとの
@@ -20421,9 +20583,16 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
         jw_cmd_undo(d);
         ntop = nop;                 /* and not to be redone */
     }
+    au_back_check();
+}
+
+/* AUTO が渡した 複線・矩形・消去・円 が一つ済んだら AUTO に戻る */
+static void au_back_check(void)
+{
     if (auto_back && ((current == JW_CMD_FUKUSEN && para_step == 0) ||
                       (current == JW_CMD_KUKEI && step == 0) ||
-                      (current == JW_CMD_SHOUKYO && cut_step == 0))) {
+                      (current == JW_CMD_SHOUKYO && cut_step == 0) ||
+                      (current == JW_CMD_ENKO && step == 0 && en_step == 0))) {
         current = JW_CMD_AUTO;
         auto_back = 0;
     }
@@ -20938,8 +21107,31 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         /* AUTOモード: 何もないところは 線（始点→終点）。原典の言うとおり
            「(L)free：＋／○ ， 線：線編集  (R)Read：＋／○ ， 線：複線 ， 無：□」
            R で線を押すと 複線、R で何も読めなければ 矩形、になり、それが終わると AUTO に
-           戻る（tools/probe196）。L で線を押したときの 線編集（部分消し・コーナー・
-           線伸縮）は未実装 */
+           戻る（tools/probe196）。L で線を押したときの 線編集 は au_edit、
+           同じ点の円・ブロックと保護レイヤの拒否 は au_circle・au_reject の注 */
+        int same = d && step > 0 && au_line && au_same_px(v, x, y);
+
+        if (d && step == 0)
+            au_line = 0;
+        if (d && button == 0 && (step == 0 || same) && au_reject(d, v, x, y))
+            return;                     /* ブロック図形です・保護レイヤ: 何もしない */
+        if (same) {                     /* 動かないうちに もう一度 */
+            double sxr, syr;
+            int i = jw_pick(d, v, x, y, 3);
+
+            step = 0;
+            tracking = 0;
+            au_line = 0;
+            if (button == 0 && i < 0) {
+                au_circle(d, v, x, y);
+                return;
+            }
+            if (button == 1 && jw_read(d, v, x, y, &sxr, &syr)) {
+                au_circle(d, v, sxr, syr);
+                return;
+            }
+            /* 線を押した・R で読めない: ふつうの一押し（下へ） */
+        }
         if (d && step == 0 && au_st == 0 && button == 1) {
             double sxr, syr;
 
@@ -20948,6 +21140,8 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 current = JW_CMD_SEN;
                 jw_cmd_point_(d, v, sxr, syr, 0);
                 current = JW_CMD_AUTO;
+                if (step > 0)
+                    au_mark_line(v, x, y);
                 return;
             }
         }
@@ -20972,9 +21166,15 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 return;
             }
         }
-        current = JW_CMD_SEN;
-        jw_cmd_point_(d, v, x, y, button);
-        current = JW_CMD_AUTO;
+        {
+            int was = step;
+
+            current = JW_CMD_SEN;
+            jw_cmd_point_(d, v, x, y, button);
+            current = JW_CMD_AUTO;
+            if (was == 0 && step > 0)
+                au_mark_line(v, x, y);
+        }
         return;
     }
     if (get_mode && get_click(d, v, x, y, button))
