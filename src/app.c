@@ -5976,6 +5976,12 @@ int app_press(int x, int y, int button)
         kp_start(id);
         return 1;
     }
+    if (button == 1 && (id = ui_bar_hit(x, y)) != 0
+        && jw_cmd_bar_r(have_drawing ? &drawing : 0, id)) {
+        /* 釦の右押し: 右押しに意味のある釦だけ命令が受ける（jw_cmd_bar_r） */
+        gz_check();
+        return 1;
+    }
     if (button == 0 && (id = ui_bar_hit(x, y)) != 0) {
         /* 範囲選択の 文字位置･集計 のバー: 基点 (1072) は FUN_005ca230 が
            文字基点設定 の窓をバーの基点で、集計書込 (1121) は FUN_005ca030 が

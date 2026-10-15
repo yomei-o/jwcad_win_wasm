@@ -3720,6 +3720,11 @@ void jw_cmd_set(int id)
     comp_n = 0;
     cut_step = 0;
     shk_sel = shk_rep = 0;
+    /* 消去に入るとき 選択順切替 が入っていれば 札 5625（FUN_0070c300。原典は
+       連続範囲選択消去から入り直すとき〔DAT_00a08adc & 2 で前の命令も消去〕は
+       出さないが、移植はその入り直しを持たない） */
+    if (id == JW_CMD_SHOUKYO && shk_moji_first)
+        JW_NOTICE(5625);
     ikk_st = 0;
     ikk_n = 0;
     corner_step = 0;
@@ -11035,11 +11040,17 @@ static void hatch(jw_drawing *d)
 
     if (ht_mode < 1689 || ht_mode > 1693)
         return;
-    if (pitch <= 0.0)
+    /* 実行（slot 3 FUN_00675b10）: ピッチが 0.01 未満、または 線間隔を使う型で
+       線間隔が 0.01 未満なら 札「計算できません」で何もしない */
+    if (!(pitch >= 0.01)) {
+        JW_NOTICE(5205);
         return;
+    }
     if (ht_mode != 1689 && ht_mode != 1693) {
-        if (gap <= 0.0)
+        if (!(gap >= 0.01)) {
+            JW_NOTICE(5205);
             return;
+        }
         /* a group whose middle falls outside the region can still have a
            line of its own inside it */
         extra = 1;
@@ -12737,8 +12748,10 @@ int jw_cmd_sel_text(const jw_drawing *d, char *out, int cap)
  *
  * 入れていないもの（読み切っていない）: 文字数 n による折り返し（"^m" での
  * 切り分けと、続く文字を繋げて n 文字ごとに FUN_0047da20 で切る流し込み。
- * 移植は n を見ず一つずつ並べる）、基点の釦の右押し（+0xc8、小数点揃え
- * "[ . ]"・FUN_0048c710 の kx = 3 の枝。移植のバーは右押しを渡さない）、
+ * 移植は n を見ず一つずつ並べる）、基点の釦の 小数点揃え（+0xc8、"[ . ]"・
+ * FUN_0048c710 の kx = 3 の枝。右押しではなく **Shift を押したまま** の押し:
+ * 1072 の FUN_005ca230 は DAT_00a0cc6c〔Shift〕が立っていれば窓を出さずに
+ * +0xc8 を切り替える。置き方の枝を読み切っていないので入れていない）、
  * 集計の段で文字を一つずつ指して足し引きすること（slot 9 の +0xe0 の枝）、
  * ﾌｧｲﾙ出力 (1122、0x1409 → FUN_00700560(1) とファイルの窓) と 文字検索
  * (1115、FUN_005ca390 の検索の窓)、特殊文字（^m など、FUN_00493b00）と
@@ -15673,7 +15686,7 @@ static int fig_mouse_deg(double x, double y, double *deg)
 }
 
 /* 90ﾟ毎 (1064) の左（FUN_005f50c0）: 回転角を [0,360) に回し、次の 90 の倍数へ。
-   右（FUN_005f4fd0、一つ前へ）は移植のバーに右押しの口が無いので無い */
+   右（FUN_005f4fd0、一つ前へ）は下の fig_turn90_back（jw_cmd_bar_r から） */
 static void fig_turn90(void)
 {
     char *g = box_slot(JW_CMD_ZUKEI, 1412);
@@ -15688,6 +15701,26 @@ static void fig_turn90(void)
     k = (int)(a / 90.0) + 1;
     if (k >= 4)
         k = 0;
+    snprintf(g, 16, "%.10g", k * 90.0);
+}
+
+/* 90ﾟ毎 (1064) の右（FUN_005f4fd0。バーの 0x1403 を wParam 2 で受ける FUN_005f54b0
+   から）: [0,360) に回してから (int)(角/90) - 1、負なら 3 を 90 倍。
+   逆コンパイルの読み、原典では押していない */
+static void fig_turn90_back(void)
+{
+    char *g = box_slot(JW_CMD_ZUKEI, 1412);
+    double a = g ? box_num(g, 0.0) : 0.0;
+    int k;
+
+    if (!g)
+        return;
+    a = fmod(a, 360.0);
+    if (a < 0.0)
+        a += 360.0;
+    k = (int)(a / 90.0) - 1;
+    if (k < 0)
+        k = 3;
     snprintf(g, 16, "%.10g", k * 90.0);
 }
 
@@ -17312,13 +17345,19 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_SHOUKYO && id == 1068) {
         /* 選択順切替 (FUN_0070ea90): 範囲選択消去の途中なら 選択図形登録
            （FUN_006fb760、範囲選択の 1068 と同じ）、ほかは (R) の消去で
-           文字を先に拾うかを切り替える（札 5625・5626 は出さない） */
+           文字を先に拾うかを切り替える。切り替えたら 札を下ろして（FUN_004fb9f0）
+           入なら 5625「【文字】優先選択消去」、切なら 5626「 線等 優先選択消去」 */
         if (shk_sel) {
             if (d && jw_cmd_sel_count(d) > 0)
                 hatch_register(d);
             return 1;
         }
         shk_moji_first = !shk_moji_first;
+        jw_cmd_notice_clear();
+        if (shk_moji_first)
+            JW_NOTICE(5625);
+        else
+            JW_NOTICE(5626);
         return 1;
     }
     if (current == JW_CMD_SHOUKYO && (id == 1066 || id == 1067)) {
@@ -17853,6 +17892,23 @@ int jw_cmd_moji_go(void)
 
     ms_go = 0;
     return g;
+}
+
+/* バーの釦の右押し（原典は釦の組ごとに WM_RBUTTONUP を持つ）。受けたら 1。
+ *   - 印刷の 基準点 (1066): 押すたびに回る釦の組（WM_LBUTTONUP FUN_00550280、
+ *     WM_RBUTTONUP FUN_00550310）の右は 左・下 (0) に戻す
+ *   - 図形読込の 90ﾟ毎 (1064): 一つ前の 90 の倍数へ（FUN_005f4fd0）
+ * 逆コンパイルの読み、原典では押していない */
+int jw_cmd_bar_r(jw_drawing *d, int id)
+{
+    (void)d;
+    if (current == JW_PRINT_CMD && id == 1066)
+        return jw_pr_bar_r(id);
+    if (current == JW_CMD_ZUKEI && id == 1064) {
+        fig_turn90_back();
+        return 1;
+    }
+    return 0;
 }
 
 int jw_cmd_bar(jw_drawing *d, int id)
@@ -19685,6 +19741,12 @@ static void takaku2(jw_drawing *d, double x, double y)
     jw_obj *o;
     int made = 0;
 
+    /* FUN_00723ab0 段 2: 二点目が一点目と同じ点（FUN_00436970）なら
+       札「同一点です」で受けず、二点目を待ったまま */
+    if (tk2_n == 1 && fabs(x - tk2_x[0]) < 1e-7 && fabs(y - tk2_y[0]) < 1e-7) {
+        JW_NOTICE(5343);
+        return;
+    }
     tk2_x[tk2_n] = x;
     tk2_y[tk2_n] = y;
     tk2_n++;
@@ -19698,8 +19760,10 @@ static void takaku2(jw_drawing *d, double x, double y)
     dx = bx - ax;
     dy = by - ay;
     dl = sqrt(dx * dx + dy * dy);
-    if (dl <= 1e-7)
+    if (dl <= 1e-7) {
+        JW_NOTICE(5205);        /* FUN_007287b0 が 0 本: 札「計算できません」 */
         return;
+    }
     a = box_mm(d, 1412);
     p = t1 ? strchr(t1, ',') : 0;
     b = p && p[1] ? box_mm2(d, 1412) : a;
@@ -19709,8 +19773,10 @@ static void takaku2(jw_drawing *d, double x, double y)
     }
     t = (a * a + dl * dl - b * b) / (2.0 * dl);
     h2 = a * a - t * t;
-    if (h2 < 1e-6)
+    if (h2 < 1e-6) {
+        JW_NOTICE(5205);        /* FUN_00723ab0: 引けなければ 札「計算できません」 */
         return;
+    }
     {
         double h = sqrt(h2);
         double ux = dx / dl, uy = dy / dl;
@@ -19749,10 +19815,12 @@ static void takaku(jw_drawing *d, double cx, double cy)
     int n = box_int(ns), i, wg = 0;
 
     if (tk_any) {
-        /* 同じ点をもう一度は受けない（FUN_00498960 の比べ） */
+        /* 同じ点をもう一度は受けない（FUN_00498960 の比べ）。札「同一点です」 */
         for (i = 0; i < tk_an; i++)
-            if (tk_ax2[i] == cx && tk_ay2[i] == cy)
+            if (tk_ax2[i] == cx && tk_ay2[i] == cy) {
+                JW_NOTICE(5343);
                 return;
+            }
         tx = cx;
         ty = cy;
         tracking = 1;
@@ -19783,6 +19851,10 @@ static void takaku(jw_drawing *d, double cx, double cy)
             tk_ax = cx;
             tk_ay = cy;
             tk_step = 1;
+            return;
+        }
+        if (fabs(cx - tk_ax) < 1e-7 && fabs(cy - tk_ay) < 1e-7) {
+            JW_NOTICE(5343);    /* FUN_00723ab0 段 2: 札「同一点です」、二点目を待ったまま */
             return;
         }
         {
@@ -19886,6 +19958,7 @@ static void sunpo_text(char *out, int n, double mm, double scale)
  * text carries 0x4110 where an ordinary dimension value has 0x4010, and its
  * width word is (places << 12) | 0x443 where the ordinary one has 0x043.
  * A circle of 86.588921 on a 1/200 group came out as R17,317.78.
+ * 端部 が 矢印・逆矢印 のときの点の代わりは下（FUN_007891b0 の読み）。
  */
 static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
 {
@@ -19895,7 +19968,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     char txt[72], val[64];
     const char *p;
     jw_obj *o;
-    int nch = 0;
+    int nch = 0, made = 1;      /* 線は必ず一つ */
 
     if (i < 0 || d->obj[i].cls != JW_ENKO)
         return;
@@ -19977,20 +20050,76 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
             o->n = sun_mojino;
             o->text = jw_add_str(d, txt);
             o->face = jw_add_str(d, JW_MOJI_FACE);
+            made++;
         }
     }
-    for (k = 0; k < 2; k++) {
-        o = jw_add(d, JW_TEN);
-        if (!o)
-            break;
-        o->color = sun_tencol;
-        o->ltype = 1;
-        o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
-        o->d[0] = k ? ex : cx;
-        o->d[1] = k ? ey : cy;
-        o->n = 0;
+    if (!sun_arrows()) {
+        for (k = 0; k < 2; k++) {
+            o = jw_add(d, JW_TEN);
+            if (!o)
+                break;
+            o->color = sun_tencol;
+            o->ltype = 1;
+            o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+            o->d[0] = k ? ex : cx;
+            o->d[1] = k ? ey : cy;
+            o->n = 0;
+            made++;
+        }
+    } else {
+        /* 端部 が 矢印・逆矢印（FUN_007891b0 の 0x78a6xx〜0x78ab、引出線の組
+           〔local_701c〕が無く 字が線の上〔param_2 = 0〕のとき）。A = 線の始め
+           （半径は中心、直径は向こう側）、B = 押した側の円の上:
+             - 逆矢印 で 逆矢印の寸法線突出寸法 (DAT_00a0bd18) >= 0.1 なら、先に
+               B から外へ 突出 の線、直径なら A から外へも（寸法線と同じ線）
+             - 矢印は 直径なら A（B へ向けて）、それから B（A へ向けて）。半径の
+               中心には付けない。逆矢印 は長さを負にして外向き（FUN_00473d00 に
+               -DAT_00a0bd00）。線の形は sunpo_make の矢印と同じ
+           逆コンパイルの読み、原典では押していない */
+        double alen = sun_yalen, aang = sun_yaang * PI / 180.0;
+
+        if (sun_arrows() == 2 && sun_gyaku >= 0.1) {
+            for (k = 0; k < (sun_radius == 2 ? 2 : 1); k++) {
+                double px = k ? cx : ex, py = k ? cy : ey, s = k ? -1.0 : 1.0;
+
+                o = jw_add(d, JW_SEN);
+                if (!o)
+                    break;
+                o->color = sun_sencol;
+                o->ltype = 1;
+                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+                o->d[0] = px;
+                o->d[1] = py;
+                o->d[2] = px + s * sun_gyaku * ux;
+                o->d[3] = py + s * sun_gyaku * uy;
+                made++;
+            }
+        }
+        for (k = sun_radius == 2 ? 0 : 1; k < 2; k++) {
+            double tipx = k ? ex : cx, tipy = k ? ey : cy;
+            double wx = k ? -ux : ux, wy = k ? -uy : uy, s;
+
+            if (sun_arrows() == 2) {
+                wx = -wx;
+                wy = -wy;
+            }
+            for (s = 1.0; s >= -1.0; s -= 2.0) {
+                double ca = cos(s * aang), sa = sin(s * aang);
+
+                o = jw_add(d, JW_SEN);
+                if (!o)
+                    break;
+                o->ltype = 1;
+                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+                o->d[0] = tipx;
+                o->d[1] = tipy;
+                o->d[2] = tipx + alen * (wx * ca - wy * sa);
+                o->d[3] = tipy + alen * (wx * sa + wy * ca);
+                made++;
+            }
+        }
     }
-    op_push(4);
+    op_push(made);
     /* so jw_cmd_esc_key can tell "never drawn one yet" (Esc drops 半径／
        直径 back to the plain two-point kind) from "already have" (Esc then
        does nothing, same as the original -- RESUME.md 2026-10-13).  Not
@@ -21673,7 +21802,8 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
  *   保護。移植の group.c と layer.state2）なら FUN_00516e40 の知らせで、何もしない。右（param_5 = 1）は
  *   保護を見ないので 保護レイヤの線でも 複線。ブロックは右でも拾えない（移植の jw_pick と同じ）。
  *   ブロックは 札 5231 を出す（jw_cmd_notice）。保護の知らせ（FUN_00516e40、0x14aa ほかを
- *   つないだ文）はまだ出さない。ブロックは ふつうの要素が拾えなかったときだけ見る */
+ *   つないだ文「プロテクトレイヤのデータです [グループ]-(レイヤ)」、16 進）も札で出す。
+ *   ブロックは ふつうの要素が拾えなかったときだけ見る */
 static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                           double x, double y, int button);
 static void au_back_check(void);
@@ -21737,8 +21867,20 @@ static int au_reject(const jw_drawing *d, const jw_view *v, double x, double y)
 {
     int i = jw_pick(d, v, x, y, 3);
 
-    if (i >= 0)
-        return au_locked(d, &d->obj[i]);
+    if (i >= 0) {
+        if (!au_locked(d, &d->obj[i]))
+            return 0;
+        /* FUN_00516e40(要素, 0, 0): 5290「プロテクトレイヤのデータです」に
+           " [%X]-(%X)"（+0x2f グループ・+0x2e レイヤ）をつないだ文 */
+        {
+            static char t[96];
+
+            snprintf(t, sizeof t, "%s [%X]-(%X)", JW_STR_5290,
+                     d->obj[i].lgroup & 15u, d->obj[i].layer & 15u);
+            jw_cmd_notice(5290, t);
+        }
+        return 1;
+    }
     for (i = 0; i < d->ndrawn; i++)
         if (d->obj[i].cls == JW_BLOCK && jw_pick_editable(d, &d->obj[i])
             && au_block_hit(d, v, &d->obj[i], &d->obj[i], x, y, 0)) {
@@ -23357,8 +23499,10 @@ static int ikk_left(jw_drawing *d, int i, double x, double y)
         ikk_st = 3;
         return 1;
     }
-    if (ikk_is_base(i))
-        return 0;               /* 0x1512「基準線です」 */
+    if (ikk_is_base(i)) {
+        JW_NOTICE(5394);        /* 0x1512「基準線です」 */
+        return 0;
+    }
     if (ikk_st == 3) {
         ikk_s = i;
         ikk_ax = x;
@@ -23368,10 +23512,23 @@ static int ikk_left(jw_drawing *d, int i, double x, double y)
         return 1;
     }
     if (ikk_st == 4) {
-        if (i == ikk_s)
-            return 0;           /* 0x14e7「同一線です」 */
-        if (ikk_same && !ikk_same_attr(&d->obj[i], &d->obj[ikk_s]))
-            return 0;           /* 0x145b・0x145c・0x145a */
+        if (i == ikk_s) {
+            JW_NOTICE(5351);    /* 0x14e7「同一線です」 */
+            return 0;
+        }
+        if (ikk_same && !ikk_same_attr(&d->obj[i], &d->obj[ikk_s])) {
+            /* FUN_005637b0 段 4: 線種 → 0x145b、線色 → 0x145c、レイヤ・グループ
+               → 0x145a の順に見て、後のが勝つ */
+            const jw_obj *a = &d->obj[i], *b = &d->obj[ikk_s];
+
+            if (a->layer != b->layer || a->lgroup != b->lgroup)
+                JW_NOTICE(5210);        /* 「レイヤが異なります」 */
+            else if (a->color != b->color)
+                JW_NOTICE(5212);        /* 「線色が異なります」 */
+            else
+                JW_NOTICE(5211);        /* 「線種が異なります」 */
+            return 0;
+        }
         ikk_e = i;
         ikk_bx = x;
         ikk_by = y;
@@ -23412,8 +23569,12 @@ static void ikk_click(jw_drawing *d, const jw_view *v, double x, double y,
             return;
         }
         i = jw_pick(d, v, x, y, 3);
-        if (i < 0 || d->obj[i].cls != JW_SEN)
-            return;             /* 0x14de「直線ではありません。」 */
+        if (i < 0)
+            return;
+        if (d->obj[i].cls != JW_SEN) {
+            JW_NOTICE(5342);    /* 0x14de「直線ではありません。」 */
+            return;
+        }
         if (ikk_st == 1) {      /* 消去: 基準線なしの 一括消去 */
             if (!jw_pick_editable(d, &d->obj[i]))
                 return;
@@ -23436,8 +23597,12 @@ static void ikk_click(jw_drawing *d, const jw_view *v, double x, double y,
         return;
     }
     i = jw_pick(d, v, x, y, 3);
-    if (i < 0 || d->obj[i].cls != JW_SEN)
+    if (i < 0)
         return;
+    if (d->obj[i].cls != JW_SEN) {
+        JW_NOTICE(5342);        /* FUN_005637b0: 0x14de「直線ではありません。」 */
+        return;
+    }
     if (ikk_st >= 3 && !jw_pick_editable(d, &d->obj[i]))
         return;
     ikk_left(d, i, x, y);
@@ -24563,6 +24728,16 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 tail_set(0, 0.0, 0.0);
                 return;
             }
+            /* FUN_0071e8d0 段 2・3: 基準点が原点と、角度点が基準点と
+               同じ点（FUN_00436970、1e-7）なら 札「同一点です」で受けない */
+            if (sok_n == 1 && fabs(rx - sok_x0) < 1e-7 && fabs(ry - sok_y0) < 1e-7) {
+                JW_NOTICE(5343);
+                return;
+            }
+            if (sok_n == 2 && fabs(rx - sok_px) < 1e-7 && fabs(ry - sok_py) < 1e-7) {
+                JW_NOTICE(5343);
+                return;
+            }
             if (sok_n == 1) {
                 sok_px = rx;
                 sok_py = ry;
@@ -24581,6 +24756,12 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 sok_total += 360.0;
             sok_n = 0;                  /* and it asks for an origin again */
             tail_set(4, sok_total, 0.0);
+            return;
+        }
+        /* FUN_0071e8d0 段 2（距離・面積）: 前の点と同じ点（FUN_00436970、1e-7）は
+           札「同一点です」で足さない */
+        if (sok_n && fabs(rx - sok_px) < 1e-7 && fabs(ry - sok_py) < 1e-7) {
+            JW_NOTICE(5343);
             return;
         }
         if (!sok_n) {
