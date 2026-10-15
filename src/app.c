@@ -706,6 +706,12 @@ static void tgp_check(void)
         mb_kind = 3;
         mb_open = 1;
     }
+    if (!mb_open && have_drawing && jw_cmd() == JW_CMD_ZUKEI && jw_cmd_figure_ask()) {
+        /* 図形読込: 「元レイヤグループに異なる縮尺があります。」（0x157e）、OK/キャンセル */
+        strcpy(mb_text, JW_STR_5502);
+        mb_kind = 5;
+        mb_open = 1;
+    }
     if (jw_cmd() == JW_CMD_GAZOU) {
         gz_check();
         if (!td_open && !mb_open)
@@ -3935,7 +3941,8 @@ static void bn_close(int ok)
 
 /* 作図属性設定 (342): its four 書込み ticks are 複写・移動's (src/cmd.c's
    za_on), the others are kept here from one opening to the next and do
-   nothing yet */
+   nothing yet -- except 2556 マウス倍率のときXY等倍, which 複写の ﾏｳｽ倍率
+   reads (jw_cmd_fk_xy1_set) */
 static const short ZA_ID[4] = { 1324, 1323, 1325, 1326 };
 static const short ZA_KEEP_ID[5] = { 1322, 2114, 1328, 2250, 2556 };
 static unsigned char za_keep[5];
@@ -3999,12 +4006,14 @@ static void za_save(void)
         jw_cmd_fzoku_set(2, za_ticked(1325));
         for (k = 0; k < 5; k++)
             za_keep[k] = (unsigned char)za_ticked(ZA_KEEP_ID[k]);
+        jw_cmd_fk_xy1_set(za_keep[4]);  /* 2556 は 複写の ﾏｳｽ倍率 も見る */
         return;
     }
     for (k = 0; k < 4; k++)
         jw_cmd_zuzoku_set(k, za_ticked(ZA_ID[k]));
     for (k = 0; k < 5; k++)
         za_keep[k] = (unsigned char)za_ticked(ZA_KEEP_ID[k]);
+    jw_cmd_fk_xy1_set(za_keep[4]);      /* 2556 マウス倍率のときXY等倍（DAT_00a0cb2c） */
 }
 
 /* the dialog's own answers (FUN_004aec10, 004aec70, 004aecb0):
@@ -5442,6 +5451,8 @@ static int ll_other(int button)
         return 0;
     if (jw_cmd() == JW_CMD_MOJI)
         return strcmp(jw_cmd_prompt(), JW_STR_5473) == 0;
+    if (jw_cmd() == JW_CMD_SHINSHUKU)
+        return jw_cmd_ikk_base_wait();  /* 一括処理の (LL) free 基準点 */
     return jw_cmd() == JW_CMD_KYOKUSEN && jw_cmd_bar_radio(1691) == 1;
 }
 
@@ -5835,6 +5846,11 @@ static void mb_close(int ok)
             jw_cmd_tenku_north_answer(&drawing, ok);
         return;
     }
+    if (kind == 5) {                    /* 図形読込の 縮尺の違うグループの問い */
+        if (have_drawing)
+            jw_cmd_figure_answer(&drawing, ok);
+        return;
+    }
     if (have_drawing)
         jw_cmd_gazou_answer(&drawing, kind == 1 && ok);
     if (jw_cmd_gazou_out_ready())
@@ -5900,6 +5916,9 @@ int app_press(int x, int y, int button)
             } else if (ll_cmd == JW_CMD_KYOKUSEN) {
                 if (jw_cmd_midway())
                     jw_cmd_back(&drawing);      /* 一つ目の点を捨てる */
+            } else if (ll_cmd == JW_CMD_SHINSHUKU) {
+                /* 伸縮の一括処理: 一つ目の左はそのまま（原典も slot 9 のあと
+                   slot 12 が 基準線を放して点に替える。jw_cmd_point_ll） */
             } else if (ll_start)
                 jw_cmd_back(&drawing);  /* 始点を取り消して 始点待ち に */
             ll_pend = ll_start = 0;

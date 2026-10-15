@@ -556,6 +556,10 @@ void jw_cmd_fukusen_enter_on(int on);
 int  jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
+void jw_cmd_fk_xy1_set(int on);                 /* 作図属性 2556 マウス倍率のときXY等倍 */
+int  jw_cmd_ikk_base_wait(void);                /* 伸縮の一括処理で 基準線・基準点 を待っているか（(LL) free） */
+void jw_cmd_figure_answer(jw_drawing *d, int ok);   /* 図形読込 0x157e の問いの答え */
+int  jw_cmd_figure_ask(void);                   /* 図形読込: 0x157e の問いを出すか（一度だけ 1） */
 /* 図形読込の 作図属性 (1067): 同じ四つ（0 書込線種・1 書込線色・2 書込レイヤ・
    3 書込グループ）を図形の分として。既定は 書込レイヤ・書込グループ */
 int  jw_cmd_fzoku(int k);
