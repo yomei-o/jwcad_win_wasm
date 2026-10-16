@@ -1073,7 +1073,8 @@ static int    sun_degketa = JW_SUN_DEGKETA;
  * 文字高位置中心（2423）は 累進 の値の字に効かせた（sunpo_make の sun_mojic）。
  * 表示と保存だけのもの: 文字方向無補正、グループ化。
  * 寸法図形（2424）は ふつうの寸法（sunpo_make）だけ 寸法図形にする
- * （sun_fig_close の注）。角度・半径・直径・一括処理 は まだ 作らない。
+ * （sun_fig_close の注）。半径・直径（sunpo_radius）・一括処理（ika_gap）も
+ * 同じ形。角度（FUN_00786fb0）は原典が bda0 を見ないので ふつうの要素のまま。
  * 現寸法設定に変更（2425）は パラメトリック変形 の 値の書き直しで見る。 */
 static int sun_italic, sun_bold, sun_solid, sun_nohosei;
 static int sun_zen, sun_zen_sp, sun_zen_comma, sun_zen_dot;
