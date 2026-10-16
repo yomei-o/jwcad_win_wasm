@@ -15252,6 +15252,11 @@ int jw_cmd_block_free(jw_drawing *d)
                 double by = ref.d[3] != 0.0 ? ref.d[3] : bx;
 
                 jw_pic_xform(d, &copy, &was, bx > by ? bx : by, ref.d[4]);
+                /* 入れ子の参照の倍率 y は 倍率 y で（FUN_00464870 は +0x78 に
+                   x、+0x80 に y を掛ける。逆コンパイルの読み、原典では押して
+                   いない） */
+                if (copy.cls == JW_BLOCK)
+                    copy.d[3] = was.d[3] * by;
             }
             p = jw_add(d, copy.cls);
             if (!p)

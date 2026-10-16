@@ -920,6 +920,10 @@ void jw_obj_move(jw_obj *o, double dx, double dy)
     switch (o->cls) {
     case JW_ENKO:
     case JW_TEN:
+    /* ブロックの参照は基点 d[0],d[1] だけ。d[2],d[3] は倍率、d[4] は角
+       （原典の移動 FUN_0046bdf0 の CDataBlock の枝 FUN_0046ba40 は +0x68・
+       +0x70 の基点だけを動かす。逆コンパイルの読み、原典では押していない） */
+    case JW_BLOCK:
         o->d[0] += dx;
         o->d[1] += dy;
         return;
@@ -960,6 +964,7 @@ void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
     switch (o->cls) {
     case JW_ENKO: n = 1; break;
     case JW_TEN:  n = 1; break;
+    case JW_BLOCK: n = 1; break;    /* 基点だけ。倍率と角は下で */
     /* a 円ソリッド has a centre where the others have four corners */
     case JW_SOLID: n = (o->ltype == 101 || o->ltype == 111) ? 1 : 4; break;
     default: n = 2; break;
@@ -978,6 +983,16 @@ void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
         o->d[4] *= sc;          /* the size and the spacing */
         o->d[5] *= sc;
         o->d[6] *= sc;
+    } else if (o->cls == JW_BLOCK) {
+        /* CDataBlock (Serialize 0x0049b2c0): d[0],d[1] 基点 (+0x68,+0x70)、
+           d[2],d[3] 倍率 x・y (+0x78,+0x80)、d[4] 角 (+0x88)。原典の倍率
+           FUN_00465c40 の CDataBlock の枝 FUN_00464870 は基点を写して
+           +0x78・+0x80 に倍率を掛け、回転 FUN_0046d5b0 の枝 FUN_0046d050 は
+           +0x88 に角を足して基点を回す。逆コンパイルの読み、原典では押して
+           いない */
+        o->d[2] *= sc;
+        o->d[3] *= sc;
+        o->d[4] += ang;
     }
 }
 
