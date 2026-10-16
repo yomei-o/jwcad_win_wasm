@@ -989,6 +989,85 @@ int main(int argc, char **argv)
         } else
             puts("ok   日影図 指定点の 初期Ｎｏ 設定 (1070)");
     }
+    /* 三斜の 建物位置確認表: 押した時の Ctrl（cmd+0xe8）で 配置図の角に「(k)」と点、Shift（cmd+0xe4）で
+       隠れた角の行も出す（FUN_00734920 0x7363f9〜・FUN_007400a0）。sa8 の形（建物二つ、行は (1)(2)(5)(6)）。
+       逆コンパイルの読み、原典では押していない */
+    {
+        int mk, ok = 1, rows[3] = { 0, 0, 0 }, plan[3] = { 0, 0, 0 }, dots[3] = { 0, 0, 0 };
+
+        for (mk = 0; mk < 3; mk++) {
+            unsigned char *b;
+            long n;
+            rect_t r;
+            const jw_drawing *dd;
+            int k, q, n0, nc = 0;
+            double cxs[8], cys[8];
+
+            b = slurp("decomp/res/new.jww", &n);
+            app_new();
+            app_resize(1264, 741);
+            app_open(b, n);
+            free(b);
+            ui_view_rect(app_fb()->w, app_fb()->h, &r);
+            app_command(32771);
+            addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;"
+                     "650,380;750,380;750,380;750,450;750,450;650,450;650,450;650,380;");
+            dd = app_drawing();
+            for (k = 0; k < dd->ndrawn && nc < 8; k++)
+                if (dd->obj[k].cls == JW_SEN) {
+                    cxs[nc] = dd->obj[k].d[0];
+                    cys[nc] = dd->obj[k].d[1];
+                    nc++;
+                }
+            app_command(32971);
+            jw_cmd_box_put(1492, "");
+            jw_cmd_box_put(1493, "");
+            jw_cmd_box_put(2216, "");
+            jw_cmd_box_put(2209, "");
+            jw_cmd_sansha_reset();
+            jw_cmd_box_put(2210, "");
+            clicks(&r, "b:10;405,300;595,300;595,500;405,500;b:6;655,380;745,380;745,450;655,450;B:1068;520,610;B:2114;B:1329;");
+            n0 = app_drawing()->ndrawn;
+            app_keymods(mk == 2, mk >= 1);
+            clicks(&r, "900,300;");
+            app_keymods(0, 0);
+            dd = app_drawing();
+            for (k = n0; k < dd->ndrawn; k++) {
+                const jw_obj *o = &dd->obj[k];
+
+                if (o->cls == JW_MOJI && o->text >= 0) {
+                    const char *s = jw_str(dd, o->text);
+
+                    if (s[0] == '(' && s[1] >= '1' && s[1] <= '9') {
+                        int at = 0;
+
+                        for (q = 0; q < nc; q++)
+                            if (fabs(o->d[1] - cys[q]) < 3.0 && fabs(o->d[0] - cxs[q]) < 12.0)
+                                at = 1;
+                        if (at)
+                            plan[mk]++;
+                        else
+                            rows[mk]++;
+                    }
+                }
+                if (o->cls == JW_TEN && o->color == 3)
+                    for (q = 0; q < nc; q++)
+                        if (fabs(o->d[0] - cxs[q]) < 1e-6 && fabs(o->d[1] - cys[q]) < 1e-6)
+                            dots[mk]++;
+            }
+        }
+        /* 何も押さない: 行 4（表と円の上で 8 字、ほかに三斜の表の字が 1 つ）、Ctrl: 配置図に 8 つ、
+           Ctrl+Shift: 隠れた角 4 つの行も（+8 字）と 配置図 8 */
+        ok = rows[0] == 9 && plan[0] == 0 && dots[0] == 0 && rows[1] == 9 && plan[1] == 8 && dots[1] == 8 &&
+             rows[2] == 17 && plan[2] == 8 && dots[2] == 8;
+        if (!ok) {
+            printf("     行の字 %d %d %d・配置図の字 %d %d %d・点 %d %d %d\n", rows[0], rows[1], rows[2], plan[0], plan[1],
+                   plan[2], dots[0], dots[1], dots[2]);
+            puts("BAD  三斜の確認表 Ctrl（配置図に番号）・Shift（全て表示）");
+            fails++;
+        } else
+            puts("ok   三斜の確認表 Ctrl（配置図に番号）・Shift（全て表示）");
+    }
     /* 壁面日影の 1時間毎・指定点・等時間: 建物の北 100 画素に 東西の壁を 東から西へ引く。字は壁の左（南）なので
        壁の線を入れ替える（FUN_00541130）。線は 壁の左（北）で 両端の間だけ、正午の屋根の辺は 壁の上
        h = z − 距離/|s|（地面の影 y_n + z s を 壁へ写す）に一本。指定点は 立面の低い点だけ 正午に影 */

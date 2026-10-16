@@ -543,6 +543,7 @@ static int tn_nq = -1, tn_nq_pend;   /* 真北が無いときの問い（0x15e2�
 static int tn_ans = -1, tn_pend, tn_pend_b;   /* 測定点が建物の内側のときの問い: 答え（-1 未回答）・待ち・押したボタン */
 static double tn_pend_x, tn_pend_y;
 static const jw_view *tn_pend_v;
+static int cmd_shift, cmd_ctrl;   /* 押した時の Shift・Ctrl（原典 DAT_00a0cc6c・DAT_00a0cc74、jw_cmd_keymods） */
 static int tn_s_plan = 1, tn_s_calc, tn_s_conf;   /* 三斜のバー 9011: 1690 初めから点・1329・2114 */
 /* 天空率比較計算 (1066): 0 でなければ 歩み + 1（原典 CZukeiTenkuu +0x1b0 = 0/1/2）。
    tn_cv・tn_cx/cy は 計画・比較 の字の数値と位置、tn_cdec は 小数の桁の大きいほう（+0x828、2 以上）、
@@ -24251,6 +24252,12 @@ int jw_cmd_hikage_answer(jw_drawing *d, int kind, const char *txt)
 }
 
 /* 指定点の 初期Ｎｏ（原典 CZukeiKage3 +0x12c） */
+void jw_cmd_keymods(int shift, int ctrl)
+{
+    cmd_shift = shift != 0;
+    cmd_ctrl = ctrl != 0;
+}
+
 int jw_cmd_hikage_first_no(void)
 {
     return hk_first_no;
@@ -25953,6 +25960,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 hk_sansha_opts_set_mode(&so, tn_s_plan);   /* 初めは《計画建物用》 */
                 so.calc = tn_s_calc;
                 so.conf = tn_s_conf;   /* 三斜計算。切なら円と投影の線だけ（hk_sa1） */
+                /* CZukeiTenkuu の左（_byclass CZukeiTenkuu.c 1066〜）が 押した時の Shift（DAT_00a0cc6c）
+                   XOR DAT_00a0becc（.jwf、移植は 0）を +0xe4、Ctrl（DAT_00a0cc74）を +0xe8 に */
+                so.conf_all = cmd_shift;
+                so.conf_plan_no = cmd_ctrl;
                 r = jw_tenku_sansha_draw_ex(d, &so, tn_px, tn_py, px, py, NULL);            } else
                 r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
             if (r >= 0) {

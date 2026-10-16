@@ -1732,8 +1732,8 @@ static int conf_table(octx *c, const l3 *raw, int nraw, double scale)
 
         if (az < 0.0)
             az += 2.0 * PI;
-        if (!conf_visible(raw, nraw, c->px, c->py, pts[i].x, pts[i].y))
-            continue;
+        if (!o->conf_all && !conf_visible(raw, nraw, c->px, c->py, pts[i].x, pts[i].y))
+            goto plan_no;
         rows++;
         y -= th * 1.5;
         snprintf(nb, sizeof nb, "(%d)", i + 1);
@@ -1766,7 +1766,30 @@ static int conf_table(octx *c, const l3 *raw, int nraw, double scale)
         snprintf(nb, sizeof nb, "(%d)", i + 1);
         if (ob_text_col(c, nb, X, Y, 0, 2) < 0)
             goto fail;
-        (void)k;
+    plan_no:
+        /* [D 0x7363f9] cmd+0xe8（Ctrl）なら 隠れた角も 配置図の角の上に 同じ字（x ± 10 の中）と 点
+           （色 DAT_00a0bec8 % 10、0 か 10 以上は 3）。cmd+0xe4 が 0 なら 平面で同じ所に もっと高い角が
+           あるものは飛ばす（0x736448〜）。逆コンパイルの読み、原典では押していない */
+        if (o->conf_plan_no) {
+            int over = 0;
+
+            for (k = 0; !o->conf_all && k < np; k++)
+                if (fabs(pts[i].x - pts[k].x) < 1e-07 && fabs(pts[i].y - pts[k].y) < 1e-07 &&
+                    pts[i].z <= pts[k].z - 1e-07 && pts[k].z - 1e-07 != pts[i].z)
+                    over = 1;
+            if (!over) {
+                snprintf(nb, sizeof nb, "(%d)", i + 1);
+                if (ob_text_col(c, nb, pts[i].x, pts[i].y, 0, 2) < 0)
+                    goto fail;
+                t = ob_new(&c->b, JW_TEN);
+                if (!t)
+                    goto fail;
+                t->d[0] = pts[i].x;
+                t->d[1] = pts[i].y;
+                t->color = 3;
+                t->ltype = 1;
+            }
+        }
     }
     free(pts);
     /* the frame */

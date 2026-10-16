@@ -53,6 +53,9 @@ typedef struct {
     int text_color;      /* DAT_00a0b918[size_class]: all texts, default 1                 */
     double tw, th, tsp;  /* DAT_00a0b4f8/b658/b7b8[size_class]: char width, height, spacing */
     int conf;            /* 建物位置確認表 (2114): default 0 */
+    int conf_all;        /* cmd+0xe4 = Shift（押した時）XOR DAT_00a0becc（.jwf、移植は 0）: 確認表に
+                            隠れた角も出し（FUN_007400a0 が 1）、配置図の番号も 上に重なる角を飛ばさない */
+    int conf_plan_no;    /* cmd+0xe8 = Ctrl（押した時）: 角ごとに 配置図の上へ「(k)」と点（FUN_00734920） */
     int calc;            /* 三斜計算 (1329): 0 = the circle and the projected lines only (default 1) */
     int step_tenth;      /* DAT_00a0bebc < 0: |value| tenths of a degree for the 2 deg grid
                             of the projected polylines; 0 = the default 2 degrees          */

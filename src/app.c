@@ -149,6 +149,7 @@ void app_keymods(int shift, int ctrl)
 {
     ly_shift = shift != 0;
     ly_ctrl = ctrl != 0;
+    jw_cmd_keymods(shift, ctrl);
 }
 
 /* 反転表示 (0x805c, the X under the group grid): FUN_00508a50 keeps every
