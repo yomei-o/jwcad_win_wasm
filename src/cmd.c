@@ -337,7 +337,15 @@ static int sel_cut;
    枠と交わる・0 外）の -1・1・2・3 を選ぶ（型 0 は -1 だけ）。param 0 は 種類を
    &7 にして字を外し、1 は字も。集めは足すだけ（前の選択は残る）。複写・移動は
    +0x1fc のとき同じ所へ（FUN_00652ea0・FUN_00653ba0）。逆コンパイルの読み、
-   原典では押していない */
+   原典では押していない。
+   +500 は「いまの押しで箱を閉じた」印: 左 slot 9 FUN_006fd240・右 slot 11
+   FUN_006fda70 が押すたびに 0 にし、箱の前（+0xc が 0）で +8 の +4（始点を
+   押した印、FUN_0040dbb0 が 1 にし 終点で 0 に戻す）が 1 なら 1 にしてから
+   FUN_0040dbb0 / FUN_0040deb0 で箱を閉じる。移植の sel_llbox・sel_rr がそれ
+   （ほかの押しで落ちる）。型ごとの「枠と交わる」は sel_box: 線 FUN_0040cd00、
+   円・円弧 FUN_0040b360（sel_arc_frame）、寸法図形は寸法線 FUN_0040f2a0、
+   四角のソリッドは角が一つでも内 FUN_0040eb50。点・字・ブロックは -1 か 0
+   だけなので増えない */
 static int sel_cross, sel_cross_sub, sel_llbox, sel_rr;
 static double sel_rrx, sel_rry;
 /* 追加範囲 (1065) and 除外範囲 (1066), which the bar offers once a box has
@@ -739,15 +747,27 @@ static int bk_a_enko;           /* corner_step==1 かつ corner_obj>=0: 指示�
  *   bk_gyaku   +0xa8   逆分割: 組んだ線Ｂの端を入れ替える（交差に組む）
  *   bk_senchou +0x7eb0 線長割合分割: 長い線から短い線へ、間隔を線の長さの
  *                      割合で縮める（負の分割数と同じ割付、r=短/長）
- *   +0x7eb4 馬目地分割は 縦分割数の窓と FUN_00767990（7,693 バイト）が
- *   要るので入れていない（釦は出すが押せない）。 */
-static int bk_gyaku, bk_senchou;
+ *   bk_umeji   +0x7eb4 馬目地分割: 押すと 縦分割数の窓（テンプレート 275、
+ *                      FUN_00763d20）を出し、OK で入る（線長割合は切る）。
+ *                      分割は FUN_00767990（bk_umeji_run）
+ *   bk_umeji_m +0x7eb8 縦分割数（2〜2000。原典は バーの +0xb8 に覚え、ほかの
+ *                      命令と共用。移植は分割だけで持ち、はじめは 0）
+ *   bk_umeji_req       窓を出してほしい（jw_cmd_bunkatsu_umeji_ask が読むと戻る） */
+static int bk_gyaku, bk_senchou, bk_umeji, bk_umeji_m, bk_umeji_req;
 /* 分割数が負（逆分割、+0x7e98）のときの割付。FUN_007668f0 が r（+0x7ea0）を
  * |分割数| の端数（0.001 未満なら 1）にし、FUN_007674b0 が 刻み
  * bk_step=(1-r)/count と全長を出し、FUN_007697b0 が i 番目の間隔
  * 1-(i-1)×刻み を返す（最初の間隔 1、最後の間隔 r）。 */
 static int bk_neg;
 static double bk_r = 1.0, bk_step;
+static double bk_absn;          /* 直した分割数の絶対値（+0x7e90、馬目地に渡す） */
+/* 等比（逆コンパイルの読み、原典では押していない）。基本設定に無い設定
+ * .jwf の S_COMM_7 の 8 番目（DAT_00a0bfa8、0/1 のときだけ読む。原典の
+ * 読み手 0x004e42ab 側の S_COMM_7 の枝）が 1 で、線長割合（+0x7eb0）で
+ * なく 0.01≦r≦0.99 なら、FUN_007674b0 が 全長を (1-r^(count+1))/(1-r) に
+ * して 1 を返し、FUN_007697b0 は i 番目の間隔を r^(i-1)（i = 1 は 1）にする。
+ * bk_tohi が設定、bk_geo がいまの割付が等比か */
+static int bk_tohi, bk_geo;
 static int tk_pos;              /* 中央 (1068): 0 中央・1 頂点・2 辺 */
 static int tk2_n;               /* ２辺: 取った点の数 */
 static int tk_pickmode;          /* 任意: 円・連続線指示 (1083) の間 */
@@ -3996,7 +4016,7 @@ void jw_cmd_set(int id)
             box_put_raw(1412, "");
     }
     bk_rr_n = 0;                /* FUN_0075b070: +0x138 = 0 */
-    bk_gyaku = bk_senchou = 0;  /* 分割の補助設定（FUN_007619c0 で 0） */
+    bk_gyaku = bk_senchou = bk_umeji = 0;   /* 分割の補助設定（FUN_007619c0 で 0） */
     step = 0;
     en_step = 0;
     hou_step = 0;
@@ -8529,8 +8549,11 @@ static int mt_takes(const jw_obj *o)
  *
  * A negative 分割数 is 逆分割 (it sets +0x7e98): |n| divisions whose gaps
  * shrink evenly from 1 to r, r being the fraction of |n| (bk_read_n,
- * bk_total).  An empty box is not done: FUN_0058cc80 may read it as 0 and
- * so as 1.01 -- that has not been asked.
+ * bk_total).  An empty box: FUN_0058cc80 hands the text to FUN_004f2220,
+ * whose FUN_004f2480 gives 0 for nothing (wcslen 0), so FUN_007668f0 would
+ * make it 1.01 and write that back (one line, at 1/1.01).  The fuzzing
+ * said 2 and a clean run said nothing, so the port keeps 2 (bk_read_n)
+ * until the original is asked again -- nokori.md 2-2.
  * (This used to take the box through atoi and refuse anything outside
  * 2..1000, so 2.5 drew one line at the half and 5000 drew nothing.)
  */
@@ -8544,11 +8567,13 @@ static int mt_takes(const jw_obj *o)
 /* FUN_007674b0: n（|分割数|）と *count（floor(n)-1）から割付の全長を返す。
  * 逆分割でなければ 端数があれば *count を一つ足して n のまま。逆分割なら
  * 刻み bk_step=(1-r)/count、全長 (count+1) - count(count+1)/2 × 刻み。
- * （基本設定に無い設定 S_COMM_7 の 8 番目 DAT_00a0bfa8 が 1 で 線長割合でなく
- * 0.01≦r≦0.99 なら等比 (1-r^(count+1))/(1-r) になるが、原典の既定は 0 で
- * 移植は .jwf からこれを読まないので、等差だけ。） */
+ * S_COMM_7 の 8 番目（bk_tohi）が 1 で 線長割合でなく 0.01≦r≦0.99 なら
+ * 等比 (1-r^(count+1))/(1-r)（bk_geo、原典の戻り値 1）。原典の既定は 0 */
 static double bk_total(double n, int *count)
 {
+    double total;
+
+    bk_geo = 0;
     if (!bk_neg) {
         if (fabs(n - (int)n) > 1e-07)
             (*count)++;
@@ -8559,12 +8584,20 @@ static double bk_total(double n, int *count)
         return n;
     }
     bk_step = (1.0 - bk_r) / (double)*count;
-    return ((double)*count + 1.0) - ((double)((*count + 1) * *count) / 2.0) * bk_step;
+    total = ((double)*count + 1.0) - ((double)((*count + 1) * *count) / 2.0) * bk_step;
+    if (!bk_senchou && bk_tohi && 0.01 <= bk_r && bk_r <= 0.99) {
+        bk_geo = 1;             /* 等比（FUN_00904f00 は pow） */
+        return (1.0 - pow(bk_r, (double)(*count + 1))) / (1.0 - bk_r);
+    }
+    return total;
 }
 
-/* FUN_007697b0（等差）: i 番目（1 始まり）の間隔。逆分割でなければ 1 */
+/* FUN_007697b0: i 番目（1 始まり）の間隔。逆分割でなければ 1、等差は
+   1-(i-1)×刻み、等比（bk_geo）は r^(i-1)（i = 1 は 1） */
 static double bk_w(int i)
 {
+    if (bk_neg && bk_geo)
+        return i == 1 ? 1.0 : pow(bk_r, (double)(i - 1));
     return bk_neg ? 1.0 - ((double)i - 1.0) * bk_step : 1.0;
 }
 
@@ -8573,6 +8606,8 @@ static double bk_t(int k, double n)
 {
     if (!bk_neg)
         return (double)k / n;
+    if (bk_geo)                 /* r^0 + … + r^(k-1) */
+        return (1.0 - pow(bk_r, (double)k)) / (1.0 - bk_r) / n;
     return ((double)k - bk_step * (double)k * ((double)k - 1.0) / 2.0) / n;
 }
 
@@ -8583,6 +8618,7 @@ static double bk_read_n(int *count)
 
     /* 0 件の答えは bk_total を通らないので、ここで 0 件・逆分割でない形にする */
     bk_neg = 0;
+    bk_geo = 0;
     bk_r = 1.0;
     if (!ns || !*ns)
         n = 2.0;                /* the original divides in two when the box is blank */
@@ -8611,6 +8647,7 @@ static double bk_read_n(int *count)
         return 0.0;
     }
     n = fabs(n);
+    bk_absn = n;
     if (bk_neg && 0.001 <= n - (double)(int)n)
         bk_r = n - (double)(int)n;
     *count = (int)n - 1;
@@ -8647,7 +8684,7 @@ static void bk_pair_ends(const jw_obj *p, const jw_obj *q, double ax, double ay,
     }
     /* 逆分割 (bk_gyaku、+0xa8): 組んだあと、長い横木を先にする前に Ｂ の端を
        入れ替える（FUN_0075d660 の 0x75e4be、馬目地 +0x7eb4 のときは見ない） */
-    if (bk_gyaku)
+    if (bk_gyaku && !bk_umeji)
         flipb = !flipb;
     if (flipb) {
         tx = bx0; ty = by0;
@@ -8762,6 +8799,300 @@ static int bk_fan_walk(jw_drawing *d, const double *A, const double *B)
     return made;
 }
 
+/* FUN_004619b0: 線 l1・l2（どちらも端無しとして）の交点を l2 の上で求める。
+   0 交わらない（平行・遠すぎる）、1 二本の線分の内（±1e-7）、2 外 */
+static int bk_isect(const double *l1, const double *l2, double *x, double *y)
+{
+    double ex = l1[2] - l1[0], ey = l1[3] - l1[1];
+    double fx = l2[2] - l2[0], fy = l2[3] - l2[1];
+    double d4 = (l2[1] - l1[1]) * ex - (l2[0] - l1[0]) * ey;
+    double d5 = (l2[3] - l1[1]) * ex - (l2[2] - l1[0]) * ey, t;
+
+    *x = *y = 9990000000000.0;
+    if (!(1e-7 < fabs(d4 - d5)) || !(fabs(d4) <= fabs(d4 - d5) * 1e10))
+        return 0;
+    t = d4 / (d4 - d5);
+    *x = fx * t + l2[0];
+    *y = fy * t + l2[1];
+    if (!(fabs(*x) + fabs(*y) <= 139778713.93879598))
+        return 0;
+    if (l1[0] == l1[2]) *x = l1[0];
+    if (l1[1] == l1[3]) *y = l1[1];
+    if (l2[0] == l2[2]) *x = l2[0];
+    if (l2[1] == l2[3]) *y = l2[1];
+    if (fabs(ex) <= fabs(ey)) {
+        if (*y < l1[1] - 1e-7 && *y < l1[3] - 1e-7) return 2;
+        if (l1[1] + 1e-7 < *y && l1[3] + 1e-7 < *y) return 2;
+    } else {
+        if (*x < l1[0] - 1e-7 && *x < l1[2] - 1e-7) return 2;
+        if (l1[0] + 1e-7 < *x && l1[2] + 1e-7 < *x) return 2;
+    }
+    if (fabs(fx) <= fabs(fy)) {
+        if (*y < l2[1] - 1e-7 && *y < l2[3] - 1e-7) return 2;
+        if (l2[1] + 1e-7 < *y && l2[3] + 1e-7 < *y) return 2;
+    } else {
+        if (*x < l2[0] - 1e-7 && *x < l2[2] - 1e-7) return 2;
+        if (l2[0] + 1e-7 < *x && l2[2] + 1e-7 < *x) return 2;
+    }
+    return 1;
+}
+
+/* FUN_005f97f0 の枠: 原点 (ox,oy)、x 軸は (ox,oy)→(tx,ty)（|dx|+|dy| が 1e-7
+   未満なら x 軸のまま）。bk_um_to が FUN_005f92e0（枠の中へ） */
+typedef struct { double ox, oy, c, s; } bk_um_frame;
+
+static void bk_um_set(bk_um_frame *f, double ox, double oy, double tx, double ty)
+{
+    double dx = tx - ox, dy = ty - oy;
+
+    f->ox = ox;
+    f->oy = oy;
+    f->c = 1.0;
+    f->s = 0.0;
+    if (1e-7 <= fabs(dx) + fabs(dy)) {
+        double l = sqrt(dx * dx + dy * dy);
+
+        f->c = dx / l;
+        f->s = dy / l;
+    }
+}
+
+static void bk_um_to(const bk_um_frame *f, double *x, double *y)
+{
+    double px = *x;
+
+    *x = (px - f->ox) * f->c + (*y - f->oy) * f->s;
+    *y = (*y - f->oy) * f->c - (px - f->ox) * f->s;
+}
+
+static void bk_um_swap(double *a, double *b)
+{
+    double t0 = a[0], t1 = a[1];
+
+    a[0] = b[0]; a[1] = b[1];
+    b[0] = t0; b[1] = t1;
+}
+
+static double bk_um_len(const double *a, const double *b)
+{
+    return sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[1] - a[1]) * (b[1] - a[1]));
+}
+
+/* 縦の線（原典 this+0x7ec0 + i*0x68 の 0〜縦分割数）。原典は命令の中に持ち、
+   長さ 1e-7 以下で書かなかった番は前の分割のまま残る */
+static double bk_um_rung[2001][4];
+
+static int bk_um_line(jw_drawing *d, double x0, double y0, double x1, double y1)
+{
+    jw_obj *o = jw_add(d, JW_SEN);
+
+    if (!o)
+        return 0;
+    o->d[0] = x0;
+    o->d[1] = y0;
+    o->d[2] = x1;
+    o->d[3] = y1;
+    return 1;
+}
+
+/* 馬目地分割（+0x7eb4、FUN_00767990）。逆コンパイルの読み、原典では押していない。
+ * 呼び手 FUN_0075d660（0x75e7c0 あたり）が 割付でなく分割数 10000 以下で渡す
+ * 引数は disasm で読んだ: 分割数 n（+0x7e90）・縦分割数 m（+0x7eb8）・
+ * Ａの端 A0・A1・Ｂの端 B0・B1（組んだあと。逆分割の入れ替えはしない）。
+ *  - n・m は絶対値の整数で 2 未満は 2、n は箱 1411 に書き戻す。m×n が 100000
+ *    を超えれば 5613「分割数が多すぎます。」で何も作らない
+ *  - B0 を A0 に近い方に、A0 を B0 に近い方にし、A0B0 と A1B1 が交われば Ｂ の
+ *    端を入れ替える。Ａ・Ｂ（の線分）どうしが交われば作らない
+ *  - 一つ目: A0・A1 で Ａ に立てた垂線が Ｂ の線と交わる所までの長さ d0・d1
+ *    （大きい方を始めに）の比 r = d1/d0 で、Ａ の上 A0→A1・Ｂ の上 B0→B1 を
+ *    m 個に割る（間隔は 1 から r へ等差に縮む、FUN_007674b0 の逆分割と同じ形）。
+ *    割った所どうしを結ぶ線が 縦の線 0〜m（0 と m は A0B0・A1B1）で、1〜m-1 を描く
+ *  - 二つ目: 長い方の線を始めに（Ａ と Ｂ の長さの比で同じく縮む）、A0→B0・
+ *    A1→B1 を n 個に割った所を結ぶ線 j（1〜n-1）を、縦の線 k と k+1 の間だけ
+ *    描く。k は j が奇数なら 1 から、偶数なら 0 から 二つおき（逆分割 +0xa8 が
+ *    立てば奇偶が逆）—— 目地が互い違いになる
+ *  - 刻みの絶対値が 1 と 1e-7 未満しか違わなければ 刻みは 0
+ * 作ったら 1 以上、作れなければ 0（原典はそのとき 0x1455 を出す）。 */
+static int bk_umeji_run(jw_drawing *d, double nn, int m, const double *aa,
+                        const double *bb)
+{
+    double p3[2], p7[2], p11[2], p15[2], ix, iy, d0, d1, ratio, step, total;
+    double a0[2], a1[2], b0[2], b1[2], l1[4], l2[4], x, y, dA[2], dB[2];
+    bk_um_frame f;
+    int n, k, i, j, made = 0;
+
+    n = (int)nn;
+    if (n < 0)
+        n = -n;
+    if (n < 2)
+        n = 2;
+    {
+        char t[32];
+
+        snprintf(t, sizeof t, "%.10g", (double)n);
+        box_put(1411, t);
+    }
+    if (m < 0)
+        m = -m;
+    if (m < 2)
+        m = 2;
+    if (m > 2000)
+        m = 2000;               /* 窓が 2000 までに収める（移植の配列の大きさも） */
+    if ((double)m * (double)n > 100000.0) {
+        JW_NOTICE(5613);
+        return 0;
+    }
+    p3[0] = aa[0]; p3[1] = aa[1]; p7[0] = aa[2]; p7[1] = aa[3];
+    p11[0] = bb[0]; p11[1] = bb[1]; p15[0] = bb[2]; p15[1] = bb[3];
+    if (bk_um_len(p3, p15) < bk_um_len(p3, p11))
+        bk_um_swap(p11, p15);
+    if (bk_um_len(p7, p11) < bk_um_len(p3, p11))
+        bk_um_swap(p3, p7);
+    l1[0] = p3[0]; l1[1] = p3[1]; l1[2] = p11[0]; l1[3] = p11[1];
+    l2[0] = p7[0]; l2[1] = p7[1]; l2[2] = p15[0]; l2[3] = p15[1];
+    if (bk_isect(l1, l2, &ix, &iy) == 1)
+        bk_um_swap(p11, p15);
+    /* Ａ（P3-P7）と Ｂ（P11-P15）の交点が どちらかの線分の幅の内なら作らない */
+    l1[0] = p3[0]; l1[1] = p3[1]; l1[2] = p7[0]; l1[3] = p7[1];
+    l2[0] = p11[0]; l2[1] = p11[1]; l2[2] = p15[0]; l2[3] = p15[1];
+    if (bk_isect(l1, l2, &ix, &iy)) {
+        int in1 = 1, in2 = 1;
+
+        if ((ix < l1[0] && ix < l1[2]) || (l1[0] < ix && l1[2] < ix)
+            || (iy < l1[1] && iy < l1[3]) || (l1[1] < iy && l1[3] < iy))
+            in1 = 0;
+        if ((ix < l2[0] && ix < l2[2]) || (l2[0] < ix && l2[2] < ix)
+            || (iy < l2[1] && iy < l2[3]) || (l2[1] < iy && l2[3] < iy))
+            in2 = 0;
+        if (in1 || in2)
+            return 0;
+    }
+    /* A0・A1 に Ａ の左へ 100 の垂線（FUN_005f8940 の枠で y = 100）を立て、Ｂ と交わる所 */
+    bk_um_set(&f, p3[0], p3[1], p7[0], p7[1]);
+    l1[0] = p3[0]; l1[1] = p3[1];
+    l1[2] = p3[0] - 100.0 * f.s; l1[3] = p3[1] + 100.0 * f.c;
+    if (!bk_isect(l1, l2, &x, &y))
+        return 0;
+    d0 = sqrt((x - p3[0]) * (x - p3[0]) + (y - p3[1]) * (y - p3[1]));
+    {
+        double lx = (p7[0] - f.ox) * f.c + (p7[1] - f.oy) * f.s;
+
+        l1[0] = p7[0]; l1[1] = p7[1];
+        l1[2] = f.c * lx - f.s * 100.0 + f.ox;
+        l1[3] = f.c * 100.0 + f.s * lx + f.oy;
+    }
+    if (!bk_isect(l1, l2, &x, &y))
+        return 0;
+    d1 = sqrt((x - p7[0]) * (x - p7[0]) + (y - p7[1]) * (y - p7[1]));
+    a0[0] = p3[0]; a0[1] = p3[1]; b0[0] = p11[0]; b0[1] = p11[1];
+    a1[0] = p7[0]; a1[1] = p7[1]; b1[0] = p15[0]; b1[1] = p15[1];
+    if (d0 < d1) {
+        double t = d0;
+
+        d0 = d1;
+        d1 = t;
+        bk_um_swap(a0, a1);
+        bk_um_swap(b0, b1);
+    }
+    if (fabs(d1) < 1e-7)
+        return 0;
+    ratio = d1 / d0;
+    bk_um_set(&f, a0[0], a0[1], b0[0], b0[1]);
+    {
+        double ax = a1[0], ay = a1[1], bx = b1[0], by = b1[1];
+
+        bk_um_to(&f, &ax, &ay);
+        bk_um_to(&f, &bx, &by);
+        if (fabs(ay) < 1e-7 && fabs(by) < 1e-7)
+            return 0;
+    }
+    /* 一つ目: 縦の線 */
+    k = m - 1;
+    step = (1.0 - ratio) / (double)k;
+    if (fabs(fabs(step) - 1.0) < 1e-7)
+        step = 0.0;
+    total = ((double)k + 1.0) - ((double)(m * k) / 2.0) * step;
+    dA[0] = (a1[0] - a0[0]) / total; dA[1] = (a1[1] - a0[1]) / total;
+    dB[0] = (b1[0] - b0[0]) / total; dB[1] = (b1[1] - b0[1]) / total;
+    bk_um_rung[0][0] = a0[0]; bk_um_rung[0][1] = a0[1];
+    bk_um_rung[0][2] = b0[0]; bk_um_rung[0][3] = b0[1];
+    {
+        double px = a0[0], py = a0[1], qx = b0[0], qy = b0[1];
+
+        for (i = 1; i <= m; i++) {
+            double w = 1.0 - ((double)i - 1.0) * step;
+
+            px += dA[0] * w;
+            py += dA[1] * w;
+            qx += dB[0] * w;
+            qy += dB[1] * w;
+            if (sqrt((qx - px) * (qx - px) + (qy - py) * (qy - py)) > 1e-7) {
+                bk_um_rung[i][0] = px; bk_um_rung[i][1] = py;
+                bk_um_rung[i][2] = qx; bk_um_rung[i][3] = qy;
+                if (i != m)
+                    made += bk_um_line(d, px, py, qx, qy);
+            }
+        }
+    }
+    /* 二つ目: 横の目地。始めは 入れ替えたあとの P3・P7・P11・P15 から */
+    a0[0] = p3[0]; a0[1] = p3[1]; a1[0] = p7[0]; a1[1] = p7[1];
+    b0[0] = p11[0]; b0[1] = p11[1]; b1[0] = p15[0]; b1[1] = p15[1];
+    d0 = bk_um_len(a0, a1);
+    d1 = bk_um_len(b0, b1);
+    if (d0 < d1) {
+        double t = d0;
+
+        d0 = d1;
+        d1 = t;
+        bk_um_swap(a0, b0);
+        bk_um_swap(a1, b1);
+    }
+    if (fabs(d1) < 1e-7)
+        return made;
+    bk_um_set(&f, a0[0], a0[1], a1[0], a1[1]);
+    {
+        double ax = b0[0], ay = b0[1], bx = b1[0], by = b1[1];
+
+        bk_um_to(&f, &ax, &ay);
+        bk_um_to(&f, &bx, &by);
+        if (fabs(ay) < 1e-7 && fabs(by) < 1e-7)
+            return made;
+    }
+    k = n - 1;
+    step = (1.0 - d1 / d0) / (double)k;
+    if (fabs(fabs(step) - 1.0) < 1e-7)
+        step = 0.0;
+    total = ((double)k + 1.0) - ((double)(n * k) / 2.0) * step;
+    dA[0] = (b0[0] - a0[0]) / total; dA[1] = (b0[1] - a0[1]) / total;
+    dB[0] = (b1[0] - a1[0]) / total; dB[1] = (b1[1] - a1[1]) / total;
+    {
+        double px = a0[0], py = a0[1], qx = a1[0], qy = a1[1];
+
+        for (j = 1; j < n; j++) {
+            double w = 1.0 - ((double)j - 1.0) * step, t4[4];
+            int kk;
+
+            px += dA[0] * w;
+            py += dA[1] * w;
+            qx += dB[0] * w;
+            qy += dB[1] * w;
+            if (!(sqrt((qx - px) * (qx - px) + (qy - py) * (qy - py)) > 1e-7))
+                continue;
+            t4[0] = px; t4[1] = py; t4[2] = qx; t4[3] = qy;
+            kk = bk_gyaku ? (j % 2 == 0) : (j % 2 != 0);
+            for (; kk < m; kk += 2) {
+                double x1, y1, x2, y2;
+
+                if (!bk_isect(t4, bk_um_rung[kk], &x1, &y1)
+                    || !bk_isect(t4, bk_um_rung[kk + 1], &x2, &y2))
+                    continue;
+                made += bk_um_line(d, x1, y1, x2, y2);
+            }
+        }
+    }
+    return made;
+}
+
 static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
                      double bx, double by)
 {
@@ -8827,6 +9158,14 @@ static void bunkatsu(jw_drawing *d, int a, int b, double ax, double ay,
             op_push(made);
             return;
         }
+    }
+    if (bk_umeji && bk_mode != 1690) {
+        /* 馬目地分割（+0x7eb4）: 組んだ端を FUN_00767990 へ（線長割合は見ない） */
+        double aa[4], bb[4];
+
+        bk_pair_ends(p, q, ax, ay, bx, by, aa, bb);
+        op_push(bk_umeji_run(d, bk_absn, bk_umeji_m, aa, bb));
+        return;
     }
     if (bk_senchou) {
         /* 線長割合分割 (+0x7eb0、FUN_0075d660): 短い方を Ｂ にして（Ａ が短ければ
@@ -9458,6 +9797,229 @@ static int bk_arc_walk(jw_drawing *d, double cx, double cy, double r, double a1,
     return made;
 }
 
+/* 楕円（扁平≠1）の２点間分割・円全周分割（逆コンパイルの読み、原典では
+ * 押していない）。等距離は FUN_00762870、等角度は FUN_00761c60。
+ *
+ * 点は FUN_0045b790(1,…) で楕円の上へ寄せ（中心からの向きは変えない）、
+ * FUN_005f89c0・FUN_005f92e0 で 中心を原点・傾き（+0x70）を戻した座標に
+ * 写して 縦を扁平率（+0x88）で割る —— 半径 r の円の上の角（bk_el_ang、
+ * 楕円の媒介変数の角）になる。２点間は FUN_00462f10 → FUN_0045c760 が
+ * P1・指示点・P2 の角から 始めの角（P1）と 弧の角（bk_el_sweep: P1 から
+ * 指示点を通って P2 まで、P1 と P2 が同じ角なら 2π、1e-5 未満は 0）を
+ * 出す。全周は 弧の角 2π で、向きは 中心→P1 と 中心→指示点 の外積
+ * （FUN_005f8940・FUN_005f8ca0 が負なら逆回り）。扁平率 1e-5 未満は
+ * 何もしない（FUN_00762870・FUN_00761c60 の 0x762a7d・FUN_0040c180 の枝）。 */
+static double bk_el_ang(const jw_obj *c, double x, double y)
+{
+    double ct = cos(c->d[5]), st = sin(c->d[5]);
+    double dx = x - c->d[0], dy = y - c->d[1];
+
+    return atan2((ct * dy - st * dx) / c->d[6], ct * dx + st * dy);
+}
+
+/* FUN_0045c760（原点のまわり）: 三つの角を [0,2π) にして 弧の角を返す */
+static double bk_el_sweep(double a1, double aq, double a2)
+{
+    double sw = 0.0;
+
+    if (a1 < 0.0) a1 += 2.0 * PI;
+    if (aq < 0.0) aq += 2.0 * PI;
+    if (a2 < 0.0) a2 += 2.0 * PI;
+    if (fabs(a1 - a2) < 1e-7)
+        sw = 2.0 * PI;
+    else if (a1 <= aq && aq < a2)
+        sw = a2 - a1;
+    else if (a2 < aq && aq <= a1)
+        sw = a2 - a1;
+    else if (a1 < a2)
+        sw = (a2 - a1) - 2.0 * PI;
+    else if (a2 < a1)
+        sw = 2.0 * PI - (a1 - a2);
+    return fabs(sw) < 1e-5 ? 0.0 : sw;
+}
+
+/* FUN_0045cb90: 始めの角 a0 から 弧の角 sw までの弧長。単位円を縦に扁平率で
+   潰した上の 2e-5 ラジアンごとの弦の和（最後は sw で止める）に r を掛ける。
+   扁平率 1 なら r×|sw|、1e-4 未満は 2r */
+static double bk_el_len(const jw_obj *c, double a0, double sw)
+{
+    double r = c->d[2], fl = c->d[6], t = 0.0, acc = 0.0, px, py, step;
+    int last = 0;
+
+    if (r < 1e-7)
+        return 0.0;
+    if (fl < 1e-4)
+        return r * 2.0;
+    if (fabs(fl - 1.0) < 1e-7)
+        return fabs(r * sw);
+    step = sw < 0.0 ? -2e-5 : 2e-5;
+    px = cos(a0);
+    py = sin(a0) * fl;
+    do {
+        double a, qx, qy;
+
+        t += step;
+        a = t;
+        if (fabs(sw) <= fabs(t)) {
+            last = 1;
+            a = sw;
+        }
+        a += a0;
+        qx = cos(a);
+        qy = sin(a) * fl;
+        acc += sqrt((qx - px) * (qx - px) + (qy - py) * (qy - py));
+        px = qx;
+        py = qy;
+    } while (!last);
+    return r * acc;
+}
+
+/* 局所の (lx,ly)（傾きを戻した座標、縦は潰したまま）を図面の座標へ（FUN_005f8ce0） */
+static void bk_el_world(const jw_obj *c, double lx, double ly, double *x, double *y)
+{
+    double ct = cos(c->d[5]), st = sin(c->d[5]);
+
+    *x = c->d[0] + ct * lx - st * ly;
+    *y = c->d[1] + st * lx + ct * ly;
+}
+
+/* FUN_0045af50: 角 th0 の点から 楕円に沿って dist（負なら逆回り）進んだ点。
+   2e-5 ラジアンずつ弦を足し、届いたら 行き過ぎを最後の弦で割り戻す */
+static void bk_el_at(const jw_obj *c, double th0, double dist, double *x, double *y)
+{
+    double r = c->d[2], fl = c->d[6], th = th0;
+
+    if (fabs(fl - 1.0) >= 1e-7) {
+        double step = dist < 0.0 ? -2e-5 : 2e-5, acc = 0.0, ch = 0.0;
+        double px = cos(th) * r, py = sin(th) * r * fl;
+
+        do {
+            double qx, qy;
+
+            th += step;
+            qx = cos(th) * r;
+            qy = sin(th) * r * fl;
+            ch = sqrt((qx - px) * (qx - px) + (qy - py) * (qy - py));
+            acc += ch;
+            px = qx;
+            py = qy;
+        } while (acc < fabs(dist));
+        if (ch > 0.0)
+            th -= ((acc - fabs(dist)) / ch) * step;
+        bk_el_world(c, cos(th) * r, sin(th) * r * fl, x, y);
+    } else {
+        th += dist / r;
+        bk_el_world(c, cos(th) * r, sin(th) * r, x, y);
+    }
+}
+
+/* FUN_00762870 の歩き（楕円）: 角 a1 から 弧の角 sw の弧長を、分割数なら
+   全長 n で割った刻みに間隔の重み（FUN_007697b0）を掛けて足し、割付なら
+   距離ずつ（振分・割付距離以下は bk_arc_walk と同じ）。端の点は置かない */
+static int bk_el_walk(jw_drawing *d, const jw_obj *c, double a1, double sw)
+{
+    double len = bk_el_len(c, a1, sw), dir = sw < 0.0 ? -1.0 : 1.0;
+    int made = 0, k;
+
+    if (len < 1e-7)
+        return 0;
+    if (bk_waritsuke_on()) {
+        double dist = box_mm(d, 1412), step, p;
+
+        if (dist < 1e-5)
+            return 0;
+        step = dist;
+        p = 0.0;
+        if (jw_cmd_bar_check(1326) > 0) {
+            double q = len / dist;
+            int m = (int)q;
+
+            if (fabs(q - (double)m) > 1e-7)
+                m++;
+            if (m < 1)
+                m = 1;
+            step = len / (double)m;
+        } else if (jw_cmd_bar_check(1325) > 0) {
+            double rem = len;
+
+            while (dist <= rem + 1e-7)
+                rem -= dist;
+            if (1e-7 < rem && rem < dist - 1e-7)
+                p = -(dist - rem) / 2.0;
+        }
+        p *= dir;
+        step *= dir;
+        for (k = 1; k < 10001; k++) {
+            double x, y;
+
+            p += step;
+            if (fabs(p) >= len - 1e-7)
+                break;
+            if (fabs(p) > 1e-7) {
+                bk_el_at(c, a1, p, &x, &y);
+                made += bk_put_point(d, x, y);
+            }
+        }
+    } else {
+        int count;
+        double n = bk_read_n(&count), step, p = 0.0;
+
+        if (n <= 0.0)
+            return 0;
+        step = dir * len / n;
+        if (fabs(step) < 1e-7)
+            return 0;
+        for (k = 1; k <= count; k++) {
+            double x, y;
+
+            p += step * bk_w(k);
+            bk_el_at(c, a1, p, &x, &y);
+            made += bk_put_point(d, x, y);
+        }
+    }
+    return made;
+}
+
+/* FUN_00761c60（等角度、楕円）: 扁平率を 1 にした写し（FUN_0042f600）の円で、
+   中心→P1・指示点・P2 の向きを（傾きを戻した）角にして 弧の角を出し、
+   弧の角 / 全長 n の刻みに重みを掛けて回した円の上の点を、中心からの線で
+   楕円に当てる（FUN_00462070、中心から その点の向きに出た所） */
+static int bk_el_kaku(jw_drawing *d, const jw_obj *c, double p1x, double p1y,
+                      double qx, double qy, double p2x, double p2y, int whole,
+                      double cx, double cy)
+{
+    double r = c->d[2], fl = c->d[6], tl = c->d[5];
+    double a1 = atan2(p1y - c->d[1], p1x - c->d[0]) - tl, sw, n, step, a;
+    int count, k, made = 0;
+
+    if (whole) {
+        sw = 2.0 * PI;
+        if ((p1x - c->d[0]) * (cy - c->d[1]) - (p1y - c->d[1]) * (cx - c->d[0]) < 0.0)
+            sw = -sw;
+    } else {
+        sw = bk_el_sweep(a1, atan2(qy - c->d[1], qx - c->d[0]) - tl,
+                         atan2(p2y - c->d[1], p2x - c->d[0]) - tl);
+    }
+    n = bk_read_n(&count);
+    if (n <= 0.0)
+        return 0;
+    step = sw / n;
+    a = a1;
+    if (a < 0.0)
+        a += 2.0 * PI;          /* FUN_0045c760 の始めの角は [0,2π) */
+    for (k = 1; k <= count; k++) {
+        double ca, sa, rho, x, y;
+
+        a += step * bk_w(k);
+        ca = cos(a);
+        sa = sin(a);
+        rho = r * fl / sqrt(fl * fl * ca * ca + sa * sa);
+        bk_el_world(c, rho * ca, rho * sa, &x, &y);
+        made += bk_put_point(d, x, y);
+    }
+    return made;
+}
+
 /* 状態 3 で 分割する円 を (L) 指示したとき（円の２点間分割）: P1・P2 を
  * 円の中心からの向き θ1・θ2 に直し、**指示した位置（qx,qy）を通るほうの弧**を
  * 分割する（原典は FUN_00462d70 に 三点 P1・指示点・P2 を渡して弧の長さと向きを
@@ -9477,6 +10039,20 @@ static void bk_two_point_circle(jw_drawing *d, double p1x, double p1y,
 
     if (hypot(p1x - cx, p1y - cy) < 1e-7 || hypot(p2x - cx, p2y - cy) < 1e-7)
         return;
+    if (fabs(c->d[6] - 1.0) >= 1e-7) {  /* 楕円（bk_el_ang の注） */
+        jw_obj e = *c;          /* 点を足すと d->obj が動くので写しで */
+
+        if (e.d[6] < 1e-5 || r < 1e-7)
+            return;
+        if (bk_mode == 1690)
+            op_push(bk_el_kaku(d, &e, p1x, p1y, qx, qy, p2x, p2y, 0, 0.0, 0.0));
+        else {
+            a1 = bk_el_ang(&e, p1x, p1y);
+            op_push(bk_el_walk(d, &e, a1, bk_el_sweep(a1, bk_el_ang(&e, qx, qy),
+                                                      bk_el_ang(&e, p2x, p2y))));
+        }
+        return;
+    }
     a1 = atan2(p1y - cy, p1x - cx);
     a2 = atan2(p2y - cy, p2x - cx);
     aq = atan2(qy - cy, qx - cx);
@@ -9520,6 +10096,17 @@ static void bk_full_circle(jw_drawing *d, double px, double py, int circ_idx,
     double cross = (px - ox) * (cy - oy) - (py - oy) * (cx - ox);
     double s = cross < 0.0 ? -1.0 : 1.0;
 
+    if (fabs(c->d[6] - 1.0) >= 1e-7) {  /* 楕円（bk_el_ang の注） */
+        jw_obj e = *c;
+
+        if (e.d[6] < 1e-5 || r < 1e-7 || hypot(px - ox, py - oy) < 1e-7)
+            return;
+        if (bk_mode == 1690)
+            op_push(bk_el_kaku(d, &e, px, py, px, py, px, py, 1, cx, cy));
+        else
+            op_push(bk_el_walk(d, &e, bk_el_ang(&e, px, py), s * 2.0 * PI));
+        return;
+    }
     op_push(bk_arc_walk(d, ox, oy, r, thp, s, 2.0 * PI * r));
 }
 
@@ -13992,6 +14579,88 @@ static void sel_cut_box(jw_drawing *d, double x0, double y0, double x1,
     op_push(made);
 }
 
+static int pm_sun_head(const jw_drawing *d, int i);
+
+/* 範囲枠交差の円弧・楕円（FUN_0040b360、FUN_0040ab00 の CDataEnko の枝）。
+   中心を原点にし、枠の角を 傾き（+0x70）で戻して 縦を扁平率（+0x88）で
+   割る —— 楕円は半径 r の円に、枠は四辺の多角形になる。始点（角 +0x78）が
+   四辺の内（どの辺の左でもある）で、どの辺とも交わらなければ -1（丸ごと
+   内）、交わる所があれば 3、無ければ 0。交わりは 辺の上（0〜辺の長さ）で、
+   円弧角（+0x80）の絶対値が 6.283185207 以下なら 始点から円弧角の内のもの
+   だけ（角の寄せは FUN_0040b250）。接するだけ（r² − 距離² が 1e-7 以下）と
+   中心に落ちる点は数えない。先に 中心 ± max(r, r×扁平率) の箱が枠と重なる
+   かを見る（重ならなければ 0）。移植の枠は傾かない（+0x418 は 0）ので角は
+   (x0,y0)→(x1,y0)→(x1,y1)→(x0,y1) の左回り。逆コンパイルの読み、原典では
+   押していない */
+static int sel_arc_frame(const jw_obj *o, double x0, double y0, double x1,
+                         double y1)
+{
+    double r = o->d[2], st = o->d[3], sw = o->d[4], tilt = o->d[5];
+    double fl = o->d[6] > 0.0 ? o->d[6] : 1.0;  /* 扁平率 0 は真円の扱い */
+    double reach = r * fl > r ? r * fl : r, asw = fabs(sw);
+    double bx[5] = { x0, x1, x1, x0, x0 }, by[5] = { y0, y0, y1, y1, y0 };
+    double px[5], py[5], c = cos(tilt), s = sin(tilt), sx, sy;
+    int i, k, inside = 1, hits = 0;
+
+    if (!(x0 < o->d[0] + reach && y0 < o->d[1] + reach
+          && o->d[0] - reach < x1 && o->d[1] - reach < y1))
+        return 0;
+    for (i = 0; i < 5; i++) {
+        double ax = bx[i] - o->d[0], ay = by[i] - o->d[1];
+
+        px[i] = c * ax + s * ay;
+        py[i] = (c * ay - s * ax) / fl;
+    }
+    sx = cos(st) * r;
+    sy = sin(st) * r;
+    for (i = 0; i < 4; i++) {
+        double ex = px[i + 1] - px[i], ey = py[i + 1] - py[i];
+        double len = ex * ex + ey * ey, ux, uy, along, off, h;
+
+        if (len < 1e-7)
+            continue;
+        len = sqrt(len);
+        ux = ex / len;
+        uy = ey / len;
+        if (inside && (sy - py[i]) * ux - (sx - px[i]) * uy < 0.0)
+            inside = 0;         /* 始点がこの辺の右（枠の外） */
+        along = ux * -px[i] + uy * -py[i];
+        off = ux * -py[i] - uy * -px[i];
+        if (!(fabs(off) < r) || !((h = r * r - off * off) > 1e-7))
+            continue;
+        h = sqrt(h);
+        for (k = 0; k < 2; k++) {
+            double t = k ? along + h : along - h, qx, qy, a;
+
+            if (!(t >= 0.0 && t <= len))
+                continue;
+            if (asw <= 6.283185207179586) {
+                qx = ux * t + px[i];
+                qy = uy * t + py[i];
+                if (fabs(qx) < 1e-7 && fabs(qy) < 1e-7)
+                    continue;
+                a = atan2(qy, qx) - st;
+                if (sw > 0.0)   /* FUN_0040b250 */
+                    while (a < 0.0)
+                        a += 2.0 * PI;
+                if (sw < 0.0)
+                    while (a > 0.0)
+                        a -= 2.0 * PI;
+                while (a > 2.0 * PI)
+                    a -= 2.0 * PI;
+                while (a < -2.0 * PI)
+                    a += 2.0 * PI;
+                if (fabs(a) > asw)
+                    continue;
+            }
+            hits++;
+        }
+    }
+    if (inside && hits == 0)
+        return -1;
+    return hits ? 3 : 0;
+}
+
 static void sel_box(jw_drawing *d, int with_text)
 {
     double x0 = sel_x0 < sel_x1 ? sel_x0 : sel_x1;
@@ -14011,17 +14680,39 @@ static void sel_box(jw_drawing *d, int with_text)
         double a, b, c2, e;
         int take;
 
-        if (o->cls == JW_MOJI && !with_text && !sel_outside && !sel_cut)
+        int h = sel_cross && o->sub ? pm_sun_head(d, i) : -1;
+
+        if (o->cls == JW_MOJI && !with_text && !sel_outside && !sel_cut && h < 0)
             continue;
         jw_obj_box(o, &a, &b, &c2, &e);
         if (sel_outside)        /* nothing of it inside the box at all */
             take = c2 < x0 || a > x1 || e < y0 || b > y1;
         else
             take = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
-        if (!take && sel_cross && o->cls == JW_SEN) {
-            double t0, t1;      /* 枠と交わる線（片端だけ内・両端外で横切る） */
+        if (!take && sel_cross) {
+            double t0, t1;
 
-            take = clip_seg(o, x0 - 1e-7, y0 - 1e-7, x1 + 1e-7, y1 + 1e-7, &t0, &t1);
+            if (h >= 0)         /* 寸法図形は寸法線で丸ごと（FUN_0040f2a0 → FUN_0040cd00(+0x68)） */
+                take = clip_seg(&d->obj[h], x0 - 1e-7, y0 - 1e-7, x1 + 1e-7, y1 + 1e-7, &t0, &t1);
+            else if (o->cls == JW_SEN)  /* 枠と交わる線（片端だけ内・両端外で横切る） */
+                take = clip_seg(o, x0 - 1e-7, y0 - 1e-7, x1 + 1e-7, y1 + 1e-7, &t0, &t1);
+            else if (o->cls == JW_ENKO) /* 枠と交わる円・円弧・楕円（FUN_0040b360 の 3） */
+                take = sel_arc_frame(o, x0, y0, x1, y1) != 0;
+            else if (o->cls == JW_SOLID && o->ltype < 100 && !sel_cross_sub) {
+                /* 四角のソリッド（FUN_0040eb50）: 四辺を線として FUN_0040cd00 に掛け、
+                   どれかの辺の端が内（-1・1・2）なら 1（角が一つでも内）。辺が横切る
+                   だけ（3）では 0。円ソリッド（線種 100 以上）は FUN_0040b360 の -1
+                   だけなので交わりでは取らない。+0x410 が立つときも -1 だけ ——
+                   移植は除外範囲の箱をそれと読んだ（逆コンパイルの読み、+0x410 を
+                   立てる所は見つけていない） */
+                int k;
+
+                for (k = 0; k < 4 && !take; k++)
+                    take = o->d[2 * k] >= x0 - 1e-7 && o->d[2 * k] <= x1 + 1e-7
+                        && o->d[2 * k + 1] >= y0 - 1e-7 && o->d[2 * k + 1] <= y1 + 1e-7;
+            }
+            /* 点（FUN_0040f390）・字（FUN_0040c630）・ブロック（FUN_0040a920、基点）は
+               -1 か 0 しか返さないので、交わりで増えるものは無い */
         }
         if (!take)
             continue;
@@ -15630,6 +16321,18 @@ static int env_sunpo_read(const char *key, const char *v)
     double x[7];
     int n, k;
 
+    if (!strcmp(key, "S_COMM_7")) {
+        /* 寸法ではないが同じ形で: 8 番目だけ（分割の等比 bk_tohi、DAT_00a0bfa8。
+           原典の読み手は "%d" を九つ読み、0 か 1 のときだけ取る。原典で
+           DAT_00a0bfa8 を読むのは FUN_007674b0 だけで、書出しは使わないので
+           移植も書出しは雛形のまま） */
+        int f[8], m = sscanf(v, "%d %d %d %d %d %d %d %d", &f[0], &f[1], &f[2],
+                             &f[3], &f[4], &f[5], &f[6], &f[7]);
+
+        if (m == 8 && (f[7] == 0 || f[7] == 1))
+            bk_tohi = f[7];
+        return 1;
+    }
     if (!strcmp(key, "MOFST")) {
         n = sscanf(v, "%lf %lf %lf %lf %lf %lf %lf", &x[0], &x[1], &x[2],
                    &x[3], &x[4], &x[5], &x[6]);
@@ -18645,9 +19348,7 @@ int jw_cmd_bar_enabled(const jw_drawing *d, int id)
     if (current == JW_CMD_SOKUTEI)
         return id == 1068 ? sok_mode != SOK_ANG : 1;
     if (current == JW_CMD_BUNKATSU && id >= 1064 && id <= 1066)
-        /* 補助設定の釦。馬目地分割 (1065) は縦分割数の窓と FUN_00767990 を
-           写していないので押せなくしておく（原典は押せる） */
-        return id != 1065 && jw_cmd_bunkatsu_hojo();
+        return jw_cmd_bunkatsu_hojo();  /* 補助設定の釦 */
     /* 連続線 の 終了 は、一本（連続弧なら一つ）引けてから点く —— 原典は
        辺を足すたびに FUN_005b8360(1)、終わりで (0)。逆コンパイルの読み */
     if (current == JW_CMD_RENZOKU && id == 1064)
@@ -18761,6 +19462,61 @@ int jw_cmd_bunkatsu_hojo(void)
 int jw_cmd_bunkatsu_a(void)
 {
     return current == JW_CMD_BUNKATSU && corner_step == 1 && corner_obj >= 0;
+}
+
+/* FUN_00763f20(0): 立っているものを 5611「逆分割」・5612「線長割合分割」・
+   5609「馬目地分割」の順に " , " でつなぎ、空でなければ FUN_00516ac0 で
+   押した所に出す */
+static void bk_hojo_note(void)
+{
+    static char bk_note[96];
+
+    bk_note[0] = 0;
+    if (bk_gyaku)
+        strcat(bk_note, JW_STR_5611);
+    if (bk_senchou)
+        strcat(strcat(bk_note, bk_note[0] ? " , " : ""), JW_STR_5612);
+    if (bk_umeji)
+        strcat(strcat(bk_note, bk_note[0] ? " , " : ""), JW_STR_5609);
+    if (bk_note[0])
+        jw_cmd_notice(5611, bk_note);
+}
+
+/* 馬目地分割 (1065) の窓（FUN_00763d20 の FUN_00498c40(0)、数値入力 275）を
+   出してほしいときに 1（読むと戻る）。*m は箱に入れる いまの縦分割数（"%d"） */
+int jw_cmd_bunkatsu_umeji_ask(int *m)
+{
+    int r = bk_umeji_req && current == JW_CMD_BUNKATSU;
+
+    bk_umeji_req = 0;
+    if (r && m)
+        *m = bk_umeji_m;
+    return r;
+}
+
+/* 窓を閉じた。txt が 0 ならキャンセル。OK なら _wtoi（thunk_FUN_008d99f0）して
+   2〜2000 に収め、馬目地分割を入れて 線長割合を切る。どちらでも札（FUN_00763f20） */
+void jw_cmd_bunkatsu_umeji_set(const char *txt)
+{
+    if (current != JW_CMD_BUNKATSU)
+        return;
+    if (txt) {
+        int m = atoi(txt);
+
+        if (m > 2000)
+            m = 2000;
+        if (m < 2)
+            m = 2;
+        bk_umeji_m = m;
+        bk_umeji = 1;
+        bk_senchou = 0;
+    }
+    bk_hojo_note();
+}
+
+int jw_cmd_bunkatsu_umeji(void)
+{
+    return current == JW_CMD_BUNKATSU && bk_umeji;
 }
 
 static int bar_press(jw_drawing *d, int id)
@@ -19177,24 +19933,25 @@ static int bar_press(jw_drawing *d, int id)
         bk_mode = id;
         return 1;
     }
-    if (current == JW_CMD_BUNKATSU && (id == 1064 || id == 1066)) {
+    if (current == JW_CMD_BUNKATSU && id >= 1064 && id <= 1066) {
         /* 補助設定の釦: 1066 逆分割（FUN_00763ee0）・1064 線長割合分割
-           （FUN_00763cd0、馬目地は切る）。出ているときだけ効く。押したあとの
-           札は FUN_00763f20(0): 立っているものを 5611「逆分割」・5612
-           「線長割合分割」（・5609 馬目地、移植は持たない）の順に " , " で
-           つなぎ、空でなければ FUN_00516ac0 で押した所に出す */
-        static char bk_note[64];
-
+           （FUN_00763cd0、馬目地は切る）・1065 馬目地分割（FUN_00763d20: 入って
+           いれば切り、切れていれば 縦分割数の窓。窓は表側が出す ——
+           jw_cmd_bunkatsu_umeji_ask / _set）。出ているときだけ効く */
         if (!jw_cmd_bunkatsu_hojo())
             return 0;
         if (id == 1066)
             bk_gyaku = !bk_gyaku;
-        else
+        else if (id == 1064) {
             bk_senchou = !bk_senchou;
-        snprintf(bk_note, sizeof bk_note, "%s%s%s", bk_gyaku ? JW_STR_5611 : "",
-                 bk_gyaku && bk_senchou ? " , " : "", bk_senchou ? JW_STR_5612 : "");
-        if (bk_note[0])
-            jw_cmd_notice(5611, bk_note);
+            bk_umeji = 0;
+        } else if (bk_umeji)
+            bk_umeji = 0;
+        else {
+            bk_umeji_req = 1;   /* 札は窓を閉じたあと */
+            return 1;
+        }
+        bk_hojo_note();
         return 1;
     }
     if (current == JW_CMD_SESSEN) {
@@ -28402,7 +29159,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 corner_x = x;
                 corner_y = y;
                 bk_a_enko = d->obj[i].cls == JW_ENKO;
-                bk_gyaku = bk_senchou = 0;      /* FUN_00764910: Ａを指すと戻る */
+                bk_gyaku = bk_senchou = bk_umeji = 0;   /* FUN_00764910: Ａを指すと戻る */
                 corner_step = 1;
                 return;
             }
@@ -28437,7 +29194,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                             bk_circle_fan(d, corner_obj, i);
                         }
                     }
-                    bk_gyaku = bk_senchou = 0;  /* FUN_007668f0 の終わり */
+                    bk_gyaku = bk_senchou = bk_umeji = 0;   /* FUN_007668f0 の終わり */
                     corner_step = 0;
                     return;
                 }

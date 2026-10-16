@@ -222,6 +222,8 @@ WANT = [
     (5196, 'clock PM 12'),
     (10035, 'clock 12 of division with line A: line attributes (FUN_007637e0)'),
     (5609, 'clock 3 of division with line A: brick-joint division'),
+    (5610, 'brick-joint division: the vertical-count dialog (FUN_00763d20)'),
+    (5613, 'division: too many divisions (FUN_007668f0, FUN_00767990)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

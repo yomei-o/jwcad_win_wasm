@@ -90,6 +90,9 @@ void jw_cmd_set(int id);            /* enter a command */
 int  jw_cmd_bar_radio(int id);      /* ラジオの点き具合: 1・0・-1（持っていない） */
 int  jw_cmd_takaku_pos(void);       /* 多角形 の 中央 (1068): 0 中央・1 頂点・2 辺 */
 int  jw_cmd_bunkatsu_hojo(void);    /* 分割: 逆分割・線長割合・馬目地の釦が出ているとき 1 */
+int  jw_cmd_bunkatsu_umeji_ask(int *m);      /* 分割: 馬目地分割 (1065) の 縦分割数の窓（275）を出してほしいとき 1（読むと戻る） */
+void jw_cmd_bunkatsu_umeji_set(const char *txt);   /* その窓の答え（0 はキャンセル） */
+int  jw_cmd_bunkatsu_umeji(void);   /* 分割: 馬目地分割が入っているとき 1 */
 int  jw_cmd_bunkatsu_a(void);       /* 分割: 線（Ａ）を指した段（+0xc0 == 2） */
 void jw_cmd_flush(jw_drawing *d);
 /* 建具平面: 建具選択の窓を出してほしいときは 1（読むと戻る）。選んだら

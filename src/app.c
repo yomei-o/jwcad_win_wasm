@@ -683,6 +683,7 @@ static int kj_open, kj_sel;             /* 基準点選択（建具の 基準点
 static int td_open;
 static int td_start(int tpl);
 static int td_caret_set(int id);
+static void um_open(int m);
 static void td_first_no(void);
 static void gz_check(void);
 static void mb_close(int ok);
@@ -696,6 +697,10 @@ static int hk_kind;                     /* 日影の窓の種類（jw_cmd_hikage
 
 static void tgp_check(void)
 {
+    int um_m;
+
+    if (!td_open && have_drawing && jw_cmd() == JW_CMD_BUNKATSU && jw_cmd_bunkatsu_umeji_ask(&um_m))
+        um_open(um_m);
     if (!td_open && have_drawing && jw_cmd() == JW_CMD_HIKAGE && (hk_kind = jw_cmd_hikage_ask()) != 0) {
         if (td_start(348)) {
             td_caret_set(1411);
@@ -3880,6 +3885,42 @@ static void ms_close(int ok)
     jw_cmd_mp_sum_set(1);
 }
 
+/* 分割の 馬目地分割 (1065) の 縦分割数（数値入力 275、CDragDialog）。原典
+   FUN_00763d20 が FUN_00498c40(0) で作り、札 1995 に 5610「馬目地 縦分割数
+   (2～2000)」、箱 1491 に いまの縦分割数を "%d" で入れて出す。CDragDialog の
+   OnInitDialog（FUN_004990d0）は +0xb0・+0xbc が 0 なので 二点間・数表と
+   寸法の二つの印を隠す（どの釦を隠すかは引数が落ちていて読みきれない。四つとも
+   隠した）。OK は jw_cmd_bunkatsu_umeji_set。逆コンパイルの読み、原典では
+   押していない */
+static void um_open(int m)
+{
+    static const short hide[4] = { 1323, 1324, 1064, 1065 };
+    int i, k;
+
+    if (!td_start(275))
+        return;
+    i = ui_tdlg_index(td_t, 1995);
+    if (i >= 0 && i < TD_MAX)
+        td_txtp[i] = JW_STR_5610;
+    i = ui_tdlg_index(td_t, 1491);
+    if (i >= 0 && i < TD_MAX)
+        snprintf(td_txt[i], sizeof td_txt[i], "%d", m);
+    for (k = 0; k < 4; k++) {
+        i = ui_tdlg_index(td_t, hide[k]);
+        if (i >= 0 && i < TD_MAX)
+            td_on[i] = UI_TD_HIDE;
+    }
+    td_caret = 1491;
+}
+
+static void um_close(int ok)
+{
+    int i = ui_tdlg_index(td_t, 1491);
+
+    td_open = 0;
+    jw_cmd_bunkatsu_umeji_set(ok && i >= 0 && i < TD_MAX ? td_txt[i] : 0);
+}
+
 /* 作図時間の窓 (348) を閉じる。OK なら 入れた時間で影を描く */
 static int bt_alpha;
 static void tr_close(int ok)
@@ -4148,6 +4189,13 @@ static int press_tdlg(int x, int y)
     }
     if (td_tpl == 351 && (id == 1 || id == 2)) {
         ms_close(id == 1);
+        return 1;
+    }
+    if (td_tpl == 275) {                /* 馬目地 縦分割数: 箱と OK・キャンセルだけ */
+        if (id == 1 || id == 2)
+            um_close(id == 1);
+        else if (id == 1491)
+            td_caret_set(1491);
         return 1;
     }
     if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
@@ -4616,6 +4664,10 @@ static int td_key(int c)
     }
     if ((c == 13 || c == 27) && td_tpl == 351) {
         ms_close(c == 13);
+        return 1;
+    }
+    if ((c == 13 || c == 27) && td_tpl == 275) {
+        um_close(c == 13);
         return 1;
     }
     if ((c == 13 || c == 27) && td_tpl == 373 && lyl_ren >= 0) {
