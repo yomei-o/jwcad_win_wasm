@@ -559,6 +559,8 @@ void jw_cmd_layhide_shown(int on);
 /* 属性取得 を (x, y) で一回（命令 属性取得 のクリックと、1325 直接属性取得 の Tab）。
    1 なら取った */
 int jw_cmd_zokusei_at(jw_drawing *d, const jw_view *v, double x, double y);
+/* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
+void jw_cmd_sen_sizekeep(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */
 void jw_cmd_get_shown_too(int on);
 /* 基本設定 2100「線長取得で円を指示したとき、円半径取得を円周長取得にする」 */

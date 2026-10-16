@@ -2,6 +2,8 @@
  *
  *   Tab            属性取得。基本設定 KEY 1325「直接属性取得を行う」が入なら
  *                  命令に入らず その場でマウスの下の要素から取る
+ *   2493           線コマンドの指定寸法値を保持する。線 に入り直すと 傾き は毎回空、
+ *                  寸法 は 切なら空・入なら前の値
  *
  * どれも逆コンパイルの読み（src/app.c の app_key・kh_apply、src/cmd.c の
  * jw_cmd_set の注）で、原典では押していない。ここで確かめるのは 移植がその
@@ -126,10 +128,50 @@ static void tab_test(void)
     ck(jw_cmd() == JW_CMD_ZOKUSEI, "  切ればまた 属性取得 に入る");
 }
 
+static const char *bx(int id)
+{
+    const char *t = jw_cmd_box_raw(id);
+
+    return t ? t : "(null)";
+}
+
+static void sizekeep_test(void)
+{
+    app_new();
+    app_fit();
+    app_command(JW_CMD_ENKO);
+    app_command(JW_CMD_SEN);
+    jw_cmd_box_put(1411, "30");
+    jw_cmd_box_put(1412, "1000");
+    ck(!strcmp(bx(1411), "30") && !strcmp(bx(1412), "1000"), "線 の 傾き 30・寸法 1000 を打つ");
+    app_command(JW_CMD_SEN);
+    ck(!strcmp(bx(1411), "30") && !strcmp(bx(1412), "1000"), "  線 のまま押し直しても残る");
+    app_command(JW_CMD_ENKO);
+    app_command(JW_CMD_SEN);
+    ck(!strcmp(bx(1411), "") && !strcmp(bx(1412), ""),
+       "  2493 切（既定）: 円 から 線 に入り直すと 傾き も 寸法 も空");
+
+    ck(kh_press(1, 2493), "一般(2) の 線コマンドの指定寸法値を保持する を押す");
+    kh_ok();
+    app_command(JW_CMD_SEN);
+    jw_cmd_box_put(1411, "45");
+    jw_cmd_box_put(1412, "2500");
+    app_command(JW_CMD_ENKO);
+    app_command(JW_CMD_SEN);
+    ck(!strcmp(bx(1411), "") && !strcmp(bx(1412), "2500"),
+       "  2493 入: 入り直すと 傾き は空、寸法 は前の値");
+    kh_press(1, 2493);
+    kh_ok();
+    app_command(JW_CMD_ENKO);
+    app_command(JW_CMD_SEN);
+    ck(!strcmp(bx(1412), ""), "  切ればまた空");
+}
+
 int main(void)
 {
     app_resize(1264, 741);
     tab_test();
+    sizekeep_test();
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails != 0;
 }

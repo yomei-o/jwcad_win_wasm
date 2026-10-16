@@ -2363,6 +2363,9 @@ static void kh_apply(void)
     /* KEY 1325「直接属性取得を行う」→ DAT_00a0c7b8（CKeyPage の OK FUN_0054dd40 が
        +0x2f8 から、レジストリ GetType\Chkusetu）。app_key の Tab */
     kh_tab_direct = kh_value_tab(6, 1325);
+    /* 一般(2) 2493「線コマンドの指定寸法値を保持する」→ DAT_00a0cc38（SizeKeep）。
+       src/cmd.c の jw_cmd_set */
+    jw_cmd_sen_sizekeep(kh_value_tab(1, 2493));
     kh3_apply();                        /* src/kihon3.h */
 }
 
