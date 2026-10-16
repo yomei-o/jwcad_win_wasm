@@ -3,7 +3,9 @@
  *   tests/blkflip_test.exe
  *
  * 定義（裏返すと形の変わる鉤形）を 倍率 (1,-1)・(-1,1) の参照で置き、
- * 入れ子の参照（外が反転、内が 1.5 倍・40°）も置く。同じ形を
+ * 入れ子の参照（外が反転、内が 1.5 倍・40°）も置く。x・y の大きさが違う
+ * 参照（(2,0.5) で 30°、入れ子の外が (2,1)。前は 倍率 x だけで描いていた）も。
+ * 同じ形を
  * T + R(角)·diag(倍率x,倍率y)·p で計算した線の図面と、
  *   描画（jw_draw の画素）・PDF（jw_plot_pdf の線の点）が同じで、
  *   AUTO の左クリック（au_block_hit）が 裏返った線の上で「ブロック図形です」
@@ -46,12 +48,18 @@ static const double DEF0[2][4] = {
 static const double DEF1_LINE[4] = { 0.0, 0.0, 0.0, 8.0 };
 static const double DEF1_REF[5] = { 5.0, 5.0, 1.5, 1.5, 40.0 };  /* x,y,sx,sy,角 */
 
-/* 置く参照: x, y, 倍率 x, 倍率 y, 角, 定義 */
-static const double REF[4][6] = {
+/* 置く参照: x, y, 倍率 x, 倍率 y, 角, 定義。終わりの二つは x・y の大きさが
+   違う参照（回した参照に x・y 違いの倍率を掛けて 定義を作り直したあとの形
+   FUN_00464870、回っていない参照に掛けたときの形。入れ子の内は 40° 回って
+   いる） */
+#define NREF 6
+static const double REF[NREF][6] = {
     { -100.0, -40.0,  1.0, -1.0,  0.0, 0 },
     {  -40.0, -40.0, -1.0,  1.0, 30.0, 0 },
     {   20.0, -40.0,  2.0, -2.0, 60.0, 0 },
     {   80.0, -40.0,  1.0, -1.0, 20.0, 1 },
+    {  100.0,  20.0,  2.0,  0.5, 30.0, 0 },
+    { -100.0,   0.0,  2.0,  1.0,  0.0, 1 },
 };
 
 static jw_obj *add(jw_drawing *d, int cls)
@@ -103,7 +111,7 @@ static void build(jw_drawing *d, int how)
     while (d->nobj > 0)
         jw_remove(d, d->nobj - 1);
     if (how) {
-        for (k = 0; k < 4; k++) {
+        for (k = 0; k < NREF; k++) {
             if ((int)REF[k][5] == 0) {
                 for (i = 0; i < 2; i++)
                     line(d, REF[k], 0, how == 2, DEF0[i]);
@@ -115,7 +123,7 @@ static void build(jw_drawing *d, int how)
         }
         return;
     }
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < NREF; k++) {
         jw_obj *o = add(d, JW_BLOCK);
 
         if (!o)
@@ -162,7 +170,7 @@ static void build(jw_drawing *d, int how)
         o->d[3] = DEF1_REF[3];
         o->d[4] = DEF1_REF[4] * PI / 180.0;
         o->block = 0;
-        d->ndrawn = 4;
+        d->ndrawn = NREF;
     }
 }
 
@@ -343,7 +351,7 @@ int main(void)
 
     /* 当たり（AUTO の左クリック → au_block_hit） */
     build(&d, 0);
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < NREF; k++) {
         double x, y, wx, wy;
         char what[128];
 

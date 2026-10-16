@@ -290,11 +290,70 @@ static void picture(void)
        "  置いた画像と同じ（大きさ・角・位置）");
 }
 
+/* ﾏｳｽ倍率 で X・Y 違いの倍率を 回したブロックの参照に掛ける。原典の CDataBlock
+   の枝 FUN_00464870 は 定義を作り直し（新しい定義に 元の参照の写しを一つ、
+   名前 "" の @@SfigorgFlag@@4）、参照は 倍率 (X, Y)・角 = 軸角 に。末尾に
+   足した二つは 戻るで消える。逆コンパイルの読み、原典では押していない */
+static void block_xy(int cmd, const char *name)
+{
+    jw_drawing *d = fresh();
+    jw_obj *p;
+    int nobj0, ndrawn0, k, at = -1;
+
+    printf("%s: ﾏｳｽ倍率 で 30° 回したブロックに X 2・Y 1\n", name);
+    if (!d)
+        return;
+    p = jw_add(d, JW_BLOCK);
+    p->d[0] = 5.0;
+    p->d[1] = 5.0;
+    p->d[2] = 1.0;
+    p->d[3] = 1.0;
+    p->d[4] = 30.0 * 3.14159265358979323846 / 180.0;
+    p->block = 0;
+    p = jw_add_def(d, JW_LIST);
+    p->list[0] = 0;
+    p->n = 1;
+    p->text = jw_add_str(d, "B@@SfigorgFlag@@4");
+    p = jw_add_def(d, JW_SEN);
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 4.0; p->d[3] = 0.0;
+    pick(d, cmd);
+    nobj0 = d->nobj;
+    ndrawn0 = d->ndrawn;
+    jw_cmd_bar(d, 1069);
+    pt(d, 10.0, 10.0);
+    pt(d, 50.0, 0.0);
+    pt(d, 70.0, 10.0);
+    for (k = 0; k < d->ndrawn; k++)
+        if (d->obj[k].cls == JW_BLOCK && near(d->obj[k].d[0], 60.0))
+            at = k;
+    ck(d->nobj == nobj0 + (cmd == JW_CMD_FUKUSHA ? 3 : 2) && at >= 0,
+       "  置いた参照と 末尾に 定義・中の参照");
+    if (at >= 0 && d->nobj >= 2) {
+        const jw_obj *r = &d->obj[at], *l = &d->obj[d->nobj - 2], *m = &d->obj[d->nobj - 1];
+
+        printf("     参照 (%g,%g) 倍率 %g,%g 角 %g° 定義 %d\n", r->d[0], r->d[1], r->d[2],
+               r->d[3], r->d[4] * 180.0 / 3.14159265358979323846, r->block);
+        ck(near(r->d[1], 5.0) && near(r->d[2], 2.0) && near(r->d[3], 1.0)
+           && near(r->d[4], 0.0) && r->block == 1,
+           "  参照は (60,5)・倍率 (2,1)・角 0・新しい定義 1");
+        ck(l->cls == JW_LIST && l->list[0] == 1 && l->n == 1
+           && !strcmp(jw_str(d, l->text), "@@SfigorgFlag@@4") && m->cls == JW_BLOCK
+           && m->block == 0 && near(m->d[0], 0.0) && near(m->d[4], 30.0 * 3.14159265358979323846 / 180.0),
+           "  新しい定義の中は 定義 0 を 基点 (0,0)・30° で");
+    }
+    jw_cmd_undo(d);
+    ck(d->nobj == nobj0 && d->ndrawn == ndrawn0 && d->obj[d->nobj - 1].cls == JW_SEN,
+       "  戻るで 作り直した定義も消える");
+    jw_cmd_set(JW_CMD_AUTO);
+}
+
 int main(void)
 {
     plain();
     mouse();
     picture();
+    block_xy(JW_CMD_FUKUSHA, "複写");
+    block_xy(JW_CMD_IDOU, "移動");
     printf("%s\n", fails ? "FAILED" : "all ok");
     return fails ? 1 : 0;
 }

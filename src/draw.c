@@ -2907,8 +2907,16 @@ const int *jw_draw_hl_path(void)
    w・h を max(その段の倍率x, 倍率y) 倍・角度を足す（前は 倍率を掛け合わせて
    から一度に max を取っていた）。外の段の回転は 内のブロックの基点も回す
    （前は 基点を 外の倍率でずらすだけで 回していなかった）。DAT_00a0cb60 が
-   立っていると いちばん内の段だけになる枝は 何の時かを読んでいないので
-   入れていない。逆コンパイルの読み、原典では押していない */
+   立っていると いちばん内の段だけ写す（層の写しは全段）枝は、任意点の印を
+   描く FUN_00425490 だけが立てる（印の線を仮の CDataBlock の定義に入れ、
+   その描画 slot 15 FUN_0049a3d0 を 立てたまま呼ぶ。点そのものは
+   FUN_004253f0 → FUN_0042b460 で全段写したあと）: 印の形は 外のブロックの
+   倍率・回転を受けない。移植は 任意点の印を描いていない（FUN_00425490 は
+   移していない）ので この枝の掛かる所が無い。なお FUN_0049a3d0 は 定義を
+   描く間 文字サイズ変更 DAT_00a0cb58 を 1・点マーカ DAT_00a0cb5c を 0 に
+   するので、ブロックの中の字・画像は FUN_00466e30 の 文字サイズ変更 の枝を
+   通る（移植の jw_pic_xform は 0 の枝 FUN_00465f40 の読み）。逆コンパイルの
+   読み、原典では押していない */
 static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
                   const jw_obj *const *refs, int nref, int sel, int hlk)
 {
@@ -2968,15 +2976,14 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
             const jw_obj *r = refs[k];
             jw_obj was = o;
 
-            /* One scale, not two: an element can be turned and made
-               bigger, but nothing in a drawing is stretched more one way
-               than the other, so a reference with two different scales is
-               drawn with the first of them.  反転した参照（倍率 x・y の符号
-               違い）は x 軸で裏返してから等倍で写す（jw_obj_blkput、
-               ブロック解除と同じ）。原典の描画 FUN_0042b460 は内側の段から
-               倍率 FUN_00465c40（x・y）・回転 FUN_0046d5b0・移動
-               FUN_0046bdf0 を掛ける。逆コンパイルの読み、原典では押して
-               いない */
+            /* 反転した参照（倍率 x・y の符号違い）は x 軸で裏返してから
+               等倍で写し、x・y の大きさが違う参照（回した参照に x・y 違いの
+               倍率を掛けると 定義を作り直して こうなる、FUN_00464870）は
+               x・y 違いの倍率で写す（jw_obj_blkput、ブロック解除と同じ。
+               前は 倍率 x だけで描いていた）。原典の描画 FUN_0042b460 は
+               内側の段から 倍率 FUN_00465c40（角 0・原点・x・y）・回転
+               FUN_0046d5b0・移動 FUN_0046bdf0 を掛ける。逆コンパイルの読み、
+               原典では押していない */
             jw_obj_blkput(&o, r);
             if (pool)
                 jw_pic_xform(&one, &o, &was, r->d[2] > r->d[3] ? r->d[2] : r->d[3],
