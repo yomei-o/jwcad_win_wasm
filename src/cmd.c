@@ -15240,8 +15240,8 @@ int jw_cmd_block_free(jw_drawing *d)
         for (k = 0; k < span; k++) {
             jw_obj copy = d->obj[at + 1 + k], *p;
 
-            jw_obj_xform(&copy, 0.0, 0.0, ref.d[2] != 0.0 ? ref.d[2] : 1.0,
-                         ref.d[4], ref.d[0], ref.d[1]);
+            /* 反転した参照（倍率 x・y の符号違い）は裏返してから */
+            jw_obj_blkput(&copy, &ref);
             {   /* 画像は w・h を max(倍率x,倍率y) 倍、文字列の角度に回転を足す。
                    原典のブロック解除 FUN_00458440 は 定義の要素の写し（slot 5）に
                    倍率 FUN_00465c40（x・y）・回転 FUN_0046d5b0・移動 FUN_0046bdf0
@@ -15255,7 +15255,7 @@ int jw_cmd_block_free(jw_drawing *d)
                 /* 入れ子の参照の倍率 y は 倍率 y で（FUN_00464870 は +0x78 に
                    x、+0x80 に y を掛ける。逆コンパイルの読み、原典では押して
                    いない） */
-                if (copy.cls == JW_BLOCK)
+                if (copy.cls == JW_BLOCK && bx * by > 0.0)
                     copy.d[3] = was.d[3] * by;
             }
             p = jw_add(d, copy.cls);

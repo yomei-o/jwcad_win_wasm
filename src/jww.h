@@ -365,6 +365,9 @@ void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy);
 void jw_obj_xform(jw_obj *o, double cx, double cy, double sc, double ang,
                   double dx, double dy);
 void jw_obj_move(jw_obj *o, double dx, double dy);
+/* 定義の要素 o を ブロックの参照 ref（基点・倍率 x,y・角）で写す。倍率 x・y が
+   符号だけ違う（反転した参照）なら x 軸で裏返してから。 */
+void jw_obj_blkput(jw_obj *o, const jw_obj *ref);
 
 /* Put a string in the drawing's pool and return its offset, for a new text.
    Returns -1 if it could not. */

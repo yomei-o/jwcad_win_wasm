@@ -1014,6 +1014,7 @@ void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy)
     switch (o->cls) {
     case JW_ENKO: n = 1; break;
     case JW_TEN:  n = 1; break;
+    case JW_BLOCK: n = 1; break;    /* 基点だけ。倍率と角は下で */
     /* a 円ソリッド has a centre where the others have four corners */
     case JW_SOLID: n = (o->ltype == 101 || o->ltype == 111) ? 1 : 4; break;
     default: n = 2; break;
@@ -1033,7 +1034,58 @@ void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy)
     } else if (o->cls == JW_MOJI) {
         /* 文字方向補正無 is what the left button asks for, so the text goes
            with the flip as it is */
+    } else if (o->cls == JW_BLOCK) {
+        /* 原典の反転は 倍率の関数で裏返す。FUN_00653fe0 は基準線の角を
+           (-90°,90°] に寄せ、45° 未満なら その角 a で 倍率 (1,-1)、でなければ
+           a = 角∓90° で (-1,1) にして（+0xfca8・+0xfcb0・+0xfcc0）、
+           FUN_00653e10 → 倍率 FUN_00465c40 → CDataBlock の枝 FUN_00464870 の
+           -x == y の枝が 基点を写し、+0x78・+0x80（d[2],d[3]）に x・y を掛け、
+           角 +0x88 を a で折り返す（角 - (角 - a)*2）。角が a と 1e-7 未満なら
+           角はそのまま。逆コンパイルの読み、原典では押していない */
+        const double pi = 3.141592653589793;
+        double a = phi, sx = 1.0, sy = -1.0;
+
+        if (a > pi / 2)
+            a -= pi;
+        if (a <= -pi / 2)
+            a += pi;
+        if (fabs(a) >= pi / 4) {
+            a += a > 0.0 ? -pi / 2 : pi / 2;
+            sx = -1.0;
+            sy = 1.0;
+        }
+        if (fabs(a) < 1e-7)
+            a = 0.0;
+        if (o->d[2] == 0.0)     /* 移植の読みの 0 は 1（y は x と同じ） */
+            o->d[2] = 1.0;
+        if (o->d[3] == 0.0)
+            o->d[3] = o->d[2];
+        o->d[2] *= sx;
+        o->d[3] *= sy;
+        if (fabs(o->d[4] - a) >= 1e-7)
+            o->d[4] -= (o->d[4] - a) * 2.0;
     }
+}
+
+/* 反転した参照（倍率 x・y の符号が違う。原典の反転は FUN_00464870 で
+ * (1,-1) か (-1,1) を掛ける）は R(角)・diag(x,y) を 裏返し diag(1,-1) と
+ * 等倍に分けて写す。diag(-s,s) は 180° 回した diag(s,-s)。x・y の大きさが
+ * 違うものは原典では定義を作り直す枝で、ここでは x だけ（これまで通り）。
+ */
+void jw_obj_blkput(jw_obj *o, const jw_obj *ref)
+{
+    double sx = ref->d[2] != 0.0 ? ref->d[2] : 1.0;
+    double sy = ref->d[3] != 0.0 ? ref->d[3] : sx;
+    double ang = ref->d[4];
+
+    if (sx * sy < 0.0) {
+        jw_obj_mirror(o, 0.0, 0.0, 1.0, 0.0);
+        if (sx < 0.0) {
+            sx = -sx;
+            ang += 3.141592653589793;
+        }
+    }
+    jw_obj_xform(o, 0.0, 0.0, sx, ang, ref->d[0], ref->d[1]);
 }
 
 jw_obj *jw_add_def(jw_drawing *d, int cls)

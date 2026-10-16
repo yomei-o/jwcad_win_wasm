@@ -130,6 +130,114 @@ int main(void)
         jw_free(&d);
     }
 
+    /* 反転（jw_obj_mirror）。原典は 倍率の関数で裏返す: FUN_00653fe0 が
+       基準線の角を (-90°,90°] に寄せ、45° 未満なら a=角・倍率 (1,-1)、でなければ
+       a=角∓90°・(-1,1)。CDataBlock の枝 FUN_00464870 は基点を写し、倍率 x・y を
+       掛け、角を a で折り返す。逆コンパイルの読み、原典では押していない */
+    memset(&o, 0, sizeof o);
+    o.cls = JW_BLOCK;
+    ref(&o, 10.0, 20.0, 2.0, 3.0, 30.0, 1);
+    jw_obj_mirror(&o, 0.0, 5.0, 1.0, 0.0);
+    show("反転 y=5 の横線", &o);
+    ck(near(o.d[0], 10.0) && near(o.d[1], -10.0), "反転 横: 基点が裏返る");
+    ck(near(o.d[2], 2.0) && near(o.d[3], -3.0), "反転 横: 倍率 (1,-1) を掛ける");
+    ck(near(o.d[4], -30.0 * PI / 180.0), "反転 横: 角は 0° で折り返す");
+    jw_obj_mirror(&o, 0.0, 5.0, -1.0, 0.0);
+    ck(near(o.d[0], 10.0) && near(o.d[1], 20.0) && near(o.d[2], 2.0)
+       && near(o.d[3], 3.0) && near(o.d[4], 30.0 * PI / 180.0),
+       "反転 横を逆向きの線でもう一度: 元に戻る");
+
+    memset(&o, 0, sizeof o);
+    o.cls = JW_BLOCK;
+    ref(&o, 10.0, 20.0, 2.0, 3.0, 30.0, 1);
+    jw_obj_mirror(&o, 5.0, 0.0, 0.0, 1.0);
+    show("反転 x=5 の縦線", &o);
+    ck(near(o.d[0], 0.0) && near(o.d[1], 20.0), "反転 縦: 基点が裏返る");
+    ck(near(o.d[2], -2.0) && near(o.d[3], 3.0), "反転 縦: 90° は 0° と (-1,1) に");
+    ck(near(o.d[4], -30.0 * PI / 180.0), "反転 縦: 角は 0° で折り返す");
+
+    memset(&o, 0, sizeof o);
+    o.cls = JW_BLOCK;
+    ref(&o, 2.0, 0.0, 1.0, 1.0, 0.0, 1);
+    jw_obj_mirror(&o, 0.0, 0.0, cos(PI / 6.0), sin(PI / 6.0));
+    show("反転 30° の線", &o);
+    ck(near(o.d[0], 1.0) && near(o.d[1], sqrt(3.0)), "反転 30°: 基点が裏返る");
+    ck(near(o.d[2], 1.0) && near(o.d[3], -1.0) && near(o.d[4], PI / 3.0),
+       "反転 30°: 倍率 (1,-1)、角は 30° で折り返して 60°");
+
+    memset(&o, 0, sizeof o);
+    o.cls = JW_BLOCK;
+    ref(&o, 0.0, 0.0, 1.0, 1.0, 0.0, 1);
+    jw_obj_mirror(&o, 0.0, 0.0, cos(PI / 3.0), sin(PI / 3.0));
+    ck(near(o.d[2], -1.0) && near(o.d[3], 1.0) && near(o.d[4], -PI / 3.0),
+       "反転 60°: -30° と (-1,1)、角は -60°");
+
+    memset(&o, 0, sizeof o);
+    o.cls = JW_BLOCK;
+    ref(&o, 0.0, 0.0, 2.0, 0.0, 0.0, 1);
+    jw_obj_mirror(&o, 0.0, 0.0, 1.0, 0.0);
+    ck(near(o.d[2], 2.0) && near(o.d[3], -2.0), "反転: 倍率 y の 0 は x と同じに読む");
+
+    /* 反転した参照のブロック解除: 定義の線と入れ子の参照が 裏返って出る */
+    {
+        static const double fl[2][2] = { { 1.0, -1.0 }, { -1.0, 1.0 } };
+        int c;
+
+        for (c = 0; c < 2; c++) {
+            jw_drawing d;
+            jw_obj *p;
+            int k;
+            char what[96];
+
+            memset(&d, 0, sizeof d);
+            p = jw_add(&d, JW_BLOCK);
+            ref(p, 100.0, 50.0, fl[c][0], fl[c][1], 0.0, 1);
+            p = jw_add_def(&d, JW_LIST);
+            p->list[0] = 1;
+            p->n = 2;
+            p = jw_add_def(&d, JW_SEN);
+            p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 10.0; p->d[3] = 5.0;
+            p = jw_add_def(&d, JW_BLOCK);
+            p->ltype = 1;
+            ref(p, 10.0, 0.0, 1.5, 0.5, 30.0, 2);
+            p = jw_add_def(&d, JW_LIST);
+            p->list[0] = 2;
+            p->n = 1;
+            p = jw_add_def(&d, JW_SEN);
+            p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 1.0; p->d[3] = 0.0;
+
+            d.obj[0].sel = 1;
+            snprintf(what, sizeof what, "ブロック解除 倍率 (%g,%g)", fl[c][0], fl[c][1]);
+            ck(jw_cmd_block_free(&d) > 0, what);
+            for (k = 0; k < d.ndrawn; k++) {
+                const jw_obj *q = &d.obj[k];
+
+                if (q->cls == JW_SEN) {
+                    double ex = 100.0 + 10.0 * fl[c][0], ey = 50.0 + 5.0 * fl[c][1];
+
+                    printf("     線 (%g,%g)-(%g,%g)\n", q->d[0], q->d[1], q->d[2], q->d[3]);
+                    ck(near(q->d[0], 100.0) && near(q->d[1], 50.0)
+                       && near(q->d[2], ex) && near(q->d[3], ey), "  線が裏返る");
+                } else if (q->cls == JW_BLOCK) {
+                    /* 写した入れ子の参照の x 軸・y 軸の行き先を、
+                       外 diag(fx,fy) ∘ R(30°) diag(1.5,0.5) と比べる */
+                    double c4 = cos(q->d[4]), s4 = sin(q->d[4]);
+                    double c3 = cos(PI / 6.0), s3 = sin(PI / 6.0);
+
+                    show("入れ子の参照", q);
+                    ck(near(q->d[0], 100.0 + 10.0 * fl[c][0]) && near(q->d[1], 50.0),
+                       "  入れ子の基点が裏返る");
+                    ck(near(c4 * q->d[2], fl[c][0] * c3 * 1.5)
+                       && near(s4 * q->d[2], fl[c][1] * s3 * 1.5)
+                       && near(-s4 * q->d[3], fl[c][0] * -s3 * 0.5)
+                       && near(c4 * q->d[3], fl[c][1] * c3 * 0.5),
+                       "  入れ子の 倍率・角 が 外の反転と合う");
+                }
+            }
+            jw_free(&d);
+        }
+    }
+
     printf("%s\n", fails ? "FAIL" : "all ok");
     return fails != 0;
 }
