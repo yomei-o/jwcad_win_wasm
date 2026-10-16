@@ -8,12 +8,17 @@
  *   倍率      FUN_00465f40／FUN_00466e30 → FUN_0048f7f0: w・h を掛け、字の大きさは保つ
  *   回転      FUN_0046d800 → FUN_0048fb30: 文字列の角度に足す（丸めない）
  *   JWC       FUN_00521d10・FUN_0051be70: w・h を 用紙幅/518 の目盛で書き、読んで戻す
+ *   ブロック  描画 FUN_0049a3d0 → FUN_0042b460・解除 FUN_00458440: 定義の要素の写しに
+ *             倍率・回転を掛けるので 画像は 複写・移動と同じ（w・h と角度）
  * src/imgpic.c の末尾の注。 */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "../src/cmd.h"
+#include "../src/draw.h"
+#include "../src/fb.h"
 #include "../src/image.h"
 #include "../src/jww.h"
 #include "../src/pick.h"
@@ -209,6 +214,99 @@ int main(void)
         for (k = 0; !found && k < e.nobj; k++)
             if (e.obj[k].cls == JW_MOJI)
                 printf("     read back: %s\n", txt(&e, k));
+    }
+
+    /* ------------------------------------------------ ブロック */
+    {
+        static const double REFS[2][4] = { { 0.0, 0.0, 2.0, 0.0 }, { 100.0, 0.0, 1.0, 90.0 } };
+        fb_t fb;
+        jw_view bv;
+        rect_t rr;
+        int t, at, x, y, x0[2], x1[2], y0[2], y1[2];
+
+        for (t = 0; t < 2; t++) {
+            jw_obj *o;
+
+            while (d.nobj > 0)
+                jw_remove(&d, d.nobj - 1);
+            d.ndrawn = 0;
+            o = jw_add(&d, JW_BLOCK);
+            o->d[0] = REFS[t][0];
+            o->d[1] = REFS[t][1];
+            o->d[2] = REFS[t][2];
+            o->d[3] = REFS[t][2];
+            o->d[4] = REFS[t][3] * 3.14159265358979323846 / 180.0;
+            o->block = 0;
+            o->color = 2;
+            o->ltype = 1;
+            o = jw_add(&d, JW_LIST);
+            at = (int)(o - d.obj);
+            d.obj[at].list[0] = 0;
+            d.obj[at].n = 1;
+            put_text(&d, "^@BMnone.bmp,20,10", 0.0, 0.0, 0.0);
+            d.ndrawn = 1;
+
+            /* 描画: 読めない画像は枠を (0,192,192) の点で描く。その枠の大きさ */
+            memset(&fb, 0, sizeof fb);
+            ck(fb_init(&fb, 600, 400), "ブロックの描画の画面");
+            rr.x = rr.y = 0;
+            rr.w = 600;
+            rr.h = 400;
+            memset(&bv, 0, sizeof bv);
+            jw_view_fit(&bv, &rr, d.paper_hw, d.paper_hh);
+            bv.clip = rr;
+            for (k = 0; k < 600 * 400; k++)
+                fb.px[k] = 0xffffff;
+            jw_draw(&fb, &bv, &d);
+            x0[t] = y0[t] = 99999;
+            x1[t] = y1[t] = -1;
+            for (y = 0; y < 400; y++)
+                for (x = 0; x < 600; x++)
+                    if (fb.px[y * 600 + x] == 0x00c0c0u) {
+                        if (x < x0[t]) x0[t] = x;
+                        if (x > x1[t]) x1[t] = x;
+                        if (y < y0[t]) y0[t] = y;
+                        if (y > y1[t]) y1[t] = y;
+                    }
+            fb_free(&fb);
+            printf("     枠 %d..%d x %d..%d（1mm = %g 画素）\n", x0[t], x1[t], y0[t], y1[t],
+                   jw_ux(&bv, 1.0) - jw_ux(&bv, 0.0));
+            if (t == 0) {
+                double ww = jw_ux(&bv, 40.0) - jw_ux(&bv, 0.0);
+                double hh = jw_uy(&bv, 20.0) - jw_uy(&bv, 0.0);
+
+                ck(x1[0] >= 0 && fabs((x1[0] - x0[0]) - ww) <= 2.0 && fabs((y1[0] - y0[0]) - hh) <= 2.0,
+                   "倍率 2 のブロックの中の画像は 40×20 の枠で描く");
+            } else {
+                double ww = jw_ux(&bv, 10.0) - jw_ux(&bv, 0.0);
+                double hh = jw_uy(&bv, 20.0) - jw_uy(&bv, 0.0);
+
+                ck(x1[1] >= 0 && fabs((x1[1] - x0[1]) - ww) <= 2.0 && fabs((y1[1] - y0[1]) - hh) <= 2.0,
+                   "90° のブロックの中の画像は 縦長（10×20）の枠で描く");
+                ck(x1[1] >= 0 && abs(x0[1] - jw_sx(&bv, 90.0)) <= 2,
+                   "  基点の左へ立つ");
+            }
+            ck(!strcmp(txt(&d, 2), "^@BMnone.bmp,20,10"), "  描いても図面の字はそのまま");
+
+            /* ブロック解除 */
+            d.obj[0].sel = 1;
+            ck(jw_cmd_block_free(&d) > 0, "ブロック解除");
+            for (k = 0, at = -1; k < d.ndrawn; k++)
+                if (d.obj[k].cls == JW_MOJI)
+                    at = k;
+            if (t == 0) {
+                ck(at >= 0 && !strcmp(txt(&d, at), "^@BMnone.bmp,40,20"),
+                   "  倍率 2: 解いた画像は w・h が倍");
+                ck(at >= 0 && near(d.obj[at].d[4], 2.0), "  字の大きさは保つ");
+            } else {
+                ck(at >= 0 && !strcmp(txt(&d, at), "^@BMnone.bmp,20,10,0,0,1,90,255,255,255"),
+                   "  90°: 解いた画像は 文字列の角度が 90");
+                ck(at >= 0 && near(d.obj[at].d[0], 100.0) && near(d.obj[at].d[7], 90.0),
+                   "  始点は基点、字の角度も 90");
+            }
+            if (at >= 0)
+                printf("     解いた字: %s\n", txt(&d, at));
+        }
     }
 
     free(w);

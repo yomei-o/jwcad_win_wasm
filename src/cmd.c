@@ -15115,6 +15115,17 @@ int jw_cmd_block_free(jw_drawing *d)
 
             jw_obj_xform(&copy, 0.0, 0.0, ref.d[2] != 0.0 ? ref.d[2] : 1.0,
                          ref.d[4], ref.d[0], ref.d[1]);
+            {   /* 画像は w・h を max(倍率x,倍率y) 倍、文字列の角度に回転を足す。
+                   原典のブロック解除 FUN_00458440 は 定義の要素の写し（slot 5）に
+                   倍率 FUN_00465c40（x・y）・回転 FUN_0046d5b0・移動 FUN_0046bdf0
+                   を掛ける（複写・移動と同じ画像の枝、src/imgpic.c の
+                   jw_pic_xform）。逆コンパイルの読み、原典では押していない */
+                jw_obj was = d->obj[at + 1 + k];
+                double bx = ref.d[2] != 0.0 ? ref.d[2] : 1.0;
+                double by = ref.d[3] != 0.0 ? ref.d[3] : bx;
+
+                jw_pic_xform(d, &copy, &was, bx > by ? bx : by, ref.d[4]);
+            }
             p = jw_add(d, copy.cls);
             if (!p)
                 break;

@@ -2925,6 +2925,34 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
                      ref->d[0], ref->d[1]);
         if (sel)
             o.sel = 1;
+        /* 画像（"^@BM" の字）は w・h を max(倍率x,倍率y) 倍、文字列の角度に
+           回転を足す。原典のブロックの描画 FUN_0049a3d0 は ブロックを
+           画面の +0x16b4 の並びに積んで定義の要素をそのまま描き
+           （FUN_0049a480 → slot 15）、要素の側 FUN_0042b460 が 写し
+           （slot 5）に 積んだブロックごと 倍率 FUN_00465c40（+0x78・+0x80）・
+           回転 FUN_0046d5b0（+0x88）・移動 FUN_0046bdf0 を掛ける。画像の
+           枝は 複写・移動と同じ（src/imgpic.c の jw_pic_xform）。図面は
+           書き換えないので 字の置き場を写しにして掛ける。入れ子は 移植が
+           倍率を掛け合わせてから一度に掛ける（原典は段ごとに max を取る）。
+           逆コンパイルの読み、原典では押していない */
+        if (jw_is_pic(d, &d->obj[i]) && d->npool > 0) {
+            jw_obj was = d->obj[i];
+            char *pool = (char *)malloc((size_t)d->npool);
+
+            if (pool) {
+                memcpy(pool, d->pool, (size_t)d->npool);
+                one.pool = pool;
+                one.npool = one.cpool = d->npool;
+                jw_pic_xform(&one, &o, &was, ref->d[2] > ref->d[3] ? ref->d[2] : ref->d[3],
+                             ref->d[4]);
+                jw_draw(fb, v, &one);
+                free(one.pool);
+                one.pool = d->pool;
+                one.npool = d->npool;
+                one.cpool = d->cpool;
+                continue;
+            }
+        }
         jw_draw(fb, v, &one);
     }
 }

@@ -232,13 +232,34 @@ static void take_snap(const jw_drawing *d, int *s)
     }
 }
 
-/* 一本の線を立体に（FUN_00613c10。勾配の文字 t T d D と 勾配の補助線
-   FUN_006129c0 / FUN_006109b0 / FUN_0061c770 は入れていない） */
+/* ---- 勾配の文字 t T d D（FUN_00613c10 の 0x613f31.. と FUN_0061c770）。
+ * 逆コンパイルの読み（引数の落ちた所は objdump の命令で読んだ）、原典では押していない。
+ * 線の端に 0.001 以内で置いた同じレイヤの字の数 v0..v4（FUN_006208a0 の
+ * +0x418..+0x438、終点は +0x4c8..）: v0 高さ・v1 幅（ここまで ×+0x340）、
+ * v2 縦の幅（×+0x340 は FUN_0061c770 が掛ける）、v3 刻みの角、v4 回し。
+ * d D は 幅・縦の幅を √2 倍、回しを v3、刻みを 90°（四角の筒）。字の終点が 線の
+ * 内へ向いていなければ（その端から他の端への向きに 写した長さ < 0）回しを負に。
+ * 筒は 両端の断面（半径 |v1|/2、縦は |v2|/2 との比が 0.01..10 ならその比、刻み
+ * 360/v3（1..120 でなければ 15°、三つ以上）を 3・4・5・7・8 角は 30・45・54・
+ * 12.857143・22.5° ずらす）を v4 だけ回し、勾配の面（端の高さ v0 を結ぶ面）に
+ * 立てて 線の上に置く。線は 真ん中の線（線種 5）、刻みごとに 両端を結ぶ線、
+ * T・D の端は 断面の辺。刻みの多い方を始点にする（入れ替えれば回しは負に）。
+ * 刻みが違えば 終点の側は 近い刻みへ。両端とも幅が 1e-7 未満なら 筒にしない。
+ * 入れていないもの: 字の無い端の v2..v4 は 原典では前の字の値が残る（移植は 0）。 */
+static void grad_vals(const jw_drawing *d, const jw_obj *t, double *g);
+static int grad_tube(const jw_obj *o, double base, int k1, int k2, const double *g1,
+                     const double *g2);
+
+/* 一本の線を立体に（FUN_00613c10。勾配の文字 t T d D は上の grad_tube、
+   勾配の補助線 FUN_006129c0 / FUN_006109b0 は入れていない） */
 static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
                      double base, int lh, double lh_h)
 {
     double h1 = 0.0, d1 = 0.0, h2 = 0.0, d2 = 0.0, p[6], q[6];
+    double g[2][5];                     /* 勾配の数（+0x418.. / +0x4c8..） */
     int n1 = 0, n2 = 0, k1 = 0, k2 = 0, t1 = -1, t2 = -1, ec = 0, f0 = 0, j;
+
+    memset(g, 0, sizeof g);
 
     for (j = 0; j < d->ndrawn; j++) {
         const jw_obj *t = &d->obj[j];
@@ -256,13 +277,30 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
             if (sqrt(ex * ex + ey * ey) > 0.001)
                 continue;
             n = text_vals(d, t, &hh, &dd, &kind);
+            grad_vals(d, t, g[e]);
             if (kind < 20) {
                 if (n > 2)
                     n = 2;
-            } else if (e == 0)
-                k1 = kind;
-            else
-                k2 = kind;
+            } else {
+                double ux = o->d[2 - 2 * e] - o->d[2 * e], uy = o->d[3 - 2 * e] - o->d[2 * e + 1];
+                double ul = sqrt(ux * ux + uy * uy);
+
+                if (e == 0)
+                    k1 = kind;
+                else
+                    k2 = kind;
+                if (kind >= 30) {       /* d D: 四角の筒 */
+                    g[e][1] *= sqrt(2.0);
+                    g[e][2] *= sqrt(2.0);
+                    g[e][4] = g[e][3];
+                    g[e][3] = 90.0;
+                }
+                /* FUN_005f8940（この端から他の端へ）と FUN_005f8be0(1, 字の終点) */
+                if (fabs(ux) + fabs(uy) < 1e-07)
+                    ux = 1.0, uy = 0.0, ul = 1.0;
+                if ((t->d[2] - o->d[2 * e]) * ux / ul + (t->d[3] - o->d[2 * e + 1]) * uy / ul < 0.0)
+                    g[e][4] = -g[e][4];
+            }
             if (used[j])
                 n = -n;
             used[j] = 1;
@@ -279,8 +317,8 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
             }
         }
     }
-    if (k1 >= 20 || k2 >= 20)
-        return;                         /* 勾配（FUN_0061c770）は入れていない */
+    if ((k1 >= 20 || k2 >= 20) && grad_tube(o, base, k1, k2, g[0], g[1]))
+        return;
     if (n1 == 0 && lh) {
         n1 = 2;
         h1 = lh_h;
@@ -406,6 +444,167 @@ static void rot_pt(const d25_rot *t, double u, double v, double *x, double *y)
 {
     *x = t->c * u - t->s * v + t->x;
     *y = t->c * v + t->s * u + t->y;
+}
+
+static void grad_vals(const jw_drawing *d, const jw_obj *t, double *g)
+{
+    const char *s = t->text >= 0 ? jw_str(d, t->text) : "";
+    char buf[512];
+    double v[12];
+    size_t i, n = 0;
+
+    for (i = 0; s[i] && n + 1 < sizeof buf; i++)
+        if (s[i] != ' ')
+            buf[n++] = s[i];
+    buf[n] = 0;
+    memset(v, 0, sizeof v);
+    scan_list(buf, v, 12);
+    g[0] = v[0] * k_unit;
+    g[1] = v[1] * k_unit;
+    g[2] = v[2];
+    g[3] = v[3];
+    g[4] = v[4];
+}
+
+/* FUN_005f97f0: 二点の向き。短すぎれば (1,0) で 0 */
+static int dir_set(d25_rot *t, double *len, double x1, double y1, double x2, double y2)
+{
+    double dx = x2 - x1, dy = y2 - y1;
+
+    t->x = x1;
+    t->y = y1;
+    if (fabs(dx) + fabs(dy) >= 1e-07) {
+        *len = sqrt(dx * dx + dy * dy);
+        t->c = dx / *len;
+        t->s = dy / *len;
+        return 1;
+    }
+    t->c = 1.0;
+    t->s = 0.0;
+    *len = 1.0;
+    return 0;
+}
+
+/* 刻みの角と ずらし */
+static int grad_step(double *step, double *off)
+{
+    int n;
+
+    if (*step < 1.0 || *step > 120.0)
+        *step = 15.0;
+    n = (int)(360.0 / *step);
+    if (n < 3)
+        n = 3;
+    *step = 360.0 / (double)n;
+    *off = n == 3 ? 30.0 : n == 4 ? 45.0 : n == 5 ? 54.0 : n == 7 ? 12.857143 : n == 8 ? 22.5 : 0.0;
+    return n;
+}
+
+static int pt_differ(const double *a, const double *b)
+{
+    return fabs(a[0] - b[0]) > 1e-07 || fabs(a[1] - b[1]) > 1e-07 || fabs(a[2] - b[2]) > 1e-07;
+}
+
+static void add_pts(const jw_obj *src, const double *a, const double *b)
+{
+    double p[6];
+
+    memcpy(p, a, 3 * sizeof *p);
+    memcpy(p + 3, b, 3 * sizeof *p);
+    add_line(src, p);
+}
+
+/* FUN_0061c770: 勾配の筒。筒にしなければ 0（ふつうの線へ） */
+static int grad_tube(const jw_obj *o, double base, int k1, int k2, const double *g1,
+                     const double *g2)
+{
+    static double tab[400];
+    double x1 = o->d[0], y1 = o->d[1], x2 = o->d[2], y2 = o->d[3];
+    double h1 = g1[0], h2 = g2[0], rs = fabs(g1[1]) * 0.5, re = fabs(g2[1]) * 0.5;
+    double vs = fabs(g1[2] * k_unit), ve = fabs(g2[2] * k_unit), ks = 1.0, ke = 1.0;
+    double ss = g1[3], se = g2[3], os, oe, as = g1[4], ae = g2[4], llen, elen, th, w;
+    double ps[3], pe[3], qs[3] = { 0, 0, 0 }, qe[3] = { 0, 0, 0 }, fe[3] = { 0, 0, 0 };
+    d25_rot ra, rb, rl, rel;
+    jw_obj mid;
+    int ns, ne, es = k1 % 10, ee = k2 % 10, i;
+
+    if (rs < 1e-07 && re < 1e-07)
+        return 0;
+    if (rs < 1e-07)
+        rs = 1e-07;
+    else if ((w = vs * 0.5 / rs) >= 0.01 && w <= 10.0)
+        ks = w;
+    if (re < 1e-07)
+        re = 1e-07;
+    else if ((w = ve * 0.5 / re) >= 0.01 && w <= 10.0)
+        ke = w;
+    ns = grad_step(&ss, &os);
+    ne = grad_step(&se, &oe);
+    if (ns < ne) {                      /* 刻みの多い方を始点に */
+        int t;
+#define SW(a, b) (w = (a), (a) = (b), (b) = w)
+        SW(x1, x2);
+        SW(y1, y2);
+        SW(h1, h2);
+        SW(rs, re);
+        SW(ks, ke);
+        SW(ss, se);
+        SW(os, oe);
+        SW(as, ae);
+#undef SW
+        as = -as;
+        ae = -ae;
+        t = ns, ns = ne, ne = t;
+        t = es, es = ee, ee = t;
+    }
+    for (i = 0; i <= ne && i < 400; i++)
+        tab[i] = (double)i * se - oe;
+    rot_set(&ra, 0.0, 0.0, as * PI / 180.0);
+    rot_set(&rb, 0.0, 0.0, -ae * PI / 180.0);
+    if (!dir_set(&rl, &llen, x1, y1, x2, y2))
+        return 0;
+    if (!dir_set(&rel, &elen, 0.0, h1, llen, h2))
+        return 0;
+    mid = *o;                           /* 真ん中の線は 線種 5 */
+    mid.ltype = 5;
+    ps[0] = x1, ps[1] = y1, ps[2] = h1 + base;
+    pe[0] = x2, pe[1] = y2, pe[2] = h2 + base;
+    add_pts(&mid, ps, pe);
+    for (th = 0.0; th <= 360.0000001; th += ss) {
+        double ts = th - os, te = ts, ax, ay, bx, by, us, ue, zs, ze;
+
+        if (ns != ne) {
+            double best = 9e+20;
+
+            for (i = 0; i <= ne && i < 400; i++)
+                if (fabs(tab[i] - ts) <= best) {
+                    best = fabs(tab[i] - ts);
+                    te = tab[i];
+                }
+        }
+        rot_pt(&ra, rs * cos(ts * PI / 180.0), rs * sin(ts * PI / 180.0) * ks, &ax, &ay);
+        rot_pt(&rb, re * cos(te * PI / 180.0), re * sin(te * PI / 180.0) * ke, &bx, &by);
+        rot_pt(&rel, 0.0, ay, &us, &zs);
+        rot_pt(&rel, elen, by, &ue, &ze);
+        rot_pt(&rl, us, ax, &ps[0], &ps[1]);
+        ps[2] = zs + base;
+        rot_pt(&rl, ue, bx, &pe[0], &pe[1]);
+        pe[2] = ze + base;
+        if (th > 1e-07) {
+            add_pts(o, ps, pe);
+            if (es && pt_differ(ps, qs))
+                add_pts(o, ps, qs);
+            if (ee && pt_differ(pe, qe))
+                add_pts(o, qe, pe);
+        }
+        memcpy(qs, ps, sizeof qs);
+        memcpy(qe, pe, sizeof qe);
+        if (th < 1e-07)
+            memcpy(fe, pe, sizeof fe);
+    }
+    if (ee && pt_differ(fe, qe))
+        add_pts(o, fe, pe);
+    return 1;
 }
 
 /* FUN_00621ce0: 底上げを足して線を一本 */
