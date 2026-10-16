@@ -2620,27 +2620,10 @@ static void moji_place(jw_drawing *d, double x, double y)
  * +0x200 − +0x210）ので、字を書き換えて Enter すると元の基点の所に
  * 置かれる。基点はいまの文字基点のまま（DAT_00a0bbb0 が立っていれば字の
  * 線種 byte の基点に替わるが、その切り替えはこの移植に無い）。 */
-static void moji_got_pick(jw_drawing *d, const jw_view *v, double x, double y,
-                          int button)
+/* 拾った字の文字種（大きさ・間隔・色・斜体太字・角度・縦字）をいまの設定へ
+ * （FUN_006c6160 と 仮想関数 51 FUN_006c4840 の共通部分） */
+static void moji_take_attr(jw_drawing *d, const jw_obj *o)
 {
-    int k = jw_pick_moji(d, v, x, y), n;
-    const jw_obj *o;
-    const char *t;
-
-    if (k < 0)
-        return;
-    o = &d->obj[k];
-    t = jw_str(d, o->text);
-    n = t ? (int)strlen(t) : 0;
-    if (n <= 0)
-        return;
-    if (n > (int)sizeof line_buf - 2)
-        n = (int)sizeof line_buf - 2;
-    memcpy(line_buf, t, (size_t)n);
-    line_n = n;
-    line_lead_next = line_drop_trail = 0;
-    line_gen++;
-    /* 文字種 */
     d->cur_style.w = o->d[4];
     d->cur_style.h = o->d[5];
     d->cur_style.sp = o->d[6];
@@ -2662,6 +2645,29 @@ static void moji_got_pick(jw_drawing *d, const jw_view *v, double x, double y,
         if ((c = chk_slot(bar_cmd(), 1325)) != 0)
             *c = (o->flags & 0x20u) ? 1 : 0;
     }
+}
+
+static void moji_got_pick(jw_drawing *d, const jw_view *v, double x, double y,
+                          int button)
+{
+    int k = jw_pick_moji(d, v, x, y), n;
+    const jw_obj *o;
+    const char *t;
+
+    if (k < 0)
+        return;
+    o = &d->obj[k];
+    t = jw_str(d, o->text);
+    n = t ? (int)strlen(t) : 0;
+    if (n <= 0)
+        return;
+    if (n > (int)sizeof line_buf - 2)
+        n = (int)sizeof line_buf - 2;
+    memcpy(line_buf, t, (size_t)n);
+    line_n = n;
+    line_lead_next = line_drop_trail = 0;
+    line_gen++;
+    moji_take_attr(d, o);
     moji_got = button != 0 ? 2 : 1;
     moji_got_i = k;
     moji_got_was = *o;
@@ -24987,8 +24993,8 @@ static void zok_put_len(int id, double len)
  *   ぴったり）、長さは 両端の距離 × 書込みグループの縮尺
  *   押したのが円: 角度は 傾き − 軸角（そのまま）、長さは 半径 × 縮尺、扁平率は d[6]×100
  *   ｍ単位入力は 書き手が ÷DAT_00a0d630 してから箱へ（zok_put_len）
- * 命令が 文字（FUN_006c4840、状態を作り直す 888 バイト）のとき、押したのが文字・点の
- * ときの中身の写しは 入れていない。逆コンパイルの読み、原典では押していない。
+ * 命令が 文字（FUN_006c4840、888 バイト）のときは 押した文字の文字種を取る（上の分岐。
+ * 点を押したときの枝は 入れていない）。
  * 1 なら箱に入れた */
 int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
 {
@@ -24996,6 +25002,20 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
     char b[48];
     int i;
 
+    if (d && current == JW_CMD_MOJI) {
+        /* 文字（FUN_006c4840）: 押した文字の 大きさ・間隔・色（FUN_00583240）、角度
+           （FUN_00583200、字の角度 − 軸角）、縦字 +0xa00（+0x44 の 0x20）、斜体・太字
+           （+0xdc の 1・0x10）をいまの設定へ。字の中身は箱へ入れず空に（FUN_00583190）。
+           逆コンパイルの読み、原典では押していない */
+        i = jw_pick_moji(d, v, x, y);
+        if (i < 0)
+            return 0;
+        moji_take_attr(d, &d->obj[i]);
+        line_n = 0;
+        line_lead_next = line_drop_trail = 0;
+        line_gen++;
+        return 1;
+    }
     if (!d || (current != JW_CMD_SEN && current != JW_CMD_ENKO
                && current != JW_CMD_FUKUSEN))
         return 0;
