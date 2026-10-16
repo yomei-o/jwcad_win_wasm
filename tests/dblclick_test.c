@@ -234,11 +234,124 @@ static void clip(void)
        "  選んでいれば JW_ACT_CLIP_PUT");
 }
 
+/* (LL)(RR) 範囲枠交差線選択（案内 5762）: 箱 (250,250)-(550,350) の中の線 A、
+   枠を横切る線 B（両端とも外）、片端だけ中の線 C、外の線 D */
+static jw_drawing *four_lines(int cmd)
+{
+    jw_drawing *d = fresh();
+    static const int xy[4][4] = {
+        { 300, 300, 500, 300 },         /* A 中 */
+        { 200, 320, 600, 320 },         /* B 両端外で横切る */
+        { 400, 330, 700, 330 },         /* C 片端だけ中 */
+        { 200, 450, 600, 450 },         /* D 外 */
+    };
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        jw_obj *o = jw_add(d, JW_SEN);
+
+        o->d[0] = mx(xy[i][0]);
+        o->d[1] = my(xy[i][1]);
+        o->d[2] = mx(xy[i][2]);
+        o->d[3] = my(xy[i][3]);
+    }
+    app_command(cmd);
+    return d;
+}
+
+static int picked(const jw_drawing *d, int a, int b, int c, int e)
+{
+    return d->obj[0].sel == a && d->obj[1].sel == b && d->obj[2].sel == c
+        && d->obj[3].sel == e;
+}
+
+static void cross(void)
+{
+    jw_drawing *d;
+
+    printf("範囲選択 の (LL)(RR) 範囲枠交差線選択:\n");
+    d = four_lines(JW_CMD_HANI);
+    click(250, 250);
+    click(550, 350);
+    ck(picked(d, 1, 0, 0, 0), "  (L) で閉じると中の線だけ");
+    d = four_lines(JW_CMD_HANI);
+    click(250, 250);
+    click(550, 350);
+    app_press(550, 350, 0);
+    app_release(550, 350, 0);
+    ck(picked(d, 1, 1, 1, 0), "  (LL) で枠と交わる線も");
+    d = four_lines(JW_CMD_HANI);
+    click(250, 250);
+    app_move(550, 350);
+    app_press(550, 350, 1);
+    app_release(550, 350, 1);
+    ck(picked(d, 1, 0, 0, 0), "  (R) で閉じると中の線だけ");
+    app_press(550, 350, 1);
+    app_release(550, 350, 1);
+    ck(picked(d, 1, 1, 1, 0), "  動かずに二度目の (R) で (RR)");
+    d = four_lines(JW_CMD_HANI);
+    click(250, 250);
+    app_move(550, 350);
+    app_press(550, 350, 1);
+    app_release(550, 350, 1);
+    app_move(300, 300);
+    app_press(300, 300, 1);
+    app_release(300, 300, 1);
+    ck(!d->obj[1].sel && !d->obj[2].sel, "  動いてからの (R) は (RR) でない");
+    d = four_lines(JW_CMD_FUKUSHA);
+    click(250, 250);
+    click(550, 350);
+    app_press(550, 350, 0);
+    app_release(550, 350, 0);
+    ck(picked(d, 1, 1, 1, 0), "  複写 でも (LL)");
+}
+
+/* 日影図・２．５D の (LL) 高さ消去（案内 5524・5519）: 線の端の高さの字 */
+static int height_texts(const jw_drawing *d)
+{
+    int i, n = 0;
+
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI && (d->obj[i].flags & 0x8080))
+            n++;
+    return n;
+}
+
+static void height(int cmd, const char *name)
+{
+    jw_drawing *d;
+    jw_obj *o;
+
+    printf("%s の (LL) 高さ消去:\n", name);
+    d = fresh();
+    o = jw_add(d, JW_SEN);
+    o->d[0] = mx(300);
+    o->d[1] = my(300);
+    o->d[2] = mx(600);
+    o->d[3] = my(300);
+    app_command(cmd);
+    click(302, 300);
+    ck(height_texts(d) == 1, "  (L) で端に高さの字");
+    click(306, 300);                    /* 2 画素より離す（同じ所なら (LL)） */
+    ck(height_texts(d) == 1, "  同じ端の (L) は置き換え");
+    click(598, 300);
+    ck(height_texts(d) == 2, "  もう一方の端にも");
+    click(302, 300);
+    app_press(302, 300, 0);
+    app_release(302, 300, 0);
+    ck(height_texts(d) == 1, "  (LL) でその端の字が無くなる");
+    jw_cmd_undo(d);
+    ck(height_texts(d) == 2, "  戻す で (LL) が消した字が戻る");
+}
+
 int main(void)
 {
     ren();
     curve();
     clip();
+    cross();
+    height(JW_CMD_HIKAGE, "日影図");
+    height(JW_CMD_25D, "２．５D");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails != 0;
 }

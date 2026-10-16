@@ -5515,6 +5515,8 @@ static int ll_other(int button)
         return strcmp(jw_cmd_prompt(), JW_STR_5473) == 0;
     if (jw_cmd() == JW_CMD_SHINSHUKU)
         return jw_cmd_ikk_base_wait();  /* 一括処理の (LL) free 基準点 */
+    if (jw_cmd_ll_keep(jw_cmd()))
+        return 1;                       /* 範囲枠交差線選択・高さ消去 */
     return jw_cmd() == JW_CMD_KYOKUSEN && jw_cmd_bar_radio(1691) == 1;
 }
 
@@ -6001,6 +6003,10 @@ int app_press(int x, int y, int button)
             } else if (ll_cmd == JW_CMD_SHINSHUKU) {
                 /* 伸縮の一括処理: 一つ目の左はそのまま（原典も slot 9 のあと
                    slot 12 が 基準線を放して点に替える。jw_cmd_point_ll） */
+            } else if (jw_cmd_ll_keep(ll_cmd)) {
+                /* 範囲の箱の (LL) 範囲枠交差線選択・日影図/２．５D の (LL) 高さ消去:
+                   一つ目の左はそのまま（原典も slot 9 のあと slot 12）。
+                   受けなければ jw_cmd_point_ll は ふつうの左 */
             } else if (ll_start)
                 jw_cmd_back(&drawing);  /* 始点を取り消して 始点待ち に */
             ll_pend = ll_start = 0;

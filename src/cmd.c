@@ -327,6 +327,19 @@ static int sel_outside;
    that ran from -140.492 to -190.492 came back starting at the box's own
    edge, -179.239 -- and the texts come along as with 範囲外選択. */
 static int sel_cut;
+/* (LL)(RR) 範囲枠交差線選択（案内 5762）: 終点の左で箱を閉じたすぐあとの (LL)、
+   右で閉じて動かずに二度目の右 (RR) が来たら、同じ箱で もう一度集める。
+   そのときは 箱に入る要素に加えて 枠と交わる線も選ぶ（sel_cross）。
+   CZukeiSentaku slot 12 FUN_006fcae0 → FUN_00700440(0)、slot 13 FUN_006fda50 →
+   FUN_00700440(1): +500 が立ち +8 の +0x10・+0x14・+0x8 が 0 なら +0x220 = 1 で
+   FUN_00408d00（範囲の集め）を呼ぶ。そこは +0x220 == 1 かつ +0x8 == 0 で型 5、
+   要素ごとの FUN_0040ab00（線は FUN_0040cd00: -1 内・1/2 片端だけ内・3 両端外で
+   枠と交わる・0 外）の -1・1・2・3 を選ぶ（型 0 は -1 だけ）。param 0 は 種類を
+   &7 にして字を外し、1 は字も。集めは足すだけ（前の選択は残る）。複写・移動は
+   +0x1fc のとき同じ所へ（FUN_00652ea0・FUN_00653ba0）。逆コンパイルの読み、
+   原典では押していない */
+static int sel_cross, sel_cross_sub, sel_llbox, sel_rr;
+static double sel_rrx, sel_rry;
 /* 追加範囲 (1065) and 除外範囲 (1066), which the bar offers once a box has
    been taken: the next box adds to what is picked, or takes away from it,
    instead of starting again. */
@@ -13990,6 +14003,11 @@ static void sel_box(jw_drawing *d, int with_text)
             take = c2 < x0 || a > x1 || e < y0 || b > y1;
         else
             take = a >= x0 && c2 <= x1 && b >= y0 && e <= y1;
+        if (!take && sel_cross && o->cls == JW_SEN) {
+            double t0, t1;      /* 枠と交わる線（片端だけ内・両端外で横切る） */
+
+            take = clip_seg(o, x0 - 1e-7, y0 - 1e-7, x1 + 1e-7, y1 + 1e-7, &t0, &t1);
+        }
         if (!take)
             continue;
         if (sel_sub) {
@@ -14002,6 +14020,30 @@ static void sel_box(jw_drawing *d, int with_text)
     }
     if (sel_cut && !sel_outside)
         sel_cut_box(d, x0, y0, x1, y1);
+}
+
+/* (LL)(RR) 範囲枠交差線選択 を受ける箱か（sel_cross の注）。原典の +8 の
+   +0x10・+0x14・+0x8 が 0 の所 —— 移植では 範囲外選択・切取り選択・
+   パラメトリック変形（端点を見る）・文字の範囲 でないもの */
+static int sel_cross_ok(void)
+{
+    return range_cmd(current) && current != JW_CMD_PARAM && !sel_outside
+        && !sel_cut && !(ms_back && current == JW_CMD_HANI);
+}
+
+/* 閉じたばかりの箱で もう一度集める。枠と交わる線も（sel_cross）。
+   集めは足すだけ（除外範囲の箱なら外すだけ） */
+static void sel_cross_box(jw_drawing *d, int with_text)
+{
+    int sub = sel_sub;
+
+    if (!d)
+        return;
+    sel_sub = sel_cross_sub;
+    sel_cross = 1;
+    sel_box(d, with_text);
+    sel_cross = 0;
+    sel_sub = sub;
 }
 
 /* 範囲選択の始点の (R)「連続線をﾏｳｽ(R)で」.  逆コンパイルの読み、原典では
@@ -23530,8 +23572,45 @@ int jw_cmd_ikk_base_wait(void)
     return current == JW_CMD_SHINSHUKU && (ikk_st == 1 || ikk_st == 3);
 }
 
+/* 日影図・２．５D の 高さ（・奥行）の (LL)消去（案内 5524・5519）: 直前の左が
+   線の端に書いた高さの字（の番号と、そのときの要素の数）。CZukeiHikage slot 12
+   FUN_0068f840 は +0x1a0 の +0xbc が 0（高さの段）で +0xac（slot 9 FUN_0068f980 が
+   頭で 0 にし、FUN_00692820 が 高さの段で書いた字 FUN_00450860 を入れる）があれば
+   FUN_0044b2c0(…, +0xac, 1) で消して 0 に。CZukei25D slot 12 FUN_00615520 も
+   +0xb8 が 0 で +200 を同じに。一つ目の左は同じ端の前の字を消してから書くので、
+   二度押しで その端の高さが無くなる。逆コンパイルの読み、原典では押していない */
+static int hk_ll_k = -1, hk_ll_n;
+
+/* (LL) の一つ目の左を戻さずに残す命令か（app.c の二度押し）。範囲の箱と
+   日影図・２．５D の高さ。jw_cmd_point_ll が受けなければ ふつうの左になる */
+int jw_cmd_ll_keep(int cmd)
+{
+    if (cmd != current)
+        return 0;
+    if (range_cmd(cmd))         /* 終点待ち（一つ目の前）か 左で閉じたすぐあと */
+        return sel_cross_ok() && (sel_step == 1 || (sel_step == 2 && sel_llbox));
+    return cmd == JW_CMD_HIKAGE || cmd == JW_CMD_25D;
+}
+
 void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 {
+    if (d && (current == JW_CMD_HIKAGE || current == JW_CMD_25D) && hk_ll_k >= 0) {
+        int k = hk_ll_k;
+
+        hk_ll_k = -1;
+        if (k == d->ndrawn - 1 && hk_ll_n == d->ndrawn && d->obj[k].cls == JW_MOJI
+            && (d->obj[k].flags & 0x8080)) {
+            op_t *rec = op_new();
+
+            erase(d, k, rec);   /* (LL) 高さ消去（足したものは無い） */
+            return;
+        }
+    }
+    if (d && range_cmd(current) && sel_llbox && sel_step == 2) {
+        sel_llbox = 0;
+        sel_cross_box(d, 0);    /* (LL) 範囲枠交差線選択（字は除く） */
+        return;
+    }
     if (d && current == JW_CMD_AUTO && step == 0) {
         au_ll(d, v, x, y);      /* 円・(LL) の切断 */
         return;
@@ -26453,6 +26532,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         double ex, ey, dx0, dy0, best = 1e99, tol = jw_pick_tol(v);
         const char *val = jw_cmd_box(1491);     /* 箱が無ければ 原典の初めの値 */
 
+        hk_ll_k = -1;                   /* slot 9 の頭で +0xac = 0 */
         /* いちばん近い線（線分までの距離が 許容の内）を自分で探す */
         for (k = 0; k < d->ndrawn; k++) {
             const jw_obj *o = &d->obj[k];
@@ -26553,6 +26633,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     d->obj[near].d[7] = fabs(a0) < 1e-9 ? 0.0 : a0;
                 }
             }
+        }
+        if (current != JW_CMD_TENKU) {  /* +0xac（２．５D は +200）に書いた字 */
+            hk_ll_k = near;
+            hk_ll_n = d->ndrawn;
         }
         return;
     }
@@ -27182,6 +27266,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         return;
     }
     if (range_cmd(current)) {
+        int rr = sel_rr;
+
+        sel_rr = sel_llbox = 0;
+        if (rr && sel_step == 2 && button != 0 && v
+            && (fabs(x - sel_rrx) + fabs(y - sel_rry)) * v->scale <= 2.0) {
+            sel_cross_box(d, 1);        /* (RR) 範囲枠交差線選択（字も） */
+            return;
+        }
         switch (sel_step) {
         case 0:
             if (button != 0) {  /* (R): 連続線 (sel_rpick) */
@@ -27203,8 +27295,15 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             sel_x1 = x;
             sel_y1 = y;
             sel_box(d, button != 0);
+            sel_cross_sub = sel_sub;
             sel_sub = 0;
             sel_step = 2;       /* a box that caught nothing stays in the stage */
+            if (sel_cross_ok()) {
+                sel_llbox = button == 0;    /* (LL) を待つ（jw_cmd_point_ll） */
+                sel_rr = button != 0;       /* (RR) を待つ */
+                sel_rrx = x;
+                sel_rry = y;
+            }
             return;
         case 2: {
             if (sel_base_pick) {
