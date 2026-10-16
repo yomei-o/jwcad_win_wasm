@@ -279,6 +279,11 @@ int  jw_cmd_range_phase(void);
    placed.  The selected elements are drawn a second time that far away, so
    what will be made is what is shown. */
 int  jw_cmd_sel_ghost(double *dx, double *dy);
+/* 複写・移動 の仮表示: 置いたときと同じ 倍率（X・Y）・回転・ﾏｳｽ倍率・角 を
+   掛けた写し（1 なら out に）と、掛けるもの（角は度） */
+int  jw_cmd_sel_preview(const jw_drawing *d, jw_drawing *out);
+int  jw_cmd_sel_ghost_xf(double *dx, double *dy, double *sx, double *sy,
+                         double *deg);
 /* パラメトリック変形 の仮表示: 選んだ要素を いまのマウスの位置で変形したもの
    （枠に端点だけ入った線は その端点だけ動く）。1 なら out に入れた */
 int  jw_cmd_param_preview(const jw_drawing *d, jw_drawing *out);

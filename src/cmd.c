@@ -17013,15 +17013,14 @@ static int sel_numpos(const jw_drawing *d, double *ox, double *oy)
 
 static void sel_put(jw_drawing *d, double dx, double dy, double sc, double ang);
 
-static void sel_place(jw_drawing *d, double x, double y)
+/* 置く点 (x, y) からのずれ（数値位置・任意方向を掛けたもの）。数値位置なら 1。
+   仮表示 jw_cmd_sel_preview も同じものを使う */
+static int sel_place_off(const jw_drawing *d, double x, double y, double *pdx,
+                         double *pdy)
 {
     double dx = x - base_x, dy = y - base_y;
-    double sc = sel_scale(), ang = sel_turn();
-    int num;
+    int num = sel_numpos(d, &dx, &dy);
 
-    if (!d || sel_n <= 0)
-        return;
-    num = sel_numpos(d, &dx, &dy);
     if (!num)
         switch (sel_dir) {      /* 任意方向 squares the move off */
         case 1: dy = 0.0; break;
@@ -17033,6 +17032,20 @@ static void sel_place(jw_drawing *d, double x, double y)
                 dx = 0.0;
             break;
         }
+    *pdx = dx;
+    *pdy = dy;
+    return num;
+}
+
+static void sel_place(jw_drawing *d, double x, double y)
+{
+    double dx, dy;
+    double sc = sel_scale(), ang = sel_turn();
+    int num;
+
+    if (!d || sel_n <= 0)
+        return;
+    num = sel_place_off(d, x, y, &dx, &dy);
     /* 連続の一歩は、回数が 0 のときに置いたずれ（FUN_00653fe0 の
        +0xfd80 < 1 なら +0xfd90 = 置く先 - 基準点、+0xfda0 = 倍率、そのあと
        回数を 1 に）。二度目のクリックでは更新しない */
@@ -17295,7 +17308,30 @@ static void fk_offset(double px, double py, double *bx, double *by)
    FUN_0064f900（角）で倍率か角を決めてから置く）。置いたら どちらも 0、連続の
    回数も 0（連続 と / は死ぬ）、角 は 回転角の箱 (1412) にその角を書く
    （FUN_004ae3f0）。逆コンパイルの読み、原典では押していない */
+static void fk_mouse_xf(double cx3, double cy3, double *pbx, double *pby,
+                        double *psx, double *psy, double *pang);
+
 static void fk_mouse_place(jw_drawing *d, double cx3, double cy3)
+{
+    double bx, by, sx, sy, a;
+
+    fk_mouse_xf(cx3, cy3, &bx, &by, &sx, &sy, &a);
+    sel_put_xy(d, bx, by, sx, sy, a);
+    if (!fk_mb) {
+        char buf[32];
+
+        snprintf(buf, sizeof buf, "%.10g", a * 180.0 / PI);
+        box_put(1412, buf);
+    }
+    fk_mb = fk_kaku = 0;
+    ren_n = 0;
+}
+
+/* ﾏｳｽ倍率・角 の三つ目 (cx3, cy3) から ずれ・倍率・角 を出す（置く本体と
+   仮表示が共に使う。原典の仮表示 FUN_0064d290 も 状態 3 で同じ FUN_0064f350・
+   FUN_0064f900 を マウスの点で通してから FUN_00653e10 で写す） */
+static void fk_mouse_xf(double cx3, double cy3, double *pbx, double *pby,
+                        double *psx, double *psy, double *pang)
 {
     double ax = axis_deg * PI / 180.0, ca = cos(ax), sa = sin(ax);
     double bx, by, x, y;
@@ -17332,13 +17368,14 @@ static void fk_mouse_place(jw_drawing *d, double cx3, double cy3)
             else
                 sy = sx;
         }
-        sel_put_xy(d, bx, by, sx, sy, sel_turn());
+        *psx = sx;
+        *psy = sy;
+        *pang = sel_turn();
     } else {
         /* FUN_0064f900: 一つ目 - 基準点 の向き（0 なら 0）から 三つ目 -
            (基準点 + b) の向きへの角を (-180, 180] に。三つ目が 基準点 + b と
            同じなら 0。角 の間 回転角の箱は使わない（slot 6 が +0xfcd0 を 0 に） */
         double a0 = 0.0, a1 = 0.0, a, sc = sel_scale();
-        char buf[32];
 
         if (fabs(fk_ax - base_x) > 1e-7 || fabs(fk_ay - base_y) > 1e-7)
             a0 = atan2(fk_ay - base_y, fk_ax - base_x);
@@ -17349,12 +17386,11 @@ static void fk_mouse_place(jw_drawing *d, double cx3, double cy3)
             a -= 2.0 * PI;
         if (a <= -PI)
             a += 2.0 * PI;
-        sel_put_xy(d, bx, by, sc, sc, a);
-        snprintf(buf, sizeof buf, "%.10g", a * 180.0 / PI);
-        box_put(1412, buf);
+        *psx = *psy = sc;
+        *pang = a;
     }
-    fk_mb = fk_kaku = 0;
-    ren_n = 0;
+    *pbx = bx;
+    *pby = by;
 }
 
 /* ﾏｳｽ倍率・角 の間のクリック（slot 9 FUN_006533c0 の +0xfd18 / +0xfd40 の枝） */
@@ -18086,19 +18122,127 @@ int jw_cmd_sel_box(double *x0, double *y0, double *x1, double *y1)
     return 1;
 }
 
-int jw_cmd_sel_ghost(double *dx, double *dy)
+/* 複写・移動 の仮表示。原典 CZukeiFukusha の マウス移動 slot 6 FUN_0064d290
+ * （逆コンパイルの読み、原典では押していない）:
+ *   反転 (+0xfd48) の間は 札 0x14e1 だけで仮表示なし。基準点変更 (+0x1f8) も
+ *   FUN_0040ac80 へ行って仮表示なし。ﾏｳｽ倍率 (+0xfd18)・角 (+0xfd40) の
+ *   一つ目待ち（1）も 札だけで戻る。
+ *   ふつうは 倍率 X (+0xfcb0, FUN_004ae430)・Y (+0xfcc0, FUN_004ae460)・
+ *   回転角 (+0xfcd0, FUN_004ae590。角 の間は 0) を箱から取り、数値位置
+ *   (+0xfce0/+0xfcf0) があれば 置く先は 基準点 + それ、なければ マウスの点を
+ *   任意方向 (+0xfd00/+0xfd04) で揃えた所。ﾏｳｽ倍率・角 の三つ目待ち（3）は
+ *   マウスの点を三つ目にして FUN_0064f350（倍率）・FUN_0064f900（角）を通す。
+ *   そのあと 選んだ要素ごとに写しを作って（slot 5）FUN_00653e10 で
+ *   倍率 FUN_00465c40（軸角・X・Y）→ 回転 FUN_0046d5b0 → 移動 FUN_0046bdf0
+ *   を掛けて描く。置く本体 FUN_00653fe0 と同じ写し方なので、移植も 置く所
+ *   sel_put_xy と同じ fk_xform_xy・jw_pic_xform を 選んだときの形 sel_was に
+ *   掛ける（移動の二度目も 元の形から）。属性の書き換え za_apply は掛けない
+ *   （仮表示は選択の色で描く）。 */
+static const jw_drawing *cmd_doc;   /* 仮表示の間だけ（数値位置の縮尺） */
+
+static int sel_ghost_xf(double *dx, double *dy, double *sx, double *sy,
+                        double *ang)
 {
     if (sel_step != 3 || sel_n <= 0 || !tracking
-        || current == JW_CMD_PARAM)     /* こちらは jw_cmd_param_preview */
+        || current == JW_CMD_PARAM      /* こちらは jw_cmd_param_preview */
+        || sel_flip || sel_base_wait)
         return 0;
-    /* ﾏｳｽ倍率・角 の一つ目待ちは 仮表示なし（slot 6 が戻る）。三つ目待ちの
-       倍率・角を掛けた仮表示（FUN_0064f350・FUN_0064f900 を通す）は ずらす
-       だけのこの絵では描けないので出さない */
-    if (fk_mb == 1 || fk_mb == 3 || (!fk_mb && (fk_kaku == 1 || fk_kaku == 3)))
+    if (fk_mb == 1 || (!fk_mb && fk_kaku == 1))
         return 0;
-    *dx = tx - base_x;
-    *dy = ty - base_y;
+    if ((fk_mb == 3 || (!fk_mb && fk_kaku == 3))
+        && (current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU)) {
+        fk_mouse_xf(tx, ty, dx, dy, sx, sy, ang);
+        return 1;
+    }
+    sel_place_off(cmd_doc, tx, ty, dx, dy);
+    *sx = *sy = sel_scale();
+    *ang = fk_kaku ? 0.0 : sel_turn();
     return 1;
+}
+
+int jw_cmd_sel_ghost(double *dx, double *dy)
+{
+    double sx, sy, a;
+
+    return sel_ghost_xf(dx, dy, &sx, &sy, &a);
+}
+
+/* 仮表示に掛ける ずれ・倍率 X・Y・角（度）。試験から見る */
+int jw_cmd_sel_ghost_xf(double *dx, double *dy, double *sx, double *sy,
+                        double *deg)
+{
+    double a;
+
+    if (!sel_ghost_xf(dx, dy, sx, sy, &a))
+        return 0;
+    *deg = a * 180.0 / PI;
+    return 1;
+}
+
+/* 仮表示の絵: 置いたときと同じ形の写しを out に（図面は書き換えない。画像の
+   字を書き直すので 字の置き場は写しを使う） */
+int jw_cmd_sel_preview(const jw_drawing *d, jw_drawing *out)
+{
+    static jw_obj *pv;
+    static int cpv;
+    static char *gp;
+    static int gcap;
+    double dx, dy, sx, sy, ang;
+    int i, n = 0, pic = 0;
+
+    if (!d || !out || !sel_was)
+        return 0;
+    {
+        const jw_drawing *keep = cmd_doc;
+
+        cmd_doc = d;
+        i = sel_ghost_xf(&dx, &dy, &sx, &sy, &ang);
+        cmd_doc = keep;
+        if (!i)
+            return 0;
+    }
+    if (cpv < sel_n) {
+        jw_obj *p = (jw_obj *)realloc(pv, (size_t)sel_n * sizeof *p);
+
+        if (!p)
+            return 0;
+        pv = p;
+        cpv = sel_n;
+    }
+    for (i = 0; i < sel_n; i++)
+        if (jw_is_pic(d, &sel_was[i]))
+            pic = 1;
+    *out = *d;
+    if (pic && d->npool > 0) {
+        if (gcap < d->npool) {
+            char *q = (char *)realloc(gp, (size_t)d->npool);
+
+            if (!q)
+                return 0;
+            gp = q;
+            gcap = d->npool;
+        }
+        memcpy(gp, d->pool, (size_t)d->npool);
+        out->pool = gp;
+        out->npool = d->npool;
+        out->cpool = gcap;
+    }
+    for (i = 0; i < sel_n; i++) {
+        pv[n] = sel_was[i];
+        fk_xform_xy(&pv[n], base_x, base_y, sx, sy, ang, dx, dy);
+        if (pic)
+            jw_pic_xform(out, &pv[n], &sel_was[i], sx > sy ? sx : sy, ang);
+        pv[n].flags = (unsigned short)(pv[n].flags | 2u);
+        pv[n].sel = 1;
+        n++;
+    }
+    if (pic && out->pool != d->pool) {
+        gp = out->pool;         /* 書き直しで置き場が伸びたかもしれない */
+        gcap = out->cpool;
+    }
+    out->obj = pv;
+    out->nobj = out->ndrawn = n;
+    return n > 0;
 }
 
 /* Whether a tick box on the bar is ticked, for the ones the port works: -1

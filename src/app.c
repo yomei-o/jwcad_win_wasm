@@ -7450,8 +7450,12 @@ void app_paint(void)
         ui_view_rect(fb.w, fb.h, &view.clip);
         if (jw_cmd_sel_box(&a, &b, &e, &f))
             jw_draw_box(&fb, &view, a, b, e, f);
-        if (jw_cmd_sel_ghost(&a, &b))
-            jw_draw_sel(&fb, &view, &drawing, a, b);
+        {   /* 複写・移動 の仮表示（倍率・回転も置くときと同じ） */
+            jw_drawing gh;
+
+            if (jw_cmd_sel_preview(&drawing, &gh))
+                jw_draw(&fb, &view, &gh);
+        }
     }
     /* the 文字 command's box goes over the drawing */
     if (jw_cmd_text_mode())
