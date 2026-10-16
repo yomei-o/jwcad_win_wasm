@@ -136,8 +136,8 @@ int main(void)
        "AM 2〜4・8〜12: 円 包絡 範囲 伸縮 AUTO 消去 複線 文字");
     ck(clk_cmd(7, 0, 0, 1) == JW_CMD_FUKUSHA && clk_cmd(7, 0, 0, 0) == JW_CMD_IDOU,
        "AM 7: 前が複写なら 複写、移動なら 移動（view+0x9058）");
-    ck(clk_cmd(6, 0, 0, 1) == CLK_ZOKU && clk_cmd(5, 0, 0, 1) == 0,
-       "AM 6 属性取得、AM 5 線種変更 は入れていない");
+    ck(clk_cmd(6, 0, 0, 1) == CLK_ZOKU && clk_cmd(5, 0, 0, 1) == CLK_SENSHU,
+       "AM 6 属性取得、AM 5 線種変更");
     ck(clk_cmd(1, 1, 0, 1) == JW_CMD_KIGOU && clk_cmd(2, 1, 0, 1) == JW_CMD_KYOKUSEN
        && clk_cmd(3, 1, 0, 1) == JW_CMD_TATEGU_RITSU && clk_cmd(4, 1, 0, 1) == JW_CMD_TATEGU_DAN
        && clk_cmd(5, 1, 0, 1) == JW_CMD_TATEGU && clk_cmd(6, 1, 0, 1) == 0
@@ -320,6 +320,125 @@ int main(void)
         app_clock_end();
         ck(app_zoku_open(), "12 時で離すと 線属性 の窓");
         app_key(27);
+    }
+
+    /* ---- AM 5 線種変更（FUN_0076e360）---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py, wg = 0, g, wl, n;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 100; o->d[3] = 0;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 100; o->d[2] = 100; o->d[3] = 100;
+        for (g = 0; g < 16; g++)
+            if (d->group[g].state == 3)
+                wg = g;
+        wl = d->group[wg].write_layer & 15;
+        d->obj[0].ltype = 1; d->obj[0].color = 2; d->obj[0].width = 0;
+        d->obj[0].layer = (unsigned short)((wl + 3) & 15);
+        d->write_ltype = 3; d->write_color = 5; d->write_width = 7;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_FUKUSEN);
+        px = jw_sx(v, 30.0);
+        py = jw_sy(v, 0.0);
+        at_hour(5, 60, &dx, &dy);
+        app_clock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        ck(jw_cmd_notice_id() == 10005, "AM 5 の札 10005 線種変更");
+        n = d->ndrawn;
+        app_clock_end();
+        o = &d->obj[d->ndrawn - 1];
+        ck(jw_cmd() == JW_CMD_FUKUSEN && d->ndrawn == n, "AM 5: 命令はそのまま、数は同じ");
+        ck(o->d[1] == 0.0 && o->d[3] == 0.0 && o->ltype == 3 && o->color == 5 && o->width == 7
+           && o->layer == wl && o->lgroup == wg,
+           "押した線が 書込み線（線種・線色・線幅）と書込みレイヤになって終わりへ");
+        ck(d->obj[0].d[1] == 100.0, "もう一本は先頭へ詰まる");
+        jw_cmd_undo(d);
+        ck(d->obj[0].d[1] == 0.0 && d->obj[0].ltype == 1 && d->obj[0].layer == ((wl + 3) & 15),
+           "戻るで元の線・元の場所に");
+
+        /* 1523 が入なら レイヤは元のまま、札 6004 */
+        ck(kh_press(1, 1523), "1523 AM5 の線種変更でレイヤは変更しない を押す");
+        kh_ok();
+        app_clock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        app_clock_end();
+        o = &d->obj[d->ndrawn - 1];
+        ck(o->d[1] == 0.0 && o->ltype == 3 && o->color == 5 && o->layer == ((wl + 3) & 15),
+           "1523: 線種・線色は替わり、レイヤは元のまま");
+        ck(jw_cmd_notice_id() == 6004, "1523: 札 6004 レイヤ変更なし");
+        kh_press(1, 1523);
+        kh_ok();
+
+        /* 何も無い所なら何もしない */
+        n = d->ndrawn;
+        app_clock_begin(jw_sx(v, 50.0), jw_sy(v, 50.0));
+        app_clock_move(jw_sx(v, 50.0) + dx, jw_sy(v, 50.0) + dy);
+        app_clock_end();
+        ck(d->ndrawn == n && d->obj[0].d[1] == 100.0, "要素の無い所では何もしない");
+        app_command(JW_CMD_SEN);
+    }
+
+    /* 寸法図形（sub 1〜8 の一続き）は 一つの図形として 終わりへ */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        int f = -1, k, wg = 0, wl, ok8, px, py, e;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        jw_obj *o = jw_add(d, JW_SEN);
+        o->d[0] = 100; o->d[1] = 100; o->d[2] = 200; o->d[3] = 100;
+        app_fit();
+        app_paint();
+        v = app_view();
+        jw_cmd_sunpo_chk_set(2424, 1);
+        jw_cmd_set(JW_CMD_SUNPO);
+        jw_cmd_point(d, v, 100.0, 120.0, 0);
+        jw_cmd_point(d, v, 100.0, 110.0, 0);
+        jw_cmd_point(d, v, 100.0, 100.0, 0);
+        jw_cmd_point(d, v, 200.0, 100.0, 0);
+        jw_cmd_set(JW_CMD_SEN);
+        jw_cmd_sunpo_chk_set(2424, 0);
+        for (k = 0; k + 7 < d->ndrawn; k++)
+            if (d->obj[k].sub == 1 && d->obj[k + 7].sub == 8)
+                f = k;
+        ck(f >= 0, "寸法図形を作った");
+        for (k = 0; k < 16; k++)
+            if (d->group[k].state == 3)
+                wg = k;
+        wl = d->group[wg].write_layer & 15;
+        for (k = 0; f >= 0 && k < 8; k++)
+            d->obj[f + k].layer = (unsigned short)((wl + 2) & 15);
+        d->write_ltype = 4; d->write_color = 6; d->write_width = 0;
+        e = f >= 0 ? d->ndrawn - 8 : 0;
+        if (f >= 0) {
+            px = jw_sx(v, (d->obj[f].d[0] + d->obj[f].d[2]) / 2);
+            py = jw_sy(v, (d->obj[f].d[1] + d->obj[f].d[3]) / 2);
+            at_hour(5, 60, &dx, &dy);
+            app_clock_begin(px, py);
+            app_clock_move(px + dx, py + dy);
+            app_clock_end();
+        }
+        ok8 = f >= 0;
+        for (k = 0; ok8 && k < 8; k++)
+            if (d->obj[e + k].sub != k + 1 || d->obj[e + k].layer != wl)
+                ok8 = 0;
+        ck(ok8, "寸法図形: 部品 1〜8 が一続きのまま終わりへ、レイヤは書込みレイヤ");
+        ck(ok8 && d->obj[e].ltype == 4 && d->obj[e].color == 6
+           && (d->obj[e].mark & 0xff) == 4 && ((d->obj[e].mark >> 8) & 0xffff) == 6
+           && (((unsigned)d->obj[e].list[2] >> 16) & 0xffff) == (unsigned)wl,
+           "寸法図形: 頭と寸法線が書込み線種・線色に");
+        jw_cmd_undo(d);
+        ck(f >= 0 && d->obj[f].sub == 1 && d->obj[f + 7].sub == 8 && d->obj[f].layer == ((wl + 2) & 15),
+           "寸法図形: 戻るで元に");
     }
 
     /* AUTO の間は時計にしない（AUTO 自前の時計は入れていない） */

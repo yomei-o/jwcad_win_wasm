@@ -2376,6 +2376,8 @@ static void kh_apply(void)
        2099 → DAT_00a0cadc */
     clk_settings(kh_value_tab(0, 1326), (int)kh_num(0, 1054, 35.0), kh_value_tab(0, 2108),
                  kh_value_tab(0, 2109), kh_value_tab(0, 2099));
+    /* 一般(2) 1523（CSonotaPage1 +0x598 → FUN_005d02e0 が DAT_00a0c7d8）: AM 5 線種変更 */
+    clk_set_motolay(kh_value_tab(1, 1523));
 }
 
 /* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が

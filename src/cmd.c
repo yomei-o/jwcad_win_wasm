@@ -11295,6 +11295,94 @@ static void zoku_change(jw_drawing *d, int i)
     rec->n = 1;
 }
 
+/* クロックメニュー 左 AM 5 線種変更（FUN_0076e360、命令はそのまま）。押した点の要素を
+ * FUN_0044a270(2) で一つ拾い、写し（仮想関数 5）に FUN_004552a0 で書込み線を着せる:
+ * +0x28 線種（FUN_0042f6b0、0x40 の旗は残す）・+0x2a 線色（FUN_0042f660）・+0x2c 線幅
+ * （FUN_00457840）。寸法図形（CDataSunpou）の 8・9 番（FUN_0042f6f0・FUN_0042f680）は
+ * 寸法線（+0x68 の +0x90・+0x92）にも同じ線種・線色を入れる。元を FUN_0044b2c0 で消し、
+ * 写しを FUN_00447670 で図形の終わりに足す。その第五引数が 1 なら書込みレイヤ・グループに、
+ * 基本設定 一般(2) 1523「ｸﾛｯｸﾒﾆｭｰ左AM5時の線種変更のときレイヤは変更しない」
+ * （+0x598 → DAT_00a0c7d8、レジストリ GetType\MotoLay）が入なら 元の +0x2e・+0x2f を写して
+ * 0、札 6004「レイヤ変更なし」を押した点に。拾えなければ何もしない。
+ *
+ * FUN_004552a0 の残り（+0x30〜+0x3f を 0、+0x40 = 1、+0x50 = 0、+0x58 の 1 を落とす）は
+ * 移植の要素に対応する欄が無い。寸法図形の部品は sub 1〜8 の一続き（src/jww.h）なので、
+ * 頭の欄（部品 1 の mark・turn・list[2]）と 部品 1 の線種・線色を替え、レイヤは部品
+ * すべてに入れて一続きのまま終わりへ移す。逆コンパイルの読み、原典では押していない。 */
+int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
+                        int keep_layer)
+{
+    int i, h, nm, k, wg = 0;
+    jw_obj run[8];
+    op_t *rec;
+    unsigned lay, grp;
+
+    if (!d || !v)
+        return 0;
+    i = jw_pick(d, v, x, y, 2);
+    if (i < 0 || i >= d->ndrawn)
+        return 0;
+    h = i;
+    nm = 1;
+    if (d->obj[i].sub) {
+        h = i - (d->obj[i].sub - 1);
+        if (h < 0 || d->obj[h].sub != 1)
+            h = i;
+        else
+            for (nm = 1; nm < 8 && h + nm < d->ndrawn && d->obj[h + nm].sub == nm + 1; nm++)
+                ;
+    }
+    for (k = 0; k < nm; k++)
+        run[k] = d->obj[h + k];
+    for (k = 0; k < 16; k++)
+        if (d->group[k].state == 3)
+            wg = k;
+    if (keep_layer) {
+        lay = run[0].sub ? ((unsigned)run[0].list[2] >> 16) & 0xffff : run[0].layer;
+        grp = run[0].sub ? ((unsigned)run[0].mark >> 24) & 0xff : run[0].lgroup;
+    } else {
+        lay = (unsigned)(d->group[wg].write_layer & 15);
+        grp = (unsigned)wg;
+    }
+    {
+        unsigned lt = d->write_ltype ? d->write_ltype : 1;
+        unsigned co = d->write_ltype ? d->write_color : 2;
+        unsigned wd = d->write_ltype ? d->write_width : 0;
+
+        if (run[0].sub == 1 && nm > 1) {
+            /* 頭（src/jww.c の read_sunpou と同じ詰め方）と 寸法線の +0x90・+0x92 */
+            unsigned hlt = ((unsigned)run[0].mark & 0x40u) | lt;
+
+            run[0].mark = (int)(hlt | (co << 8) | ((grp & 0xffu) << 24));
+            run[0].turn = wd;
+            run[0].list[2] = (int)(((unsigned)run[0].list[2] & 0xffffu) | (lay << 16));
+        } else
+            run[0].width = (unsigned short)wd;
+        run[0].ltype = (unsigned char)((run[0].ltype & 0x40u) | lt);
+        run[0].color = (unsigned short)co;
+        for (k = 0; k < nm; k++) {
+            run[k].layer = (unsigned short)lay;
+            run[k].lgroup = (unsigned short)grp;
+        }
+    }
+    rec = op_new();
+    if (!rec)
+        return 0;
+    for (k = nm - 1; k >= 0; k--)
+        erase(d, h + k, rec);
+    for (k = 0; k < nm; k++) {
+        jw_obj *o = jw_add(d, run[k].cls);
+
+        if (!o)
+            break;
+        *o = run[k];
+        rec->n++;
+    }
+    if (keep_layer)
+        JW_NOTICE(6004);
+    return 1;
+}
+
 /* 選択図形登録 (1068): what the box picked becomes the pattern. */
 static int hatch_register(const jw_drawing *d)
 {

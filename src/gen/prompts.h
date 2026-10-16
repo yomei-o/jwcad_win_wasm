@@ -285,6 +285,8 @@
 #define JW_STR_5522 "\x83" "f\x81[\x83^\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb9\x82\xf1"
 /* 6009: notice: the figure was moved */
 #define JW_STR_6009 "\x81y\x90}\x8c`\x82\xf0\x88\xda\x93\xae\x82\xb5\x82\xdc\x82\xb5\x82\xbd\x81z"
+/* 6004: notice: the layer is left as it was (clock AM 5, 1523) */
+#define JW_STR_6004 "\x83\x8c\x83" "C\x83\x84\x95\xcf\x8dX\x82\xc8\x82\xb5"
 /* 10038: notice: figure registered */
 #define JW_STR_10038 "\x81s\x90}\x8c`\x93o\x98^\x81t"
 /* 5529: notice: the data does not fit (shadow diagram wall) */

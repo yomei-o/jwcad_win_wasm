@@ -560,6 +560,10 @@ void jw_cmd_layhide_shown(int on);
 /* 属性取得 を (x, y) で一回（命令 属性取得 のクリックと、1325 直接属性取得 の Tab）。
    1 なら取った */
 int jw_cmd_zokusei_at(jw_drawing *d, const jw_view *v, double x, double y);
+/* クロックメニュー 左 AM 5 線種変更（FUN_0076e360）: (x, y) の要素に書込み線を着せて
+   図形の終わりへ。keep_layer は 基本設定 1523（レイヤは元のまま、札 6004）。1 なら替えた */
+int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
+                        int keep_layer);
 /* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
 void jw_cmd_sen_sizekeep(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */

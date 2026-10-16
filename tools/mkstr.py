@@ -154,6 +154,7 @@ WANT = [
     (5498, 'notice: blocks, dimension figures and protected layers do not move (parallel)'),
     (5522, 'notice: there is no data'),
     (6009, 'notice: the figure was moved'),
+    (6004, 'notice: the layer is left as it was (clock AM 5, 1523)'),
     (10038, 'notice: figure registered'),
     (5529, 'notice: the data does not fit (shadow diagram wall)'),
     (5534, 'notice: the wall line goes through a building (shadow diagram wall)'),

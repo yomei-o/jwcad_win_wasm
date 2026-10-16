@@ -34,8 +34,7 @@
  *
  * 移植で入れないもの（読みだけ、または答えの無いもの）: AUTO モードの時計
  * （CZukeiAuto と DAT_00a0c7bc・DAT_00a0c7c4 > 1 の FUN_00777690。移植は AUTO・
- * 手書線 の間は時計にしない）、AM 5 線種変更（FUN_0076e360: 押した点の要素を書込み
- * 線の属性に）・PM 6【全】属性取得（FUN_007751e0(1)）は札だけ、AM 4 範囲選択の
+ * 手書線 の間は時計にしない）、PM 6【全】属性取得（FUN_007751e0(1)）は札だけ、AM 4 範囲選択の
  * 「押した点を拾う」（FUN_0040dbb0）、AM 6 の 5261 札、右ボタンの時計
  * （FUN_0076d330、右ドラッグは移植では画面の移動）。
  *
@@ -54,7 +53,8 @@ int clk_dir(int dx, int dy, int *ampm, int *prevd2, int only4);
 /* 左の時計の表（FUN_0076c9c0）: 移る命令の番号。0 は何もしない。
    cur はいまの命令（AM 1 は 線 なら 矩形）、copy は 前の 複写・移動 が複写か
    （view+0x9058、原典の既定 1） */
-enum { CLK_ZOKU = -1 };         /* AM 6 属性取得（押した点で） */
+enum { CLK_ZOKU = -1,           /* AM 6 属性取得（押した点で） */
+       CLK_SENSHU = -2 };       /* AM 5 線種変更（押した点の要素、FUN_0076e360） */
 int clk_cmd(int dir, int pm, int cur, int copy);
 /* 札の文字列番号と字（CP932）。dir が 13 などは 10013 キャンセル */
 const char *clk_label(int dir, int pm, int *id);
@@ -62,6 +62,8 @@ const char *clk_label(int dir, int pm, int *id);
 /* 基本設定から（src/app.c の kh_apply）: 1326、1054、2108・2109（入なら AM/PM を
    前の操作のまま）、2099（円周1/8点。右の時計の円周1/4点にしか効かない） */
 void clk_settings(int nonclock, int minimum, int lkeep, int rkeep, int circle8);
+/* 一般(2) 1523「ｸﾛｯｸﾒﾆｭｰ左AM5時の線種変更のときレイヤは変更しない」（DAT_00a0c7d8） */
+void clk_set_motolay(int on);
 int  clk_minimum(void);
 int  clk_circle8(void);
 
@@ -93,6 +95,7 @@ static int clk_min = 35;        /* DAT_00a0cad4 */
 static int clk_lclear = 1;      /* DAT_00a0caec = 2108 の逆 */
 static int clk_rclear = 1;      /* DAT_00a0caf0 = 2109 の逆 */
 static int clk_c8;              /* DAT_00a0cadc（右の時計だけ。持っておくだけ） */
+static int clk_motolay;         /* DAT_00a0c7d8（1523） */
 static const int clk_inner = 0, clk_inner2 = 0;     /* DAT_00a0cae0・cae4（書かれない） */
 static int clk_on, clk_x0, clk_y0, clk_x, clk_y, clk_d, clk_am, clk_pd2;
 static int clk_copy = 1;        /* view+0x9058（ctor が 1） */
@@ -138,7 +141,7 @@ int clk_dir(int dx, int dy, int *ampm, int *prevd2, int only4)
 
 int clk_cmd(int dir, int pm, int cur, int copy)
 {
-    static const int am[13] = { 0, 0, JW_CMD_ENKO, JW_CMD_HOURAKU, JW_CMD_HANI, 0,
+    static const int am[13] = { 0, 0, JW_CMD_ENKO, JW_CMD_HOURAKU, JW_CMD_HANI, CLK_SENSHU,
                                 CLK_ZOKU, 0, JW_CMD_SHINSHUKU, JW_CMD_AUTO,
                                 JW_CMD_SHOUKYO, JW_CMD_FUKUSEN, JW_CMD_MOJI };
     static const int pmt[13] = { 0, JW_CMD_KIGOU, JW_CMD_KYOKUSEN, JW_CMD_TATEGU_RITSU,
@@ -194,6 +197,11 @@ void clk_settings(int nonclock, int minimum, int lkeep, int rkeep, int circle8)
     clk_lclear = !lkeep;
     clk_rclear = !rkeep;
     clk_c8 = circle8 != 0;
+}
+
+void clk_set_motolay(int on)
+{
+    clk_motolay = on != 0;
 }
 
 int clk_minimum(void)
@@ -364,6 +372,17 @@ int app_clock_end(void)
         app_command(JW_CMD_ZOKUSEI);
         app_press(x, y, 0);
         app_command(cur);
+        return 1;
+    }
+    if (c == CLK_SENSHU) {
+        /* FUN_0076e360: いまの命令のまま 押した点の要素に書込み線を着せる
+           （src/cmd.c の jw_cmd_clock_senshu）。札 6004 は押した画素に */
+        double x, y;
+
+        to_paper(clk_x0, clk_y0, &x, &y);
+        nt_px = clk_x0;
+        nt_py = clk_y0;
+        jw_cmd_clock_senshu(&drawing, &view, x, y, clk_motolay);
         return 1;
     }
     if (c > 0) {
