@@ -22331,6 +22331,14 @@ static void takaku_any(jw_drawing *d)
             o->d[3] = tk_ay2[j];
             made++;
         }
+        /* ソリッドを外した（線で囲む）ときの曲線属性化: FUN_007255f0 の
+           param_1 == 0 の枝（_unassigned.c 295995〜296016）は、三点以上のとき
+           辺を引いたあとで FUN_007254e0(.., DAT_00a0cac4)（Curve/Polygon、
+           ソリッドのほうは DAT_00a0cac0）を呼ぶ。箱 1325 は 原典では
+           同じチェック（+0x1098）で、1090 の別に cac0/cac4 へ写る。
+           逆コンパイルの読み、原典では押していない */
+        if (tk_an >= 3)
+            tk_curve_attr(d, made);
     }
     if (made)
         op_push(made);
