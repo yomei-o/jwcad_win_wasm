@@ -361,6 +361,22 @@ static int sun_part_empty(const jw_drawing *d, const jw_obj *o)
     return h->sub == 1 && h->list[0] == 0;
 }
 
+/* 拾い（jw_pick_tie）は 原典の当たり判定どおり 部品 1・2 だけ: CDataSunpou
+   slot 17 FUN_0042d7f0 は +0x68・+0xd0 の slot 17 しか呼ばないので、
+   +0x1c0 が 0 でない（引出線・点を描く）図形でも 部品 3〜6 は当たらない。
+   読取点（jw_read）は 部品をどう読むかを読んでいないので sun_part_empty の
+   まま。逆コンパイルの読み、原典では押していない */
+static int sun_part_nohit(const jw_drawing *d, const jw_obj *o)
+{
+    long at = (long)(o - d->obj);
+
+    if (o->sub < 3 || o->sub > 8)
+        return 0;
+    if (at < o->sub - 1)
+        return 0;
+    return (o - (o->sub - 1))->sub == 1;
+}
+
 /* One candidate read point, kept if it is the nearest so far.
  *
  * The measure is in screen pixels, not millimetres of paper, and it is
@@ -705,7 +721,7 @@ int jw_pick_tie(const jw_drawing *d, const jw_view *v, double x, double y,
         int ok, taken = 0;
         double e;
 
-        if (!editable(d, o) || sun_part_empty(d, o))
+        if (!editable(d, o) || sun_part_empty(d, o) || sun_part_nohit(d, o))
             continue;
         switch (o->cls) {
         case JW_SEN:

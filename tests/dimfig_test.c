@@ -192,6 +192,236 @@ static void angle_dim(jw_drawing *d)
     jw_cmd_sunpo_chk_set(2424, 0);
 }
 
+/* 線 の 寸法値（1350）: FUN_006f46a0 の 0x6f4ec2〜 で bda0 なら 線と値で
+   寸法図形一つ（線 +0xac に 0x2000、字 +0x114 に 0x10）、●（1348）は
+   0x6f5802〜 で その後ろ。文字種が負なら 字は線の向こう側（0x6f5290〜） */
+static void sen_dim(jw_drawing *d)
+{
+    jw_obj off[2];
+    int k, b0, b1, f, depth;
+
+    printf("-- 線の寸法値\n");
+    jw_cmd_set(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1350) <= 0)
+        jw_cmd_bar(d, 1350);
+    ck(jw_cmd_bar_check(1350) == 1, "  寸法値 を 入");
+    for (k = 0; k < 2; k++) {
+        jw_cmd_sunpo_chk_set(2424, k);
+        b0 = d->ndrawn;
+        depth = jw_cmd_undo_depth();
+        jw_cmd_point(d, app_view(), 100.0, 300.0, 0);
+        jw_cmd_point(d, app_view(), 200.0, 300.0, 0);
+        b1 = d->ndrawn - b0;
+        ck(jw_cmd_undo_depth() == depth + 1, "  一つの 戻る");
+        if (!k) {
+            ck(b1 == 2 && d->obj[b0].cls == JW_SEN && d->obj[b0 + 1].cls == JW_MOJI
+               && !d->obj[b0].sub && !d->obj[b0 + 1].sub,
+               "  切: 線と値（これまでどおり）");
+            off[0] = d->obj[b0];
+            off[1] = d->obj[b0 + 1];
+        } else {
+            ck(b1 == 8, "  入: 部品八つ");
+            f = find_fig(d, b0);
+            ck(f == b0, "  線と値が 部品 1・2");
+            if (f == b0 && b1 == 8) {
+                const jw_obj *p = &d->obj[f], *t = &d->obj[f + 1];
+                int i, s = 1;
+                for (i = 0; i < 8; i++)
+                    s &= d->obj[f + i].cls == CLS[i] && d->obj[f + i].sub == i + 1;
+                ck(s, "  部品の型は 線・字・線・線・点・点・点・点");
+                ck(near(p->d[0], off[0].d[0]) && near(p->d[2], off[0].d[2])
+                   && p->flags == off[0].flags && (p->flags & 0x2000),
+                   "  部品 1 は 切 のときの線と同じ（0x2000）");
+                ck(t->flags == off[1].flags && (t->flags & 0x10)
+                   && near(t->d[0], off[1].d[0]) && near(t->d[1], off[1].d[1])
+                   && !strcmp(jw_str(d, t->text), jw_str(d, off[1].text)),
+                   "  部品 2 は 切 のときの値と同じ（0x10）");
+                ck(p->list[0] == 0 && (p->list[2] & 0xffff) == 0x2000,
+                   "  頭は +0x1c0 0・旗 0x2000");
+            }
+        }
+        jw_cmd_undo(d);
+        ck(d->ndrawn == b0, "  戻る で消える");
+    }
+    /* ● (1348) は 図形の後ろに ふつうの点 */
+    jw_cmd_sunpo_chk_set(2424, 1);
+    jw_cmd_bar(d, 1348);
+    b0 = d->ndrawn;
+    jw_cmd_point(d, app_view(), 100.0, 300.0, 0);
+    jw_cmd_point(d, app_view(), 200.0, 300.0, 0);
+    b1 = d->ndrawn - b0;
+    ck(b1 == 9 && find_fig(d, b0) == b0 && d->obj[b0 + 8].cls == JW_TEN
+       && !d->obj[b0 + 8].sub, "  ● は 部品八つの後ろに ふつうの点");
+    jw_cmd_undo(d);
+    jw_cmd_bar(d, 1348);
+    jw_cmd_sunpo_chk_set(2424, 0);
+
+    /* 文字種 -2（既定は 2）: 字は 線の下、上端が 間隔 の所 */
+    jw_cmd_sunpo_box_set(1488, "-2");
+    b0 = d->ndrawn;
+    jw_cmd_point(d, app_view(), 100.0, 300.0, 0);
+    jw_cmd_point(d, app_view(), 200.0, 300.0, 0);
+    if (d->ndrawn == b0 + 2) {
+        const jw_obj *t = &d->obj[b0 + 1];
+        double h = d->style[1].h, hn = off[1].d[1] - 300.0;
+        printf("     上 y=%.4f、下 y=%.4f（高さ %.3f、間隔 %.3f）\n",
+               off[1].d[1], t->d[1], h, hn);
+        ck(near(t->d[1], 300.0 - hn - h) && near(t->d[0], off[1].d[0])
+           && near(t->d[2], off[1].d[2]) && near(t->d[5], h),
+           "  文字種 -2 なら 字は線の向こう側、読む向きは同じ");
+    } else
+        ck(0, "  文字種 -2 でも 線と値");
+    if (d->ndrawn > b0)
+        jw_cmd_undo(d);
+    jw_cmd_sunpo_box_set(1488, "2");
+    jw_cmd_bar(d, 1350);
+    jw_cmd_set(0);
+}
+
+/* +0x1c0 が 0 でない（引出線・点を描く）図形でも 部品 3〜6 は拾わない:
+   原典 CDataSunpou slot 17 FUN_0042d7f0 は 部品 1・2 しか見ない */
+static void fig_pick(jw_drawing *d)
+{
+    int b0 = d->ndrawn, f, pk, k;
+    double rx, ry;
+
+    printf("-- +0x1c0 の立つ図形の拾い\n");
+    jw_cmd_sunpo_chk_set(2424, 1);
+    line_dim(d);
+    jw_cmd_sunpo_chk_set(2424, 0);
+    f = find_fig(d, b0);
+    if (f < 0)
+        printf("     %d 要素増えた\n", d->ndrawn - b0);
+    ck(f >= 0, "  寸法図形を作る");
+    if (f < 0)
+        return;
+    d->obj[f].list[0] = 1;              /* +0x1c0: 部品 3〜6 も描く */
+    for (k = 2; k < 4; k++) {           /* 部品 3・4 を 離れた所の線に */
+        d->obj[f + k].d[0] = 500.0 + 50.0 * k;
+        d->obj[f + k].d[1] = 500.0;
+        d->obj[f + k].d[2] = 500.0 + 50.0 * k;
+        d->obj[f + k].d[3] = 540.0;
+    }
+    d->obj[f + 4].d[0] = 700.0;         /* 部品 5 の点 */
+    d->obj[f + 4].d[1] = 500.0;
+    pk = jw_pick(d, app_view(), 600.0, 520.0, 0);
+    ck(pk != f + 2 && pk != f + 3, "  部品 3・4 の線の上で拾っても当たらない");
+    pk = jw_pick(d, app_view(), 700.0, 500.0, 0);
+    ck(pk != f + 4, "  部品 5 の点の上で拾っても当たらない");
+    d->obj[f].d[1] = d->obj[f].d[3] = 600.0;    /* 部品 1 を ほかと重ならない所へ */
+    pk = jw_pick(d, app_view(), 150.0, 600.0, 0);
+    ck(pk == f, "  部品 1（寸法線）は当たる");
+    /* 読取点は これまでどおり（描く部品は読む） */
+    ck(jw_read(d, app_view(), 700.0, 500.0, &rx, &ry) && near(rx, 700.0)
+       && near(ry, 500.0), "  読取点は 部品 5 の点を読む（これまでどおり）");
+    while (d->ndrawn > b0)
+        jw_cmd_undo(d);
+}
+
+/* 文字方向補正（2419 文字方向無補正 = bd20）: FUN_00783730 は 字の枠を
+   始点→終点 にして FUN_00479550 に 補正 (bd20 == 0) を渡し、補正なら
+   左向きの二点を入れ替える（0x4796f0〜）。逆に測った寸法の値は 補正なら
+   前に測ったのと同じ所・同じ向き、無補正なら 逆さで寸法線の下 */
+static void hosei_dim(jw_drawing *d)
+{
+    jw_obj fw;
+    int b0, k, ok = 1;
+    double tl;
+
+    printf("-- 文字方向補正\n");
+    b0 = d->ndrawn;
+    line_dim(d);                        /* 左から右へ */
+    ck(d->ndrawn == b0 + 6 && d->obj[b0 + 5].cls == JW_MOJI, "  左→右 の寸法");
+    if (d->ndrawn != b0 + 6)
+        return;
+    fw = d->obj[b0 + 5];
+    tl = d->obj[b0].d[1];               /* 寸法線の y */
+    jw_cmd_undo(d);
+    for (k = 0; k < 2; k++) {
+        jw_cmd_sunpo_chk_set(2419, k);
+        b0 = d->ndrawn;
+        jw_cmd_set(JW_CMD_SUNPO);       /* 右から左へ */
+        jw_cmd_point(d, app_view(), 100.0, 120.0, 0);
+        jw_cmd_point(d, app_view(), 100.0, 110.0, 0);
+        jw_cmd_point(d, app_view(), 200.0, 100.0, 0);
+        jw_cmd_point(d, app_view(), 100.0, 100.0, 0);
+        jw_cmd_set(0);
+        ok = d->ndrawn == b0 + 6 && d->obj[b0 + 5].cls == JW_MOJI;
+        ck(ok, k ? "  無補正: 右→左 の寸法" : "  補正: 右→左 の寸法");
+        if (ok) {
+            const jw_obj *t = &d->obj[b0 + 5];
+            printf("     字 %.4f,%.4f -> %.4f,%.4f（左→右は %.4f,%.4f -> %.4f,%.4f）\n",
+                   t->d[0], t->d[1], t->d[2], t->d[3],
+                   fw.d[0], fw.d[1], fw.d[2], fw.d[3]);
+            if (!k)
+                ck(near(t->d[0], fw.d[0]) && near(t->d[1], fw.d[1])
+                   && near(t->d[2], fw.d[2]) && near(t->d[3], fw.d[3]),
+                   "  補正（既定）: 左→右 と同じ所・同じ向き");
+            else
+                ck(near(t->d[0], fw.d[2]) && near(t->d[2], fw.d[0])
+                   && near(t->d[1], tl - (fw.d[1] - tl))
+                   && near(t->d[3], t->d[1]),
+                   "  無補正: 右向きに逆さ、寸法線の下に 間隔");
+        }
+        if (d->ndrawn > b0)
+            jw_cmd_undo(d);
+    }
+    jw_cmd_sunpo_chk_set(2419, 0);
+}
+
+/* グループ化（2861、bd8c）: FUN_00783730・FUN_007891b0 の頭で 空いている
+   いちばん小さい番号（FUN_00479d80）の負を +0x6348 に置き、FUN_00450860 が
+   足す要素ごとに +4 へ写す。寸法図形なら 図形の頭だけ */
+static void group_dim(jw_drawing *d)
+{
+    int b0, b1, b2, k, s, g1, g2;
+
+    printf("-- グループ化\n");
+    b0 = d->ndrawn;
+    line_dim(d);
+    for (k = b0, s = 1; k < d->ndrawn; k++)
+        s &= d->obj[k].id == 0;
+    ck(d->ndrawn > b0 && s, "  切: 曲線属性は 0");
+    while (d->ndrawn > b0)
+        jw_cmd_undo(d);
+    jw_cmd_sunpo_chk_set(2861, 1);
+    b0 = d->ndrawn;
+    line_dim(d);
+    b1 = d->ndrawn;
+    line_dim(d);
+    b2 = d->ndrawn;
+    g1 = d->obj[b0].id;
+    g2 = d->obj[b1].id;
+    for (k = b0, s = 1; k < b1; k++)
+        s &= d->obj[k].id == g1;
+    for (k = b1; k < b2; k++)
+        s &= d->obj[k].id == g2;
+    printf("     一つ目 %d、二つ目 %d\n", g1, g2);
+    ck(b1 > b0 && b2 > b1 && s && g1 < 0 && g2 < 0 && g1 != g2,
+       "  入: 一回の寸法の要素は同じ負の番号、次の寸法は別の番号");
+    {   /* 空いているいちばん小さい番号 */
+        int used = 0;
+        for (k = 0; k < d->nobj; k++)
+            if (k < b0 || k >= b2)
+                used |= d->obj[k].id == -g1 || d->obj[k].id == g1;
+        ck(!used, "  一つ目の番号は 前からの要素に無い");
+    }
+    while (d->ndrawn > b0)
+        jw_cmd_undo(d);
+    /* 寸法図形: 頭（list[1]）だけ、部品は 0、点・引出線 は同じ番号 */
+    jw_cmd_sunpo_chk_set(2424, 1);
+    line_dim(d);
+    k = find_fig(d, b0);
+    ck(k == b0 + 4 && d->obj[k].list[1] < 0 && d->obj[k].id == 0
+       && d->obj[k + 1].id == 0 && d->obj[b0].id == d->obj[k].list[1]
+       && d->obj[b0 + 3].id == d->obj[k].list[1],
+       "  寸法図形: 頭の +4 と 点・引出線 が同じ番号、部品は 0");
+    while (d->ndrawn > b0)
+        jw_cmd_undo(d);
+    jw_cmd_sunpo_chk_set(2424, 0);
+    jw_cmd_sunpo_chk_set(2861, 0);
+}
+
 int main(void)
 {
     unsigned char *b, *w = 0;
@@ -351,9 +581,13 @@ int main(void)
     ck(d->ndrawn == b1, "戻る で 寸法図形ごと消える");
 
     jw_cmd_sunpo_chk_set(2424, 0);
+    fig_pick(d);
+    hosei_dim(d);
+    group_dim(d);
     radius_dim(d, 1065);
     radius_dim(d, 1066);
     angle_dim(d);
+    sen_dim(d);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
