@@ -410,6 +410,41 @@ int main(void)
         jw_cmd_m_input(0);
     }
 
+    /* ---- PM 6【全】属性取得: 命令が 文字（FUN_006c4840）のとき 押した字の文字種 ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py, dx2, dy2;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_MOJI);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 30; o->d[3] = 0;
+        o->d[4] = 7.0; o->d[5] = 9.0; o->d[6] = 1.5; o->d[7] = 0.0;
+        o->color = 4;
+        o->text = jw_add_str(d, "ABC");
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_MOJI);
+        d->cur_style.w = 1.0;
+        d->cur_style.h = 1.0;
+        d->cur_style.sp = 0.0;
+        d->cur_style.color = 1;
+        px = jw_sx(v, 15.0);
+        py = jw_sy(v, 0.0);
+        at_hour(6, 60, &dx2, &dy2);
+        app_clock_begin(px, py);
+        app_clock_right();
+        app_clock_move(px + dx2, py + dy2);
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_MOJI, "PM 6 文字: 命令は文字のまま");
+        ck(d->cur_style.w == 7.0 && d->cur_style.h == 9.0 && d->cur_style.sp == 1.5
+           && d->cur_style.color == 4, "PM 6 文字: 大きさ・間隔・色を取る");
+        ck(jw_cmd_line()[0] == 0, "PM 6 文字: 字の中身は箱へ入れない");
+    }
+
     /* ---- AM 5 線種変更（FUN_0076e360）---- */
     {
         jw_drawing *d;
