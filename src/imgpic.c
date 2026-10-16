@@ -616,8 +616,8 @@ int jw_pic_xform(jw_drawing *d, jw_obj *o, const jw_obj *was, double sc, double 
     if (hypot(o->d[2] - o->d[0], o->d[3] - o->d[1]) > 1e-12)
         dir = atan2(o->d[3] - o->d[1], o->d[2] - o->d[0]) * 180.0 / PI;
     else
-        dir = was->d[7] + (turned ? ang * 180.0 / PI : 0.0);
-    deg7 = was->d[7];
+        dir = o->d[7] + (turned ? ang * 180.0 / PI : 0.0);
+    deg7 = o->d[7];     /* 掛けた直後の +0xd0（反転の参照は 入れ替えて基線の角に済み） */
     if (scaled && fabs(sc) >= 1e-5 && fabs(sc) <= 1e5
         && jw_pic_text_scaled(jw_str(d, o->text), sc, buf, (int)sizeof buf)) {
         o->text = jw_add_str_w(d, buf, d->version > 0x275);
