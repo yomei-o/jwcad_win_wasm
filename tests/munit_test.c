@@ -158,9 +158,80 @@ int main(void)
     jw_cmd_bar(d, 1065);
     ck(!strcmp(raw(1412), "0.05 , 0.1"), "  1/2 間隔 二度で 0.05 , 0.1");
 
+    /* ---- 分類の (2): 命令の中で掛ける・割るもの ---- */
+    /* 接円 の 半径 1411 は円のバーの読み手（×1000）、札の r は ÷1000 して ｍ（FUN_007063b0） */
+    app_command(JW_CMD_SEKIEN);
+    jw_cmd_box_put(1411, "0.3");
+    ck(!strcmp(bx(1411), "300"), "  接円の 半径 0.3 は 300");
+    ck(strstr(jw_cmd_status(d), "[ r = 0.300\x82\x8d ]") != 0, "  接円の札は [ r = 0.300ｍ ]");
+    jw_cmd_box_put(1411, "");
+
+    /* 連続線 の 丸面辺寸法 1411・連続弧半径 1412 は 実寸 (2096) のときだけ（FUN_005b8390・005b8450） */
+    app_command(JW_CMD_RENZOKU);
+    jw_cmd_box_put(1411, "5");
+    jw_cmd_box_put(1412, "2");
+    if (jw_cmd_bar_check(2096) > 0)
+        jw_cmd_bar(d, 2096);
+    ck(!strcmp(bx(1411), "5") && !strcmp(bx(1412), "2"), "  連続線は 図寸 なら 5・2 のまま");
+    jw_cmd_bar(d, 2096);
+    ck(jw_cmd_bar_check(2096) > 0 && !strcmp(bx(1411), "5000") && !strcmp(bx(1412), "2000"),
+       "  実寸 なら 5000・2000");
+    jw_cmd_bar(d, 2096);
+    jw_cmd_box_put(1411, "");
+    jw_cmd_box_put(1412, "");
+
+    /* 面取 の 切断間隔 1413 も 実寸 のときだけ（FUN_0056fd50）、寸法 1411 はいつも */
+    app_command(JW_CMD_MENTORI);
+    jw_cmd_box_put(1413, "4");
+    if (jw_cmd_bar_check(2096) > 0)
+        jw_cmd_bar(d, 2096);
+    ck(!strcmp(bx(1413), "4"), "  面取の 切断間隔 4 は 図寸 なら 4");
+    jw_cmd_bar(d, 2096);
+    ck(jw_cmd_bar_check(2096) > 0 && !strcmp(bx(1413), "4000"), "  実寸 なら 4000");
+    jw_cmd_bar(d, 2096);
+    jw_cmd_box_put(1413, "");
+
+    /* 複写 の 数値位置 1413（二つ目のバー、FUN_004ae4a0・004ae510） */
+    {
+        jw_obj *o = jw_add(d, JW_SEN);
+        double s = 1.0;
+        int g, wg = 0, before;
+
+        o->d[0] = 0.0;
+        o->d[1] = 0.0;
+        o->d[2] = 10.0;
+        o->d[3] = 0.0;
+        for (g = 0; g < 16; g++)
+            if (d->group[g].state == 3)
+                wg = g;
+        if (d->group[wg].scale > 0.0)
+            s = d->group[wg].scale;
+        app_command(JW_CMD_FUKUSHA);
+        jw_cmd_point(d, app_view(), -5.0, -5.0, 0);
+        jw_cmd_point(d, app_view(), 15.0, 5.0, 0);
+        jw_cmd_track(0.0, 0.0);
+        ck(jw_cmd_bar(d, 1120) == 1, "  複写の 選択確定");
+        jw_cmd_box_put(1413, "1,0.5");
+        ck(!strcmp(bx(1413), "1000,500"), "  数値位置 1,0.5 は 1000,500");
+        before = d->ndrawn;
+        jw_cmd_enter_key(d);
+        /* 範囲には前に引いた線も入るので、(10,0) の線の写しを探す */
+        for (g = before, o = 0; g < d->ndrawn; g++)
+            if (fabs(d->obj[g].d[2] - d->obj[g].d[0] - 10.0) < 1e-9)
+                o = &d->obj[g];
+        ck(o && fabs(o->d[0] - 1000.0 / s) < 1e-9 && fabs(o->d[1] - 500.0 / s) < 1e-9,
+           "  置く先は 基準点 + 1000,500 ÷縮尺");
+        jw_cmd_escape();
+    }
+
     /* ---- 切ればまた元どおり ---- */
     kh_press(1, 2526);
     kh_ok();
+    app_command(JW_CMD_SEKIEN);
+    jw_cmd_box_put(1411, "0.3");
+    ck(!strcmp(bx(1411), "0.3") && strstr(jw_cmd_status(d), "[ r = 0.300 ]") != 0,
+       "切れば 接円の 0.3 は 0.3、札も ｍ なし");
+    jw_cmd_box_put(1411, "");
     app_command(JW_CMD_SEN);
     jw_cmd_box_put(1412, "1.5");
     ck(!strcmp(bx(1412), "1.5"), "切ればまた 1.5 は 1.5");

@@ -5101,6 +5101,8 @@ void jw_cmd_redo(jw_drawing *d)
     tracking = 0;
 }
 
+static int mu_on;      /* 基本設定 2526 ｍ単位入力（jw_cmd_m_input の注） */
+
 /* The prompt with the original's own readout on the end of it.  What the
    readout says, and when, is in the note by tail_set. */
 const char *jw_cmd_status(const jw_drawing *d)
@@ -5146,8 +5148,10 @@ const char *jw_cmd_status(const jw_drawing *d)
                 dist = fabs(((tx - o->d[0]) * -dy + (ty - o->d[1]) * dx) / len);
         }
         if (dist >= 0.0) {
-            num3(a, (int)sizeof a, d, dist);
-            snprintf(buf, sizeof buf, "%s  %s", p, a);
+            /* ｍ単位入力 なら ÷DAT_00a0d630 のあと単位の字（FUN_00658890 の 0x14c0。
+               逆コンパイルの読み、原典では押していない） */
+            num3(a, (int)sizeof a, d, mu_on ? dist / SUN_M_DIV : dist);
+            snprintf(buf, sizeof buf, "%s  %s%s", p, a, mu_on ? SUN_M_STR : "");
             return buf;
         }
     }
@@ -5159,7 +5163,12 @@ const char *jw_cmd_status(const jw_drawing *d)
         double r = t ? fabs(atof(t)) : 0.0;
 
         if (r / write_scale(d) > 1e-7) {
-            snprintf(buf, sizeof buf, "%s    [ r = %.3f ]", p, r);
+            /* ｍ単位入力 なら ÷DAT_00a0d630 して単位の字 DAT_00a0d644 を付ける
+               （FUN_007063b0 の "    [ r = %.3lf%s ]"。逆コンパイルの読み、原典では押していない） */
+            if (mu_on)
+                snprintf(buf, sizeof buf, "%s    [ r = %.3f%s ]", p, r / SUN_M_DIV, SUN_M_STR);
+            else
+                snprintf(buf, sizeof buf, "%s    [ r = %.3f ]", p, r);
             return buf;
         }
     }
@@ -16962,8 +16971,8 @@ const char *jw_cmd_dir_text(void)
  *   置く先 +0xfc78/+0xfc80 = 基準点 (+0x228/+0x230) + ずれ とし、任意方向の
  *   旗 (+0xfd00/+0xfd04) を 0 にする（クリックの場所も方向も効かない）。
  *   置いたあと FUN_004ae320(0,0) で箱は "0 , 0" に戻る（一度きり）。
- * 基本設定の単位の旗 DAT_00a0d62c（立つと DAT_00a0d630 を掛ける）は移植に
- * 無いので入れていない。 */
+ * 基本設定 2526 ｍ単位入力（DAT_00a0d62c）なら箱の数は ×DAT_00a0d630（jw_cmd_box の
+ * 表 mu_len の数値位置）。戻す "0 , 0" は ÷ しても同じ。 */
 static int sel_numpos(const jw_drawing *d, double *ox, double *oy)
 {
     const char *t = jw_cmd_box(1413);
@@ -19603,7 +19612,7 @@ int jw_cmd_sunpo_angle(void)
  * 表は原典のバーの読み手・書き手（RESUME.md 2026-10-16 の分類の (1)）を移植の命令に写したもの:
  *   線 CSenDialog 1412（矩形は 1413）     FUN_005bdb30・005bdbe0・005bdd00／005be9e0・005beb70
  *   ２線 CSen2Dialog 1412・1413           FUN_005baf70・005bb010・005bb0d0／005bb2c0・005bb380
- *   連続線 CRenzokuSenDailog 1412         FUN_005b8450（丸面辺寸法 1411 は図寸のままで通らない）
+ *   連続線 CRenzokuSenDailog 1411・1412   FUN_005b8390・FUN_005b8450（実寸のときだけ。下の real）
  *   多角形 CTakakukeiDialog 1411・1412    FUN_005ec9d0・005eca50・005ecad0／005ec8b0・005ec920
  *   面取 CMentoriDialog 1411・1412・1413  FUN_0056fd50・0056fdf0・0056fe60・0056fed0／0056fc60・0056fcd0
  *   複線 CFukusenDialog 1411              FUN_004b2320／004b2250
@@ -19620,17 +19629,32 @@ void jw_cmd_m_input(int on)
     mu_on = on != 0;
 }
 
-static const struct { unsigned short cmd, id; } mu_len[] = {
-    { JW_CMD_SEN, 1412 },      { JW_CMD_KUKEI, 1413 },
-    { JW_CMD_NISEN, 1412 },    { JW_CMD_NISEN, 1413 },
-    { JW_CMD_RENZOKU, 1412 },
-    { JW_CMD_TAKAKU, 1411 },   { JW_CMD_TAKAKU, 1412 },
-    { JW_CMD_MENTORI, 1411 },  { JW_CMD_MENTORI, 1412 },  { JW_CMD_MENTORI, 1413 },
-    { JW_CMD_FUKUSEN, 1411 },
-    { JW_CMD_SESSEN, 1411 },
-    { JW_CMD_ENKO, 1411 },
-    { JW_CMD_TATEGU, 1426 },   { JW_CMD_TATEGU_DAN, 1426 }, { JW_CMD_TATEGU_RITSU, 1426 },
-    { JW_CMD_SHINSHUKU, 1413 },
+/* real が 1 の箱は 実寸 (2096) が入っているときだけ ×1000（分類の (2)）:
+ *   連続線 1411・1412   FUN_005b8390（+0x3e8 = 0x583）・FUN_005b8450（+0x5b0 = 0x584）は
+ *                       +0x6f8（DDX 0x830 = 2096）が 0 なら箱の数のまま（図寸）、
+ *                       立っていれば ÷縮尺 のあと ×DAT_00a0d630。書き戻し FUN_006d9a30 も
+ *                       実寸のときだけ ÷
+ *   切断間隔 消去・コーナー・伸縮 1411、面取 1413
+ *                       FUN_004cacd0（+0x688）・FUN_0056fd50（+0xbc）が同じ形で
+ *                       DAT_00a0cc58/cc60 へ。消去 FUN_00710920 は cc60 のときだけ ×
+ *   接円 1411           FUN_007063b0 が円のバーの FUN_004ab530 で読む（いつも ×）
+ *   数値位置 1413       複写・移動・パラメトリックの二つ目のバー。FUN_004ae4a0・
+ *                       FUN_004ae510 が ×、FUN_004ae320 が ÷（いつも）
+ * 逆コンパイルの読み、原典では押していない。 */
+static const struct { unsigned cmd; unsigned short id; unsigned char real; } mu_len[] = {
+    { JW_CMD_SEN, 1412, 0 },      { JW_CMD_KUKEI, 1413, 0 },
+    { JW_CMD_NISEN, 1412, 0 },    { JW_CMD_NISEN, 1413, 0 },
+    { JW_CMD_RENZOKU, 1411, 1 },  { JW_CMD_RENZOKU, 1412, 1 },
+    { JW_CMD_TAKAKU, 1411, 0 },   { JW_CMD_TAKAKU, 1412, 0 },
+    { JW_CMD_MENTORI, 1411, 0 },  { JW_CMD_MENTORI, 1412, 0 },  { JW_CMD_MENTORI, 1413, 1 },
+    { JW_CMD_FUKUSEN, 1411, 0 },
+    { JW_CMD_SESSEN, 1411, 0 },
+    { JW_CMD_ENKO, 1411, 0 },     { JW_CMD_SEKIEN, 1411, 0 },
+    { JW_CMD_TATEGU, 1426, 0 },   { JW_CMD_TATEGU_DAN, 1426, 0 }, { JW_CMD_TATEGU_RITSU, 1426, 0 },
+    { JW_CMD_SHINSHUKU, 1413, 0 },
+    { JW_CMD_SHOUKYO, 1411, 1 },  { JW_CMD_CORNER, 1411, 1 },   { JW_CMD_SHINSHUKU, 1411, 1 },
+    { 100000u + JW_CMD_FUKUSHA, 1413, 0 }, { 100000u + JW_CMD_IDOU, 1413, 0 },
+    { 100000u + JW_CMD_PARAM, 1413, 0 },
 };
 
 static int mu_len_box(unsigned cmd, int id)
@@ -19641,7 +19665,7 @@ static int mu_len_box(unsigned cmd, int id)
         return 0;
     for (i = 0; i < (int)(sizeof mu_len / sizeof mu_len[0]); i++)
         if (mu_len[i].cmd == cmd && mu_len[i].id == (unsigned short)id)
-            return 1;
+            return !mu_len[i].real || jw_cmd_bar_check(2096) > 0;
     return 0;
 }
 
