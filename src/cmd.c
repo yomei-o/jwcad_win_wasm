@@ -17167,6 +17167,16 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
     jw_obj_xform(o, fig_bx, fig_by, f * fig_mag,
                  (fig_deg + (fig_noaxis ? 0.0 : axis_deg)) * 3.141592653589793 / 180.0,
                  x - fig_bx, y - fig_by);
+    /* 画像（"^@BM" の字）は w・h を倍率倍し 角度に回転を足す。原典の
+       FUN_00758fb0 は 要素の写しに FUN_00465c40（倍率）と回転を掛け、字は
+       そこから画像の枝（FUN_00466e30・FUN_00465f40 → FUN_0048f7f0）へ行く
+       （ブロックの参照と同じ、src/imgpic.c の jw_pic_xform）。置くとき
+       （sp が置き先）だけ。カーソルについてくる仮表示は 字の置き場が図形の
+       もので書き換えられないので、画像の大きさ・向きは掛けない。
+       逆コンパイルの読み、原典では押していない */
+    if (sp == d && !fig_coord)
+        jw_pic_xform((jw_drawing *)sp, o, p, f * fig_mag,
+                     (fig_deg + (fig_noaxis ? 0.0 : axis_deg)) * 3.141592653589793 / 180.0);
     if (fig_coord && o->cls == JW_MOJI) {
         /* a coordinate file's text keeps the size the file named, in
            millimetres on the paper, and its far end follows from that */
