@@ -18742,6 +18742,13 @@ int jw_cmd_bunkatsu_hojo(void)
         && jw_cmd_bar_check(1324) <= 0;
 }
 
+/* 線（Ａ）（Ｂ）を選ぶ段（原典 +0xc0 == 2）。分割のクロックメニュー FUN_007637e0 の
+   12 時 線属性 はここで効く（src/clock.h） */
+int jw_cmd_bunkatsu_a(void)
+{
+    return current == JW_CMD_BUNKATSU && corner_step == 1 && corner_obj >= 0;
+}
+
 static int bar_press(jw_drawing *d, int id)
 {
     /* 線 and 矩形 share a bar and a class (CZukeiSen): its 矩形 box is what

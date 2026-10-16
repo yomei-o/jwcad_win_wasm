@@ -220,6 +220,8 @@ WANT = [
     (5166, 'clock PM 10'),
     (5164, 'clock PM 11'),
     (5196, 'clock PM 12'),
+    (10035, 'clock 12 of division with line A: line attributes (FUN_007637e0)'),
+    (5609, 'clock 3 of division with line A: brick-joint division'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

@@ -415,5 +415,9 @@
 #define JW_STR_5164 "\x90\xa1  \x96@"
 /* 5196: clock PM 12 */
 #define JW_STR_5196 "\xca\xdf\xd7\xd2\xc4\xd8\xaf\xb8"
+/* 10035: clock 12 of division with line A: line attributes (FUN_007637e0) */
+#define JW_STR_10035 "- \x90\xfc\x91\xae\x90\xab\x90\xdd\x92\xe8 -"
+/* 5609: clock 3 of division with line A: brick-joint division */
+#define JW_STR_5609 "\x94n\x96\xda\x92n\x95\xaa\x8a\x84"
 
 #endif

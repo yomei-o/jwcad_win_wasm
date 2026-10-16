@@ -14,6 +14,7 @@
 #include "../src/ui.h"
 #include "../src/cmd.h"
 #include "../src/clock.h"
+#include "../src/jww.h"
 
 static int fails;
 
@@ -182,6 +183,70 @@ int main(void)
     app_clock_move(cx, cy);
     app_clock_end();
     ck(jw_cmd() == JW_CMD_SEN, "13（キャンセル）で離せば命令はそのまま");
+
+    /* ---- 分割の受け手（FUN_007637e0）---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int i;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 100; o->d[3] = 0;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 100; o->d[2] = 100; o->d[3] = 100;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_BUNKATSU);
+        jw_cmd_box_click(1411);
+        for (i = 0; i < 24; i++)
+            jw_cmd_box_key(8);
+        jw_cmd_box_key('3');
+        jw_cmd_box_key(13);
+
+        /* 線（Ａ）の前は 既定の表: 3 時 包絡 の札 */
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + 60, cy);
+        ck(jw_cmd_notice_id() == 10003, "分割: Ａの前の 3 時は 既定の表（包絡）");
+        app_clock_cancel();
+
+        jw_cmd_point(d, v, 50, 0, 0);
+        ck(jw_cmd_bunkatsu_a() && jw_cmd_bunkatsu_hojo(), "線（Ａ）を指した");
+        at_hour(1, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5611, "Ａのあとの 1 時は 札 5611 逆分割");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_BUNKATSU && jw_cmd_notice_id() == 5611 && jw_cmd_bunkatsu_a(),
+           "離すと 逆分割（バーの 1066 と同じ、命令はそのまま）");
+        {   /* 逆分割になったか: Ｂを指すと交差に組む（tests/bunkatsu_test.c と同じ形） */
+            int g = d->ndrawn;
+
+            jw_cmd_point(d, v, 50, 100, 0);
+            ck(d->ndrawn == g + 2 && fabs(d->obj[g].d[1] - 100.0 / 3) < 1e-6
+               && fabs(d->obj[g].d[3] - 100.0 / 3) < 1e-6
+               && fabs(fmin(d->obj[g].d[0], d->obj[g].d[2]) - 100.0 / 3) < 1e-6,
+               "Ｂを指すと 逆分割の線（交差に組む）");
+        }
+        jw_cmd_point(d, v, 50, 0, 0);
+        at_hour(2, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5612, "2 時は 札 5612 線長割合分割");
+        app_clock_move(cx + 60, cy);
+        ck(jw_cmd_notice_id() == 5609, "3 時は 札 5609 馬目地分割");
+        app_clock_move(cx, cy - 60);
+        ck(jw_cmd_notice_id() == 10035, "12 時は 札 10035 線属性設定");
+        app_clock_move(cx - 60, cy);
+        ck(jw_cmd_notice_id() == 10009 || jw_cmd_notice_id() == 5199, "9 時は 既定の表（AUTO）");
+        app_clock_move(cx, cy - 60);
+        app_clock_end();
+        ck(app_zoku_open(), "12 時で離すと 線属性 の窓");
+        app_key(27);
+    }
 
     /* AUTO の間は時計にしない（AUTO 自前の時計は入れていない） */
     app_command(JW_CMD_AUTO);

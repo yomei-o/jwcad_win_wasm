@@ -231,11 +231,49 @@ int app_clock_ready(int x0, int y0, int x, int y)
     return dx * dx + dy * dy > clk_min * clk_min;      /* DAT_00a0cad8 */
 }
 
+/* 命令ごとの受け手（原典の仮想関数 46 番目）。受けたら 1、既定の表へ回すなら 0。
+   run が 0 なら札（*id, *s）、1 なら実行。
+ *
+ * 分割（FUN_007637e0）: AM で 線（Ａ）を指した段（+0xc0 == 2）なら
+ *   12 時  線属性（FUN_005156d0 = 32807 の窓、札 10035「- 線属性設定 -」）
+ *   1・2・3 時  Ａが線で（+0xac == 0、CDataSen）割付（+0x7e84）・等角度（+0xb8）が
+ *          切のとき 逆分割 FUN_00763ee0（札 5611）・線長割合分割 FUN_00763cd0
+ *          （5612）・馬目地分割 FUN_00763d20(0)（5609）。移植は バーの釦 1066・
+ *          1064 と同じ（jw_cmd_bunkatsu_hojo、src/cmd.c）。馬目地は 縦分割数の
+ *          窓を写していないので 札だけ（釦 1065 も押せない）
+ * ほかは既定の表（FUN_0076c9c0）。DAT_00a0c7c0 と FUN_00778a40（AUTO の覚え）は
+ * 入れていない。 */
+static int clk_own(int dir, int pm, int run, int *id, const char **s)
+{
+    static const int hid[4] = { 0, 5611, 5612, 5609 };
+    static const char *const hs[4] = { 0, JW_STR_5611, JW_STR_5612, JW_STR_5609 };
+
+    if (jw_cmd() != JW_CMD_BUNKATSU || pm || !jw_cmd_bunkatsu_a())
+        return 0;
+    if (dir == 12) {
+        if (run)
+            app_command(0x8027);
+        *id = 10035;
+        *s = JW_STR_10035;
+        return 1;
+    }
+    if (dir >= 1 && dir <= 3 && jw_cmd_bunkatsu_hojo()) {
+        if (run && dir != 3)
+            jw_cmd_bar(&drawing, dir == 1 ? 1066 : 1064);
+        *id = hid[dir];
+        *s = hs[dir];
+        return 1;
+    }
+    return 0;
+}
+
 static void clk_show(void)
 {
     int id;
-    const char *s = clk_label(clk_d, clk_am, &id);
+    const char *s;
 
+    if (!clk_own(clk_d, clk_am, 0, &id, &s))
+        s = clk_label(clk_d, clk_am, &id);
     /* 札は押した画素（+0x8f50/54）に。src/app.c の notice_at が据える */
     nt_px = clk_x0;
     nt_py = clk_y0;
@@ -297,7 +335,8 @@ void app_clock_cancel(void)
 
 int app_clock_end(void)
 {
-    int d = clk_d, pm = clk_am, cur = jw_cmd(), c;
+    int d = clk_d, pm = clk_am, cur = jw_cmd(), c, id;
+    const char *s;
 
     if (!clk_on)
         return 0;
@@ -306,6 +345,8 @@ int app_clock_end(void)
     jw_cmd_notice_clear();
     if (clk_lclear)             /* DAT_00a0caec: 2108 が切なら AM に戻す */
         clk_am = 0;
+    if (clk_own(d, pm, 1, &id, &s))
+        return 1;
     if (cur == JW_CMD_FUKUSHA)
         clk_copy = 1;
     else if (cur == JW_CMD_IDOU)
