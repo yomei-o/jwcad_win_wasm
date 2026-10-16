@@ -17241,6 +17241,9 @@ static void fig_where(const jw_drawing *d, int *wg, int *wl)
     *wl = d->group[*wg].write_layer & 15;
 }
 
+/* 仮表示のとき、画像の字の書き直し先（図形の字の置き場の写し）。0 なら置くとき */
+static jw_drawing *fig_pic_pv;
+
 /* One element of the figure, moved to where the figure is going.  `sp`
    is the drawing whose pool the element's strings are in -- the
    destination for a placement, the figure itself for the picture that
@@ -17276,12 +17279,11 @@ static void fig_one(const jw_drawing *d, const jw_drawing *sp,
     /* 画像（"^@BM" の字）は w・h を倍率倍し 角度に回転を足す。原典の
        FUN_00758fb0 は 要素の写しに FUN_00465c40（倍率）と回転を掛け、字は
        そこから画像の枝（FUN_00466e30・FUN_00465f40 → FUN_0048f7f0）へ行く
-       （ブロックの参照と同じ、src/imgpic.c の jw_pic_xform）。置くとき
-       （sp が置き先）だけ。カーソルについてくる仮表示は 字の置き場が図形の
-       もので書き換えられないので、画像の大きさ・向きは掛けない。
-       逆コンパイルの読み、原典では押していない */
-    if (sp == d && !fig_coord)
-        jw_pic_xform((jw_drawing *)sp, o, p, f * fig_mag,
+       （ブロックの参照と同じ、src/imgpic.c の jw_pic_xform）。置くときは
+       置き先の字の置き場へ、カーソルについてくる仮表示は 図形の字の置き場の
+       写し（fig_pic_pv）へ書く。逆コンパイルの読み、原典では押していない */
+    if ((sp == d || fig_pic_pv) && !fig_coord)
+        jw_pic_xform(fig_pic_pv ? fig_pic_pv : (jw_drawing *)sp, o, p, f * fig_mag,
                      (fig_deg + (fig_noaxis ? 0.0 : axis_deg)) * 3.141592653589793 / 180.0);
     if (fig_coord && o->cls == JW_MOJI) {
         /* a coordinate file's text keeps the size the file named, in
@@ -17520,7 +17522,10 @@ int jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out)
 {
     static jw_obj *pv;
     static int cpv;
-    int i, wg, wl;
+    static char *gp;
+    static int gcap;
+    static jw_drawing pic;
+    int i, wg, wl, haspic = 0;
 
     if (!d || !out || !fig_have || !tracking || current != JW_CMD_ZUKEI
         || fig.ndrawn <= 0)
@@ -17535,6 +17540,26 @@ int jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out)
     }
     fig_boxes();
     fig_where(d, &wg, &wl);
+    /* 画像の字を書き直すので、字の置き場は写しを使う（図形は書き換えない） */
+    for (i = 0; i < fig.ndrawn; i++)
+        if (jw_is_pic(&fig, &fig.obj[i]))
+            haspic = 1;
+    if (haspic && fig.npool > 0) {
+        if (gcap < fig.npool) {
+            char *q = (char *)realloc(gp, (size_t)fig.npool);
+
+            if (!q)
+                return 0;
+            gp = q;
+            gcap = fig.npool;
+        }
+        memcpy(gp, fig.pool, (size_t)fig.npool);
+        pic = *d;
+        pic.pool = gp;
+        pic.npool = fig.npool;
+        pic.cpool = gcap;
+        fig_pic_pv = &pic;
+    }
     {
         /* マウス角: 点の前は角度 0 でマウスに、点の後は置く点に、向きはマウスへ
            （slot 6 FUN_00757470） */
@@ -17554,11 +17579,19 @@ int jw_cmd_figure_preview(const jw_drawing *d, jw_drawing *out)
         }
         fig_deg = keep;
     }
+    fig_pic_pv = 0;
     *out = *d;
     out->obj = pv;
     out->nobj = out->ndrawn = fig.ndrawn;
     out->pool = fig.pool;
     out->npool = fig.npool;
+    if (haspic && fig.npool > 0) {
+        out->pool = pic.pool;           /* 書き直しで置き場が伸びたかもしれない */
+        out->npool = pic.npool;
+        out->cpool = pic.cpool;
+        gp = pic.pool;
+        gcap = pic.cpool;
+    }
     return 1;
 }
 
