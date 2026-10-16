@@ -95,6 +95,7 @@ void jw_cmd_bunkatsu_umeji_set(const char *txt);   /* その窓の答え（0 は
 int  jw_cmd_bunkatsu_umeji(void);   /* 分割: 馬目地分割が入っているとき 1 */
 int  jw_cmd_bunkatsu_a(void);       /* 分割: 線（Ａ）を指した段（+0xc0 == 2） */
 void jw_cmd_flush(jw_drawing *d);
+void jw_cmd_auto_endmove(jw_drawing *d, const jw_view *v, double x, double y);   /* AUTO の端点移動（時計 80）。押した点で線を拾う */
 /* 建具平面: 建具選択の窓を出してほしいときは 1（読むと戻る）。選んだら
    jw_cmd_tategu_choose。catalog は src/tategu.h の jw_tgdat の番号 */
 int  jw_cmd_tategu_need_pick(void);

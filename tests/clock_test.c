@@ -972,6 +972,55 @@ int main(void)
         app_command(JW_CMD_SEN);
     }
 
+    /* ---- AUTO 端点移動（番号 80 = 0x158c。FUN_0062a980 → 状態 10 → FUN_00478c70。
+       逆コンパイルの読みで、原典では押していない） ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py, dx, dy, n;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 10; o->d[1] = 20; o->d[2] = 110; o->d[3] = 70;
+        app_fit();
+        app_paint();
+        v = app_view();
+        n = d->ndrawn;
+        app_command(JW_CMD_AUTO);
+        clk_auto_set(0, 2, 80);
+        /* 終点の近く（100, 65）で 2 時 → 拾って待つ。離した点（60, 200）へ 終点が動く */
+        px = jw_sx(v, 100.0);
+        py = jw_sy(v, 65.0);
+        at_hour(2, 60, &dx, &dy);
+        app_clock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        ck(jw_cmd_notice_id() == 5516, "AUTO 番号 80 の札は 5516 端点移動");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_AUTO && jw_cmd_midway(), "端点移動: 線を拾って 次の点を待つ");
+        app_press(jw_sx(v, 60.0), jw_sy(v, 200.0), 0);
+        ck(d->ndrawn == n && fabs(d->obj[n - 1].d[0] - 10) < 1e-6 && fabs(d->obj[n - 1].d[1] - 20) < 1e-6
+           && fabs(d->obj[n - 1].d[2] - 60) < 0.5 && fabs(d->obj[n - 1].d[3] - 200) < 0.5,
+           "端点移動: 近い方（終点）だけが 離した点へ");
+        ck(!jw_cmd_midway(), "端点移動: 済んだら AUTO の初めに戻る");
+        /* 始点の近く（15, 25）なら 始点が動く */
+        px = jw_sx(v, 15.0);
+        py = jw_sy(v, 38.0);
+        app_clock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        app_clock_end();
+        app_press(jw_sx(v, 30.0), jw_sy(v, 120.0), 0);
+        ck(fabs(d->obj[d->ndrawn - 1].d[0] - 30) < 0.5 && fabs(d->obj[d->ndrawn - 1].d[1] - 120) < 0.5
+           && fabs(d->obj[d->ndrawn - 1].d[2] - 60) < 0.5, "端点移動: 始点に近ければ 始点が動く");
+        /* 何もない所では 何もしない */
+        app_clock_begin(jw_sx(v, 300.0), jw_sy(v, 300.0));
+        app_clock_move(jw_sx(v, 300.0) + dx, jw_sy(v, 300.0) + dy);
+        app_clock_end();
+        ck(!jw_cmd_midway(), "端点移動: 線が拾えなければ 何もしない");
+        app_command(JW_CMD_SEN);
+    }
+
     printf("%s\n", fails ? "FAIL" : "all ok");
     return fails != 0;
 }
