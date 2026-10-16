@@ -1067,8 +1067,8 @@ static int    sun_degketa = JW_SUN_DEGKETA;
  *                0表示 0x80、切捨 0x100・切上 0x200、前付 0x400・後付 0x800、
  *                桁 の 1・2 が 0x1000・0x2000
  * 表示と保存だけのもの: ｿﾘｯﾄﾞ（FUN_00473d00 のソリッドの四点目が読み切れない）、
- * 文字方向無補正、度/度分秒（移植の角度は 度分秒 だけ）、基点円・文字高位置
- * 中心（移植の累進は基点円を描かない）、寸法図形・現寸法設定に変更（移植は
+ * 文字方向無補正、度/度分秒（移植の角度は 度分秒 だけ）、基点円（移植の累進は
+ * 基点円を描かない）、寸法図形・現寸法設定に変更（移植は
  * 寸法図形を作らない）、角度を次回に継続、グループ化。 */
 static int sun_italic, sun_bold, sun_solid, sun_nohosei;
 static int sun_zen, sun_zen_sp, sun_zen_comma, sun_zen_dot;
@@ -22359,8 +22359,25 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                    half a millimetre off it, running across rather than
                    along, with an ordinary text's 1 at +0x28 and the upright
                    bit in the flags. */
-                double px = (s1 - sun_hanare) * ux + t * vx;
-                double py = (s1 - sun_hanare) * uy + t * vy;
+                double sa = s1 - sun_hanare, px, py;
+                /* 文字高位置中心 (2423, DAT_00a0bd58): 字の高さの真ん中を
+                   先端に。FUN_00783730 の 0x785dc3〜・0x785fdc〜 を objdump で
+                   読んだ（逆コンパイルの読み、原典では押していない）: 字の枠の
+                   二点を先端から 高さ b658[文字種]/2 だけ 寸法線の向きへずらし、
+                   寸法線からの隔たりを 間隔 + |突出寸法| にして、FUN_00479550 へ
+                   渡す間隔を 0 にする（－ で二点目が寸法線上なら 突出寸法 は 0、
+                   0x7852..）。文字方向補正で字が逆さに回るときは原典はずらしの
+                   向きも逆にするが、移植の累進は字を回さないので ずらしは一つ。 */
+                if (sun_mojic) {
+                    double tsu = fabs(sun_tsuki);
+                    if (sun_eq == 3
+                        && fabs((bx * vx + by * vy) - tl) < 1e-7)
+                        tsu = 0.0;
+                    sa = s1 + ch / 2.0;
+                    t = tl + sun_hanare + tsu;
+                }
+                px = sa * ux + t * vx;
+                py = sa * uy + t * vy;
                 o->ltype = 1;
                 o->flags = (unsigned short)(o->flags | 0x1000u);
                 o->d[0] = px;

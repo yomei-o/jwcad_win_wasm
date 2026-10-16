@@ -1992,6 +1992,49 @@ static void dim_progressive(void)
         }
         ck(ok, "  原典と同じ順で同じ場所に");
     }
+    /* 文字高位置中心 (2423): 字の高さの真ん中が先端に来て、寸法線からは
+       間隔 + |突出寸法|（既定の突出寸法は 0）。FUN_00783730 の読み（原典では
+       押していない）なので、答えは上の原典の字をずらした所 */
+    if (d->ndrawn - before == 7) {
+        const jw_obj *t0 = r[6], *a;
+        double ux = r[0]->d[2] - r[0]->d[0], uy = r[0]->d[3] - r[0]->d[1];
+        double ul = sqrt(ux * ux + uy * uy), sh;
+        int b2 = d->ndrawn;
+        ux /= ul;
+        uy /= ul;
+        sh = JW_SUN_HANARE + t0->d[5] / 2.0;
+        jw_cmd_sunpo_chk_set(2423, 1);
+        jw_cmd_bar(d, 1070);            /* 累進 を切って 入れ直す（続きにしない） */
+        jw_cmd_set(0);
+        jw_cmd_set(JW_CMD_SUNPO);
+        type_box(1411, "0");
+        jw_cmd_bar(d, 1070);
+        b2 = d->ndrawn;
+        jw_cmd_point(d, app_view(), 0.0, r[4]->d[3], 0);
+        jw_cmd_point(d, app_view(), 0.0, r[0]->d[1], 0);
+        jw_cmd_point(d, app_view(), plain->d[0], plain->d[1], 1);
+        jw_cmd_point(d, app_view(), plain->d[2], plain->d[3], 1);
+        if (d->ndrawn - b2 != 7)
+            printf("     %d 個\n", d->ndrawn - b2);
+        ck(d->ndrawn - b2 == 7, "文字高位置中心: 七つは同じ");
+        if (d->ndrawn - b2 == 7) {
+            a = &d->obj[b2 + 6];
+            printf("     中心 %.4f,%.4f -> %.4f,%.4f\n", a->d[0], a->d[1], a->d[2], a->d[3]);
+            ck(a->cls == JW_MOJI && near(a->d[0], t0->d[0] + sh * ux)
+               && near(a->d[1], t0->d[1] + sh * uy)
+               && near(a->d[2], t0->d[2] + sh * ux)
+               && near(a->d[3], t0->d[3] + sh * uy),
+               "  字は 間隔 + 高さ/2 だけ先へ（高さの真ん中が先端）");
+            for (i = 0; i < 6; i++) {
+                int j;
+                for (j = 0; j < 4; j++)
+                    if (!near(d->obj[b2 + i].d[j], d->obj[before + i].d[j]))
+                        break;
+                ck(j == 4, "  字のほかは変わらない");
+            }
+        }
+        jw_cmd_sunpo_chk_set(2423, 0);
+    }
     jw_cmd_bar(d, 1070);
     jw_free(&ref);
 }
