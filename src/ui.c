@@ -4728,6 +4728,13 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
                 jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
                            t, en ? C_BTNTEXT : C_GRAYTEXT);
             } else if (c[i].id == 1060 && jw_cmd() == 0x804f
+                       && jw_cmd_sunpo_hikikaku(0, 0)) {
+                /* 寸法 の 引出角（段 3 から先、FUN_005d9b30） */
+                char t[24];
+                jw_cmd_sunpo_hikikaku(t, (int)sizeof t);
+                jw_text_px(fb, c[i].x + 5, c[i].y + (c[i].h - th) / 2,
+                           t, en ? C_BTNTEXT : C_GRAYTEXT);
+            } else if (c[i].id == 1060 && jw_cmd() == 0x804f
                        && jw_cmd_sunpo_eq() != 0) {
                 /* 寸法 の ＝: 名札は FUN_005da770 —— 6155「＝」に " (1)"・
                    " (2)"、3 は 6214「－」。0 は取り込んだ「＝」のまま */

@@ -474,6 +474,10 @@ int  jw_cmd_sunpo_radio_group(int id);
 /* 寸法 の ＝ (1060): 0 ふつう、1 ＝(1)、2 ＝(2)、3 －。jw_cmd_sunpo_move は
    基準点のあとの「ﾏｳｽ移動で確定」をマウスの動きで進め、進めば 1 */
 int  jw_cmd_sunpo_eq(void);
+/* 寸法 の 1060 が 引出角 の釦のとき（段 3 から先）1 と名札の字 */
+int  jw_cmd_sunpo_hikikaku(char *out, int n);
+/* 引出角 の表（.jwf の S_SET5 と同じ形。試験用） */
+void jw_cmd_sunpo_hikikaku_tab(const double *a, int n);
 int  jw_cmd_sunpo_move(const jw_view *v, double x, double y);
 int  jw_cmd_get_kata(double *deg);
 int  jw_cmd_get_naga(double *mm);

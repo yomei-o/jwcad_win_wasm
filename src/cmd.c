@@ -1020,9 +1020,10 @@ static int    sun_tencol  = JW_SUN_TEN_COLOR;
  *   2084 角度の小数点以下桁数    +0x6e8 -> DAT_00a0bd9c  DEGKETA    4（押せない箱）
  *
  * 作図に効くのは 2080（端部 が 逆矢印 のとき、sunpo_make）と 1482〜1486
- * （バーの ＝ (1060) が使う値、sun_eq の注と sun_eq_geom）。2082 は 累進 の
- * 基点円 (2417) が使い、移植の 累進 は基点円を描かない。2084 は 角度単位 が
- * 度 のときの桁で、移植の角度は 度分秒 だけ。この二つは表示と保存だけ。 */
+ * （バーの ＝ (1060) が使う値、sun_eq の注と sun_eq_geom）、2082 は 累進 の
+ * 基点円 (2417) の半径（sunpo_make）、2084 は 角度単位 が 度 のときの桁
+ * （sunpo_angle）。2084 は原典の窓でも押せない（DDX だけで EnableWindow が
+ * 無い）ので、.jwf／レジストリの DEGKETA が決める。 */
 static double sun_gyaku   = JW_SUN_GYAKUDE;
 static double sun_hiki1   = JW_SUN_HIKIDASHI1;
 static double sun_sen1    = JW_SUN_SUNPOSEN1;
@@ -1066,10 +1067,13 @@ static int    sun_degketa = JW_SUN_DEGKETA;
  *   +0x2c の語   FUN_004782d0: 1|2、全角 8、ｍ 0x10、単位 0x20、(，) 0x40、
  *                0表示 0x80、切捨 0x100・切上 0x200、前付 0x400・後付 0x800、
  *                桁 の 1・2 が 0x1000・0x2000
- * 表示と保存だけのもの: ｿﾘｯﾄﾞ（FUN_00473d00 のソリッドの四点目が読み切れない）、
- * 文字方向無補正、度/度分秒（移植の角度は 度分秒 だけ）、基点円・文字高位置
- * 中心（移植の累進は基点円を描かない）、寸法図形・現寸法設定に変更（移植は
- * 寸法図形を作らない）、角度を次回に継続、グループ化。 */
+ * 次に効かせたもの（2026-10-16 夜）: ｿﾘｯﾄﾞ（sun_head）、度/度分秒（sunpo_angle）、
+ * 基点円（sunpo_make の 累進）、角度を次回に継続（jw_cmd_set）。
+ * 表示と保存だけのもの: 文字方向無補正、文字高位置中心（FUN_00783730 の
+ * 0x785f68〜 で 字の置き場を 文字の高さの半分 ずらし、間隔に 突出寸法 を
+ * 足して FUN_00479c40 に渡す間隔を 0 にするが、FUN_00479c40 が二点と間隔で
+ * 字をどう置くかを読み切っていない）、寸法図形・現寸法設定に変更（移植は
+ * 寸法図形を作らない）、グループ化。 */
 static int sun_italic, sun_bold, sun_solid, sun_nohosei;
 static int sun_zen, sun_zen_sp, sun_zen_comma, sun_zen_dot;
 static int sun_munit;                       /* 0 mm, 1 ｍ */
@@ -1354,6 +1358,65 @@ static double sun_eq_cx, sun_eq_cy;     /* 段 7 に入ったクリックの点 
 int jw_cmd_sunpo_eq(void)
 {
     return sun_eq;
+}
+
+/* 引出角（段 3 から先の 1060）。バー +0x268 が 表 DAT_00a0bdc8 の番号で、
+ * 表は .jwf の S_SET5（一〜十個、±80 に丸める。FUN_00529070 の 0x529xxx
+ * 「%lg %lg ...」）からだけ入り、数は DAT_00a0bdc0（無ければ 0 —— 押しても
+ * 0 のまま）。釦 FUN_005d9350 はバーの段 +0x25c が 2 以上なら +0x268 を
+ * 0〜DAT_00a0bdc0 で回し（左 +1）、FUN_005d9b30 が名札を 0 なら 6008
+ * 「引出角」+「 0」、ほかは "%lg" + 6195「ﾟ」にして +0x264 を立てる（－ や
+ * +0x258 のときは釦を押せなくする）。バーを作ると +0x268 は 0（0x5d8d80）。
+ * 作図 FUN_00783730 は +0x264 なら角 θ = 表[+0x268]（0x783aea〜）を取り、
+ * |θ| > 1e-7 で: 寸法線の両端を 寸法線の向きに -tanθ·d ずらし（0x7848ab〜、
+ * d = v·(+0x568 − +0x578)）、引出線の寸法線側の端を さらに tanθ·突出寸法
+ * 向きに足す（0x785677・0x785abc）。引出線の向こうの端はずらさないので、
+ * 引出線が θ 傾く。逆コンパイルの読み、原典では押していない */
+static int sun_hk_idx;
+static int sun_hk_n;
+static double sun_hk_tab[11];   /* 1 から */
+
+static int sun_hk_live(void)
+{
+    return !(sun_radius || sun_chi || sun_kaku || sun_enshu || ika_step)
+           && sun_step > 1 && !sun_eq_wait && sun_eq != 3;
+}
+
+static double sun_hk_angle(void)
+{
+    double a;
+
+    if (sun_hk_idx < 1 || sun_hk_idx > sun_hk_n)
+        return 0.0;
+    a = sun_hk_tab[sun_hk_idx];
+    return a > 80.0 ? 80.0 : a < -80.0 ? -80.0 : a;
+}
+
+void jw_cmd_sunpo_hikikaku_tab(const double *a, int n)
+{
+    int k;
+
+    if (n > 10)
+        n = 10;
+    if (n < 1 || !a)
+        return;
+    sun_hk_n = n;
+    for (k = 0; k < n; k++)
+        sun_hk_tab[k + 1] = a[k] > 80.0 ? 80.0 : a[k] < -80.0 ? -80.0 : a[k];
+}
+
+/* 1060 の名札が 引出角 なら 1 と名札の字 */
+int jw_cmd_sunpo_hikikaku(char *out, int n)
+{
+    if (current != JW_CMD_SUNPO || !sun_hk_live())
+        return 0;
+    if (out && n > 0) {
+        if (sun_hk_idx < 1)
+            snprintf(out, (size_t)n, "\x88\xf8\x8f\x6f\x8a\x70 0");
+        else
+            snprintf(out, (size_t)n, "%g\xdf", sun_hk_angle());
+    }
+    return 1;
 }
 
 /* ＝ の段 7 でマウスが動いた: クリックした画素から |dx|+|dy| が 2 を
@@ -3956,6 +4019,17 @@ void jw_cmd_set(int id)
     ra_flip = 0;
     tk_step = 0;
     if (id == JW_CMD_SUNPO) {
+        /* 角度を次回に継続（2416、DAT_00a0bd88）: バーの OnInitDialog
+           （FUN_005da080、0x5da0c2〜）は 傾き の箱 (+0x2f8) を 0 にし、
+           CZukeiSunpo を作る FUN_00779bd0 は bd88 が立っていればバーの +0x250
+           （前に読んだ 傾き、FUN_005da8xx が書く）を、0 でなければ箱へ戻す
+           （0x779e72〜、FUN_005da640）。なので 継続 が無ければ 寸法 に入り直す
+           と 傾き は 0。寸法 のまま入り直すときはバーが作り直されないとみて
+           触らない。逆コンパイルの読み、原典では押していない */
+        if (prev != JW_CMD_SUNPO && !sun_keizoku)
+            box_put(1411, "0");
+        if (prev != JW_CMD_SUNPO)
+            sun_hk_idx = 0;     /* バーの +0x268（0x5d8d80） */
         sun_step = 0;
         sun_made = 0;
         sun_chi = sun_chi_done = sun_enshu = 0;
@@ -15539,6 +15613,18 @@ static int env_sunpo_read(const char *key, const char *v)
             sun_startr = x[3];
         return 1;
     }
+    if (!strcmp(key, "S_SET5")) {
+        /* 引出角 の表（FUN_00529070: 一〜十個、±80 に丸め、0 個なら前のまま） */
+        double a[10];
+        n = sscanf(v, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &a[0], &a[1],
+                   &a[2], &a[3], &a[4], &a[5], &a[6], &a[7], &a[8], &a[9]);
+        if (n > 0) {
+            sun_hk_n = n;
+            for (k = 0; k < n; k++)
+                sun_hk_tab[k + 1] = a[k] > 80.0 ? 80.0 : a[k] < -80.0 ? -80.0 : a[k];
+        }
+        return 1;
+    }
     if (!strcmp(key, "S_SET3")) {
         n = sscanf(v, "%lf %lf %lf %lf %lf %lf", &x[0], &x[1], &x[2], &x[3],
                    &x[4], &x[5]);
@@ -17729,6 +17815,8 @@ static int pm_mask_at(int at)
 }
 
 static void sunpo_num(char *p, int n, double v);
+static int sun_head(jw_drawing *d, double tx, double ty, double wx, double wy,
+                    double alen, double aang);
 static void sun_finish(char *s, int n, int unit);
 static unsigned short sun_width(int rmark);
 
@@ -19135,6 +19223,10 @@ static int bar_press(jw_drawing *d, int id)
             /* ＝ (引出線タイプ): バーの段 +0x25c < 2（基準点・寸法線位置・
                段 7）のときだけ 0〜3 を回す（FUN_005d9350、左 +1）。その先は
                引出角 の釦で、移植は持たない。sun_eq の注 */
+            if (sun_hk_live()) {        /* 引出角（sun_hk_idx の注） */
+                sun_hk_idx = sun_hk_idx + 1 > sun_hk_n ? 0 : sun_hk_idx + 1;
+                return 1;
+            }
             if (sun_radius || sun_chi || sun_kaku || sun_enshu || ika_step
                 || (sun_step > 1 && !sun_eq_wait))
                 return 0;
@@ -21536,12 +21628,22 @@ static void takaku(jw_drawing *d, double cx, double cy)
  * なら末尾の 0 と点を落とし、有 でも点で終われば点を落とす。(，)表示 有
  * なら三桁ごとに ","。1e10 以上は "%lg"。ｍ のときは先に 1000 で割る
  * （FUN_00783730 0x783d5b）。 */
+static void sun_fmt(char *p, int n, double v, int keta);
+
 static void sunpo_num(char *p, int n, double v)
 {
-    int keta = sun_decimals(), len, i, dot, up, neg, carry;
-
     if (sun_munit)
         v /= SUN_M_DIV;
+    sun_fmt(p, n, v, sun_decimals());
+}
+
+/* FUN_0045a220 そのもの。桁 は 寸法 なら 小数桁（DAT_00a0bcc4）、角度 を 度 で
+   書くときは 2084 角度の小数点以下桁数（DAT_00a0bd9c、FUN_00786fb0 の
+   0x787e71） */
+static void sun_fmt(char *p, int n, double v, int keta)
+{
+    int len, i, dot, up, neg, carry;
+
     if (n < 40 || !(fabs(v) < 1e10)) {
         snprintf(p, (size_t)n, "%g", v);
         return;
@@ -21859,26 +21961,13 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         }
         for (k = sun_radius == 2 ? 0 : 1; k < 2; k++) {
             double tipx = k ? ex : cx, tipy = k ? ey : cy;
-            double wx = k ? -ux : ux, wy = k ? -uy : uy, s;
+            double wx = k ? -ux : ux, wy = k ? -uy : uy;
 
             if (sun_arrows() == 2) {
                 wx = -wx;
                 wy = -wy;
             }
-            for (s = 1.0; s >= -1.0; s -= 2.0) {
-                double ca = cos(s * aang), sa = sin(s * aang);
-
-                o = jw_add(d, JW_SEN);
-                if (!o)
-                    break;
-                o->ltype = 1;
-                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-                o->d[0] = tipx;
-                o->d[1] = tipy;
-                o->d[2] = tipx + alen * (wx * ca - wy * sa);
-                o->d[3] = tipy + alen * (wx * sa + wy * ca);
-                made++;
-            }
+            made += sun_head(d, tipx, tipy, wx, wy, alen, aang);
         }
     }
     op_push(made);
@@ -22013,6 +22102,20 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
             if (d->group[i].state == 3)
                 wg = i;
         sunpo_text(txt, (int)sizeof txt, sun_er * sweep, d->group[wg].scale);
+    } else if (sun_degmode == 0) {
+        /* 角度単位 度（1726、DAT_00a0bd5c が 0 か 2）: FUN_00786fb0 の
+           0x787e71〜 は 度 の数を FUN_0045a220 で 2084 角度の小数点以下桁数
+           （DAT_00a0bd9c）・0表示・(，)表示・四捨五入 で書き、bd5c が 2
+           （1323 度(°)単位追加無）でなければ 字 6195「ﾟ」、全角文字（bd24）
+           なら 6196「°」を後ろに足す。逆コンパイルの読み、原典では押して
+           いない */
+        size_t l;
+        deg = sweep * 180.0 / PI;
+        sun_fmt(txt, (int)sizeof txt, deg, sun_degketa);
+        l = strlen(txt);
+        if (!sun_degadd && l + 3 < sizeof txt)
+            snprintf(txt + l, sizeof txt - l, "%s", sun_zen ? "\x81\x8b" : "\xdf");
+        sun_finish(txt, (int)sizeof txt, 0);
     } else {
         /* 角度: the value in degrees, minutes and seconds */
         deg = sweep * 180.0 / PI;
@@ -22114,6 +22217,57 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
     op_push(made);
 }
 
+/* 寸法の矢印一つ（FUN_00473d00）。先 (tx, ty) から 向き (wx, wy)（単位）を
+ * ±aang 回した二点 A（+）・B（-）を 長さ alen の所に取る。ｿﾘｯﾄﾞ（2842、
+ * DAT_00a0bd10）が無ければ 先→A・先→B の線二本（これまでどおり）、有れば
+ * ソリッド一つ（0x474049〜: CDataSolid を作り、+0x2a に 色〔呼び手の
+ * 矢印・点色〕、+0x28 に 1、四点は 先・A・B・B ——命令で見ると四点目
+ * +0x78 は三点目 +0x68 の写し（0x47413b〜0x474170）で、三角を四角の形で
+ * 持つ。呼び手は色を負で渡すので +0x44 に 0x2000）。逆コンパイルの読み、
+ * 原典では押していない。作った数を返す */
+static int sun_head(jw_drawing *d, double tx, double ty, double wx, double wy,
+                    double alen, double aang)
+{
+    double px[2], py[2];
+    int k, made = 0;
+    jw_obj *o;
+
+    for (k = 0; k < 2; k++) {
+        double ca = cos(k ? -aang : aang), sa = sin(k ? -aang : aang);
+        px[k] = tx + alen * (wx * ca - wy * sa);
+        py[k] = ty + alen * (wx * sa + wy * ca);
+    }
+    if (sun_solid) {
+        o = jw_add(d, JW_SOLID);
+        if (!o)
+            return 0;
+        o->color = (unsigned short)sun_tencol;
+        o->ltype = 1;
+        o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+        o->d[0] = tx;
+        o->d[1] = ty;
+        o->d[2] = px[0];
+        o->d[3] = py[0];
+        o->d[4] = o->d[6] = px[1];
+        o->d[5] = o->d[7] = py[1];
+        o->n = 0;
+        return 1;
+    }
+    for (k = 0; k < 2; k++) {
+        o = jw_add(d, JW_SEN);
+        if (!o)
+            break;
+        o->ltype = 1;
+        o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+        o->d[0] = tx;
+        o->d[1] = ty;
+        o->d[2] = px[k];
+        o->d[3] = py[k];
+        made++;
+    }
+    return made;
+}
+
 /* ＝・－ (1060) の 寸法線 tl と 引出線の端 th（どちらも v 方向の高さ）。
    sun_hx は基準点 B。＝ は寸法線が B から -s·SUNPOSENn、引出線の端が
    -s·HIKIDASHIn（FUN_00781520 が置く +0x578・+0x568、s は +0x4520 で ±1）。
@@ -22165,11 +22319,19 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
     double eh[2];
     int ehi[2];
 
+    double hk = sun_hk_angle(), hkt = 0.0, hkc = 0.0;
+
     sun_eq_geom(vx, vy, bx, by, &tl, &th, eh, ehi);
-    x0 = s0 * ux + tl * vx;
-    y0 = s0 * uy + tl * vy;
-    x1 = s1 * ux + tl * vx;
-    y1 = s1 * uy + tl * vy;
+    if (fabs(hk) > 1e-7) {
+        /* 引出角: 寸法線の両端を -tanθ·d（d は引出線の端の寸法線からの
+           隔たり）ずらす（sun_hk_idx の注） */
+        hkt = tan(hk * PI / 180.0);
+        hkc = -hkt * (th - tl);
+    }
+    x0 = (s0 + hkc) * ux + tl * vx;
+    y0 = (s0 + hkc) * uy + tl * vy;
+    x1 = (s1 + hkc) * ux + tl * vx;
+    y1 = (s1 + hkc) * uy + tl * vy;
     if (len <= 0.0)
         return;
     for (i = 0; i < 16; i++)
@@ -22217,8 +22379,31 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
      * ARROW_LEN and ARROW_ANG the settings carry. */
     if (sun_prog) {
         /* 累進: the original put a 点 on the base end and an arrowhead on
-           the far one, whatever 端部 is set to -- read off its own drawing */
-        o = jw_add(d, JW_TEN);
+           the far one, whatever 端部 is set to -- read off its own drawing.
+           基点円（2417、DAT_00a0bd48）なら 点 の代わりに 円半径（2082、
+           DAT_00a0bd50）の円: FUN_00783730 の 0x785036〜 は 基点円 が無ければ
+           点 (-0x6e0)、有れば |半径| > 1e-7 のときだけ 円 (-0x860、CDataEnko、
+           0x78481e〜 で +0x28 = 1・+0x2a = 点 と同じ色・+0x68 = 半径、中心は
+           点 と同じ基点、+0x44 = 0x40)。半径がほぼ 0 なら何も置かない。
+           逆コンパイルの読み、原典では押していない */
+        if (sun_starten) {
+            if (fabs(sun_startr) > 1e-7 && (o = jw_add(d, JW_ENKO)) != 0) {
+                o->color = sun_tencol;
+                o->ltype = 1;
+                o->flags = (unsigned short)(o->flags | JW_SUN_TEN_FLAGS);
+                o->d[0] = x0;
+                o->d[1] = y0;
+                o->d[2] = sun_startr;
+                o->d[3] = 0.0;
+                o->d[4] = 2.0 * PI;
+                o->d[5] = 0.0;
+                o->d[6] = 1.0;
+                o->n = 1;
+                made++;
+            }
+            o = 0;
+        } else
+            o = jw_add(d, JW_TEN);
         if (o) {
             o->color = sun_tencol;
             o->ltype = 1;
@@ -22230,24 +22415,12 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         }
         {
             double wx = x0 - x1, wy = y0 - y1;
-            double wl = sqrt(wx * wx + wy * wy), k;
+            double wl = sqrt(wx * wx + wy * wy);
             if (wl > 0.0) {
                 wx /= wl;
                 wy /= wl;
-                for (k = 1.0; k >= -1.0; k -= 2.0) {
-                    double aa = k * sun_yaang * PI / 180.0;
-                    double ca = cos(aa), sa = sin(aa);
-                    o = jw_add(d, JW_SEN);
-                    if (!o)
-                        break;
-                    o->ltype = 1;
-                    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-                    o->d[0] = x1;
-                    o->d[1] = y1;
-                    o->d[2] = x1 + sun_yalen * (wx * ca - wy * sa);
-                    o->d[3] = y1 + sun_yalen * (wx * sa + wy * ca);
-                    made++;
-                }
+                made += sun_head(d, x1, y1, wx, wy, sun_yalen,
+                                 sun_yaang * PI / 180.0);
             }
         }
     } else if (!sun_arrows()) {
@@ -22270,7 +22443,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             double tipx = i ? x1 : x0, tipy = i ? y1 : y0;
             double wx = (i ? x0 - x1 : x1 - x0);
             double wy = (i ? y0 - y1 : y1 - y0);
-            double wl = sqrt(wx * wx + wy * wy), k;
+            double wl = sqrt(wx * wx + wy * wy);
             if (wl <= 0.0)
                 break;
             /* 逆矢印: the point the arrow is aimed at is the other end
@@ -22282,19 +22455,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             }
             wx /= wl;
             wy /= wl;
-            for (k = 1.0; k >= -1.0; k -= 2.0) {
-                double ca = cos(k * aang), sa = sin(k * aang);
-                o = jw_add(d, JW_SEN);
-                if (!o)
-                    break;
-                o->ltype = 1;
-                o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-                o->d[0] = tipx;
-                o->d[1] = tipy;
-                o->d[2] = tipx + alen * (wx * ca - wy * sa);
-                o->d[3] = tipy + alen * (wx * sa + wy * ca);
-                made++;
-            }
+            made += sun_head(d, tipx, tipy, wx, wy, alen, aang);
         }
     }
 
@@ -22309,9 +22470,15 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
     for (i = 0; i < 2; i++) {
         double s = i ? s1 : s0;
         /* － は端ごと（sun_eq_geom）。突出寸法 は原典どおり測った点と
-           反対の側へ（0x7855..: 隔たりが正なら負に） */
+           反対の側へ（0x7855..: 隔たりが正なら負に）。ふつう・＝ は
+           FUN_00783730 の 0x7842f3〜: 隔たり v·(+0x568 − +0x578)（引出線の端
+           から寸法線、v は +0x4500 = sin・+0x4508 = cos の横向き）が 0 以上
+           なら 突出寸法 (DAT_00a0bcf8、両端の local_7128・local_7110) の符号
+           を反す —— 引出線の端と反対の側へ突き出す。逆コンパイルの読み、
+           原典では押していない（probe147 の tsuki は端が寸法線の -v 側で、
+           そのときは +v のまま） */
         double tk = sun_eq == 3 ? (ehi[i] == 2 ? -fabs(sun_tsuki) : fabs(sun_tsuki))
-                                : sun_tsuki;
+                                : (th - tl >= 0.0 ? -sun_tsuki : sun_tsuki);
         if (!ehi[i] || eh[i] == tl + tk)
             continue;
         o = jw_add(d, JW_SEN);
@@ -22320,8 +22487,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         o->color = sun_hikicol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-        o->d[0] = s * ux + (tl + tk) * vx;
-        o->d[1] = s * uy + (tl + tk) * vy;
+        o->d[0] = (s + hkc + hkt * tk) * ux + (tl + tk) * vx;
+        o->d[1] = (s + hkc + hkt * tk) * uy + (tl + tk) * vy;
         o->d[2] = s * ux + eh[i] * vx;
         o->d[3] = s * uy + eh[i] * vy;
         made++;
@@ -22344,7 +22511,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         nch++;
     }
     if (cw > 0.0 && ch > 0.0 && nch) {
-        double mid = (s0 + s1) / 2.0, t = tl + sun_hanare;
+        double mid = (s0 + s1) / 2.0 + hkc, t = tl + sun_hanare;
         o = jw_add(d, JW_MOJI);
         if (o) {
             o->color = (unsigned short)d->style[i].color;
@@ -22359,8 +22526,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                    half a millimetre off it, running across rather than
                    along, with an ordinary text's 1 at +0x28 and the upright
                    bit in the flags. */
-                double px = (s1 - sun_hanare) * ux + t * vx;
-                double py = (s1 - sun_hanare) * uy + t * vy;
+                double px = (s1 + hkc - sun_hanare) * ux + t * vx;
+                double py = (s1 + hkc - sun_hanare) * uy + t * vy;
                 o->ltype = 1;
                 o->flags = (unsigned short)(o->flags | 0x1000u);
                 o->d[0] = px;
