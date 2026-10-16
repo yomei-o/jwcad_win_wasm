@@ -6984,6 +6984,7 @@ void app_new(void)
 
     ll_pend = ll_start = 0;
     jw_umekomi_saved(0);                /* 埋め込み文字: 保存日時は無い */
+    jw_pr_new_doc();                    /* 連続出力の箱を 0 に（FUN_004d20c0） */
 
     bt_close();
     ly_reset();

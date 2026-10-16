@@ -32,13 +32,16 @@ void jw_plot_paper(const jw_drawing *d, double *wide, double *tall)
  * to the inch.  Measured off the original's own PDF -- print_width 2 came
  * out 0.640 units on a 96 dpi page, which is 0.1693 mm, and 2 * 25.4/300
  * is 0.1693 mm. */
+/* 線幅も倍率 (1330) のときの倍率。刷る間だけ jw_plot_*_at が置く */
+static double pen_mul = 1.0;
+
 static double pen_mm(const jw_drawing *d, int pen)
 {
     int w = d && pen >= 1 && pen <= 9 ? d->print_width[pen] : 1;
 
     if (w < 1)
         w = 1;
-    return w * 25.4 / 300.0;
+    return w * 25.4 / 300.0 * pen_mul;
 }
 
 /* And its colour.  The file keeps a COLORREF, 0x00bbggrr. */
@@ -308,6 +311,8 @@ static void stroke_run(Pdf *p, const double *mx, const double *my,
 
     if (n < 2)
         return;
+    for (i = 0; i < np; i++)    /* 線幅も倍率 (1330): 刻みにも（FUN_004bbef0） */
+        pat[i] *= pen_mul;
     if (np <= 0) {              /* solid: one stroke the whole way */
         buf_f(p->b, "%.2f %.2f m", px_(p, mx[0]), py_(p, my[0]));
         for (i = 1; i < n; i++)
@@ -603,21 +608,14 @@ static int shown_(const jw_drawing *d, const jw_obj *o)
     return 1;
 }
 
-unsigned char *jw_plot_pdf(const jw_drawing *d, int colour, long *len)
+/* 一頁の中身 */
+static void pdf_body(Buf *body, const jw_drawing *d, int colour,
+                     double wide, double tall)
 {
-    Buf out, body;
     Pdf p;
-    double wide, tall;
-    long off[9], i, xref;
-    char head[320];
+    long i;
 
-    if (!d || !len)
-        return 0;
-    memset(&out, 0, sizeof out);
-    memset(&body, 0, sizeof body);
-    jw_plot_paper(d, &wide, &tall);
-
-    p.b = &body;
+    p.b = body;
     p.d = d;
     p.mm2pt = 72.0 / 25.4;
     p.hw = wide / 2.0;
@@ -627,20 +625,50 @@ unsigned char *jw_plot_pdf(const jw_drawing *d, int colour, long *len)
     p.type = -1;
     /* 1 J 1 j -- round caps and round joins, which is what the original's
        own PDF asks for */
-    buf_put(&body, "1 J\n1 j\n", -1);
+    buf_put(body, "1 J\n1 j\n", -1);
     for (i = 0; i < d->ndrawn; i++)
         if (shown_(d, &d->obj[i]) && prints(&d->obj[i]))
             pdf_obj(&p, &d->obj[i], 0);
+}
+
+/* 頁を n 枚（連続出力）。一枚目は 3・4、字の形は 5〜7、二枚目からは
+   8 + 2(k−1) が頁・その次が中身。紙はどれも ds[0] の用紙 */
+static unsigned char *pdf_pages(const jw_drawing *const *ds, int np,
+                                int colour, long *len)
+{
+    Buf out, body;
+    const double mm2pt = 72.0 / 25.4;
+    double wide, tall;
+    long *off, i, xref, nobj;
+    char head[320];
+    int k;
+
+    if (!ds || np < 1 || !ds[0] || !len)
+        return 0;
+    nobj = 8 + 2L * (np - 1);
+    off = (long *)calloc((size_t)nobj, sizeof *off);
+    if (!off)
+        return 0;
+    memset(&out, 0, sizeof out);
+    memset(&body, 0, sizeof body);
+    jw_plot_paper(ds[0], &wide, &tall);
+    pdf_body(&body, ds[0], colour, wide, tall);
 
     buf_put(&out, "%PDF-1.4\n", -1);
     off[1] = out.n;
     buf_put(&out, "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n", -1);
     off[2] = out.n;
-    buf_put(&out, "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n", -1);
+    buf_put(&out, "2 0 obj<</Type/Pages/Kids[3 0 R", -1);
+    for (k = 1; k < np; k++) {
+        sprintf(head, " %d 0 R", 8 + 2 * (k - 1));
+        buf_put(&out, head, -1);
+    }
+    sprintf(head, "]/Count %d>>endobj\n", np);
+    buf_put(&out, head, -1);
     off[3] = out.n;
     sprintf(head, "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 %.2f %.2f]"
             "/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>endobj\n",
-            wide * p.mm2pt, tall * p.mm2pt);
+            wide * mm2pt, tall * mm2pt);
     buf_put(&out, head, -1);
     off[4] = out.n;
     sprintf(head, "4 0 obj<</Length %ld>>stream\n", body.n);
@@ -661,19 +689,44 @@ unsigned char *jw_plot_pdf(const jw_drawing *d, int colour, long *len)
     buf_put(&out, "7 0 obj<</Type/FontDescriptor/FontName/Ryumin-Light"
             "/Flags 6/FontBBox[-170 -331 1024 903]/ItalicAngle 0"
             "/Ascent 903/Descent -331/CapHeight 709/StemV 69>>endobj\n", -1);
+    for (k = 1; k < np; k++) {
+        long o = 8 + 2L * (k - 1);
+
+        body.n = 0;
+        pdf_body(&body, ds[k], colour, wide, tall);
+        off[o] = out.n;
+        sprintf(head, "%ld 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 %.2f %.2f]"
+                "/Resources<</Font<</F1 5 0 R>>>>/Contents %ld 0 R>>endobj\n",
+                o, wide * mm2pt, tall * mm2pt, o + 1);
+        buf_put(&out, head, -1);
+        off[o + 1] = out.n;
+        sprintf(head, "%ld 0 obj<</Length %ld>>stream\n", o + 1, body.n);
+        buf_put(&out, head, -1);
+        buf_put(&out, (const char *)body.p, body.n);
+        buf_put(&out, "endstream endobj\n", -1);
+    }
 
     xref = out.n;
-    buf_put(&out, "xref\n0 8\n0000000000 65535 f \n", -1);
-    for (i = 1; i <= 7; i++) {
+    sprintf(head, "xref\n0 %ld\n0000000000 65535 f \n", nobj);
+    buf_put(&out, head, -1);
+    for (i = 1; i < nobj; i++) {
         sprintf(head, "%010ld 00000 n \n", off[i]);
         buf_put(&out, head, -1);
     }
-    sprintf(head, "trailer<</Size 8/Root 1 0 R>>\nstartxref\n%ld\n%%%%EOF\n",
-            xref);
+    sprintf(head, "trailer<</Size %ld/Root 1 0 R>>\nstartxref\n%ld\n%%%%EOF\n",
+            nobj, xref);
     buf_put(&out, head, -1);
     free(body.p);
+    free(off);
     *len = out.n;
     return out.p;
+}
+
+unsigned char *jw_plot_pdf(const jw_drawing *d, int colour, long *len)
+{
+    if (!d || !len)
+        return 0;
+    return pdf_pages(&d, 1, colour, len);
 }
 
 /* ------------------------------------------------------------------ png --
@@ -728,7 +781,7 @@ unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
        different from each other -- see dash_of -- so this is the one that
        fits 点線1 exactly and the rest closely. */
     was_bit = jw_mm_per_bit;
-    jw_mm_per_bit = 10.0 * 25.4 / 300.0;
+    jw_mm_per_bit = 10.0 * 25.4 / 300.0 * pen_mul;
     for (k = 0; k < 10; k++) {
         unsigned c = d->print_rgb[k];
         int px = (int)(pen_mm(d, k) * dpmm + 0.5);
@@ -799,6 +852,7 @@ static int pr_want_;
    プリンタの紙（HORZSIZE/VERTSIZE の mm、0 なら図面の用紙） */
 static int pr_dialogs_, pr_ask_, pr_entered_;
 static double pr_pw, pr_ph;
+static int pr_opt_[12];         /* プリント出力形式の箱（下の PR_OPT_ID の順） */
 
 void jw_pr_reset(void)
 {
@@ -809,6 +863,7 @@ void jw_pr_reset(void)
     pr_colour = pr_want_ = 0;
     pr_dialogs_ = pr_ask_ = pr_entered_ = 0;
     pr_pw = pr_ph = 0.0;
+    memset(pr_opt_, 0, sizeof pr_opt_);
 }
 
 void jw_pr_dialogs(int on)
@@ -1152,6 +1207,85 @@ int jw_pr_want(void)
     return w;
 }
 
+/* ---- プリント出力形式（DIALOG 344、CPrintKeishikiDialog）の箱 ----------
+ * 逆コンパイルの読み、原典では押していない。窓（FUN_005aeb40）は開く前に
+ * 次の値を窓の中へ写し、DoModal が IDOK なら書き戻す（キャンセルなら捨てる）:
+ *   1323 レイヤグループごとの連続出力  doc+0x8298 == 2  ┐ 窓の中で片方を
+ *   1324 レイヤごとの連続出力          doc+0x8298 == 1  ┘ 入れると他方を切る
+ *   1325 共通連続出力レイヤをグレー色  doc+0x829c       ┐ 同じく
+ *   1326 表示のみレイヤは印刷しない    doc+0x8294       ┘ (FUN_005b0320..0400)
+ *   1327 円を線変換出力                DAT_00a0c788
+ *   1328・2113・2114 現状維持          印刷のバー +0xc8・+0xcc・+0xd0
+ *   1331 BMPに展開出力・1333 用紙全体  doc+0x7c10・+0x7c14
+ * 1329 実点を指定半径 は窓の作り手 FUN_005af810 が doc+0x7980 から、壊し手
+ * FUN_005afa70 が戻す。1330 線幅も倍率 は同じく DAT_00a0ca98（キャンセルでも
+ * 残る）。既定: 新規 (FUN_004d20c0) が 0x8298・0x829c・0x8294 を 0 に、ほかは
+ * .jwf (FUN_004e1b90) とレジストリから。移植は .jwf を読まないのでみな 0。
+ *
+ * 効き目（移植が入れたもの）:
+ *   1330  線幅と線種の刻みに倍率を掛ける（FUN_00463390 の param_5・6、
+ *         FUN_004bbef0。刷るとき FUN_004b8250 = ÷(mm/画素 ÷ 倍率)、切なら
+ *         FUN_004b8290 = 倍率なし）
+ *   1323・1324  連続出力（FUN_006d4920）: 表示されていて要素のある
+ *         レイヤ（グループ）を一つずつ一頁に。どれかが 表示のみ (1) なら
+ *         共通（−1）、編集可・書込みなら 頁（+1）。頁ごとに グループを
+ *         みな 2（1324 のとき）、共通は 1325・1326 のどちらも切なら 2・
+ *         どちらかなら 1、ほかは 0、その頁のものを 2 にして FUN_006d5950
+ *         で一頁刷る。済んだら元の状態へ。両方入っていればグループごと
+ *   1325・1326  上の 2 か 1 かだけ。移植は 表示のみ も 編集可 と同じに
+ *         刷るので、刷り上がりは変わらない（原典の 表示のみ の刷り方
+ *         ＝灰色か刷らないかは FUN_006d5950 の先で、読み切っていない）
+ * 効き目の無いもの: 1327（GDI で円を線分に。PDF・PNG の刷り上がりは同じ）、
+ * 1331・1333（移植の GDI の印刷はいつも画像）、1328・2113・2114（ファイル
+ * 連続印刷のときだけ押せる。移植は枠・倍率・レイヤ・線色を開いた図面から
+ * 取らないので いつも 現状維持）、1329（移植の点は一つの大きさ）。
+ * 1064 レイヤ順・1065 線色順（doc+0x828c・+0x8290、−1/0/1 を回す、字は
+ * 6168〜6172）はカラー印刷の重ね順で、読み手（FUN_0043dd30 ほか）を
+ * 読み切っていないので押せないまま。
+ */
+static const short PR_OPT_ID[] = { 1323, 1324, 1325, 1326, 1327, 1328,
+                                   1329, 1330, 1331, 1333, 2113, 2114 };
+#define PR_NOPT ((int)(sizeof PR_OPT_ID / sizeof PR_OPT_ID[0]))
+
+static int pr_opt_at(int id)
+{
+    int i;
+
+    for (i = 0; i < PR_NOPT; i++)
+        if (PR_OPT_ID[i] == id)
+            return i;
+    return -1;
+}
+
+int jw_pr_opt(int id)
+{
+    int i = pr_opt_at(id);
+
+    return i >= 0 ? pr_opt_[i] : 0;
+}
+
+void jw_pr_set_opt(int id, int v)
+{
+    int i = pr_opt_at(id);
+
+    if (i < 0)
+        return;
+    pr_opt_[i] = v != 0;
+    /* 窓の中の組（FUN_005b0320・0370・03c0・0400）: 入れると他方を切る */
+    if (v && id == 1323) pr_opt_[pr_opt_at(1324)] = 0;
+    if (v && id == 1324) pr_opt_[pr_opt_at(1323)] = 0;
+    if (v && id == 1325) pr_opt_[pr_opt_at(1326)] = 0;
+    if (v && id == 1326) pr_opt_[pr_opt_at(1325)] = 0;
+}
+
+void jw_pr_new_doc(void)
+{
+    jw_pr_set_opt(1323, 0);
+    jw_pr_set_opt(1324, 0);
+    jw_pr_set_opt(1325, 0);
+    jw_pr_set_opt(1326, 0);
+}
+
 void jw_pr_settings(jw_plot_frame *f)
 {
     pr_sync();
@@ -1160,6 +1294,87 @@ void jw_pr_settings(jw_plot_frame *f)
     f->scale = pr_sc;
     f->rot = pr_rot;
     f->colour = pr_colour;
+    f->wscale = jw_pr_opt(1330);
+    f->by = jw_pr_opt(1323) ? 2 : jw_pr_opt(1324) ? 1 : 0;
+    f->keep1 = jw_pr_opt(1325) || jw_pr_opt(1326);
+    f->page = 0;
+}
+
+/* 連続出力の頁（FUN_006d4920）。要素の数は原典は view+0xea0・0xee0（グループ）と
+   +0xf20・+0x1320（レイヤ）の数を見る。移植は描く要素を数える */
+static int pr_marks(const jw_drawing *d, int by, int mark[256])
+{
+    long cnt[256];
+    long i;
+    int g, l, n = 0;
+
+    memset(cnt, 0, sizeof cnt);
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls != JW_NCLASS)
+            cnt[(d->obj[i].lgroup & 15) * 16 + (d->obj[i].layer & 15)]++;
+    for (g = 0; g < 16; g++) {
+        long gc = 0;
+
+        for (l = 0; l < 16; l++)
+            gc += cnt[g * 16 + l];
+        if (by == 2) {
+            mark[g] = 0;
+            if (d->group[g].state != 0 && gc > 0) {
+                mark[g] = d->group[g].state == 1 ? -1 : 1;
+                n += mark[g] > 0;
+            }
+            continue;
+        }
+        for (l = 0; l < 16; l++) {
+            int *m = &mark[g * 16 + l];
+
+            *m = 0;
+            if (d->group[g].state == 0 || gc <= 0
+                || d->group[g].layer[l].state == 0 || cnt[g * 16 + l] <= 0)
+                continue;
+            *m = (d->group[g].state == 1 || d->group[g].layer[l].state == 1) ? -1 : 1;
+            n += *m > 0;
+        }
+    }
+    return n;
+}
+
+int jw_plot_npages(const jw_drawing *d, const jw_plot_frame *f)
+{
+    int mark[256];
+
+    if (!d || !f || !f->by)
+        return 1;
+    return pr_marks(d, f->by, mark);
+}
+
+/* page 枚目（0 から）の レイヤ・グループの状態を out に */
+static int pr_page_states(jw_drawing *out, const jw_plot_frame *f, int page)
+{
+    int mark[256], k, i, j, g, n = f->by == 2 ? 16 : 256;
+
+    pr_marks(out, f->by, mark);
+    for (k = 0; k < n; k++)
+        if (mark[k] > 0 && page-- == 0)
+            break;
+    if (k >= n)
+        return 0;
+    for (i = 0; i < 16; i++) {
+        if (f->by == 2) {
+            out->group[i].state = mark[i] < 0 ? (f->keep1 ? 1 : 2) : 0;
+            continue;
+        }
+        out->group[i].state = 2;
+        for (j = 0; j < 16; j++) {
+            g = mark[i * 16 + j];
+            out->group[i].layer[j].state = g < 0 ? (f->keep1 ? 1 : 2) : 0;
+        }
+    }
+    if (f->by == 2)
+        out->group[k].state = 2;
+    else
+        out->group[k / 16].layer[k % 16].state = 2;
+    return 1;
 }
 
 /* 紙の上の位置: 枠の中心を原点に、回して（９０° は −π/2）倍率を掛ける。
@@ -1196,6 +1411,12 @@ static void pr_obj(const jw_plot_frame *f, jw_obj *o)
         o->d[5] += ang;                 /* 傾き */
         return;
     case JW_TEN:
+        /* 任意点 (ltype 100) の向きも回す。turn はラジアン（寸法図形の点を
+           寸法線の角の差だけ足す 0x6cedfb〜 の +0x408・+0x488 と同じ単位、
+           src/cmd.c）。移植の描き手はまだ任意点の印を描かないので、
+           刷り上がりは変わらない */
+        if (o->ltype == 100)
+            o->turn += ang;
         n = 1;
         break;
     case JW_MOJI:
@@ -1263,7 +1484,31 @@ unsigned char *jw_plot_pdf_at(const jw_drawing *d, const jw_plot_frame *f,
 
     if (!d || !len || !pr_paper(d, f, &p, &own))
         return 0;
-    r = jw_plot_pdf(&p, f ? f->colour : 0, len);
+    pen_mul = f && f->wscale && f->scale > 0.0 ? f->scale : 1.0;
+    {
+        int np = jw_plot_npages(&p, f), k;
+        jw_drawing *pg = np > 1 || (f && f->by) ? (jw_drawing *)malloc(
+                             (size_t)(np > 0 ? np : 1) * sizeof *pg) : 0;
+        const jw_drawing **ds = pg ? (const jw_drawing **)malloc(
+                                    (size_t)(np > 0 ? np : 1) * sizeof *ds) : 0;
+
+        if (pg && ds && np > 0) {       /* 連続出力: 一枚の PDF に頁を並べる */
+            for (k = 0; k < np; k++) {
+                pg[k] = p;
+                pr_page_states(&pg[k], f, k);
+                ds[k] = &pg[k];
+            }
+            r = pdf_pages(ds, np, f->colour, len);
+        } else if (pg && ds) {          /* 刷る頁が無い: 原典は何も刷らない。移植は
+                                           素の一枚（空の PDF を作らない） */
+            r = jw_plot_pdf(&p, f->colour, len);
+        } else {
+            r = jw_plot_pdf(&p, f ? f->colour : 0, len);
+        }
+        free(ds);
+        free(pg);
+    }
+    pen_mul = 1.0;
     free(own);
     return r;
 }
@@ -1277,7 +1522,11 @@ unsigned char *jw_plot_png_at(const jw_drawing *d, const jw_plot_frame *f,
 
     if (!d || !len || !pr_paper(d, f, &p, &own))
         return 0;
+    pen_mul = f && f->wscale && f->scale > 0.0 ? f->scale : 1.0;
+    if (f && f->by)                     /* 連続出力: その頁（無ければ素のまま） */
+        pr_page_states(&p, f, f->page > 0 ? f->page : 0);
     r = jw_plot_png(&p, dpmm, f ? f->colour : 0, len);
+    pen_mul = 1.0;
     free(own);
     return r;
 }

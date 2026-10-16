@@ -149,6 +149,122 @@ static void frame_is(jw_drawing *d, double x0, double y0, double x1, double y1,
                o[0].d[2], o[1].d[3]);
 }
 
+static long count_of(const unsigned char *b, long n, const char *s)
+{
+    long k = 0, i, m = (long)strlen(s);
+
+    for (i = 0; i + m <= n; i++)
+        if (memcmp(b + i, s, (size_t)m) == 0)
+            k++;
+    return k;
+}
+
+static jw_obj *line_at(jw_drawing *d, int g, int l, double x)
+{
+    jw_obj *o = jw_add(d, JW_SEN);
+
+    o->color = 2;
+    o->ltype = 1;
+    o->lgroup = (unsigned short)g;
+    o->layer = (unsigned char)l;
+    o->d[0] = x;
+    o->d[1] = 0.0;
+    o->d[2] = x;
+    o->d[3] = 10.0;
+    return o;
+}
+
+/* プリント出力形式（DIALOG 344）の箱。逆コンパイルの読み（src/plot.c の
+   jw_pr_opt の注）、原典では押していない */
+static void keishiki(void)
+{
+    jw_drawing *d;
+    jw_plot_frame f;
+    unsigned char *b;
+    long n = 0;
+    double w1 = 0.0, w2 = 0.0;
+    const char *p;
+    int g, l;
+
+    jw_pr_reset();
+    app_new();
+    ck(jw_pr_opt(1323) == 0 && jw_pr_opt(1324) == 0 && jw_pr_opt(1330) == 0,
+       "出力形式の箱は既定でみな切");
+    jw_pr_set_opt(1324, 1);
+    jw_pr_set_opt(1323, 1);
+    ck(jw_pr_opt(1323) == 1 && jw_pr_opt(1324) == 0, "  1323 を入れると 1324 が切れる（FUN_005b0320）");
+    jw_pr_set_opt(1326, 1);
+    jw_pr_set_opt(1325, 1);
+    ck(jw_pr_opt(1325) == 1 && jw_pr_opt(1326) == 0, "  1325 を入れると 1326 が切れる（FUN_005b03c0）");
+    jw_pr_set_opt(1330, 1);
+    app_new();
+    ck(jw_pr_opt(1323) == 0 && jw_pr_opt(1325) == 0 && jw_pr_opt(1330) == 1,
+       "  新規で 1323〜1326 は 0 に（FUN_004d20c0）、1330 は残る");
+    jw_pr_set_opt(1330, 0);
+
+    d = (jw_drawing *)app_drawing();
+    for (g = 0; g < 16; g++) {
+        d->group[g].state = 2;
+        for (l = 0; l < 16; l++)
+            d->group[g].layer[l].state = 2;
+    }
+    d->group[0].layer[2].state = 1;     /* 表示のみ: 共通 */
+    d->group[1].layer[3].state = 0;     /* 非表示: 刷らない */
+    line_at(d, 0, 0, 10.0);
+    line_at(d, 0, 1, 20.0);
+    line_at(d, 1, 0, 30.0);
+    line_at(d, 0, 2, 40.0);
+    line_at(d, 1, 3, 50.0);
+
+    /* 1330 線幅も倍率: 倍率 2 で 線幅が二倍 */
+    jw_pr_settings(&f);
+    f.scale = 2.0;
+    b = jw_plot_pdf_at(d, &f, &n);
+    p = b ? strstr((const char *)b, " w\n") : 0;
+    if (p) { while (p > (const char *)b && p[-1] != '\n') p--; w1 = atof(p); }
+    free(b);
+    jw_pr_set_opt(1330, 1);
+    jw_pr_settings(&f);
+    ck(f.wscale == 1, "jw_pr_settings が 1330 を渡す");
+    f.scale = 2.0;
+    b = jw_plot_pdf_at(d, &f, &n);
+    p = b ? strstr((const char *)b, " w\n") : 0;
+    if (p) { while (p > (const char *)b && p[-1] != '\n') p--; w2 = atof(p); }
+    free(b);
+    cknear(w2, w1 * 2.0, 0.01, "1330 線幅も倍率: 倍率 2 で線幅が二倍（FUN_00463390 → FUN_004b8250）");
+    jw_pr_set_opt(1330, 0);
+
+    /* 連続出力 */
+    jw_pr_settings(&f);
+    ck(f.by == 0 && jw_plot_npages(d, &f) == 1, "連続出力が切なら一頁");
+    b = jw_plot_pdf_at(d, &f, &n);
+    ck(b && count_of(b, n, "/Count 1>>") == 1 && count_of(b, n, " l S\n") == 4,
+       "  一頁に 非表示のほかの四本");
+    free(b);
+    jw_pr_set_opt(1324, 1);
+    jw_pr_settings(&f);
+    ck(f.by == 1 && jw_plot_npages(d, &f) == 3,
+       "1324 レイヤごと: 編集可で要素のあるレイヤ 0-0・0-1・1-0 の三頁（表示のみ・非表示は頁にならない）");
+    b = jw_plot_pdf_at(d, &f, &n);
+    ck(b && count_of(b, n, "/Count 3>>") == 1 && count_of(b, n, "/Type/Page/") == 3,
+       "  PDF は三頁");
+    ck(b && count_of(b, n, " l S\n") == 6, "  どの頁にも共通（表示のみ 0-2）が入って 二本ずつ");
+    free(b);
+    jw_pr_set_opt(1323, 1);
+    jw_pr_settings(&f);
+    ck(f.by == 2 && jw_plot_npages(d, &f) == 2, "1323 グループごと: グループ 0・1 の二頁");
+    b = jw_plot_pdf_at(d, &f, &n);
+    ck(b && count_of(b, n, "/Count 2>>") == 1 && count_of(b, n, " l S\n") == 3 + 1,
+       "  グループ 0 の三本、グループ 1 の一本（レイヤの状態はそのまま）");
+    free(b);
+    d->group[1].state = 1;              /* グループ 1 を表示のみに: 共通 */
+    ck(jw_plot_npages(d, &f) == 1, "  表示のみのグループは頁にならない");
+    b = jw_plot_pdf_at(d, &f, &n);
+    ck(b && count_of(b, n, " l S\n") == 4, "  共通のグループ 1 は頁に入る");
+    free(b);
+    jw_pr_reset();
+}
+
 /* 印刷の命令（印刷範囲を設定 0x8053、CZukeiPrintHanni）。逆コンパイルの読み
    （src/plot.h の注）どおりに動くか。原典では押していない */
 static void print_command(double mm2pt)
@@ -677,6 +793,7 @@ int main(int argc, char **argv)
         free(pdf);
     }
     print_command(mm2pt);
+    keishiki();
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

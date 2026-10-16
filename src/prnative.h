@@ -34,12 +34,20 @@
  *     （いいえ と答えた変更を失わない。変更ありの印も戻す）
  *   - 一枚ずつ別の印刷ジョブ（原典は vtable+0x78 を一度呼んでからループする
  *     ので一つのジョブかもしれないが、読み切れていない）
- *   - プリント出力形式 の ファイル連続印刷 のほかの箱（レイヤ 順・線色 順、
- *     1323〜1333 の連続出力・グレー・実点・円の線変換・線幅も倍率・BMP・
- *     用紙全体、1328・2113・2114 の現状維持、2863 図面情報連続印刷）は
- *     押せないまま（DDX は FUN_005b0010 で読めたが、刷り方への効き目と
- *     既定値を読み切っていない）。移植は枠・倍率・回転をファイルごとに
- *     変えないので、1328 現状維持 を入れたときと同じ刷り方になる
+ *   - プリント出力形式 のほかの箱: 値の行き先と効き目は src/plot.c の
+ *     jw_pr_opt の注（FUN_005aeb40 が窓の前に doc から写し IDOK で書き戻す、
+ *     FUN_005af810・FUN_005afa70 が 1329・1330）。押せるのは 1323・1324
+ *     連続出力、1325 グレー（カラー印刷 で連続出力のときだけ、
+ *     FUN_005afbc0 の +0x2e8）・1326、1330 線幅も倍率。キャンセルは捨てる
+ *     （1330 は原典では壊し手が戻すのでキャンセルでも残る。移植も残す）。
+ *     押せないまま: 1064 レイヤ順・1065 線色順（カラー印刷のときだけ押せる。
+ *     重ね順の読み手を読み切っていない）、1327・1329・1331・1333（移植の
+ *     刷り上がりが変わらない）、1328・2113・2114（ファイル連続印刷 で
+ *     ファイルがあるときだけ押せる。移植は枠・倍率・レイヤ・線色を
+ *     ファイルごとに変えないので いつも 現状維持、それを入れて見せる）、
+ *     2863 図面情報連続印刷（0x80e6 の命令が移植に無い）
+ *   - 連続出力の GDI の印刷は 一頁ずつ別のジョブ（原典は FUN_006d5950 を
+ *     頁ごとに呼ぶ一つのジョブ）。PNG で保存は一頁目だけ、PDF は全頁
  *   - 原典の 印刷 の前に いまの図面を刷るかどうかの条件（FUN_004146c0 と
  *     bar+0xd4）は読み切れていないので、いつも刷る
  *   - PageSetupDlg は原典に無い（用紙の向き・大きさは プリンタの設定 の窓で）
@@ -118,13 +126,13 @@ static const pr_item PR_KEISHIKI[] = {
     { 2, 129, 23, 61, 14, PR_ON, L"ｷｬﾝｾﾙ" },
     { 1064, 10, 4, 59, 16, PR_OFF, L"レイヤ　順" },
     { 1065, 10, 22, 59, 16, PR_OFF, L"線色　　順" },
-    { 1323, 10, 44, 115, 13, PR_OFF | BS_AUTOCHECKBOX, L"レイヤグループごとの連続出力" },
-    { 1324, 10, 59, 80, 13, PR_OFF | BS_AUTOCHECKBOX, L"レイヤごとの連続出力" },
+    { 1323, 10, 44, 115, 13, PR_ON | BS_AUTOCHECKBOX, L"レイヤグループごとの連続出力" },
+    { 1324, 10, 59, 80, 13, PR_ON | BS_AUTOCHECKBOX, L"レイヤごとの連続出力" },
     { 1325, 10, 74, 186, 13, PR_OFF | BS_AUTOCHECKBOX, L"共通連続出力レイヤ(表示のみレイヤ)をグレー色" },
-    { 1326, 10, 89, 119, 13, PR_OFF | BS_AUTOCHECKBOX, L"表示のみレイヤは印刷しない" },
+    { 1326, 10, 89, 119, 13, PR_ON | BS_AUTOCHECKBOX, L"表示のみレイヤは印刷しない" },
     { 1329, 10, 105, 119, 10, PR_OFF | BS_AUTOCHECKBOX, L"実点を指定半径でプリンタ出力" },
     { 1327, 129, 45, 67, 10, PR_OFF | BS_AUTOCHECKBOX, L"円を線変換出力" },
-    { 1330, 129, 60, 56, 10, PR_OFF | BS_AUTOCHECKBOX, L"線幅も倍率" },
+    { 1330, 129, 60, 56, 10, PR_ON | BS_AUTOCHECKBOX, L"線幅も倍率" },
     { 1331, 129, 90, 67, 10, PR_OFF | BS_AUTOCHECKBOX, L"BMPに展開出力" },
     { 1333, 129, 105, 67, 10, PR_OFF | BS_AUTOCHECKBOX, L"用紙全体を展開" },
     { 1066, 10, 122, 180, 16, PR_ON, L"ファイル連続印刷" },
@@ -150,23 +158,55 @@ static WORD *pr_align4(WORD *p, const WORD *base)
     return p;
 }
 
+/* 窓で押せて値を持つ箱（src/plot.c の jw_pr_opt） */
+static const short PR_LIVE[] = { 1323, 1324, 1325, 1326, 1330 };
+
+/* FUN_005afbc0: 1325 は カラー印刷 で 1323 か 1324 が入っているときだけ */
+static void pr_keishiki_grey(HWND dlg)
+{
+    jw_plot_frame f;
+
+    jw_pr_settings(&f);
+    EnableWindow(GetDlgItem(dlg, 1325),
+                 f.colour && (IsDlgButtonChecked(dlg, 1323) == BST_CHECKED
+                              || IsDlgButtonChecked(dlg, 1324) == BST_CHECKED));
+}
+
 static INT_PTR CALLBACK pr_keishiki_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 {
+    int i;
+
     (void)lp;
     if (msg == WM_INITDIALOG) {
         CheckDlgButton(dlg, 1328, BST_CHECKED);   /* 移植の刷り方（枠を変えない）を見せる */
+        for (i = 0; i < (int)(sizeof PR_LIVE / sizeof PR_LIVE[0]); i++)
+            CheckDlgButton(dlg, PR_LIVE[i], jw_pr_opt(PR_LIVE[i]) ? BST_CHECKED : BST_UNCHECKED);
+        pr_keishiki_grey(dlg);
         return TRUE;
     }
     if (msg == WM_COMMAND) {
         switch (LOWORD(wp)) {
-        case IDOK:
-            EndDialog(dlg, 1);
+        case 1323: case 1324: case 1325: case 1326: {
+            /* 組の片方を入れると他方を切る（FUN_005b0320・0370・03c0・0400） */
+            int id = LOWORD(wp), other = id == 1323 ? 1324 : id == 1324 ? 1323
+                                       : id == 1325 ? 1326 : 1325;
+
+            if (IsDlgButtonChecked(dlg, id) == BST_CHECKED)
+                CheckDlgButton(dlg, other, BST_UNCHECKED);
+            pr_keishiki_grey(dlg);
             return TRUE;
-        case IDCANCEL:
+        }
+        case 1330:
+            return TRUE;
+        case IDOK:                    /* FUN_005aeb40: IDOK なら書き戻す。1066 も */
+        case 1066:                      /* OnOK で閉じる（FUN_005b0300: +0xb0 = 1） */
+            for (i = 0; i < (int)(sizeof PR_LIVE / sizeof PR_LIVE[0]); i++)
+                jw_pr_set_opt(PR_LIVE[i], IsDlgButtonChecked(dlg, PR_LIVE[i]) == BST_CHECKED);
+            EndDialog(dlg, LOWORD(wp) == 1066 ? 2 : 1);
+            return TRUE;
+        case IDCANCEL:                  /* 1330 だけは壊し手 FUN_005afa70 が戻すので残る */
+            jw_pr_set_opt(1330, IsDlgButtonChecked(dlg, 1330) == BST_CHECKED);
             EndDialog(dlg, 0);
-            return TRUE;
-        case 1066:                      /* ファイル連続印刷: FUN_005b0300（+0xb0 = 1、閉じる） */
-            EndDialog(dlg, 2);
             return TRUE;
         }
     }
