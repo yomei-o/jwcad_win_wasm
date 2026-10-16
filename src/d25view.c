@@ -1125,25 +1125,97 @@ static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, d
  * 鳥瞰は 奥行 1 で切って（五角になれば 二つ目の (0,3,4,4)）、塗りのソリッドとして
  * 描く。面は線より先に組まれ 先に描かれるので（リストの後ろへ足す FUN_004142e0）、
  * 隠れるのは 先の面が 後の面に 塗られるところだけ。裏の面を落とす +0x518 は
- * ここでは 0。
- * 入れていないもの: 円ソリッド（線種 100 以上、FUN_0060e6d0）、p3 p4 が p1p2 の上に
- * 乗るソリッド（FUN_00438f50 が 1、四隅を並べ替えて壁にする 0x6162xx）、
- * #lh の後ろの字で 上だけ・下だけ にする旗（+0x89e0、FUN_00457e50 の字が読めない）、
- * 面が平らでないときの 二つ割り（FUN_0061bc30・+0x5d）。勾配の補助線は gx_pair */
+ * ソリッドの面では 0（円ソリッドの帯だけ 立つ）。
+ * 壁（FUN_00438f50 が 1: p3 p4 が p1p2 の線の上、0x6160d8）は p3 := p2・p4 := p1 に
+ * 置き換え（FUN_004988c0 二つ）、一・二隅に 数が二つ以上なら 三・四隅の高さを その奥行にして
+ * 一段。#lh の後ろの v V（旗 1）・h H（旗 2）は FUN_00457e50 = wcschr（四文字目から）で
+ * +0x89e0 に、字の末尾の v h が 後から 旗を上書きし、旗 2 は 一段目、旗 1 は 二段目を
+ * 作らない（段が一つなら 0）。四隅の字の v h は 二組の線（P1P2・P3P4）の +0x48 の旗
+ * （隅 1・3 に 1・4、隅 2・4 に 2・8）として gx_pair へ。勾配の面（+0x99e0）は 一段
+ * （#lh の字なしの道は除く）。面が 8 の字・潰れ・平らでない（FUN_0061bc30）なら +0x5d を
+ * 立て、手前（奥行 1）より 後ろに かかる面は 切らずに 描かない（FUN_0043f7a0）。
+ * 勾配の補助線は gx_pair */
 typedef struct {
     double p[4][3];
     unsigned char ltype;
     unsigned short color, layer, lgroup;
     int n;
+    int cull;                   /* +0x518（FUN_0043f7a0: 表向きでない面は 描かない） */
+    int nocut;                  /* +0x5d（FUN_0061bc30 が 0 でない面: 手前で切らず 捨てる） */
 } d25_face;
 
 static d25_face *fc;
 static int nfc, cfc;
 
-static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh, double lh_h)
+/* FUN_0061bc30（FUN_00615f90 の 0x616dce）。四隅 P1..P4（x y z。z は 底上げ・勾配の前の
+ * 高さ）を 二本の 3D 線 P1P2・P3P4 で受け、0 でないとき 面の +0x5d を立てる。
+ * 逆コンパイルの読み（x86 の命令で 5f88f0・5f8b60・5f8c20・5f97f0 の引数を確かめた）、
+ * 原典では押していない。
+ *   平面 (x,y) で 隣り合う三点の外積 (x[i+1]-x[i])(y[i+2]-y[i]) - (x[i+2]-x[i])(y[i+1]-y[i])
+ *     （i=0..3、点は P1 P2 P3 P4 P1 P2）が 1e-7 以上離れたものの 二つ目以降が 0 以下なら 1。
+ *   P1P2 が 平面で 一点なら 2。P3P4 が 一点なら 0。
+ *   P1P2 の線に対する P3・P4 の 沿い u・横 v（FUN_005f8b60・FUN_005f8c20 の 旗 1）。
+ *     |v3| か |v4| が 1e-7 より小さければ 0。
+ *   k = (z2-z1)/P1P2 の長さ。(0,u3 k)→(v3, z3-z1) の線（FUN_005f97f0）の 原点 y を u4 k
+ *     に替えて、点 (v4, z4-z1) までの 横 が 1e-7 より大きければ -2。なければ 0（平らな面）。 */
+static int face_split(const double p[4][3])
+{
+    double ox = p[0][0], oy = p[0][1], dx, dy, len, u3, v3, u4, v4, k, a0, a1, a2, a3, bx, by;
+    int i, seen = 0;
+
+    for (i = 0; i < 4; i++) {
+        const double *a = p[i], *b = p[(i + 1) & 3], *c = p[(i + 2) & 3];
+        double cr = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+
+        if (fabs(cr) >= 1e-07) {
+            if (cr <= 0.0 && seen)
+                return 1;
+            seen = 1;
+        }
+    }
+    if (fabs(p[1][1] - p[0][1]) < 1e-07 && fabs(p[1][0] - p[0][0]) < 1e-07)
+        return 2;
+    if (fabs(p[3][1] - p[2][1]) < 1e-07 && fabs(p[3][0] - p[2][0]) < 1e-07)
+        return 0;
+    dx = p[1][0] - ox;
+    dy = p[1][1] - oy;
+    len = sqrt(dx * dx + dy * dy);
+    dx /= len;
+    dy /= len;
+    u3 = (p[2][0] - ox) * dx + (p[2][1] - oy) * dy;
+    v3 = (p[2][1] - oy) * dx - (p[2][0] - ox) * dy;
+    u4 = (p[3][0] - ox) * dx + (p[3][1] - oy) * dy;
+    v4 = (p[3][1] - oy) * dx - (p[3][0] - ox) * dy;
+    if (fabs(v3) < 1e-07 || fabs(v4) < 1e-07)
+        return 0;
+    k = (p[1][2] - p[0][2]) / len;
+    a0 = 0.0;                           /* 線の原点 x */
+    a1 = u3 * k;                        /* 原点 y（後で u4 k） */
+    a2 = v3 - a0;
+    a3 = (p[2][2] - p[0][2]) - a1;
+    {
+        double l2 = sqrt(a2 * a2 + a3 * a3);
+
+        if (fabs(a2) + fabs(a3) < 1e-07) {
+            a2 = 1.0;
+            a3 = 0.0;
+        } else {
+            a2 /= l2;
+            a3 /= l2;
+        }
+    }
+    a1 = u4 * k;
+    bx = v4 - a0;
+    by = (p[3][2] - p[0][2]) - a1;
+    return fabs(by * a2 - bx * a3) > 1e-07 ? -2 : 0;
+}
+
+static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh, double lh_h,
+                      int lhf)
 {
     double hv[4] = { 0 }, dv[4] = { 0 }, cxy[4][2];
-    int cnt[4] = { 0 }, c, j, lvl, i;
+    int cnt[4] = { 0 }, c, j, lvl, i, wall = 0;
+    unsigned fb[2] = { 0, 0 };          /* 四隅の字の v h の旗（0x6164xx: 1・4 と 2・8、二組） */
 
     for (c = 0; c < 4; c++) {
         cxy[c][0] = o->d[2 * c];
@@ -1154,14 +1226,20 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
 
         if (sqrt(ax * ax + ay * ay) < 1e-07)
             return;
-        /* FUN_00438f50: p3 p4 が p1p2 の線の上（壁にする道は入れていない） */
+        /* FUN_00438f50: p3 p4 が p1p2 の線の上なら 1（壁）。FUN_00615f90 の 0x6160d8 は
+           p3 := p2、p4 := p1 に置き換える（FUN_004988c0 の二つ。四隅の字の読みもその後） */
         {
             double l = sqrt(ax * ax + ay * ay);
             double c3 = ((cxy[2][0] - cxy[0][0]) * ay - (cxy[2][1] - cxy[0][1]) * ax) / l;
             double c4 = ((cxy[3][0] - cxy[0][0]) * ay - (cxy[3][1] - cxy[0][1]) * ax) / l;
 
-            if (fabs(c3) < 1e-07 && fabs(c4) < 1e-07)
-                return;
+            if (fabs(c3) < 1e-07 && fabs(c4) < 1e-07) {
+                wall = 1;
+                cxy[2][0] = cxy[1][0];
+                cxy[2][1] = cxy[1][1];
+                cxy[3][0] = cxy[0][0];
+                cxy[3][1] = cxy[0][1];
+            }
         }
     }
     for (j = 0; j < d->ndrawn; j++) {
@@ -1178,6 +1256,12 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
             cnt[c] = text_vals(d, t, &hh, &dd, &kind);
             hv[c] = hh;
             dv[c] = dd;
+            if (kind) {
+                lhf = kind;             /* 字の末尾が 旗を 上書き（[ebp-0x6c74] = kind） */
+                fb[c >> 1] |= (c & 1) ? 2u : 1u;
+                if (kind == 2)
+                    fb[c >> 1] |= (c & 1) ? 8u : 4u;
+            }
         }
     }
     lvl = 1;
@@ -1187,11 +1271,26 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
             hv[c] = lh_h;
             dv[c] = 0.0;
         }
-    } else if (cnt[0] > 1 && cnt[1] > 1 && cnt[2] > 1 && cnt[3] > 1)
-        lvl = 2;
+    } else {
+        if (cnt[0] > 1 && cnt[1] > 1 && cnt[2] > 1 && cnt[3] > 1)
+            lvl = 2;
+        if (gx[o->lgroup][o->layer].on)
+            lvl = 1;                    /* +0x99e0（勾配の面）は 一段 */
+    }
+    /* 壁で 一・二隅に 数が二つ以上: 三・四隅の高さを 奥行にして 一段（0x6161xx の後、
+       in_ECX+0x4c8 = +0x4d0・+0x578 = +0x580） */
+    if (cnt[0] > 1 && cnt[1] > 1 && wall) {
+        hv[2] = dv[2];
+        hv[3] = dv[3];
+        lvl = 1;
+    }
+    if (lvl < 2)
+        lhf = 0;                        /* #lh の後ろの v/h の旗は 二段のときだけ（local_6c78） */
     for (i = 1; i <= lvl; i++) {
         d25_face f;
 
+        if ((i == 1 && lhf == 2) || (i == 2 && lhf == 1))
+            continue;
         if (nfc == cfc) {
             int m = cfc ? cfc * 2 : 16;
             d25_face *q = (d25_face *)realloc(fc, (size_t)m * sizeof *q);
@@ -1208,8 +1307,8 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
         }
         /* 勾配の補助線（FUN_00615f90 の 0x616dxx: 二点の組 二つを FUN_006109b0、旗 0・
            param_3 0。組は 1-2・3-4 と読んだ） */
-        gx_pair(o, &f.p[0][0], 0, 0, 0.0);
-        gx_pair(o, &f.p[2][0], 0, 0, 0.0);
+        gx_pair(o, &f.p[0][0], fb[0], 0, 0.0);
+        gx_pair(o, &f.p[2][0], fb[1], 0, 0.0);
         for (c = 0; c < 4; c++)
             f.p[c][2] += base;
         f.ltype = o->ltype;
@@ -1217,7 +1316,292 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
         f.layer = o->layer;
         f.lgroup = o->lgroup;
         f.n = o->n;
+        {
+            double q[4][3];
+
+            for (c = 0; c < 4; c++) {
+                q[c][0] = cxy[c][0];
+                q[c][1] = cxy[c][1];
+                q[c][2] = i == 1 ? hv[c] : dv[c];
+            }
+            f.nocut = face_split(q) != 0;
+            f.cull = 0;
+        }
         fc[nfc++] = f;
+    }
+}
+
+/* ---- 円ソリッド（線種 100 以上の CDataSolid、FUN_0060e6d0）。逆コンパイルの読み
+ * （落ちた this と 立体の四隅の置き場 +0x258 +0x270 +0x288 +0x2a0 は x86 の命令で読んだ）、
+ * 原典では押していない。
+ * FUN_00437050（円ソリッドを円弧に）: 中心 (d0,d1)・半径 |d2|・扁平 |d3|・傾き d4・
+ * 始め d5・開き d6。d7 < 10 かつ |d6| ≤ 2π なら 部分: 種別 0、4 < d7 < 6 なら 1（弓形）、
+ * d7 ≤ -0.5 で 線種 < 110 で 0.001744 < |d6| < π/2 なら -1（円外側）。それ以外は 全円
+ * （始め 0・開き 2π、種別 2）。線種 > 109 なら 種別に 10 を足す（輪郭だけ）。
+ * 線種 105・106 は 内側の半径（+0xa0）を持つ輪になるが、jw_obj は d[8] までで
+ * +0xa0 を持たない ので 入れていない（101 と同じに 読む）。
+ * 字（中心から 0.001 以内、同じレイヤの 最初の文字）を FUN_006208a0 で読み、数 n・
+ * 末尾の種別。n=0 かつ #lh なら (#lh, 0) の二つ。
+ *   段 L: n ≥ 8 は 1、n 4..7 は 2（二段目は 中心 += (v3,v4)・n>5 で 半径 v5・n>6 で
+ *   扁平 v6/半径）、n 2..3 は 2、#lh の字なしは |#lh| ≥ 1e-7 なら 2。勾配の面（+0x99e0）は 1。
+ *   種別 10..99（輪郭）は n < 2 で 奥行 = 高さ・型 1、n ≥ 2 で 型 2、どちらも 一段。
+ *   段が 1 つなら 旗（#lh の後ろの v h・字の末尾の v h）は 0。
+ * 立体を作る道: 型 2・立体が アイソメ（+0x82ec が 3）でない・n > 7 のどれかなら 面を、
+ * そうでなければ 楕円（FUN_00619710）を 一段目（旗が 2 でなければ）・二段目（段 2・
+ * 扁平 ≥ 0.01・半径 > 1e-7・旗が 1 でなければ）の高さに 置く。
+ * 面の道: 一段ごとに（扁平 ≥ 0.01・半径 > 1e-7 の間）弧を 刻み（v2 の絶対値、1 未満は 15、
+ * n < 2 は 5）で割り、一刻みごとに 型 0 は 中心・A・B・B の扇（種別 1 は 弦の真ん中が
+ * 中心、-1 は 両端の接線の交点）、型 1・2 は 一段目の A・B と 二段目（要素 2 の中心・半径・
+ * 扁平）の B・A（高さは 奥行）の帯。型 2 で v2 が負なら 裏の面を落とす +0x518。
+ * 勾配は 二組（P1P2・P3P4）を 字の末尾の旗（0 でなければ 3、h は 0xf）、has4 で
+ * 中心の y。面の線種は 原典の初期値を読んでいない ので 1。 */
+static void cs_face(const jw_obj *o, double base, const double q[4][3], int cull, unsigned fl)
+{
+    d25_face f;
+    int c;
+
+    if (nfc == cfc) {
+        int m = cfc ? cfc * 2 : 16;
+        d25_face *r = (d25_face *)realloc(fc, (size_t)m * sizeof *r);
+
+        if (!r)
+            return;
+        fc = r;
+        cfc = m;
+    }
+    for (c = 0; c < 4; c++) {
+        f.p[c][0] = q[c][0];
+        f.p[c][1] = q[c][1];
+        f.p[c][2] = q[c][2];
+    }
+    gx_xf(o, &f.p[0][0], fl, 1, o->d[1], -1);
+    gx_xf(o, &f.p[2][0], fl, 1, o->d[1], -1);
+    for (c = 0; c < 4; c++)
+        f.p[c][2] += base;
+    f.ltype = 1;
+    f.color = o->color;
+    f.layer = o->layer;
+    f.lgroup = o->lgroup;
+    f.n = o->n;
+    f.cull = cull;
+    f.nocut = 0;
+    fc[nfc++] = f;
+}
+
+static void one_csolid(const jw_drawing *d, const jw_obj *o, double base, int lh, double lh_h,
+                       int lhf)
+{
+    double v[12], cxo = o->d[0], cyo = o->d[1], r, flat, tilt, a0, sw, d7 = o->d[7];
+    double ec[3][2], er[3], ef[3];      /* 要素 1・2（段ごとの 中心・半径・扁平） */
+    int kind, n = 0, tk = 0, j, L, mode, i, lvl, rings_neg;
+    d25_rot rot;
+    jw_obj fake;
+    unsigned fl;
+
+    r = fabs(o->d[2]);
+    flat = fabs(o->d[3]);
+    tilt = o->d[4];
+    a0 = o->d[5];
+    sw = o->d[6];
+    if (d7 < 10.0 && fabs(sw) <= 6.283185207179586) {
+        kind = 0;
+        if (d7 > 4.0 && d7 < 6.0)
+            kind = 1;
+        if (d7 <= -0.5 && o->ltype < 110 && fabs(sw) > 0.001744 && fabs(sw) < 1.5707964267948966)
+            kind = -1;
+    } else {
+        a0 = 0.0;
+        sw = 2.0 * PI;
+        kind = 2;
+    }
+    if (o->ltype > 109)
+        kind += 10;
+    if (r < 1e-07 || fabs(sw) < 1e-07)
+        return;
+    if (sw < 0.0) {
+        a0 = wrap_pi(a0 + sw);
+        sw = -sw;
+    }
+    memset(v, 0, sizeof v);
+    for (j = 0; j < d->ndrawn; j++) {
+        const jw_obj *t = &d->obj[j];
+        double ex, ey;
+
+        if (t->cls != JW_MOJI || t->sub || t->layer != o->layer || t->lgroup != o->lgroup)
+            continue;
+        ex = t->d[0] - cxo;
+        ey = t->d[1] - cyo;
+        if (sqrt(ex * ex + ey * ey) > 0.001)
+            continue;
+        {
+            const char *s = t->text >= 0 ? jw_str(d, t->text) : "";
+            char buf[512], c;
+            size_t q, m = 0;
+
+            for (q = 0; s[q] && m + 1 < sizeof buf; q++)
+                if (s[q] != ' ')
+                    buf[m++] = s[q];
+            buf[m] = 0;
+            n = scan_list(buf, v, 12);
+            c = m ? buf[m - 1] : 0;
+            if (n > 0 && m > 0) {
+                if (c == 'v' || c == 'V')
+                    tk = 1;
+                if (c == 'h' || c == 'H')
+                    tk = 2;
+                if (c == 't')
+                    tk = 20;
+                if (c == 'T')
+                    tk = 21;
+                if (c == 'd')
+                    tk = 30;
+                if (c == 'D')
+                    tk = 31;
+            }
+        }
+        break;
+    }
+    if (n < 0)
+        n = 0;
+    if (tk)
+        lhf = tk;
+    /* 扁平率 0.1 で 高さ ≥ 1000 m は 描かない（0x60edb2） */
+    if (fabs(flat - 0.1) < 1e-07 && v[0] >= 999.9999999)
+        return;
+    v[0] *= k_unit;
+    v[1] *= k_unit;
+    ec[1][0] = ec[2][0] = cxo;
+    ec[1][1] = ec[2][1] = cyo;
+    er[1] = er[2] = r;
+    ef[1] = ef[2] = flat;
+    L = 1;
+    if (n == 0 && lh) {
+        L = fabs(lh_h) < 1e-07 ? 1 : 2;
+        n = 2;
+        v[0] = lh_h;
+        v[1] = 0.0;
+    } else {
+        if (n < 8) {
+            if (n < 4) {
+                if (n > 1)
+                    L = 2;
+            } else {
+                L = 2;
+                ec[2][0] += v[3] * k_unit;
+                if (n > 4)
+                    ec[2][1] += v[4] * k_unit;
+                if (n > 5)
+                    er[2] = v[5] * k_unit;
+                if (n > 6 && er[2] > 1e-07)
+                    ef[2] = v[6] * k_unit / er[2];
+            }
+        } else
+            L = 1;
+        if (gx[o->lgroup][o->layer].on)
+            L = 1;
+    }
+    rings_neg = v[2] < 0.0;
+    mode = 0;
+    if (kind > 9 && kind < 100) {
+        if (n < 2) {
+            v[1] = v[0];
+            mode = 1;
+        } else
+            mode = 2;
+        L = 1;
+    }
+    if (L < 2)
+        lhf = 0;
+    fl = tk == 0 ? 0u : tk == 2 ? 0xfu : 3u;
+    fake = *o;
+    fake.cls = JW_ENKO;
+    fake.ltype = 1;
+    fake.color = o->color < 10 ? o->color : 1;
+    if (mode == 2 || m_mode != 3 || n > 7) {
+        double step = fabs(v[2]), cc[2], z, da;
+        int segs;
+
+        if (step < 1.0)
+            step = 15.0;
+        if (n < 2)
+            step = 5.0;
+        segs = (int)(sw / (step * PI / 180.0) + 0.5);
+        if (segs < 1)
+            segs = 1;
+        da = sw / segs;
+        for (lvl = 1; lvl <= L && flat >= 0.01 && r > 1e-07; lvl++) {
+            double a = a0;
+
+            z = lvl == 1 ? v[0] : v[1];
+            cc[0] = ec[lvl][0];
+            cc[1] = ec[lvl][1];
+            if (kind % 10 == 1) {       /* FUN_0043af40: 弦の真ん中（部分のときだけ） */
+                d25_rot re;
+                double p0x = r * cos(a0), p0y = r * sin(a0) * flat;
+                double p1x = r * cos(a0 + sw), p1y = r * sin(a0 + sw) * flat, x0, y0, x1, y1;
+
+                if (2.0 * PI - fabs(sw) > 1e-07) {
+                    rot_set(&re, cxo, cyo, tilt);
+                    rot_pt(&re, p0x, p0y, &x0, &y0);
+                    rot_pt(&re, p1x, p1y, &x1, &y1);
+                    if (fabs(x1 - x0) > 1e-07 || fabs(y1 - y0) > 1e-07) {
+                        cc[0] = (x0 + x1) / 2.0;
+                        cc[1] = (y0 + y1) / 2.0;
+                    }
+                }
+            }
+            if (kind == -1) {           /* FUN_0043a8d0: 両端の接線の交点 */
+                double t0 = a0, t1 = a0 + sw;
+                double x0 = r * cos(t0), y0 = r * flat * sin(t0);
+                double x1 = r * cos(t1), y1 = r * flat * sin(t1);
+                double dx0 = -r * sin(t0), dy0 = r * flat * cos(t0);
+                double dx1 = -r * sin(t1), dy1 = r * flat * cos(t1);
+                double den = dx0 * dy1 - dy0 * dx1;
+
+                if (den != 0.0) {
+                    double u = ((x1 - x0) * dy1 - (y1 - y0) * dx1) / den, qx, qy;
+                    d25_rot re;
+
+                    qx = x0 + u * dx0;
+                    qy = y0 + u * dy0;
+                    rot_set(&re, cxo, cyo, tilt);
+                    rot_pt(&re, qx, qy, &cc[0], &cc[1]);
+                }
+            }
+            rot_set(&rot, ec[lvl][0], ec[lvl][1], tilt);
+            for (i = 1; i <= segs; i++) {
+                double b = a + da, ax, ay, bx, by, q[4][3];
+                d25_rot r2;
+
+                rot_pt(&rot, er[lvl] * cos(a), er[lvl] * sin(a) * ef[lvl], &ax, &ay);
+                rot_pt(&rot, er[lvl] * cos(b), er[lvl] * sin(b) * ef[lvl], &bx, &by);
+                if (mode == 0) {
+                    q[0][0] = cc[0]; q[0][1] = cc[1]; q[0][2] = z;
+                    q[1][0] = ax; q[1][1] = ay; q[1][2] = z;
+                    q[2][0] = bx; q[2][1] = by; q[2][2] = z;
+                    q[3][0] = bx; q[3][1] = by; q[3][2] = z;
+                } else {
+                    double a2x, a2y, b2x, b2y;
+
+                    rot_set(&r2, ec[2][0], ec[2][1], tilt);
+                    rot_pt(&r2, er[2] * cos(a), er[2] * sin(a) * ef[2], &a2x, &a2y);
+                    rot_pt(&r2, er[2] * cos(b), er[2] * sin(b) * ef[2], &b2x, &b2y);
+                    q[0][0] = ax; q[0][1] = ay; q[0][2] = z;
+                    q[1][0] = bx; q[1][1] = by; q[1][2] = z;
+                    q[2][0] = b2x; q[2][1] = b2y; q[2][2] = v[1];
+                    q[3][0] = a2x; q[3][1] = a2y; q[3][2] = v[1];
+                }
+                cs_face(o, base, q, mode > 1 && rings_neg, fl);
+                a = b;
+            }
+        }
+    } else {
+        if (lhf != 2)
+            arc_ell(&fake, base, ec[1][0], ec[1][1], v[0], er[1], ef[1], tilt, a0, sw,
+                    kind % 10 == 2);
+        if (L == 2 && flat >= 0.01 && r > 1e-07 && lhf != 1)
+            arc_ell(&fake, base, ec[2][0], ec[2][1], v[1], er[2], ef[2], tilt, a0, sw,
+                    kind % 10 == 2);
     }
 }
 
@@ -1225,7 +1609,7 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
 static int build(const jw_drawing *d)
 {
     double base[16][16], lhh[16][16];
-    int lh[16][16], g, l, i;
+    int lh[16][16], lhf[16][16], g, l, i;
     unsigned char *used;
 
     nln = 0;
@@ -1245,6 +1629,7 @@ static int build(const jw_drawing *d)
 
             base[g][l] = (gv + name_lv(d, off)) * k_unit;
             lh[g][l] = 0;
+            lhf[g][l] = 0;
             lhh[g][l] = 0.0;
             if (s && s[0] == '#' && s[1] == 'l' && s[2] == 'h' && strlen(s) > 3) {
                 const char *p = s + 3;
@@ -1253,6 +1638,14 @@ static int build(const jw_drawing *d)
                 scan_num(&p, &v);
                 lh[g][l] = 1;
                 lhh[g][l] = v * k_unit;
+                /* +0x89e0（0x6185d8..）: 五文字目からに v V なら 1、h H なら 2（後のが勝つ）。
+                   FUN_00457e50 は wcschr */
+                if (strlen(s) > 4) {
+                    if (strchr(s + 4, 'v') || strchr(s + 4, 'V'))
+                        lhf[g][l] = 1;
+                    if (strchr(s + 4, 'h') || strchr(s + 4, 'H'))
+                        lhf[g][l] = 2;
+                }
             }
         }
     }
@@ -1263,9 +1656,12 @@ static int build(const jw_drawing *d)
                 const jw_obj *o = &d->obj[i];
 
                 if (o->cls != JW_SOLID || o->sub || o->lgroup != g || o->layer != l
-                    || !editable(d, o) || o->ltype >= 100)
-                    continue;           /* 円ソリッド（100 以上）は入れていない */
-                one_solid(d, o, base[g][l], lh[g][l], lhh[g][l]);
+                    || !editable(d, o))
+                    continue;
+                if (o->ltype >= 100)    /* 円ソリッド（FUN_0060e6d0） */
+                    one_csolid(d, o, base[g][l], lh[g][l], lhh[g][l], lhf[g][l]);
+                else
+                    one_solid(d, o, base[g][l], lh[g][l], lhh[g][l], lhf[g][l]);
             }
     used = (unsigned char *)calloc((size_t)(d->ndrawn > 0 ? d->ndrawn : 1), 1);
     if (!used)
@@ -1587,6 +1983,8 @@ static int project_face(const d25_cam *k, const d25_face *f, double o[5][2])
         return 4;
     if (D[0] < 1.0 && D[1] < 1.0 && D[2] < 1.0 && D[3] < 1.0)
         return 0;
+    if (f->nocut && (D[0] < 1.0 || D[1] < 1.0 || D[2] < 1.0 || D[3] < 1.0))
+        return 0;                       /* +0x5d: FUN_0043f7a0 の 0x4407xx は 切らずに 捨てる */
     for (c = 0; c < 4; c++) {
         int n = (c + 1) & 3;
 
@@ -1632,6 +2030,21 @@ static int put_face(jw_drawing *out, const d25_cam *k, const d25_face *f, int at
 
     if (!m)
         return 0;
+    if (f->cull) {                      /* FUN_0043f7a0 の 0x518: P4→P1 の線の 左に P2 が 無ければ 描かない */
+        double dx = o[0][0] - o[3][0], dy = o[0][1] - o[3][1], ln = fabs(dx) + fabs(dy), dist;
+
+        if (ln >= 1e-07) {
+            ln = sqrt(dx * dx + dy * dy);
+            dx /= ln;
+            dy /= ln;
+        } else {
+            dx = 1.0;
+            dy = 0.0;
+        }
+        dist = (o[1][1] - o[3][1]) * dx - (o[1][0] - o[3][0]) * dy;
+        if (dist < 0.0)
+            return 0;
+    }
     for (part = 0; part < (m == 5 ? 2 : 1); part++) {
         static const int A[2][4] = { { 0, 1, 2, 3 }, { 0, 3, 4, 4 } };
         jw_obj *s = jw_add(out, JW_SOLID);

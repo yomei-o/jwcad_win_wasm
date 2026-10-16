@@ -738,6 +738,211 @@ static int gslope(void)
     return vfail != 0;
 }
 
+/* ---- 円ソリッド（FUN_0060e6d0）・壁のソリッド（FUN_00438f50）・#lh の後ろの旗（+0x89e0）・
+   面の +0x5d（FUN_0061bc30）。逆コンパイルの読み、原典では押していない ---- */
+static jw_obj *add_sol(jw_drawing *d, double x1, double y1, double x2, double y2, double x3,
+                       double y3, double x4, double y4)
+{
+    jw_obj *so = jw_add(d, JW_SOLID);
+
+    so->d[0] = x1; so->d[1] = y1;
+    so->d[2] = x2; so->d[3] = y2;
+    so->d[4] = x3; so->d[5] = y3;
+    so->d[6] = x4; so->d[7] = y4;
+    so->color = 3;
+    return so;
+}
+
+static jw_obj *add_csol(jw_drawing *d, int lt, double cx, double cy, double r, double a0,
+                        double sw, double d7)
+{
+    jw_obj *so = jw_add(d, JW_SOLID);
+
+    so->d[0] = cx; so->d[1] = cy;
+    so->d[2] = r; so->d[3] = 1.0;
+    so->d[4] = 0.0; so->d[5] = a0;
+    so->d[6] = sw; so->d[7] = d7;
+    so->ltype = lt;
+    so->color = 3;
+    return so;
+}
+
+static int csolids(void)
+{
+    long n;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    jw_drawing *d, one;
+    jw_obj *so, *t;
+    int i, ns, lh_off, nd;
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+
+    /* 壁: p3 p4 が p1p2 の線の上。両端の字に 数が二つ以上なら 一面（高さ・奥行を 一面に） */
+    so = add_sol(d, 2000, 2000, 2100, 2000, 2100, 2000, 2000, 2000);
+    add_text(d, 2000, 2000, "3,1");
+    add_text(d, 2100, 2000, "3,1");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "壁は 一面");
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    vck(ns == 1, "  壁は アイソメで 塗りのソリッド一つ");
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+    /* 文字が無ければ 壁は 高さ 0 の 面一つ（四隅が 二点に重なる） */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI)
+            d->obj[i].d[1] += 10000;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "  字なしの壁も 一面");
+    jw_cmd_bar(d, 1121);
+
+    /* #lh の後ろの v h: v は 高さの面だけ、h は 奥行の面だけ。後ろの字が無ければ 二面 */
+    so->d[4] = 2100; so->d[5] = 2100; so->d[6] = 2000; so->d[7] = 2100;
+    lh_off = jw_add_str(d, "#lh4");
+    d->group[so->lgroup].layer_name[so->layer] = lh_off;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 2, "#lh4 は 二面");
+    jw_cmd_bar(d, 1121);
+    lh_off = jw_add_str(d, "#lh4v");
+    d->group[so->lgroup].layer_name[so->layer] = lh_off;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "#lh4v は 高さの面だけ");
+    jw_cmd_bar(d, 1121);
+    lh_off = jw_add_str(d, "#lh4H");
+    d->group[so->lgroup].layer_name[so->layer] = lh_off;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "#lh4H は 奥行の面だけ");
+    jw_cmd_bar(d, 1121);
+    lh_off = jw_add_str(d, "#lh0v");
+    d->group[so->lgroup].layer_name[so->layer] = lh_off;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "#lh0（一面）では 旗は 0");
+    jw_cmd_bar(d, 1121);
+    d->group[so->lgroup].layer_name[so->layer] = -1;
+
+    /* 四隅の字の末尾 v: 二面あるのに 高さの面だけ */
+    d->nobj = d->ndrawn = 0;
+    so = add_sol(d, 2000, 2000, 2100, 2000, 2100, 2100, 2000, 2100);
+    add_text(d, 2000, 2000, "3,0v");
+    add_text(d, 2100, 2000, "3,0");
+    add_text(d, 2100, 2100, "3,0");
+    add_text(d, 2000, 2100, "3,0");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 1, "隅の字の v で 高さの面だけ");
+    jw_cmd_bar(d, 1121);
+
+    /* 面の +0x5d: 四隅の並びが 8 の字（外積の向きが替わる）なら 手前で切らずに 捨てる */
+    d->nobj = d->ndrawn = 0;
+    so = add_sol(d, 2000, 2000, 2100, 2000, 2000, 2100, 2100, 2100);
+    add_text(d, 2000, 2000, "3,0");
+    add_text(d, 2100, 2000, "3,0");
+    add_text(d, 2000, 2100, "3,0");
+    add_text(d, 2100, 2100, "3,0");
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    for (i = 0; i < 9; i++)
+        jw_cmd_bar(d, 1127);
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    vck(ns == 0, "8 の字の面は 視点が近いと 切らずに 捨てる");
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+    d->nobj = d->ndrawn = 0;
+    so = add_sol(d, 2000, 2000, 2100, 2000, 2100, 2100, 2000, 2100);
+    add_text(d, 2000, 2000, "3,0");
+    add_text(d, 2100, 2000, "3,0");
+    add_text(d, 2100, 2100, "3,0");
+    add_text(d, 2000, 2100, "3,0");
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    for (i = 0; i < 9; i++)
+        jw_cmd_bar(d, 1127);
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    vck(ns >= 1, "  回りの順なら 切って描く");
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+
+    /* 円ソリッド（全円、字 3,0）: アイソメは 楕円二つ、透視図は 面（一周 24 刻み × 二段） */
+    d->nobj = d->ndrawn = 0;
+    so = add_csol(d, 101, 2000, 2000, 50, 0.0, 2.0 * 3.14159265358979323846, 5.0);
+    add_text(d, 2000, 2000, "3,0");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nell() == 2 && jw_d25_nface() == 0, "円ソリッドは アイソメで 楕円二つ");
+    jw_cmd_bar(d, 1121);
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 48 && jw_d25_nell() == 0, "  透視図では 面 24 × 2");
+    jw_cmd_bar(d, 1121);
+    /* 一段（字 3）なら 面 24 */
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3");
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 72, "  字 3 は 一段（刻み 5）");
+    jw_cmd_bar(d, 1121);
+    /* 字 3,0v の旗: アイソメで 一段目だけ */
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0h");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nell() == 1, "  3,0h は アイソメで 奥行の楕円だけ");
+    jw_cmd_bar(d, 1121);
+    /* 扇（90°）: 6 刻み。弓形（d7=5）も 6、円外側（d7=-1）も 6 */
+    so->d[6] = 3.14159265358979323846 / 2.0;
+    so->d[7] = 0.0;
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0");
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 12, "  扇は 6 刻み × 二段");
+    jw_cmd_bar(d, 1121);
+    so->d[7] = 5.0;
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 12, "  弓形も 6 刻み × 二段");
+    jw_cmd_bar(d, 1121);
+    so->d[7] = -1.0;
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 12, "  円外側も 6 刻み × 二段");
+    jw_cmd_bar(d, 1121);
+    /* 輪郭の壁（線種 111、字 3,0）: アイソメでも 面（24 の帯）。刻みが負なら 裏を落とす */
+    so->ltype = 111;
+    so->d[6] = 2.0 * 3.14159265358979323846;
+    so->d[7] = 5.0;
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 24 && jw_d25_nell() == 0, "  輪郭の円ソリッドは 帯 24");
+    jw_cmd_bar(d, 1121);
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    nd = ns;
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0,-15");
+    jw_d25_forget();                    /* 視点の初めの値を 忘れて 同じ所から */
+    jw_cmd_bar(d, 1064);
+    view_all(d, &one);
+    for (i = ns = 0; i < one.ndrawn; i++)
+        ns += one.obj[i].cls == JW_SOLID;
+    free(one.obj);
+    jw_cmd_bar(d, 1121);
+    vck(ns < nd && ns > 0, "  刻みが負なら 裏の面を落とす");
+    (void)t;
+    printf("%-4s csolids\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
 int main(void)
 {
     int bad = run(32937, "decomp/res/p197_h1.jww", "2.5D");
@@ -747,6 +952,7 @@ int main(void)
     bad += faces();
     bad += grads();
     bad += gslope();
+    bad += csolids();
 
     bad += run(32943, "decomp/res/p198_k1.jww", "hikage");
     bad += run(32971, "decomp/res/p198_t1.jww", "tenku");
