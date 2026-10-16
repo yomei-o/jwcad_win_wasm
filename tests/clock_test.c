@@ -677,10 +677,177 @@ int main(void)
 #undef PMRUN
     }
 
-    /* AUTO の間は時計にしない（AUTO 自前の時計は入れていない） */
-    app_command(JW_CMD_AUTO);
-    ck(!app_clock_possible() && !app_clock_ready(cx, cy, cx + 100, cy), "AUTO の間は時計にしない");
-    app_command(JW_CMD_SEN);
+    /* ---- AUTO モード自前の時計（CZukeiAuto の 46・47、FUN_0062a980） ---- */
+    {
+        static const struct { int h, cmd, id; } am[] = {
+            { 1, JW_CMD_SEN, 5150 }, { 2, JW_CMD_ENKO, 10002 }, { 3, JW_CMD_HOURAKU, 10003 },
+            { 4, JW_CMD_HANI, 10004 }, { 7, JW_CMD_FUKUSHA, 5160 },
+            { 8, JW_CMD_SHINSHUKU, 10008 }, { 10, JW_CMD_SHOUKYO, 10010 },
+            { 11, JW_CMD_FUKUSEN, 5159 }, { 12, JW_CMD_MOJI, 10012 }, { 9, JW_CMD_AUTO, 5199 } };
+        static const int pmid[13] = { 0, 5198, 5194, 5168, 5164, 5235, 5196, 5161, 5166,
+                                      10009, 10010, 5193, 5238 };
+        int k, hok = 1, idok = 1;
+
+        app_command(JW_CMD_AUTO);
+        ck(app_clock_possible() && app_clock_ready(cx, cy, cx + 100, cy),
+           "AUTO の間も時計になる");
+        ck(app_rclock_possible() && app_rclock_ready(cx, cy, cx + 100, cy),
+           "AUTO の間は 右も時計になる");
+        for (k = 0; k < (int)(sizeof am / sizeof am[0]); k++) {
+            app_command(JW_CMD_AUTO);
+            at_hour(am[k].h, 60, &dx, &dy);
+            app_clock_begin(cx, cy);
+            app_clock_move(cx + dx, cy + dy);
+            if (jw_cmd_notice_id() != am[k].id)
+                idok = 0;
+            app_clock_end();
+            if (jw_cmd() != am[k].cmd)
+                hok = 0;
+        }
+        ck(idok, "AUTO 左 AM: 札は 表の番号の札（1 線 2 円 3 包絡 4 範囲 7 複写 8 伸縮 9 AUTO 10 消去 11 複線 12 文字）");
+        ck(hok, "AUTO 左 AM: 離すと その命令（1 時は 線のまま 矩形に替わらない）");
+        app_command(JW_CMD_AUTO);
+        at_hour(5, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10005, "AUTO 左 AM 5 は AUTO 自前の 札 10005（表でない）");
+        app_clock_cancel();
+        at_hour(6, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10006, "AUTO 左 AM 6 は 札 10006（表でない）");
+        app_clock_cancel();
+
+        /* PM（LD_PM）: 札 */
+        idok = 1;
+        for (k = 1; k <= 12; k++) {
+            app_command(JW_CMD_AUTO);
+            at_hour(k, 60, &dx, &dy);
+            app_clock_begin(cx, cy);
+            app_clock_move(cx + dx, cy + dy);
+            app_clock_right();
+            if (app_clock_pm() != 1 || jw_cmd_notice_id() != pmid[k])
+                idok = 0;
+            app_clock_cancel();
+        }
+        ck(idok, "AUTO 左 PM: 札は LD_PM の表（30 3 27 10 7 6 29 17 8 12 15 26）の番号の札");
+        app_command(JW_CMD_AUTO);
+        at_hour(10, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        app_clock_right();
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_SHOUKYO, "AUTO 左 PM 10 は 15 = 消去");
+
+        /* 遠い方の輪（DAT_00a0d8ec = 900）: 札の頭に「(2) 」、LD2_AM は 9 時だけ AUTO */
+        app_command(JW_CMD_AUTO);
+        clk_auto_far(900);
+        at_hour(9, 1000, &dx, &dy);
+        app_clock_begin(cx + 1000, cy);
+        app_clock_move(cx + 1000 + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5199 && strstr(jw_cmd_notice_text(), "(2) ") != NULL,
+           "遠い方の輪の 9 時: 札 5199 の頭に (2)");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_AUTO, "遠い方の輪の 9 時 = LD2_AM9 = AUTO");
+        app_command(JW_CMD_SEN);
+        app_command(JW_CMD_AUTO);
+        at_hour(3, 1000, &dx, &dy);
+        app_clock_begin(cx + 1000, cy);
+        app_clock_move(cx + 1000 + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10013, "遠い方の輪の 3 時は 空（札 10013）");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_AUTO, "空の番号は 何もしない");
+        clk_auto_far(100);
+        at_hour(3, 150, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10013, "切替距離 100（|しきい|×2 = 70 以上でそのまま）: 150 画素は 遠い輪");
+        app_clock_cancel();
+        clk_auto_far(10);
+        at_hour(3, 150, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10013, "切替距離 10 は 50 未満で入らず 100 のまま: 150 は 遠い輪");
+        app_clock_cancel();
+        clk_auto_far(900);
+
+        /* 表を替える（基本設定の箱 2364〜2403）: 負は「* 」、0 は空 */
+        app_command(JW_CMD_AUTO);
+        clk_auto_set(0, 1, -2);
+        at_hour(1, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5150 && strstr(jw_cmd_notice_text(), "* ") != NULL,
+           "値 -2: 札に「* 」が付く（逆の印）");
+        app_clock_cancel();
+        clk_auto_set(0, 1, 2);
+        clk_auto_set(0, 2, 0);
+        at_hour(2, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10013, "値 0 の向きは 札 10013");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_AUTO, "値 0 の向きで離しても 命令はそのまま");
+        clk_auto_set(0, 2, 4);
+        clk_auto_set(0, 2, 999);
+        at_hour(2, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10002, "±200 の外の値は 前のまま");
+        app_clock_cancel();
+
+        /* 右（RD_AM・RD_PM）: AM 1・2・7・8・10・11 は AUTO の表、3・4・5・6・9・12 は既定の右 */
+        app_command(JW_CMD_AUTO);
+        at_hour(1, 60, &dx, &dy);
+        app_rclock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5170, "AUTO 右 AM 1: RD_AM1 = 20 → 札 5170");
+        app_clock_end();
+        ck(jw_cmd() == 0x8050, "AUTO 右 AM 1 を離すと 20 = 0x8050");
+        app_command(JW_CMD_AUTO);
+        at_hour(7, 60, &dx, &dy);
+        app_rclock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5167, "AUTO 右 AM 7: RD_AM7 = 9 → 札 5167");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_CHUSHIN, "AUTO 右 AM 7 を離すと 中心線");
+        app_command(JW_CMD_AUTO);
+        at_hour(4, 60, &dx, &dy);
+        app_rclock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10105, "AUTO 右 AM 4 は 既定の右（戻る 10105）");
+        app_clock_cancel();
+        at_hour(1, 60, &dx, &dy);
+        app_rclock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        app_clock_right();
+        ck(jw_cmd_notice_id() == 10022, "AUTO 右 PM 1: RD_PM1 = 88 → 札 10022（鉛直角）");
+        app_clock_move(cx - dx, cy - dy);
+        ck(jw_cmd_notice_id() == 10021, "AUTO 右 PM 7（向き 7）: 値 -83 → 札 10021");
+        app_clock_cancel();
+
+        /* 1323（DAT_00a0c7c4 > 1）: AUTO でない命令も 表を使う */
+        app_command(JW_CMD_SEN);
+        clk_auto_std(1);
+        at_hour(1, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_SEN, "1323 入: 線の 1 時は 矩形に替わらず 表の 2 = 線");
+        app_command(JW_CMD_SEN);
+        at_hour(5, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10005, "1323 入でも 左 AM 5 は 表でない");
+        app_clock_cancel();
+        clk_auto_std(0);
+        at_hour(1, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_KUKEI, "1323 切: 線の 1 時は 矩形（既定の表）");
+        app_command(JW_CMD_SEN);
+    }
 
     printf("%s\n", fails ? "FAIL" : "all ok");
     return fails != 0;

@@ -2383,6 +2383,30 @@ static void kh_apply(void)
                  kh_value_tab(0, 2109), kh_value_tab(0, 2099));
     /* 一般(2) 1523（CSonotaPage1 +0x598 → FUN_005d02e0 が DAT_00a0c7d8）: AM 5 線種変更 */
     clk_set_motolay(kh_value_tab(1, 1523));
+    /* AUTO モードの時計の表（src/clock.h の「AUTO の表」）: 一般(2)→AUTO タブの箱
+       2364〜2403 = レジストリ AutoMode\LD_AM・LD_PM・RD_PM・RD_AM（向きは 時 0〜11、
+       0 が 12 時）。FUN_005d02e0 が +-200 の外は前のまま。切替距離 1957 → DAT_00a0d8ec */
+    {
+        static const short lam[10] = { 2364, 2365, 2366, 2367, 2368,
+                                       2369, 2370, 2371, 2372, 2373 };
+        static const short ram[6] = { 2398, 2399, 2400, 2401, 2402, 2403 };
+        static const char lah[10] = { 0, 1, 2, 3, 4, 7, 8, 9, 10, 11 };
+        static const char rah[6] = { 1, 2, 7, 8, 10, 11 };
+        int k;
+
+        for (k = 0; k < 10; k++)
+            clk_auto_set(0, lah[k] ? lah[k] : 12, (int)kh_num(5, lam[k], 0.0));
+        for (k = 0; k < 12; k++) {
+            clk_auto_set(1, k ? k : 12, (int)kh_num(5, 2374 + k, 0.0));
+            clk_auto_set(3, k ? k : 12, (int)kh_num(5, 2386 + k, 0.0));
+        }
+        for (k = 0; k < 6; k++)
+            clk_auto_set(2, rah[k], (int)kh_num(5, ram[k], 0.0));
+        clk_auto_far((int)kh_num(1, 1957, 900.0));
+        /* 1323 は DAT_00a0c7c4 が 0 の間は 灰色で押せない（DAT_00a0c7c4 は
+           レジストリから。移植は 0 のまま）。押せた時の働きだけ置く */
+        clk_auto_std(kh_value_tab(1, 1323));
+    }
 }
 
 /* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が

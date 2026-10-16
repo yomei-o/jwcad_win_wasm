@@ -33,9 +33,10 @@
  * それでも原典は点を離しで渡す（押した点）。移植は 1326 が入なら前のとおり
  * （預かった左を 3 画素動くか離すかで渡す）。
  *
- * 移植で入れないもの（読みだけ、または答えの無いもの）: AUTO モードの時計
- * （CZukeiAuto と DAT_00a0c7bc・DAT_00a0c7c4 > 1 の FUN_00777690。移植は AUTO・
- * 手書線 の間は時計にしない）、PM 6【全】属性取得（FUN_007751e0(1)）は札だけ、AM 4 範囲選択の
+ * AUTO モードの時計（CZukeiAuto の仮想関数 46・47 = FUN_0062fc10・FUN_0062ff00 と
+ * その表 FUN_0062a980、DAT_00a0c7c4 > 1 の FUN_00777690）は 下の「AUTO の表」。
+ * 移植で入れないもの（読みだけ、または答えの無いもの）: 手書線 の間の時計、
+ * AUTO の表の残り（下の「AUTO の表」の末）、PM 6【全】属性取得（FUN_007751e0(1)）は札だけ、AM 4 範囲選択の
  * 「押した点を拾う」（FUN_0040dbb0）、AM 6 の 5261 札。
  *
  * 右ボタンの時計（FUN_0076d330、命令の仮想関数 47）。右を押して しきいを越えて
@@ -91,6 +92,15 @@ const char *clk_label(int dir, int pm, int *id);
 void clk_settings(int nonclock, int minimum, int lkeep, int rkeep, int circle8);
 /* 一般(2) 1523「ｸﾛｯｸﾒﾆｭｰ左AM5時の線種変更のときレイヤは変更しない」（DAT_00a0c7d8） */
 void clk_set_motolay(int on);
+/* AUTO モード自前の時計の表（view の DAT_00a0d8fc、レジストリ AutoMode\LD_AM・LD_PM・
+   RD_AM・RD_PM と LD2_*…。基本設定 一般(2) の 2364〜2403 の箱）。row は 0 左AM・1 左PM・
+   2 右AM・3 右PM（+4 が遠い方の輪 LD2_*・RD2_*）、dir は 1〜12、v は 番号 -200〜200 */
+void clk_auto_set(int row, int dir, int v);
+/* 2213・1957「AUTOﾓｰﾄﾞｸﾛｯｸﾒﾆｭｰ(1)(2)の切替距離」（DAT_00a0d8ec。FUN_005d02e0 が |箱| >= 50 の
+   ときだけ入れ、|しきい|×2 に満たなければ そこまで上げる） */
+void clk_auto_far(int v);
+/* 1323「標準ｸﾛｯｸﾒﾆｭｰをAUTOﾓｰﾄﾞｸﾛｯｸﾒﾆｭｰにする」（DAT_00a0c7c4 > 1。FUN_00777690 を呼ぶ） */
+void clk_auto_std(int on);
 int  clk_minimum(void);
 int  clk_circle8(void);
 
@@ -260,14 +270,14 @@ int clk_circle8(void)
     return clk_c8;
 }
 
-/* 移植が時計にしないとき: 図面が無い、窓が開いている、AUTO（原典は AUTO の
-   自前の時計）、手書線（引きずって描く）。
+/* 移植が時計にしないとき: 図面が無い、窓が開いている、手書線（引きずって描く）。
+   AUTO は 自前の表（下の「AUTO の表」）で時計になる。
    1326 は左だけ（右は FUN_005185e0 が 左も押されているときだけ しきいを替える） */
 static int clk_allowed(int right)
 {
     if ((clk_nonclock && !right) || !have_drawing || !view_ready || app_modal())
         return 0;
-    if (jw_cmd() == JW_CMD_AUTO || jw_cmd_freehand())
+    if (jw_cmd_freehand())
         return 0;
     /* 手書線は 引きずる前（押した瞬間）から: 連続線の 1774 が入なら時計にしない。
        押しを 3 画素で渡さないと 線が離すまで出ない */
@@ -302,6 +312,306 @@ int app_rclock_ready(int x0, int y0, int x, int y)
     if (clk_on || !clk_allowed(1))
         return 0;
     return dx * dx + dy * dy > clk_min * clk_min;
+}
+
+/* ---- AUTO の表（CZukeiAuto の時計） ----
+ *
+ * 左の仮想関数 46 = FUN_0062fc10、右の 47 = FUN_0062ff00。AM 5・6 は AUTO が
+ * 自分で（5 は FUN_0076e360 の線種変更・札 0x2715、6 は FUN_007751e0(0) の属性取得・
+ * 札 0x2716）、ほかは FUN_0062a980(1, …, 右か, 行, 向き, 札か実行, …)。右は AM の
+ * 3・4・5・6・9・12 を既定の右の表（FUN_0076d330 = 下の clk_rown）へ、1・2・7・8・10・11 と
+ * PM は AUTO の表（右 AM 行 2・右 PM 行 3）。
+ *
+ * 表は DAT_00a0d8fc + 向き×4 + 行×0x40（行 0 左AM・1 左PM・2 右AM・3 右PM、
+ * 4〜7 は それぞれの遠い方の輪 LD2_AM・LD2_PM・RD2_AM・RD2_PM）。値は 命令の番号
+ * （負は「逆」の印）で、番号 → 命令 は view+0x8684、番号 → 札は view+0x89b4
+ * （どちらも FUN_004894cd の in_ECX[0x21a1..] と [0x226d..] の初期化）。既定は原典が
+ * 書いた decomp/res/env_new.jwf の LD_AM LD_PM RD_AM RD_PM LD2_AM（9 時だけ 1 = AUTO）。
+ *
+ * FUN_0062a980 の読み: 押した点からの距離² が DAT_00a0d8ec² を越えると 行 +4
+ * （DAT_00a0d8f8 == 0 のとき）で、札の頭に「(2) 」（FUN_0062ef50 の 0x977cf8）。
+ * 値が負なら 「* 」（0x977d04）、字が 4 字に満たなければ 空白 2 つ（0x966290）。
+ * 番号 0・命令が無い番号は 札 0x271d（10013 キャンセル）で何もしない。取得の
+ * 命令（0x80a4〜0x80ad・0x804a、負の -83・-87・-89 は 札が 10021・10025・10018）は
+ * 右の PM と同じ clk_get_run、0x80a3 は 属性取得、ほかは 命令へ移る（FUN_00633190 の
+ * あと 命令ごとの switch が命令を作る。移植は app_command）。
+ * 逆コンパイルの読みで、原典では押していない。
+ *
+ * 入れていないもの: 番号 100〜199（利用者の命令 DAT_00a0dcc4）、番号 77・80 の
+ * 札 0x273c と 0x158c 端点移動（状態 10 → FUN_00478c70）、0x1656.. の命令
+ * （FUN_00733430・FUN_0068cef0 が作る）、負の値が立てる +0xbc（AUTO の 逆 の印）、
+ * AUTO の下の命令の自前の時計（+0xc4 が非 0 で DAT_00a0c7bc < 2 のとき 先に仮想
+ * 関数 0xb8・0xbc）と 2528〜2530、+0x908c != 0 の枝（FUN_00770b60）、DAT_00a0d8f8
+ * の釦（AUTO のバー）、DAT_00a0d8ec < 0 のときだけ働く FUN_00778a40（AUTO の覚え
+ * = 命令ごとの DAT_00a0dafc・db3c・dbbc の登録）、AM 6 の札 0x148d（+0x94・+0x9c）。 */
+typedef struct { int wm; int id; const char *s; } clk_ai_t;
+static const clk_ai_t clk_ai[100] = {
+    /*  0 */ { 0x0, 0, 0 },
+    /*  1 */ { 0x8093, 5199, JW_STR_5199 },
+    /*  2 */ { 0x8003, 5150, JW_STR_5150 },
+    /*  3 */ { 0x8004, 5198, JW_STR_5198 },
+    /*  4 */ { 0x8005, 10002, JW_STR_10002 },
+    /*  5 */ { 0x8026, 10012, JW_STR_10012 },
+    /*  6 */ { 0x8011, 5235, JW_STR_5235 },
+    /*  7 */ { 0x804f, 5164, JW_STR_5164 },
+    /*  8 */ { 0x807c, 5166, JW_STR_5166 },
+    /*  9 */ { 0x8069, 5167, JW_STR_5167 },
+    /* 10 */ { 0x8073, 5168, JW_STR_5168 },
+    /* 11 */ { 0x8020, 5159, JW_STR_5159 },
+    /* 12 */ { 0x8012, 10009, JW_STR_10009 },
+    /* 13 */ { 0x8017, 10008, JW_STR_10008 },
+    /* 14 */ { 0x805b, 5200, JW_STR_5200 },
+    /* 15 */ { 0x801a, 10010, JW_STR_10010 },
+    /* 16 */ { 0x8024, 5160, JW_STR_5160 },
+    /* 17 */ { 0x8096, 5161, JW_STR_5161 },
+    /* 18 */ { 0x8066, 5237, JW_STR_5237 },
+    /* 19 */ { 0x8068, 5236, JW_STR_5236 },
+    /* 20 */ { 0x8050, 5170, JW_STR_5170 },
+    /* 21 */ { 0x8062, 5195, JW_STR_5195 },
+    /* 22 */ { 0x8061, 5165, JW_STR_5165 },
+    /* 23 */ { 0x807e, 5233, JW_STR_5233 },
+    /* 24 */ { 0x808c, 5234, JW_STR_5234 },
+    /* 25 */ { 0x804e, 10003, JW_STR_10003 },
+    /* 26 */ { 0x8063, 5193, JW_STR_5193 },
+    /* 27 */ { 0x805e, 5194, JW_STR_5194 },
+    /* 28 */ { 0x8065, 5197, JW_STR_5197 },
+    /* 29 */ { 0x8082, 5196, JW_STR_5196 },
+    /* 30 */ { 0x8091, 5238, JW_STR_5238 },
+    /* 31 */ { 0x8081, 5246, JW_STR_5246 },
+    /* 32 */ { 0x8072, 5247, JW_STR_5247 },
+    /* 33 */ { 0x8013, 10004, JW_STR_10004 },
+    /* 34 */ { 0xe125, 5249, JW_STR_5249 },
+    /* 35 */ { 0x806a, 5169, JW_STR_5169 },
+    /* 36 */ { 0x808e, 5248, JW_STR_5248 },
+    /* 37 */ { 0x807f, 5258, JW_STR_5258 },
+    /* 38 */ { 0x8099, 5250, JW_STR_5250 },
+    /* 39 */ { 0x8092, 5252, JW_STR_5252 },
+    /* 40 */ { 0x80a2, 5255, JW_STR_5255 },
+    /* 41 */ { 0x80b3, 5294, JW_STR_5294 },
+    /* 42 */ { 0x80b8, 5488, JW_STR_5488 },
+    /* 43 */ { 0x80c5, 5660, JW_STR_5660 },
+    /* 44 */ { 0x80c6, 5789, JW_STR_5789 },
+    /* 45 */ { 0x80af, 5777, JW_STR_5777 },
+    /* 46 */ { 0x1692, 5778, JW_STR_5778 },
+    /* 47 */ { 0x1693, 5779, JW_STR_5779 },
+    /* 48 */ { 0x1694, 5780, JW_STR_5780 },
+    /* 49 */ { 0x0, 0, 0 },
+    /* 50 */ { 0x80cb, 5757, JW_STR_5757 },
+    /* 51 */ { 0x1656, 5718, JW_STR_5718 },
+    /* 52 */ { 0x1672, 5746, JW_STR_5746 },
+    /* 53 */ { 0x1657, 5719, JW_STR_5719 },
+    /* 54 */ { 0x80f5, 10157, JW_STR_10157 },
+    /* 55 */ { 0x80a0, 5511, JW_STR_5511 },
+    /* 56 */ { 0x80a1, 5512, JW_STR_5512 },
+    /* 57 */ { 0x8108, 0, 0 },
+    /* 58 */ { 0x0, 0, 0 },
+    /* 59 */ { 0x80e5, 5460, JW_STR_5460 },
+    /* 60 */ { 0x1662, 5730, JW_STR_5730 },
+    /* 61 */ { 0x1663, 5731, JW_STR_5731 },
+    /* 62 */ { 0x273f, 10047, JW_STR_10047 },
+    /* 63 */ { 0x0, 0, 0 },
+    /* 64 */ { 0x8055, 5781, JW_STR_5781 },
+    /* 65 */ { 0x808d, 5782, JW_STR_5782 },
+    /* 66 */ { 0x80ca, 5706, JW_STR_5706 },
+    /* 67 */ { 0x80da, 5783, JW_STR_5783 },
+    /* 68 */ { 0x80d9, 5784, JW_STR_5784 },
+    /* 69 */ { 0x0, 0, 0 },
+    /* 70 */ { 0xe12b, 0, 0 },
+    /* 71 */ { 0xe12c, 0, 0 },
+    /* 72 */ { 0x0, 0, 0 },
+    /* 73 */ { 0x157b, 5499, JW_STR_5499 },
+    /* 74 */ { 0x1621, 5665, JW_STR_5665 },
+    /* 75 */ { 0xe122, 5299, JW_STR_5299 },
+    /* 76 */ { 0x1811, 6161, JW_STR_6161 },
+    /* 77 */ { 0x1f4e, 8014, JW_STR_8014 },
+    /* 78 */ { 0x272a, 10026, JW_STR_10026 },
+    /* 79 */ { 0x80a3, 10006, JW_STR_10006 },
+    /* 80 */ { 0x158c, 5516, JW_STR_5516 },
+    /* 81 */ { 0x8027, 10035, JW_STR_10035 },
+    /* 82 */ { 0x8028, 10042, JW_STR_10042 },
+    /* 83 */ { 0x804a, 10020, JW_STR_10020 },
+    /* 84 */ { 0x804b, 10041, JW_STR_10041 },
+    /* 85 */ { 0x8090, 6186, JW_STR_6186 },
+    /* 86 */ { 0x804c, 5254, JW_STR_5254 },
+    /* 87 */ { 0x80a4, 10016, JW_STR_10016 },
+    /* 88 */ { 0x80a7, 10022, JW_STR_10022 },
+    /* 89 */ { 0x80a5, 10015, JW_STR_10015 },
+    /* 90 */ { 0x80a6, 10014, JW_STR_10014 },
+    /* 91 */ { 0x80aa, 10030, JW_STR_10030 },
+    /* 92 */ { 0x80ab, 10023, JW_STR_10023 },
+    /* 93 */ { 0x80ac, 10024, JW_STR_10024 },
+    /* 94 */ { 0x80ad, 10031, JW_STR_10031 },
+    /* 95 */ { 0x80b4, 10032, JW_STR_10032 },
+    /* 96 */ { 0x8041, 5477, JW_STR_5477 },
+    /* 97 */ { 0x8029, 0, 0 },
+    /* 98 */ { 0xe101, 0, 0 },
+    /* 99 */ { 0xe107, 0, 0 },
+};
+
+/* 行 0〜7、向き 0〜12（0 は使わない）。既定は env_new.jwf */
+static int clk_at[8][13] = {
+    { 0, 2, 4, 25, 33, 0, 0, 16, 13, 1, 15, 11, 5 },
+    { 0, 3, 27, 10, 7, 6, 29, 17, 8, 12, 15, 26, 30 },
+    { 0, 20, 28, 0, 0, 0, 0, 9, 13, 0, 15, 26, 0 },
+    { 0, 88, 90, 89, 87, 83, 91, -83, -87, -89, 93, 92, 94 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0 },
+};
+static int clk_a_far = 900;     /* DAT_00a0d8ec */
+static int clk_a_std;           /* DAT_00a0c7c4 > 1（1323） */
+
+void clk_auto_set(int row, int dir, int v)
+{
+    if (row < 0 || row > 7 || dir < 1 || dir > 12 || v < -200 || v > 200)
+        return;                 /* FUN_005d02e0 は ±200 を外れると 前のまま */
+    clk_at[row][dir] = v;
+}
+
+void clk_auto_far(int v)
+{
+    int a = v < 0 ? -v : v, m = clk_min < 0 ? -clk_min : clk_min;
+
+    if (a >= 50)
+        clk_a_far = v;
+    a = clk_a_far < 0 ? -clk_a_far : clk_a_far;
+    if (a < m * 2)
+        clk_a_far = clk_a_far < 1 ? -m * 2 : m * 2;
+}
+
+void clk_auto_std(int on)
+{
+    clk_a_std = on != 0;
+}
+
+/* 取得の命令（右の PM と同じ）。type は 右の PM の 1〜12（FUN_00772770 ほか）。
+   押した点で拾い、二点・三点のものは続きの押しを待つ */
+static void clk_get_run(int type)
+{
+    double mx, my;
+
+    if (!have_drawing)
+        return;
+    nt_px = clk_x;
+    nt_py = clk_y;
+    to_paper(clk_x0, clk_y0, &mx, &my);
+    jw_cmd_clock_get(&drawing, &view, type, mx, my);
+}
+
+/* 属性取得（AM 6、FUN_007751e0(0, 押した点)）: いまの命令のまま 押した点の要素から
+   属性を取る。移植は 属性取得 に入って押した点で押し、前の命令へ戻す */
+static void clk_zoku_run(void)
+{
+    int cur = jw_cmd(), x = clk_x0, y = clk_y0;
+
+    app_command(JW_CMD_ZOKUSEI);
+    app_press(x, y, 0);
+    app_command(cur);
+}
+
+/* 取得の命令の番号の値 → 右の PM の種類（0 は取得でない）。値 83・87・89 は
+   正が 5・4・3、負が 7・8・9 */
+static int clk_get_type(int v)
+{
+    switch (v) {
+    case 88: return 1;
+    case 90: return 2;
+    case 89: return 3;
+    case 87: return 4;
+    case 83: return 5;
+    case 91: return 6;
+    case -83: return 7;
+    case -87: return 8;
+    case -89: return 9;
+    case 93: return 10;
+    case 92: return 11;
+    case 94: return 12;
+    }
+    return 0;
+}
+
+/* どの行の表を使うか（-1 は AUTO の表でない）。btn 0 左・1 右、pm は その AM/PM。
+   AUTO の間は 左 AM の 5・6 と 右 AM の 3・4・5・6・9・12 を除いて表。AUTO でない命令も
+   1323 が入（c7c4 > 1）なら 左 AM の 5・6・9、右 AM の 3・4・5・6・9・12 を除いて表
+   （FUN_0076c9c0・FUN_0076d330 の FUN_00777690 の呼び。右の 0x16 は 移植に無い） */
+static int clk_auto_row(int btn, int dir, int pm)
+{
+    int au = jw_cmd() == JW_CMD_AUTO;
+
+    if (dir < 1 || dir > 12 || (!au && !clk_a_std))
+        return -1;
+    if (!btn) {
+        if (!pm && (dir == 5 || dir == 6 || (!au && dir == 9)))
+            return -1;
+        return pm ? 1 : 0;
+    }
+    if (pm)
+        return 3;
+    if (dir == 3 || dir == 4 || dir == 5 || dir == 6 || dir == 9 || dir == 12)
+        return -1;
+    return 2;
+}
+
+/* FUN_0062a980 / FUN_00777690。run が 0 なら札（*id, *s）、1 なら 実行。
+   1 を返せば 受けた */
+static int clk_auto_tab(int row, int dir, int run, int *id, const char **s)
+{
+    static char buf[96];
+    int dx = clk_x - clk_x0, dy = clk_y - clk_y0, far, v, k, n, t;
+    const clk_ai_t *e;
+
+    /* 遠い方の輪（DAT_00a0d8f8 は AUTO のバーの釦で 0 から） */
+    far = (double)dx * dx + (double)dy * dy > (double)clk_a_far * clk_a_far;
+    v = clk_at[row + (far ? 4 : 0)][dir];
+    k = v < 0 ? -v : v;
+    e = k >= 1 && k < 100 ? &clk_ai[k] : 0;
+    if (!e || !e->wm) {         /* 札 0x271d、実行は 何もしない（+0x9090 = 0） */
+        *id = 10013;
+        *s = JW_STR_10013;
+        return 1;
+    }
+    t = clk_get_type(v);
+    if (t >= 7) {               /* 負の三つは 札が 10021・10025・10018 */
+        static const int nid[10] = { 0, 0, 0, 0, 0, 0, 0, 10021, 10025, 10018 };
+        static const char *const ns[10] = { 0, 0, 0, 0, 0, 0, 0,
+            JW_STR_10021, JW_STR_10025, JW_STR_10018 };
+
+        *id = nid[t];
+        *s = ns[t];
+    } else {
+        const char *lab = e->s ? e->s : JW_STR_10013;
+        int c = 0, i;
+
+        *id = e->s ? e->id : 10013;
+        n = 0;
+        buf[0] = 0;
+        if (far)
+            n += snprintf(buf + n, sizeof buf - (size_t)n, "(2) ");
+        if (v < 0)
+            n += snprintf(buf + n, sizeof buf - (size_t)n, "* ");
+        n += snprintf(buf + n, sizeof buf - (size_t)n, "%s", lab);
+        /* 4 字に満たなければ 空白 2 つ（CP932 の 2 バイトは 1 字） */
+        for (i = 0; buf[i]; i++, c++)
+            if (((unsigned char)buf[i] >= 0x81 && (unsigned char)buf[i] <= 0x9f)
+                || ((unsigned char)buf[i] >= 0xe0 && (unsigned char)buf[i] <= 0xfc))
+                i++;
+        if (c < 4 && n + 2 < (int)sizeof buf)
+            strcat(buf, "  ");
+        *s = buf;
+    }
+    if (!run)
+        return 1;
+    /* 実行（FUN_00633190 のあと、取得なら 取得、そうでなければ 命令へ） */
+    if (t) {
+        clk_get_run(t);
+        return 1;
+    }
+    if (e->wm == 0x80a3) {
+        clk_zoku_run();
+        return 1;
+    }
+    if (e->wm >= 0x8000 && (e->wm < 0x80a4 || e->wm > 0x80ad) && e->wm != 0x804a
+        && e->wm != 0x80b4)
+        app_command(e->wm);
+    return 1;
 }
 
 /* 命令ごとの受け手（原典の仮想関数 46 番目）。受けたら 1、既定の表へ回すなら 0。
@@ -426,15 +736,10 @@ int clk_rown(int dir, int pm, int run, int *id, const char **s)
     if (pm) {
         *id = pid[dir];
         *s = ps[dir];
-        if (run && have_drawing) {
+        if (run) {
             /* 離しの取得（仮想関数 47 の PM、FUN_00772770 ほか。src/cmd.c の
                jw_cmd_clock_get の注）。押した点で拾い、二点・三点のものは続きの押しを待つ */
-            double mx, my;
-
-            nt_px = clk_x;
-            nt_py = clk_y;
-            to_paper(clk_x0, clk_y0, &mx, &my);
-            jw_cmd_clock_get(&drawing, &view, dir, mx, my);
+            clk_get_run(dir);
         }
         return 1;
     }
@@ -500,17 +805,33 @@ int clk_rown(int dir, int pm, int run, int *id, const char **s)
     return 0;
 }
 
+/* 左の表の札（AUTO の表か、既定の表 FUN_0076c9c0） */
+static void clk_left_show(int *id, const char **s)
+{
+    int row = clk_auto_row(0, clk_d, clk_am);
+
+    if (row >= 0)
+        clk_auto_tab(row, clk_d, 0, id, s);
+    else
+        *s = clk_label(clk_d, clk_am, id);
+}
+
 static void clk_show(void)
 {
     int id;
     const char *s;
 
     if (clk_btn) {
-        /* 右の表に無い時は 左の表（FUN_0076c9c0 は 左の AM/PM を見る） */
-        if (!clk_rown(clk_d, clk_ram, 0, &id, &s))
-            s = clk_label(clk_d, clk_am, &id);
+        /* AUTO の表（右 AM 1・2・7・8・10・11、右 PM）、無ければ既定の右の表、それも
+           無い時は 左の表（FUN_0076c9c0 は 左の AM/PM を見る） */
+        int row = clk_auto_row(1, clk_d, clk_ram);
+
+        if (row >= 0)
+            clk_auto_tab(row, clk_d, 0, &id, &s);
+        else if (!clk_rown(clk_d, clk_ram, 0, &id, &s))
+            clk_left_show(&id, &s);
     } else if (!clk_own(clk_d, clk_am, 0, &id, &s))
-        s = clk_label(clk_d, clk_am, &id);
+        clk_left_show(&id, &s);
     /* 札は押した画素（+0x8f50/54）に。src/app.c の notice_at が据える */
     nt_px = clk_x0;
     nt_py = clk_y0;
@@ -600,7 +921,11 @@ void app_clock_cancel(void)
 /* 左の表（FUN_0076c9c0）の実行。pm は 左の AM/PM */
 static int clk_table_run(int d, int pm)
 {
-    int cur = jw_cmd(), c;
+    int cur = jw_cmd(), c, row = clk_auto_row(0, d, pm), id;
+    const char *s;
+
+    if (row >= 0)               /* AUTO の表（FUN_0062a980、1323 なら FUN_00777690） */
+        return clk_auto_tab(row, d, 1, &id, &s);
 
     if (cur == JW_CMD_FUKUSHA)
         clk_copy = 1;
@@ -610,11 +935,7 @@ static int clk_table_run(int d, int pm)
     if (c == CLK_ZOKU) {
         /* FUN_007751e0(0, 押した点): いまの命令のまま 押した点の要素から属性を
            取る。移植は 属性取得 に入って押した点で押し、前の命令へ戻す */
-        int x = clk_x0, y = clk_y0;
-
-        app_command(JW_CMD_ZOKUSEI);
-        app_press(x, y, 0);
-        app_command(cur);
+        clk_zoku_run();
         return 1;
     }
     if (c == CLK_SENSHU) {
@@ -650,6 +971,12 @@ int app_clock_end(void)
            （0x907c = 0x9084 = 0） */
         if (clk_rclear)
             clk_ram = 0;
+        {
+            int row = clk_auto_row(1, d, pm);
+
+            if (row >= 0)       /* 右の AUTO の表（FUN_0062ff00 → FUN_0062a980） */
+                return clk_auto_tab(row, d, 1, &id, &s);
+        }
         if (clk_rown(d, pm, 1, &id, &s))
             return 1;
         return clk_table_run(d, clk_am);

@@ -465,5 +465,119 @@
 #define JW_STR_10030 "\x90\x94\x92l\x8ap\x93x"
 /* 10031: right clock PM 12: numeric length */
 #define JW_STR_10031 "\x90\x94\x92l \x92\xb7"
+/* 5150: AUTO clock table label */
+#define JW_STR_5150 "\x90\xfc"
+/* 5198: AUTO clock table label */
+#define JW_STR_5198 "\x8b\xe9\x8c`"
+/* 5235: AUTO clock table label */
+#define JW_STR_5235 " \x93_ "
+/* 5159: AUTO clock table label */
+#define JW_STR_5159 "\x95\xa1\x90\xfc"
+/* 5200: AUTO clock table label */
+#define JW_STR_5200 "\x96\xca\x8e\xe6"
+/* 5160: AUTO clock table label */
+#define JW_STR_5160 "\x95\xa1\x8e\xca"
+/* 5161: AUTO clock table label */
+#define JW_STR_5161 "\x88\xda\x93\xae"
+/* 5237: AUTO clock table label */
+#define JW_STR_5237 "\x90\xda\x90\xfc"
+/* 5236: AUTO clock table label */
+#define JW_STR_5236 "\x90\xda\x89~"
+/* 5233: AUTO clock table label */
+#define JW_STR_5233 "\x91\xbd\x8ap\x8c`"
+/* 5193: AUTO clock table label */
+#define JW_STR_5193 "\x95\xaa\x8a\x84"
+/* 5194: AUTO clock table label */
+#define JW_STR_5194 "\x90}\x8c`"
+/* 5238: AUTO clock table label */
+#define JW_STR_5238 "\x8aO\x95\x94\x95\xcf\x8c`"
+/* 5246: AUTO clock table label */
+#define JW_STR_5246 "\x91\xaa\x92\xe8"
+/* 5247: AUTO clock table label */
+#define JW_STR_5247 "\x93o\x98^\x91I\x91\xf0\x90}\x8c`"
+/* 5249: AUTO clock table label */
+#define JW_STR_5249 "\x93\x5c\x82\xe8\x95t\x82\xaf"
+/* 5248: AUTO clock table label */
+#define JW_STR_5248 "\x83" "f\x81[\x83^\x90\xae\x97\x9d"
+/* 5258: AUTO clock table label */
+#define JW_STR_5258 "\x8d\xc0\x95W\x83t\x83@\x83" "C\x83\x8b"
+/* 5250: AUTO clock table label */
+#define JW_STR_5250 "\x90\xda\x91\xc8\x89~"
+/* 5252: AUTO clock table label */
+#define JW_STR_5252 "\x95\x5c\x8cv\x8eZ"
+/* 5255: AUTO clock table label */
+#define JW_STR_5255 "\x8b\x97\x97\xa3\x8ew\x92\xe8\x93_"
+/* 5294: AUTO clock table label */
+#define JW_STR_5294 "\x8e\xae\x8cv\x8eZ"
+/* 5488: AUTO clock table label */
+#define JW_STR_5488 "\x91\xae\x90\xab\x95\xcf\x8dX"
+/* 5660: AUTO clock table label */
+#define JW_STR_5660 "\x83\x5c\x83\x8a\x83" "b\x83h\x90}\x8c`"
+/* 5789: AUTO clock table label */
+#define JW_STR_5789 "\x82R\x93_\x89~"
+/* 5777: AUTO clock table label */
+#define JW_STR_5777 "\x93\xfa\x89" "e\x90}"
+/* 5778: AUTO clock table label */
+#define JW_STR_5778 "\x93\xfa\x89" "e\x90}\x8cv\x8eZ"
+/* 5779: AUTO clock table label */
+#define JW_STR_5779 "\x93\x99\x8e\x9e\x8a\xd4\x8cv\x8eZ"
+/* 5780: AUTO clock table label */
+#define JW_STR_5780 "\x8ew\x92\xe8\x93_\x8cv\x8eZ"
+/* 5757: AUTO clock table label */
+#define JW_STR_5757 "\x93V\x8b\xf3\x90}"
+/* 5718: AUTO clock table label */
+#define JW_STR_5718 "\x93V\x8b\xf3\x97\xa6\x8cv\x8eZ"
+/* 5746: AUTO clock table label */
+#define JW_STR_5746 "\x8eO\x8e\xce\x8cv\x8eZ"
+/* 5719: AUTO clock table label */
+#define JW_STR_5719 "[\x93V\x8b\xf3\x94\xe4\x8cv\x8eZ]"
+/* 10157: AUTO clock table label */
+#define JW_STR_10157 "\x89\xe6\x91\x9c\x95\xd2\x8fW"
+/* 5511: AUTO clock table label */
+#define JW_STR_5511 "\x90\xa1\x96@\x90}\x8c`\x89\xbb"
+/* 5512: AUTO clock table label */
+#define JW_STR_5512 "\x90\xa1\x96@\x90}\x8c`\x89\xf0\x8f\x9c"
+/* 5460: AUTO clock table label */
+#define JW_STR_5460 "\x8aO\x95\x94\xb4\xc3\xde\xa8\xc0"
+/* 5730: AUTO clock table label */
+#define JW_STR_5730 "\x83T\x81[\x83`\x8f\x87\x90\xd8\x91\xd6"
+/* 5731: AUTO clock table label */
+#define JW_STR_5731 "\x95`\x89\xe6\x8f\x87\x90\xd8\x91\xd6"
+/* 10047: AUTO clock table label */
+#define JW_STR_10047 "\x90\xfc\x95\x9d\xa5\x93_\x94{\x97\xa6\x95\x5c\x8e\xa6\x90\xd8\x91\xd6"
+/* 5781: AUTO clock table label */
+#define JW_STR_5781 "\x83u\x83\x8d\x83" "b\x83N\x89\xbb"
+/* 5782: AUTO clock table label */
+#define JW_STR_5782 "\x83u\x83\x8d\x83" "b\x83N\x89\xf0\x8f\x9c"
+/* 5706: AUTO clock table label */
+#define JW_STR_5706 "\x83u\x83\x8d\x83" "b\x83N\x91\xae\x90\xab"
+/* 5783: AUTO clock table label */
+#define JW_STR_5783 "\x83u\x83\x8d\x83" "b\x83N\x95\xd2\x8fW"
+/* 5784: AUTO clock table label */
+#define JW_STR_5784 "\x83u\x83\x8d\x83" "b\x83N\x95\xd2\x8fW\x8fI\x97\xb9"
+/* 5499: AUTO clock table label */
+#define JW_STR_5499 "\x83^\x83O\x83W\x83\x83\x83\x93\x83v"
+/* 5665: AUTO clock table label */
+#define JW_STR_5665 "\x93\xc7\x8e\xe6\x95\xcf\x8dX"
+/* 5299: AUTO clock table label */
+#define JW_STR_5299 "\x83R\x83s\x81["
+/* 6161: AUTO clock table label */
+#define JW_STR_6161 "\x95\xfb\x8c\xfc\x95\xcf\x8dX"
+/* 8014: AUTO clock table label */
+#define JW_STR_8014 "-\x92\xbc\x90\xfc\x90L\x8fk-"
+/* 5516: AUTO clock table label */
+#define JW_STR_5516 "<\x92[\x93_\x88\xda\x93\xae>"
+/* 10042: AUTO clock table label */
+#define JW_STR_10042 "\x83\x8c\x83" "C\x83\x84\x90\xdd\x92\xe8"
+/* 10041: AUTO clock table label */
+#define JW_STR_10041 "\x8e\xb2\x8ap\x81" "E\x96\xda\x90\xb7"
+/* 6186: AUTO clock table label */
+#define JW_STR_6186 "\x96\xda\x90\xb7\x8a\xee\x8f\x80\x93_"
+/* 5254: AUTO clock table label */
+#define JW_STR_5254 "\x89\xe6\x96\xca\x94{\x97\xa6"
+/* 10032: AUTO clock table label */
+#define JW_STR_10032 "\x8a\xd4\x8au\x8e\xe6\x93\xbe"
+/* 5477: AUTO clock table label */
+#define JW_STR_5477 "\x8fk\x8e\xda"
 
 #endif
