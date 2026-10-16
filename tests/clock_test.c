@@ -1,0 +1,332 @@
+/* クロックメニュー（左ボタン、src/clock.h）。
+ *
+ * 向きの割り方（FUN_004fc1d0）、左の表（FUN_0076c9c0 の AM・PM）、札の番号、
+ * しきい（1054 Drag\Minimum 35）を越えて引いたら時計・内で離したらクリック、
+ * 時計の間の右で AM/PM。逆コンパイルの読み、原典では押していない。答えは
+ * 読みから出した数で見る。
+ */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "../src/app.h"
+#include "../src/ui.h"
+#include "../src/cmd.h"
+#include "../src/clock.h"
+#include "../src/jww.h"
+
+static int fails;
+
+static void ck(int ok, const char *what)
+{
+    printf("%-4s %s\n", ok ? "ok" : "BAD", what);
+    if (!ok)
+        fails++;
+}
+
+/* 時計の向きの真ん中へ r 画素（1 時は 30°） */
+static void at_hour(int h, int r, int *dx, int *dy)
+{
+    double a = h * 30.0 * 3.141592653589793 / 180.0;
+
+    *dx = (int)lround(sin(a) * r);
+    *dy = (int)lround(-cos(a) * r);
+}
+
+static int dir_deg(double deg)
+{
+    double t = deg * 3.141592653589793 / 180.0;
+    int am = 0, pd = 0;
+
+    return clk_dir((int)lround(sin(t) * 1000), (int)lround(-cos(t) * 1000), &am, &pd, 0);
+}
+
+/* 基本設定（tests/kihon3_test.c と同じ手） */
+static int hit(int want)
+{
+    const fb_t *fb = app_fb();
+    int x, y;
+
+    for (y = 0; y < fb->h; y++)
+        for (x = 0; x < fb->w; x++)
+            if (ui_kihon_hit(fb->w, fb->h, app_kihon_tab(), x, y) == want) {
+                app_press(x, y, 0);
+                return 1;
+            }
+    return 0;
+}
+
+static int kh_press(int tab, int id)
+{
+    if (!app_kihon_open())
+        app_command(32891);
+    if (!app_kihon_open())
+        return 0;
+    if (app_kihon_tab() != tab && !hit(-tab - 1))
+        return 0;
+    return hit(id);
+}
+
+static void kh_ok(void)
+{
+    if (app_kihon_open())
+        hit(1);
+}
+
+static int kh_type(int tab, int id, const char *s)
+{
+    if (!kh_press(tab, id))
+        return 0;
+    while (*s)
+        app_key((unsigned char)*s++);
+    return 1;
+}
+
+int main(void)
+{
+    rect_t r;
+    int cx, cy, h, dx, dy, am, pd, ok, id;
+
+    /* ---- 向き ---- */
+    ok = 1;
+    for (h = 1; h <= 12; h++) {
+        am = 0;
+        pd = 0;
+        at_hour(h, 60, &dx, &dy);
+        if (clk_dir(dx, dy, &am, &pd, 0) != h || am != 0)
+            ok = 0;
+    }
+    ck(ok, "十二の向き（画面の上が 12 時、時計回り）");
+    am = pd = 0;
+    ck(clk_dir(0, -50, &am, &pd, 0) == 12, "真上は 12 時");
+    am = pd = 0;
+    ck(clk_dir(50, 0, &am, &pd, 0) == 3, "真右は 3 時");
+    ck(dir_deg(14.0) == 12 && dir_deg(16.0) == 1 && dir_deg(344.0) == 11 && dir_deg(346.0) == 12,
+       "境は 15°（角 + 90 が 15 未満なら 12、345 からも 12）");
+    am = pd = 0;
+    ck(clk_dir(0, 0, &am, &pd, 0) == CLK_NONE && am == 0, "押した点の上は 13（初めは AM のまま）");
+    am = pd = 0;
+    clk_dir(40, 0, &am, &pd, 0);
+    ck(clk_dir(0, 0, &am, &pd, 0) == CLK_NONE && am == 1, "外から押した画素へ戻ると PM");
+    clk_dir(0, 40, &am, &pd, 0);
+    ck(clk_dir(0, 0, &am, &pd, 0) == CLK_NONE && am == 0, "もう一度戻ると AM");
+    clk_dir(0, 40, &am, &pd, 0);
+    ck(clk_dir(1, 0, &am, &pd, 0) == 3 && am == 0,
+       "1 画素ずれた所は戻ったことにならない（DAT_00a0cae4 が 0）");
+    ok = 1;
+    for (h = 1; h <= 12; h++) {
+        static const int to[13] = { 0, 12, 3, 3, 3, 6, 6, 6, 9, 9, 9, 12, 12 };
+
+        am = 1;
+        pd = 0;
+        at_hour(h, 60, &dx, &dy);
+        if (clk_dir(dx, dy, &am, &pd, 1) != to[h] || am != 0)
+            ok = 0;
+    }
+    ck(ok, "1326 の寄せ: 11・1 は 12、2・4 は 3、5・7 は 6、8・10 は 9、AM に");
+
+    /* ---- 表 ---- */
+    ck(clk_cmd(1, 0, JW_CMD_SEN, 1) == JW_CMD_KUKEI && clk_cmd(1, 0, JW_CMD_ENKO, 1) == JW_CMD_SEN,
+       "AM 1: 線 なら 矩形、ほかは 線");
+    ck(clk_cmd(2, 0, 0, 1) == JW_CMD_ENKO && clk_cmd(3, 0, 0, 1) == JW_CMD_HOURAKU
+       && clk_cmd(4, 0, 0, 1) == JW_CMD_HANI && clk_cmd(8, 0, 0, 1) == JW_CMD_SHINSHUKU
+       && clk_cmd(9, 0, 0, 1) == JW_CMD_AUTO && clk_cmd(10, 0, 0, 1) == JW_CMD_SHOUKYO
+       && clk_cmd(11, 0, 0, 1) == JW_CMD_FUKUSEN && clk_cmd(12, 0, 0, 1) == JW_CMD_MOJI,
+       "AM 2〜4・8〜12: 円 包絡 範囲 伸縮 AUTO 消去 複線 文字");
+    ck(clk_cmd(7, 0, 0, 1) == JW_CMD_FUKUSHA && clk_cmd(7, 0, 0, 0) == JW_CMD_IDOU,
+       "AM 7: 前が複写なら 複写、移動なら 移動（view+0x9058）");
+    ck(clk_cmd(6, 0, 0, 1) == CLK_ZOKU && clk_cmd(5, 0, 0, 1) == 0,
+       "AM 6 属性取得、AM 5 線種変更 は入れていない");
+    ck(clk_cmd(1, 1, 0, 1) == JW_CMD_KIGOU && clk_cmd(2, 1, 0, 1) == JW_CMD_KYOKUSEN
+       && clk_cmd(3, 1, 0, 1) == JW_CMD_TATEGU_RITSU && clk_cmd(4, 1, 0, 1) == JW_CMD_TATEGU_DAN
+       && clk_cmd(5, 1, 0, 1) == JW_CMD_TATEGU && clk_cmd(6, 1, 0, 1) == 0
+       && clk_cmd(7, 1, 0, 1) == JW_CMD_HATCH && clk_cmd(8, 1, 0, 1) == JW_CMD_RENZOKU
+       && clk_cmd(9, 1, 0, 1) == JW_CMD_CHUSHIN && clk_cmd(10, 1, 0, 1) == JW_CMD_NISEN
+       && clk_cmd(11, 1, 0, 1) == JW_CMD_SUNPO && clk_cmd(12, 1, 0, 1) == JW_CMD_PARAM,
+       "PM 1〜12: 線記号変形 曲線 建具立面 建具断面 建具平面 (全属性) ハッチ 連続線 中心線 ２線 寸法 ﾊﾟﾗﾒﾄﾘｯｸ");
+    ck(clk_cmd(CLK_NONE, 0, 0, 1) == 0 && clk_cmd(CLK_NONE, 1, 0, 1) == 0, "13 は何もしない");
+    clk_label(3, 0, &id);
+    ck(id == 10003, "AM 3 の札は 10003（包絡）");
+    clk_label(9, 0, &id);
+    ck(id == 5199, "AM 9 の札は 5199 AUTO");
+    clk_label(6, 1, &id);
+    ck(id == 10026, "PM 6 の札は 10026【全】属性取得");
+    clk_label(CLK_NONE, 1, &id);
+    ck(id == 10013, "13 は キャンセル 10013");
+    ck(clk_minimum() == 35, "しきいの既定は 35（1054）");
+
+    /* ---- 押し離し ---- */
+    ck(app_resize(1000, 700), "窓");
+    app_new();
+    app_fit();
+    app_paint();
+    ui_view_rect(1000, 700, &r);
+    cx = r.x + r.w / 2;
+    cy = r.y + r.h / 2;
+    ck(jw_cmd() == JW_CMD_SEN, "初めは 線");
+    ck(app_clock_possible(), "線 の間は 左が時計になりうる");
+    ck(!app_clock_ready(cx, cy, cx + 35, cy) && !app_clock_ready(cx, cy, cx + 21, cy - 28),
+       "距離 35 ちょうどまでは時計にならない（二乗 > 1225）");
+    ck(app_clock_ready(cx, cy, cx + 36, cy), "36 で時計");
+
+    /* 3 時（右）へ引いて離す: 包絡 */
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 36, cy);
+    app_clock_move(cx + 80, cy + 5);
+    ck(app_clock_active() && app_clock_now() == 3, "右へ引けば 3 時");
+    ck(jw_cmd_notice_id() == 10003, "札 10003 が出る");
+    app_paint();
+    app_clock_end();
+    ck(!app_clock_active() && jw_cmd() == JW_CMD_HOURAKU, "離すと 包絡");
+    ck(jw_cmd_notice_id() == 0, "札は下りる");
+
+    /* 1 時: 線 でないので 線、線からなら 矩形 */
+    at_hour(1, 60, &dx, &dy);
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + dx, cy + dy);
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_SEN, "AM 1（包絡から）で 線");
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + dx, cy + dy);
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_KUKEI, "AM 1（線から）で 矩形");
+
+    /* 右で PM: 3 時 → 建具立面 */
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 60, cy);
+    ck(app_clock_right() && app_clock_pm() == 1, "時計の間の右で PM");
+    ck(jw_cmd_notice_id() == 5165, "札は 5165 建具立面 に替わる");
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_TATEGU_RITSU, "離すと 建具立面");
+    ck(app_clock_pm() == 0, "2108 が切なので 次は AM から");
+
+    /* 押した点へ戻して PM、12 時 → ﾊﾟﾗﾒﾄﾘｯｸ */
+    app_clock_begin(cx, cy);
+    app_clock_move(cx, cy - 50);
+    app_clock_move(cx, cy);
+    ck(app_clock_now() == CLK_NONE && app_clock_pm() == 1, "押した画素へ戻すと PM（13）");
+    ck(jw_cmd_notice_id() == 10013, "札は キャンセル");
+    app_clock_move(cx, cy - 50);
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_PARAM, "PM 12 で ﾊﾟﾗﾒﾄﾘｯｸ変形");
+
+    /* やめれば何もしない */
+    app_command(JW_CMD_SEN);
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 50, cy);
+    app_clock_cancel();
+    ck(jw_cmd() == JW_CMD_SEN && !app_clock_active(), "やめれば命令はそのまま");
+
+    /* 13 で離しても何もしない */
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 50, cy);
+    app_clock_move(cx, cy);
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_SEN, "13（キャンセル）で離せば命令はそのまま");
+
+    /* ---- 基本設定 1326・1054・2108 ---- */
+    ck(kh_press(0, 1326), "1326 クロックメニューを使用しない を押す");
+    kh_ok();
+    ck(!app_kihon_open() && !app_clock_possible() && !app_clock_ready(cx, cy, cx + 200, cy),
+       "1326 が入なら 左は時計にならない（前のとおり 3 画素で渡す）");
+    kh_press(0, 1326);
+    kh_ok();
+    ck(app_clock_possible(), "切に戻せば また時計");
+    ck(kh_type(0, 1054, "50"), "1054 に 50");
+    kh_ok();
+    ck(clk_minimum() == 50 && !app_clock_ready(cx, cy, cx + 50, cy) && app_clock_ready(cx, cy, cx + 51, cy),
+       "1054 50: 距離 50 までは時計にならない");
+    ck(kh_type(0, 1054, "10"), "1054 に 10");
+    kh_ok();
+    ck(clk_minimum() == 50, "|箱| が 20 未満なら入れない（前の 50 のまま）");
+    kh_type(0, 1054, "35");
+    kh_ok();
+    ck(kh_press(0, 2108), "2108 左クロックメニュー開始の AM/PM は前操作状態");
+    kh_ok();
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 60, cy);
+    app_clock_right();
+    app_clock_cancel();
+    ck(app_clock_pm() == 1, "2108 が入なら PM が残る");
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 60, cy);
+    ck(jw_cmd_notice_id() == 5165, "次の時計は PM から（3 時 建具立面）");
+    app_clock_right();
+    app_clock_cancel();
+    kh_press(0, 2108);
+    kh_ok();
+    ck(app_clock_pm() == 0, "AM に戻した");
+
+    /* ---- 分割の受け手（FUN_007637e0）---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int i;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 100; o->d[3] = 0;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 100; o->d[2] = 100; o->d[3] = 100;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_BUNKATSU);
+        jw_cmd_box_click(1411);
+        for (i = 0; i < 24; i++)
+            jw_cmd_box_key(8);
+        jw_cmd_box_key('3');
+        jw_cmd_box_key(13);
+
+        /* 線（Ａ）の前は 既定の表: 3 時 包絡 の札 */
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + 60, cy);
+        ck(jw_cmd_notice_id() == 10003, "分割: Ａの前の 3 時は 既定の表（包絡）");
+        app_clock_cancel();
+
+        jw_cmd_point(d, v, 50, 0, 0);
+        ck(jw_cmd_bunkatsu_a() && jw_cmd_bunkatsu_hojo(), "線（Ａ）を指した");
+        at_hour(1, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5611, "Ａのあとの 1 時は 札 5611 逆分割");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_BUNKATSU && jw_cmd_notice_id() == 5611 && jw_cmd_bunkatsu_a(),
+           "離すと 逆分割（バーの 1066 と同じ、命令はそのまま）");
+        {   /* 逆分割になったか: Ｂを指すと交差に組む（tests/bunkatsu_test.c と同じ形） */
+            int g = d->ndrawn;
+
+            jw_cmd_point(d, v, 50, 100, 0);
+            ck(d->ndrawn == g + 2 && fabs(d->obj[g].d[1] - 100.0 / 3) < 1e-6
+               && fabs(d->obj[g].d[3] - 100.0 / 3) < 1e-6
+               && fabs(fmin(d->obj[g].d[0], d->obj[g].d[2]) - 100.0 / 3) < 1e-6,
+               "Ｂを指すと 逆分割の線（交差に組む）");
+        }
+        jw_cmd_point(d, v, 50, 0, 0);
+        at_hour(2, 60, &dx, &dy);
+        app_clock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 5612, "2 時は 札 5612 線長割合分割");
+        app_clock_move(cx + 60, cy);
+        ck(jw_cmd_notice_id() == 5609, "3 時は 札 5609 馬目地分割");
+        app_clock_move(cx, cy - 60);
+        ck(jw_cmd_notice_id() == 10035, "12 時は 札 10035 線属性設定");
+        app_clock_move(cx - 60, cy);
+        ck(jw_cmd_notice_id() == 10009 || jw_cmd_notice_id() == 5199, "9 時は 既定の表（AUTO）");
+        app_clock_move(cx, cy - 60);
+        app_clock_end();
+        ck(app_zoku_open(), "12 時で離すと 線属性 の窓");
+        app_key(27);
+    }
+
+    /* AUTO の間は時計にしない（AUTO 自前の時計は入れていない） */
+    app_command(JW_CMD_AUTO);
+    ck(!app_clock_possible() && !app_clock_ready(cx, cy, cx + 100, cy), "AUTO の間は時計にしない");
+    app_command(JW_CMD_SEN);
+
+    printf("%s\n", fails ? "FAIL" : "all ok");
+    return fails != 0;
+}

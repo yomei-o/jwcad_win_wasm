@@ -19,6 +19,7 @@
 #include "app.h"
 #include "plot.h"
 #include "ryoboton.h"
+#include "clock.h"
 #include "cmd.h"
 #include "image.h"
 #include "cp932.h"
@@ -1811,6 +1812,10 @@ static int print_gdi_page(HWND wnd, int page)
  * 二つとも離れたところで判定どおりにする。逆コンパイルの読み、原典では
  * 押していない。 */
 static int lheld, lhx, lhy, lhshift, lhctrl;
+/* クロックメニュー（src/clock.h）: 預かった左を しきい（1054、既定 35）を越えて
+   引けば時計にする。時計の間に右を押せば AM/PM を替え、その右の離しは捨てる
+   （原典の右押し FUN_0050d070 が 右の押しの旗 +0x90cc を落とす） */
+static int rswallow;
 
 static void held_flush(HWND wnd)
 {
@@ -2019,6 +2024,20 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONUP:
+        if (app_clock_active()) {       /* 時計: 離した向きの命令へ */
+            int redraw;
+
+            if (!(wp & MK_RBUTTON))
+                ReleaseCapture();
+            app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
+            redraw = app_clock_end();
+            redraw |= do_action(wnd);   /* 移った命令の求め（図形の窓など）も */
+            if (redraw) {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+            return 0;
+        }
         if (ryo_active()) {
             if (!(wp & MK_RBUTTON))     /* 二つとも離れた */
                 ryo_finish(wnd);
@@ -2037,6 +2056,15 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_RBUTTONDOWN:
         if (ryo_active())
             return 0;
+        if (msg == WM_RBUTTONDOWN && app_clock_active()) {
+            if (app_clock_right())      /* 時計の間の右: AM/PM */
+                rswallow = 1;
+            else                        /* 1054 が負: 時計をやめて 両ボタン */
+                ryo_begin(MX(LOWORD(lp)), MX(HIWORD(lp)));
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
         if (msg == WM_RBUTTONDOWN && lheld) {   /* 左を押したまま右: 両ボタン */
             lheld = 0;
             ryo_begin(MX(LOWORD(lp)), MX(HIWORD(lp)));
@@ -2054,6 +2082,12 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_MBUTTONUP:
     case WM_RBUTTONUP:
+        if (msg == WM_RBUTTONUP && rswallow) {
+            rswallow = 0;
+            if (!app_clock_active() && !(wp & MK_LBUTTON))
+                ReleaseCapture();
+            return 0;
+        }
         if (ryo_active()) {
             if (msg == WM_RBUTTONUP && !(wp & MK_LBUTTON))
                 ryo_finish(wnd);
@@ -2080,7 +2114,28 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             }
             return 0;
         }
-        if (lheld && (abs(x - lhx) > DRAG_SLOP || abs(y - lhy) > DRAG_SLOP))
+        if (app_clock_active()) {
+            if (!(wp & MK_LBUTTON)) {   /* 離しを取りこぼした */
+                app_clock_cancel();
+                ReleaseCapture();
+            } else
+                app_clock_move(x, y);
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
+        if (lheld && app_clock_ready(lhx, lhy, x, y)) {
+            lheld = 0;                  /* しきいを越えて引いた: クロックメニュー */
+            app_clock_begin(lhx, lhy);
+            app_clock_move(x, y);
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
+        /* 時計になりうる間は しきいまで預かったまま（離せば押した点でクリック）。
+           ならない（1326・AUTO・手書線 など）なら 前のとおり 3 画素で渡す */
+        if (lheld && (abs(x - lhx) > DRAG_SLOP || abs(y - lhy) > DRAG_SLOP)
+            && !app_clock_possible())
             held_flush(wnd);            /* 動いた: 預かった左を渡してから */
         if (dragging) {
             if (abs(x - downx) > DRAG_SLOP || abs(y - downy) > DRAG_SLOP)

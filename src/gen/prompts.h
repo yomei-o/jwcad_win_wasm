@@ -361,5 +361,63 @@
 #define JW_STR_5631 "\x83}\x83" "E\x83X\x8ap    \x81y\x8c\xb3\x90}\x8c`\x81z\x8ap\x93x\x8a\xee\x8f\x80\x93_\x8ew\x8e\xa6   (L)free\x81@(R)Read  [\x8ap]\x8d\xc4\x83N\x83\x8a\x83" "b\x83N\x82\xc5\x8a\xee\x8f\x80\x8ap\x81" "F\x90\x85\x95\xbd"
 /* 5502: the figure has groups of another scale (figure read, OK / cancel) */
 #define JW_STR_5502 "\x8c\xb3\x83\x8c\x83" "C\x83\x84\x83O\x83\x8b\x81[\x83v\x82\xc9\x88\xd9\x82\xc8\x82\xe9\x8fk\x8e\xda\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb7\x81" "B"
+/* 10001: clock AM 1 */
+#define JW_STR_10001 "\x90\xfc\x81" "E\x8b\xe9\x8c`"
+/* 10002: clock AM 2 */
+#define JW_STR_10002 "\x89~\x81" "E\x89~\x8c\xca"
+/* 10003: clock AM 3 */
+#define JW_STR_10003 "\x95\xef\x97\x8d"
+/* 10004: clock AM 4 */
+#define JW_STR_10004 "\x94\xcd\x88\xcd\x91I\x91\xf0"
+/* 10005: clock AM 5 */
+#define JW_STR_10005 "\x90\xfc\x8e\xed\x95\xcf\x8dX"
+/* 10006: clock AM 6 */
+#define JW_STR_10006 "\x91\xae\x90\xab\x8e\xe6\x93\xbe"
+/* 10007: clock AM 7 */
+#define JW_STR_10007 "\x95\xa1\x8e\xca\x81" "E\x88\xda\x93\xae"
+/* 10008: clock AM 8 */
+#define JW_STR_10008 "\x90L\x8fk"
+/* 10009: clock AM 9 (not shown: AM 9 is 5199) */
+#define JW_STR_10009 "\x83R\x81[\x83i\x81["
+/* 10010: clock AM 10 */
+#define JW_STR_10010 "\x8f\xc1\x8b\x8e"
+/* 10011: clock AM 11 */
+#define JW_STR_10011 "\x95\xa1\x90\xfc"
+/* 10012: clock AM 12 */
+#define JW_STR_10012 "\x95\xb6\x8e\x9a"
+/* 10013: clock: cancel */
+#define JW_STR_10013 "\x83L\x83\x83\x83\x93\x83Z\x83\x8b"
+/* 5199: clock AM 9: AUTO */
+#define JW_STR_5199 "AUTO"
+/* 5261: clock AM 6 when layers can be hidden */
+#define JW_STR_5261 "\x83\x8c\x83" "C\x83\x84\x94\xf1\x95\x5c\x8e\xa6\x89\xbb"
+/* 5197: clock PM 1 */
+#define JW_STR_5197 "\x90\xfc\x8bL\x8d\x86\x95\xcf\x8c`"
+/* 5234: clock PM 2 */
+#define JW_STR_5234 "\x8b\xc8\x90\xfc"
+/* 5165: clock PM 3 */
+#define JW_STR_5165 "\x8c\x9a\x8b\xef\x97\xa7\x96\xca"
+/* 5195: clock PM 4 */
+#define JW_STR_5195 "\x8c\x9a\x8b\xef\x92" "f\x96\xca"
+/* 5170: clock PM 5 */
+#define JW_STR_5170 "\x8c\x9a\x8b\xef\x95\xbd\x96\xca"
+/* 10026: clock PM 6 */
+#define JW_STR_10026 "\x81y\x91S\x81z\x91\xae\x90\xab\x8e\xe6\x93\xbe"
+/* 5169: clock PM 7 */
+#define JW_STR_5169 "\x83n\x83" "b\x83`"
+/* 5168: clock PM 8 */
+#define JW_STR_5168 "\x98" "A\x91\xb1\x90\xfc"
+/* 5167: clock PM 9 */
+#define JW_STR_5167 "\x92\x86\x90S\x90\xfc"
+/* 5166: clock PM 10 */
+#define JW_STR_5166 "\x82Q\x90\xfc"
+/* 5164: clock PM 11 */
+#define JW_STR_5164 "\x90\xa1  \x96@"
+/* 5196: clock PM 12 */
+#define JW_STR_5196 "\xca\xdf\xd7\xd2\xc4\xd8\xaf\xb8"
+/* 10035: clock 12 of division with line A: line attributes (FUN_007637e0) */
+#define JW_STR_10035 "- \x90\xfc\x91\xae\x90\xab\x90\xdd\x92\xe8 -"
+/* 5609: clock 3 of division with line A: brick-joint division */
+#define JW_STR_5609 "\x94n\x96\xda\x92n\x95\xaa\x8a\x84"
 
 #endif

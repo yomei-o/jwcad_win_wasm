@@ -1524,6 +1524,7 @@ void app_zoom_all(int paper)
 /* 両ボタンドラッグの判定と枠（CZoom の作りから後始末まで）。中身は src/ryoboton.h */
 #define JW_RYOBOTON_IMPL
 #include "ryoboton.h"
+#include "clock.h"                      /* 基本設定 から clk_settings（中身は下） */
 
 int app_coord_save(unsigned char **out, long *n)
 {
@@ -2370,6 +2371,11 @@ static void kh_apply(void)
     /* 一般(1) 2447「新規でレイヤ初期化」→ DAT_00a0b3f8（Init）。app_new の new_carry_layers */
     kh_new_layinit = kh_value_tab(0, 2447);
     kh3_apply();                        /* src/kihon3.h */
+    /* クロックメニュー（src/clock.h）: 一般(1) の OK FUN_005cd940 が 1326 → DAT_00a0cacc、
+       2108・2109 の逆 → DAT_00a0caec・caf0、1054 →（|箱| が 20〜200 なら）DAT_00a0cad4、
+       2099 → DAT_00a0cadc */
+    clk_settings(kh_value_tab(0, 1326), (int)kh_num(0, 1054, 35.0), kh_value_tab(0, 2108),
+                 kh_value_tab(0, 2109), kh_value_tab(0, 2099));
 }
 
 /* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が
@@ -5991,6 +5997,10 @@ static const char *notice_at(rect_t *r)
     ui_notice_rect(fb.w, fb.h, nt_x, nt_y, s, r);
     return s;
 }
+
+/* クロックメニュー（左ボタン）。中身は src/clock.h */
+#define JW_CLOCK_IMPL
+#include "clock.h"
 
 int app_press(int x, int y, int button)
 {
