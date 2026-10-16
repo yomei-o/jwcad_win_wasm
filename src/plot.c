@@ -436,17 +436,15 @@ static void pdf_block(Pdf *p, const jw_obj *ref, int depth)
 
         if (o.cls == JW_LIST)
             break;
+        /* 入れ子の参照も 中の要素も 画面の描画と同じ jw_obj_blkput で写す
+           （反転した参照は x 軸で裏返してから等倍。入れ子の参照は 基点を
+           回し、倍率を掛け、角を足す）。逆コンパイルの読み、原典では押して
+           いない */
+        jw_obj_blkput(&o, ref);
         if (o.cls == JW_BLOCK) {
-            o.d[0] = o.d[0] * ref->d[2] + ref->d[0];
-            o.d[1] = o.d[1] * ref->d[3] + ref->d[1];
-            o.d[2] *= ref->d[2];
-            o.d[3] *= ref->d[3];
-            o.d[4] += ref->d[4];
             pdf_block(p, &o, depth + 1);
             continue;
         }
-        jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4],
-                     ref->d[0], ref->d[1]);
         pdf_obj(p, &o, depth);
     }
 }

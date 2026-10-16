@@ -463,6 +463,10 @@ echo "=== 図形 —— 参照が定義をその場所・倍率・回転で描�
 ./tests/block_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 反転した参照 —— 描画・PDF・当たりが 裏返した線と同じか"
+./tests/blkflip_test.exe | sed 's/^/    /'
+
+echo
 echo "=== ２線 —— 原典が引いた 2 本との突き合わせ"
 ./tests/nisen_test.exe | sed 's/^/    /'
 

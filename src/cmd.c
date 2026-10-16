@@ -24116,18 +24116,16 @@ static int au_block_hit(const jw_drawing *d, const jw_view *v, const jw_obj *ref
         if (o.cls == JW_LIST)
             break;
         if (o.cls == JW_BLOCK) {
-            o.d[0] = o.d[0] * ref->d[2] + ref->d[0];
-            o.d[1] = o.d[1] * ref->d[3] + ref->d[1];
-            o.d[2] *= ref->d[2];
-            o.d[3] *= ref->d[3];
-            o.d[4] += ref->d[4];
+            /* 描画と同じ jw_obj_blkput（反転した参照は裏返してから）。
+               逆コンパイルの読み、原典では押していない */
+            jw_obj_blkput(&o, ref);
             if (au_block_hit(d, v, &o, top, x, y, depth + 1))
                 return 1;
             continue;
         }
         if (o.cls != JW_SEN && o.cls != JW_ENKO)
             continue;
-        jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4], ref->d[0], ref->d[1]);
+        jw_obj_blkput(&o, ref);
         o.layer = top->layer;
         o.lgroup = top->lgroup;
         o.flags = top->flags;

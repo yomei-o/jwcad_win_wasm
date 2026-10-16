@@ -2971,8 +2971,13 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
             /* One scale, not two: an element can be turned and made
                bigger, but nothing in a drawing is stretched more one way
                than the other, so a reference with two different scales is
-               drawn with the first of them. */
-            jw_obj_xform(&o, 0.0, 0.0, r->d[2], r->d[4], r->d[0], r->d[1]);
+               drawn with the first of them.  反転した参照（倍率 x・y の符号
+               違い）は x 軸で裏返してから等倍で写す（jw_obj_blkput、
+               ブロック解除と同じ）。原典の描画 FUN_0042b460 は内側の段から
+               倍率 FUN_00465c40（x・y）・回転 FUN_0046d5b0・移動
+               FUN_0046bdf0 を掛ける。逆コンパイルの読み、原典では押して
+               いない */
+            jw_obj_blkput(&o, r);
             if (pool)
                 jw_pic_xform(&one, &o, &was, r->d[2] > r->d[3] ? r->d[2] : r->d[3],
                              r->d[4]);
