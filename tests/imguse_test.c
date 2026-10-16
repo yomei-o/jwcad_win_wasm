@@ -387,6 +387,38 @@ int main(void)
         ck(!strcmp(txt(&d, 4), "^@BMnone.bmp,20,10"), "  描いても図面の字はそのまま");
     }
 
+    /* ------------------------------------------------ 図形の置くとき（FUN_00758fb0） */
+    {
+        jw_drawing f;
+        unsigned char *jb = 0;
+        long jn = 0;
+        int before, last;
+        const jw_obj *o;
+
+        memset(&f, 0, sizeof f);
+        jw_parse(&f, b, n);
+        while (f.nobj > 0)
+            jw_remove(&f, f.nobj - 1);
+        f.ndrawn = 0;
+        put_text(&f, "^@BMfig.bmp,50,40", 10.0, 10.0, 0.0);
+        ck(jw_write_jws(&f, 10.0, 10.0, &jb, &jn) && jb, "図形に画像の字を一つ");
+        jw_cmd_figure_load(&d, jb, jn);
+        jw_cmd_figure_at(2.0, 90.0);
+        before = d.nobj;
+        jw_cmd_point_ll(&d, &v, 100.0, 100.0);
+        for (last = d.nobj - 1; last > 0; last--)
+            if (d.obj[last].cls == JW_MOJI && strstr(txt(&d, last), "fig.bmp"))
+                break;
+        ck(d.nobj == before + 1, "  置くと字が一つ増える");
+        o = &d.obj[last];
+        printf("     置いた字: %s\n", txt(&d, last));
+        ck(!strncmp(txt(&d, last), "^@BMfig.bmp,100,80,0,0,1,90", 27),
+           "  倍率 2 で w・h が倍、回転角 90 が画像の角度に");
+        ck(near(o->d[4], 2.0) && near(o->d[5], 2.0), "  字の大きさは保つ");
+        free(jb);
+        jw_free(&f);
+    }
+
     free(w);
     free(b);
     printf("%s\n", fails ? "FAIL" : "all ok");
