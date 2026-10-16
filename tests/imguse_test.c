@@ -415,6 +415,19 @@ int main(void)
         ck(!strncmp(txt(&d, last), "^@BMfig.bmp,100,80,0,0,1,90", 27),
            "  倍率 2 で w・h が倍、回転角 90 が画像の角度に");
         ck(near(o->d[4], 2.0) && near(o->d[5], 2.0), "  字の大きさは保つ");
+        {
+            jw_drawing pvd;
+            int pvn;
+
+            jw_cmd_track(150.0, 150.0);
+            pvn = jw_cmd_figure_preview(&d, &pvd);
+            ck(pvn && pvd.nobj >= 1, "  仮表示が出る");
+            if (pvn && pvd.nobj >= 1) {
+                printf("     仮表示の字: %s\n", txt(&pvd, 0));
+                ck(!strncmp(txt(&pvd, 0), "^@BMfig.bmp,100,80,0,0,1,90", 27),
+                   "  仮表示も 倍率 2 で w・h が倍、回転角 90 が画像の角度に");
+            }
+        }
         free(jb);
         jw_free(&f);
     }
