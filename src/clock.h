@@ -214,6 +214,10 @@ static int clk_allowed(void)
         return 0;
     if (jw_cmd() == JW_CMD_AUTO || jw_cmd_freehand())
         return 0;
+    /* 手書線は 引きずる前（押した瞬間）から: 連続線の 1774 が入なら時計にしない。
+       押しを 3 画素で渡さないと 線が離すまで出ない */
+    if (jw_cmd() == JW_CMD_RENZOKU && jw_cmd_bar_check(1774) > 0)
+        return 0;
     return 1;
 }
 
