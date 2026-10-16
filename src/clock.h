@@ -339,8 +339,10 @@ int app_rclock_ready(int x0, int y0, int x, int y)
  * あと 命令ごとの switch が命令を作る。移植は app_command）。
  * 逆コンパイルの読みで、原典では押していない。
  *
- * 入れていないもの: 番号 100〜199（利用者の命令 DAT_00a0dcc4）、番号 77・80 の
- * 札 0x273c と 0x158c 端点移動（状態 10 → FUN_00478c70）、0x1656.. の命令
+ * 番号 80 = 0x158c 端点移動は 入れた（cmd.c の jw_cmd_auto_endmove）。
+ *
+ * 入れていないもの: 番号 100〜199（利用者の命令 DAT_00a0dcc4）、番号 77 の
+ * 札 0x273c、0x1656.. の命令
  * （FUN_00733430・FUN_0068cef0 が作る）、負の値が立てる +0xbc（AUTO の 逆 の印）、
  * AUTO の下の命令の自前の時計（+0xc4 が非 0 で DAT_00a0c7bc < 2 のとき 先に仮想
  * 関数 0xb8・0xbc）と 2528〜2530、+0x908c != 0 の枝（FUN_00770b60）、DAT_00a0d8f8
@@ -622,6 +624,15 @@ static int clk_auto_tab(int row, int dir, int run, int *id, const char **s)
     }
     if (e->wm == 0x80a3) {
         clk_zoku_run();
+        return 1;
+    }
+    if (e->wm == 0x158c) {      /* 端点移動（FUN_0062a980 の case 0x158c。cmd.c の jw_cmd_auto_endmove） */
+        double mx, my;
+
+        if (have_drawing) {
+            to_paper(clk_x0, clk_y0, &mx, &my);
+            jw_cmd_auto_endmove(&drawing, &view, mx, my);
+        }
         return 1;
     }
     if (e->wm >= 0x8000 && (e->wm < 0x80a4 || e->wm > 0x80ad) && e->wm != 0x804a

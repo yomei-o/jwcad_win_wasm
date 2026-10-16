@@ -5578,7 +5578,7 @@ const char *jw_cmd_prompt(void)
         /* 何も持っていなければ AUTO の案内、線を押したら 線編集の案内、線を引き始めたら 線の問い */
         if (au_st == 1)
             return JW_STR_5435;
-        if (au_st == 2)
+        if (au_st == 2 || au_st == 3)
             return JW_STR_5435;
         return step == 0 ? JW_STR_5434 : JW_STR_5321;
     case JW_CMD_SEN:
@@ -25592,6 +25592,76 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
     }
 }
 
+/* ---- AUTO の 端点移動（時計の番号 80 = 0x158c） ----------------------------------------
+ * 逆コンパイルの読み、原典では押していない。
+ * 入り: FUN_0062a980 の case 0x158c（doc+0x8ebc != 0 のとき）。時計を押した点を
+ *   FUN_0044a270(3, ..., 1) で拾い、拾えたら CDataSen か CDataSunpou を +0xc8 に持って
+ *   FUN_00455870 で押した点（線へ寄せた足）を覚え、状態（+0xac）を 10 にする。拾えたが
+ *   線でも寸法でもなければ 札 0x14de「直線ではありません。」（5342）。拾えなければ何もしない。
+ * 出（作図 FUN_00632950 の状態 10 → FUN_00478c70(.., 離した点, 1, 0.0)）: 線の 始点・終点の
+ *   うち 覚えた点に近い方（終点までが 始点までより 近いか 等しければ 終点）を 離した点へ
+ *   動かす（FUN_0040da20 = 終点・FUN_0040da70 = 始点。どちらがどちらかは ECX が追えず、
+ *   近い方を動かすのが使い方と合う読み。同じ遠さは 終点、も 読み）。
+ *   動かしたあとの 始点と終点が 縦横とも 1e-7 未満なら 札 0x1455「計算できません」（5205）で
+ *   何もしない。それ以外は FUN_0044b270（古い線を消す undo の一組と 新しい線）。
+ *   長さの足し引き（param_10）は 命令が 線伸縮（0x8017）で 値があるときだけで
+ *   AUTO では 0 なので入れない。
+ * 状態 10 の 左の押しは 何もせず（FUN_00631170）、離しで作図なので 移植は 次の押し一つを
+ *   離した点とする。右の押しの扱い（FUN_00631cf0 の状態 10）は読んでいない（取り消し）。
+ * 入れていない: 寸法（CDataSunpou）の端点移動、動かす間の ゴム紐（FUN_0062f0a0 の
+ *   FUN_00478c70(.., 0, ..) の 仮の線）、押した点を線へ寄せる FUN_0045ba00 */
+void jw_cmd_auto_endmove(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int i;
+
+    if (!d || current != JW_CMD_AUTO)
+        return;
+    i = jw_pick(d, v, x, y, 3);
+    if (i < 0)
+        return;
+    if (d->obj[i].cls != JW_SEN) {
+        JW_NOTICE(5342);
+        return;
+    }
+    au_a = i;
+    au_ax = x;
+    au_ay = y;
+    au_st = 3;
+}
+
+/* 状態 10 の 離し: 離した点 (x, y) へ 近い方の端点を動かす */
+static void au_endmove_release(jw_drawing *d, double x, double y, int button)
+{
+    jw_obj oa;
+    double q[4], d0, d1;
+    op_t *o;
+    int a = au_a;
+
+    au_reset();
+    if (button != 0 || a < 0 || a >= d->ndrawn || d->obj[a].cls != JW_SEN)
+        return;
+    oa = d->obj[a];
+    d0 = hypot(oa.d[0] - au_ax, oa.d[1] - au_ay);
+    d1 = hypot(oa.d[2] - au_ax, oa.d[3] - au_ay);
+    q[0] = oa.d[0]; q[1] = oa.d[1]; q[2] = oa.d[2]; q[3] = oa.d[3];
+    if (d1 <= d0) {
+        q[2] = x;
+        q[3] = y;
+    } else {
+        q[0] = x;
+        q[1] = y;
+    }
+    if (fabs(q[0] - q[2]) < 1e-7 && fabs(q[1] - q[3]) < 1e-7) {
+        JW_NOTICE(5205);
+        return;
+    }
+    o = op_new();
+    erase(d, a, o);
+    au_add_line(d, &oa, q);
+    if (o)
+        o->n = 1;
+}
+
 /* ---- AUTO の 同じ点の円・(LL)・ブロックと保護レイヤの拒否 ----------------------------
  * 逆コンパイルの読み、原典では押していない（CZukeiAuto: 左 slot 9 FUN_00631170・右 11 FUN_00631cf0・
  * 左ダブル 12 FUN_00630f80・案内 6 FUN_0062f0a0・作図 3 FUN_00632950・下請けの切替 FUN_00630a10）。
@@ -28306,6 +28376,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
            slot 9 FUN_00739bd0 の頭で 0）。逆コンパイルの読み、原典では押していない */
         hk_ll_k = near;
         hk_ll_n = d->ndrawn;
+        return;
+    }
+    if (current == JW_CMD_AUTO && d && au_st == 3) {
+        au_endmove_release(d, x, y, button);
         return;
     }
     if (current == JW_CMD_AUTO) {
