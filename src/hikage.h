@@ -183,6 +183,17 @@ int hk_intervals(const unsigned char *in, int n, int tbegin, int step,
  * sequence number (first_no - 1 + index) [D 0x005470d0][V sample] */
 void hk_fmt_n0_line(char *out, int outsz, int no, const hk_interval *iv, int niv, int step);
 
+/* 指定点の グラフ（グラフ作図 (1071) で 文書 +0x83dc が立つとき、FUN_0069da00 が 行ごとに描く）。
+ * (ox, oy) はその行の字の基点、ang は角（度）。線は FUN_0069cf20: 局所の (秒, r) を
+ * 原点 = 基点の 1 下・x = 秒 × 0.6 / 60 で写し、長さ 1e-7 以下は書かない。
+ *   色 1: 0 と -2 の横二本（8 時間 = 288、9～15時なら 6 時間）、時の目盛 0.5 ～ -2.5
+ *   色 3: 壁に日が当たらない帯（wall のとき w1～w2 秒、正午から）: 縦二本と -2/3・-4/3 の横
+ *   色 4: 影の区間ごとに 縦二本と 0 ～ -2 を 10 刻みの横（帯の中は帯の外へ寄せ、空なら書かない）
+ * 返すのは線の数（<= maxg）。[D 0x0069da00 0x69dc4e〜0x69e4e9・0x0069cf20] */
+typedef struct { double x0, y0, x1, y1; int color; } hk_gline;
+int hk_point_graph(double ox, double oy, double ang, int n15, const hk_interval *iv, int niv,
+                   int wall, int w1, int w2, hk_gline *g, int maxg);
+
 /* ------------------------------------------------------------------ */
 /* 5. 等時間 (Kage2) helpers                                           */
 /* ------------------------------------------------------------------ */
