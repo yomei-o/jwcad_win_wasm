@@ -13,6 +13,7 @@
 
 #include "image.h"
 #include "app.h"
+#include "clock.h"
 #include "plot.h"
 #include "cp932.h"
 #include "cmd.h"
@@ -295,6 +296,13 @@ static int finish(int redraw)
 EMSCRIPTEN_KEEPALIVE int jw_command(int id)
 {
     return finish(app_command(id));
+}
+
+/* クロックメニュー（src/clock.h）の左の離し: 離した向きの命令へ移り、
+   その命令の求め（図形の窓など）は press と同じ数で返す */
+EMSCRIPTEN_KEEPALIVE int jw_clock_end(void)
+{
+    return finish(app_clock_end());
 }
 
 /* Whether there are changes since the drawing was opened or last saved. */

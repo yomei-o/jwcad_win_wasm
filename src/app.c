@@ -5982,6 +5982,10 @@ static const char *notice_at(rect_t *r)
     return s;
 }
 
+/* クロックメニュー（左ボタン）。中身は src/clock.h */
+#define JW_CLOCK_IMPL
+#include "clock.h"
+
 int app_press(int x, int y, int button)
 {
     int k, id, g, n;
