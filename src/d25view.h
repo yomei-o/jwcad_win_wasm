@@ -46,6 +46,9 @@ const char *jw_d25_prompt(const jw_drawing *d);
    補助線を入れる。線の数を返す */
 int  jw_d25_view(const jw_drawing *d, jw_drawing *out);
 
+/* 押した時の Shift・Ctrl（作図の 元レイヤ・間引き）。cmd.c の jw_cmd_keymods が渡す */
+void jw_d25_keymods(int shift, int ctrl);
+
 /* 試験用: 組んだ立体の線の数と i 本目（x1 y1 z1 x2 y2 z2） */
 int  jw_d25_nline(void);
 int  jw_d25_line(int i, double p[6]);

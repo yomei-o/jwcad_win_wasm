@@ -26507,6 +26507,7 @@ void jw_cmd_keymods(int shift, int ctrl)
 {
     cmd_shift = shift != 0;
     cmd_ctrl = ctrl != 0;
+    jw_d25_keymods(shift, ctrl);
 }
 
 int jw_cmd_hikage_first_no(void)
