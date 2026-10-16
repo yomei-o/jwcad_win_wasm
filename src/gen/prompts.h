@@ -433,6 +433,10 @@
 #define JW_STR_10103 "\x83I\x83t\x83Z\x83" "b\x83g"
 /* 10104: right clock AM 12: circle quarter point (FUN_0076efd0) */
 #define JW_STR_10104 "\x89~\x8e\xfc" "1/4\x93_"
+/* 10107: right clock AM 3: second point prompt (FUN_0076ea20, 0x277b) */
+#define JW_STR_10107 "\x82Q\x93_\x8a\xd4\x92\x86\x90S\x81@\x81\x9f\x81\x9f\x82" "a\x93_\x8ew\x8e\xa6\x81\x9f\x81\x9f\x81@\x81iL\x81j\x82\x86\x82\x92\x82\x85\x82\x85\x81@(R)Read"
+/* 10108: right clock AM 9: second figure prompt (FUN_0076fae0, 0x277c) */
+#define JW_STR_10108 "\x81\xa1\x81\xa1\x90\xfc\x8f\xe3\x93_\x8ew\x8e\xa6\x81\xa1\x81\xa1\x81@(L)free\x81@(R)Read              <<\x8c\xf0\x93_>> (L)\x91\xbc\x82\xcc\x90\xfc\x81" "E\x89~"
 /* 10105: right clock AM 4: undo */
 #define JW_STR_10105 "\x96\xdf\x81@\x82\xe9"
 /* 10106: right clock AM 5: redo */
