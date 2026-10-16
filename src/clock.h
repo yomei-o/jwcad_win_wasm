@@ -52,8 +52,11 @@
  *   AM/PM +0x9078 を見る）
  * 入れていないもの: AM 3・6・9 の読取り（仮想関数 18〜20 の既定 FUN_0076ea20・
  * FUN_0076f880・FUN_0076fae0。点の読み FUN_00451f30・FUN_004497b0 の中が要る）、
- * PM の角度・長さ取得（FUN_00772770・FUN_00771030・FUN_007748b0・FUN_00770b60・
- * FUN_00771ca0・FUN_0076bba0。命令ごとの仮想関数 49・50・48 へ値を渡す）、
+ * PM の円を押したときの 円接線角（札 10040、FUN_00772770 の 3・5・6 と FUN_0045a7f0）、
+ * 点 1 のあとの札の番号（逆コンパイルで落ちている）、+0x908c == -1 の枝、
+ * （PM の角度・長さ取得 FUN_00772770・FUN_00771030・FUN_007748b0・FUN_00770b60・
+ * FUN_00771ca0・FUN_0076bba0・FUN_0076c740 は src/cmd.c の jw_cmd_clock_get に入れた。
+ * 値はメニューの 角度取得・長さ取得 と同じ入れ物へ）、
  * 49 の命令のうち 34 が仮想関数 47 を持つ（CZukeiSen 0x6effb0 など。多くは
  * AM で FUN_00778a40（AUTO の覚え）を先に呼んでから FUN_0076d330 へ渡すだけだが、
  * 線・円のように 12 時が別の命令がある: 線は FUN_006f3490 の 札 10120 台）。
@@ -409,7 +412,7 @@ int clk_circle_pt(const jw_obj *o, double px, double py, double axis, int c8,
  *   命令へ 左の点として渡す（FUN_0050d3f0 は 仮想関数 47 が 1 を返すと
  *   仮想関数 9 を呼ぶ。点が どう渡るかの経路は 読み切っていない。
  *   原典では押していない）。移植は 線（JW_CMD_SEN）の 12 時は何もしない
- * PM は 札だけ。持っていない時は 0（左の表へ） */
+ * PM は 札と 角度・長さの取得（jw_cmd_clock_get）。持っていない時は 0（左の表へ） */
 int clk_rown(int dir, int pm, int run, int *id, const char **s)
 {
     static const int pid[13] = { 0, 10022, 10014, 10015, 10016, 10020, 10030,
@@ -423,6 +426,16 @@ int clk_rown(int dir, int pm, int run, int *id, const char **s)
     if (pm) {
         *id = pid[dir];
         *s = ps[dir];
+        if (run && have_drawing) {
+            /* 離しの取得（仮想関数 47 の PM、FUN_00772770 ほか。src/cmd.c の
+               jw_cmd_clock_get の注）。押した点で拾い、二点・三点のものは続きの押しを待つ */
+            double mx, my;
+
+            nt_px = clk_x;
+            nt_py = clk_y;
+            to_paper(clk_x0, clk_y0, &mx, &my);
+            jw_cmd_clock_get(&drawing, &view, dir, mx, my);
+        }
         return 1;
     }
     switch (dir) {

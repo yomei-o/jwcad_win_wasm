@@ -459,6 +459,8 @@
 #define JW_STR_10024 "\x82Q\x93_\x8a\xd4 \x92\xb7"
 /* 10025: right clock PM 8: minus angle */
 #define JW_STR_10025 "(-)\x8ap\x93x"
+/* 5324: no read point or circle to take (FUN_007774e0) */
+#define JW_STR_5324 "\x93_\x82\xaa\x82\xa0\x82\xe8\x82\xdc\x82\xb9\x82\xf1"
 /* 10030: right clock PM 6: numeric angle */
 #define JW_STR_10030 "\x90\x94\x92l\x8ap\x93x"
 /* 10031: right clock PM 12: numeric length */

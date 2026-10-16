@@ -613,6 +613,70 @@ int main(void)
         app_command(JW_CMD_SEN);
     }
 
+    /* 右 PM 1〜12 の角度・長さ取得（FUN_00772770・00771030・007748b0・00770b60・
+       00771ca0・0076bba0。逆コンパイルの読み）。押した点で拾い、二点のものは続きの押し */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        double deg, mm, ang = atan2(50.0, 100.0) * 180.0 / 3.141592653589793;
+        int px, py, dx, dy;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 10; o->d[1] = 20; o->d[2] = 110; o->d[3] = 70;
+        o = jw_add(d, JW_ENKO);
+        o->d[0] = 200; o->d[1] = 100; o->d[2] = 30; o->d[3] = 0;
+        o->d[4] = 6.283185307179586; o->d[5] = 0; o->d[6] = 1;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_SEN);
+#define PMRUN(h, X, Y) do {             px = jw_sx(v, (X)); py = jw_sy(v, (Y));             app_rclock_begin(px, py);             at_hour((h), 60, &dx, &dy);             app_clock_move(px + dx, py + dy);             app_clock_right();             app_clock_end(); } while (0)
+        PMRUN(4, 60.0, 45.0);
+        ck(jw_cmd_get_kata(&deg) && fabs(deg - ang) < 1e-6, "右 PM 4 線角度: 押した線の角");
+        PMRUN(8, 60.0, 45.0);
+        ck(jw_cmd_get_kata(&deg) && fabs(deg + ang) < 1e-6, "右 PM 8 (-)角度: 符号を逆に");
+        PMRUN(1, 60.0, 45.0);
+        ck(jw_cmd_get_kata(&deg) && fabs(deg - (ang + 90.0 - 180.0)) < 1e-6,
+           "右 PM 1 鉛直角: 角 + 90 を -90 より大きく 90 以下へ");
+        PMRUN(4, 300.0, 200.0);
+        ck(jw_cmd_get_kata(&deg) && fabs(deg - (ang - 90.0)) < 1e-6,
+           "何も無い所の PM は何もしない（前の値のまま）");
+        PMRUN(11, 60.0, 45.0);
+        ck(jw_cmd_get_naga(&mm) && fabs(mm - sqrt(12500.0)) < 1e-6, "右 PM 11 線長取得: 線の長さ");
+        PMRUN(11, 230.0, 100.0);
+        ck(jw_cmd_get_naga(&mm) && fabs(mm - 30.0) < 1e-6, "右 PM 11: 円は 半径（2100 が切）");
+        PMRUN(3, 10.0, 20.0);
+        ck(jw_cmd_get_mode_now() == 90003, "右 PM 3: 点 1 を読んで 続きの押しを待つ");
+        app_press(jw_sx(v, 110.0), jw_sy(v, 120.0), 0);
+        printf("dbg %d %d %g\n", jw_cmd_get_mode_now(), jw_cmd_get_kata(&deg), deg);
+        ck(jw_cmd_get_mode_now() == 0 && jw_cmd_get_kata(&deg) && fabs(deg - 45.0) < 0.5,
+           "右 PM 3 X軸角度: 点 1 → 点 2 の向き 45 度");
+        PMRUN(9, 10.0, 20.0);
+        app_press(jw_sx(v, 110.0), jw_sy(v, 120.0), 0);
+        ck(jw_cmd_get_kata(&deg) && fabs(deg + 45.0) < 0.5, "右 PM 9 X軸(-)角度: -45 度");
+        PMRUN(10, 10.0, 20.0);
+        ck(jw_cmd_get_mode_now() == 90010, "右 PM 10: 点 1 のあと 点 2 待ち");
+        app_press(jw_sx(v, 10.0), jw_sy(v, 120.0), 0);
+        ck(jw_cmd_get_naga(&mm) && fabs(mm - 100.0) < 0.5, "右 PM 10 ２点間長: 点 1 から点 2 まで 100");
+        PMRUN(2, 10.0, 20.0);
+        app_press(jw_sx(v, 110.0), jw_sy(v, 20.0), 0);
+        ck(jw_cmd_get_mode_now() == 90002, "右 PM 2: 点 2 のあとも 点 3 を待つ");
+        app_press(jw_sx(v, 10.0), jw_sy(v, 120.0), 0);
+        ck(jw_cmd_get_mode_now() == 0 && jw_cmd_get_kata(&deg) && fabs(deg - 90.0) < 0.5,
+           "右 PM 2 ２点間角: 向き 2 − 向き 1 = 90 − 0");
+        PMRUN(5, 60.0, 45.0);
+        ck(fabs(jw_cmd_axis() - ang) < 1e-6, "右 PM 5 軸角取得: 押した線の角が 軸角に");
+        PMRUN(7, 60.0, 45.0);
+        ck(fabs(jw_cmd_axis() + ang) < 1e-6, "右 PM 7 (-)軸角取得: 符号を逆に");
+        jw_cmd_set_axis(0.0);
+        PMRUN(10, 300.0, 250.0);
+        ck(jw_cmd_get_mode_now() == 0, "読めない所の PM 10 は 続きを待たない（札 5324）");
+#undef PMRUN
+    }
+
     /* AUTO の間は時計にしない（AUTO 自前の時計は入れていない） */
     app_command(JW_CMD_AUTO);
     ck(!app_clock_possible() && !app_clock_ready(cx, cy, cx + 100, cy), "AUTO の間は時計にしない");

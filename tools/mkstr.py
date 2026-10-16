@@ -243,6 +243,7 @@ WANT = [
     (10023, 'right clock PM 11: line length'),
     (10024, 'right clock PM 10: length between two points'),
     (10025, 'right clock PM 8: minus angle'),
+    (5324, 'no read point or circle to take (FUN_007774e0)'),
     (10030, 'right clock PM 6: numeric angle'),
     (10031, 'right clock PM 12: numeric length'),
 ]

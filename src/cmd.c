@@ -5436,6 +5436,10 @@ const char *jw_cmd_prompt(void)
            (tools/probe27.sh).  X軸角度 shows ●角度点 for both of
            its two clicks; ２点間角度 leads with its own line and
            then shows the same one. */
+        if (get_mode == 90010)          /* 右の時計 PM 10 の点 2（0x2787） */
+            return JW_STR_10119;
+        if (get_mode > 90000)
+            return JW_STR_10118;
         if (get_mode == 32940)
             return get_step ? JW_STR_10119 : JW_STR_5345;
         if (get_mode == 32933)
@@ -24314,6 +24318,8 @@ void jw_cmd_get_shown_too(int on)
 
 static int get_click_(jw_drawing *d, const jw_view *v,
                       double x, double y, int button);
+static int clk_get_next(jw_drawing *d, const jw_view *v, double x, double y,
+                        int button);
 
 static int get_click(jw_drawing *d, const jw_view *v,
                      double x, double y, int button)
@@ -24335,6 +24341,8 @@ static int get_click_(jw_drawing *d, const jw_view *v,
 
     if (!d)
         return 1;
+    if (get_mode >= 90000)              /* 右の時計 PM の続きの押し */
+        return clk_get_next(d, v, x, y, button);
     /* 数値角度 (32938) と 数値長 (32941).
      *
      * 問いかけは「数値を指示してください。」で、指すのは**図面に書いて
@@ -24509,6 +24517,201 @@ static int get_click_(jw_drawing *d, const jw_view *v,
             get_take_angle(get_mode == 32935 ? a + PI / 2.0 : a);
     }
     return 1;
+}
+
+/* 右ボタンのクロックメニュー PM 1〜12 の角度・長さ取得（仮想関数 47 の
+ * FUN_0076d330 の PM の表。param_3 = 2 が離し）。メニューの 角度取得・長さ取得
+ * （上の get_mode）と同じ入れ物 get_kata・get_naga に値を置く（命令の仮想関数
+ * 49 SetAngle・50 SetLength・200 の既定 FUN_0076e300・FUN_0076e330 は +0x70・+0x80
+ * へ書くだけ）。違いは、メニューは「次の一二回の押し」で拾うが、時計は **押した点**
+ * （時計の始まりの点）で拾い、二点・三点のものだけ続きの押しを待つ。
+ * 逆コンパイルの読み、原典では押していない。
+ *
+ *   時 | 札    | 原典                 | 読み
+ *    1 | 10022 | FUN_00772770(2,1,軸)  | 押した点の 線・文字（CDataSen・CDataMoji）の角 + 90 を
+ *      |       |                      | -90 より大きく 90 以下へ。円は 札 0x2738（円接線角）で 円周上の点待ち（入れていない）
+ *    2 | 10014 | FUN_00771030         | 点 1 を読み、点 2 で向き 1、点 3 で 向き 2 − 向き 1（-180 より大きく 180 以下）
+ *    3 | 10015 | FUN_007748b0(1,…)    | 点 1 を読み、点 2 の向き − 軸角（-180 より大きく 180 以下）
+ *    4 | 10016 | FUN_00772770(2,1,軸)  | 押した点の 線・文字の角 − 軸角（FUN_00770d50 で -90 より大きく 90 以下）
+ *    5 | 10020 | FUN_00770b60(1,…)    | 同じ角（軸 0）を **軸角** にする（+0x17c0・+0x17d0・+0x17c8）
+ *    6 | 10030 | FUN_0076c740(1)      | 押した点の文字（FUN_004500e0）を数に読んで 角度に
+ *    7 | 10021 | FUN_00770b60(-1,…)   | 5 の符号を逆に
+ *    8 | 10025 | FUN_00772770(.,-1,軸) | 4 の符号を逆に
+ *    9 | 10018 | FUN_007748b0(-1,…)   | 3 の符号を逆に
+ *   10 | 10024 | FUN_00771ca0         | 点 1 を読み、点 2 までの距離
+ *   11 | 10023 | FUN_0076bba0         | 押した点の 円（半径、2100 なら円周長）・線の長さ（原典は
+ *      |       |                      | 用紙の長さ × 縮尺、ここは用紙の mm で入れ物に）
+ *   12 | 10031 | FUN_0076c740(0)      | 6 の長さ版（押した点の文字の数 ÷ 縮尺）
+ * 点 1 の読み（FUN_007774e0(…,1)）は 読取点（jw_read）、読めなければ 押した点の円の
+ * 中心、それも無ければ 札 0x14cc（5324）で何もしない。続きの押しは (L) が押した点そのまま、
+ * (R) は 読めなければ何もしない（FUN_00451eb0）。
+ * 読んでいないもの: 円を押したときの 円周上の点待ち（FUN_00772770 の 3・5・6 と
+ * FUN_0045a7f0）、+0x908c == -1 の枝（AUTO の覚えか何か。何が立てるか未確認）、
+ * 点 1 のあとの札（FUN_004efbb0 の番号が逆コンパイルで落ちている。移植は 10118・10119）、
+ * 軸角を替える DAT_00a0cc6c の枝（軸角の窓の途中らしい）。 */
+#define CLKGET_BASE 90000
+static double clk_a1;
+
+static double clk_wrap180(double a)
+{
+    while (a > 180.0)
+        a -= 360.0;
+    while (a <= -180.0)
+        a += 360.0;
+    return a;
+}
+
+/* FUN_00770d50(sign, 軸, &角): 軸からの角を -90 より大きく 90 以下に（0・180 は 0、
+   90 は 90）、sign が負なら逆符号 */
+static double clk_rel90(double ang, double axis, int sign)
+{
+    double r = clk_wrap180(ang - axis);
+
+    if (fabs(r) < 1e-07 || fabs(fabs(r) - 180.0) < 1e-07)
+        r = 0.0;
+    if (fabs(fabs(r) - 90.0) < 1e-07)
+        r = 90.0;
+    if (r <= -90.0)
+        r += 180.0;
+    if (r > 90.0)
+        r -= 180.0;
+    return sign < 0 ? -r : r;
+}
+
+/* 向き（度）。差が 1e-07 未満なら dx = 1（原典の FUN_008f8d00 の前の守り） */
+static double clk_dir_deg(double dx, double dy)
+{
+    if (fabs(dx) < 1e-07 && fabs(dy) < 1e-07)
+        dx = 1.0;
+    return atan2(dy, dx) * 180.0 / PI;
+}
+
+/* FUN_007774e0(…,1): 点 1 の読み */
+static int clk_get_first(jw_drawing *d, const jw_view *v, double x, double y,
+                         double *px, double *py)
+{
+    int i;
+
+    if (jw_read(d, v, x, y, px, py))
+        return 1;
+    i = jw_pick(d, v, x, y, 3);
+    if (i >= 0 && d->obj[i].cls == JW_ENKO) {
+        *px = d->obj[i].d[0];
+        *py = d->obj[i].d[1];
+        return 1;
+    }
+    JW_NOTICE(5324);
+    return 0;
+}
+
+/* 続きの押し（get_click_ から）。1 なら押しは使った */
+static int clk_get_next(jw_drawing *d, const jw_view *v, double x, double y,
+                        int button)
+{
+    int h = get_mode - CLKGET_BASE;
+    double axis = jw_cmd_axis(), a;
+
+    if (button != 0 && !jw_read(d, v, x, y, &x, &y))
+        return 1;
+    if (h == 10) {                      /* FUN_00771ca0 の 5・6 */
+        get_take_length(sqrt((x - get_ax) * (x - get_ax)
+                             + (y - get_ay) * (y - get_ay)));
+        return 1;
+    }
+    a = clk_dir_deg(x - get_ax, y - get_ay);
+    if (h == 2) {                       /* FUN_00771030: 向き 1 → 向き 2 − 向き 1 */
+        if (get_step == 1) {
+            clk_a1 = a;                 /* 向き 1（度、+0x78）。次の押しで引く */
+            get_step = 2;
+            return 1;
+        }
+        get_take_angle(clk_wrap180(a - clk_a1) * PI / 180.0);
+        return 1;
+    }
+    /* h == 3・9: FUN_007748b0 */
+    a = clk_wrap180(a - axis);
+    get_take_angle((h == 9 ? -a : a) * PI / 180.0);
+    return 1;
+}
+
+/* 時 hour（1〜12）の PM の取得を 押した点 (x, y) で。1 なら何か起きた */
+int jw_cmd_clock_get(jw_drawing *d, const jw_view *v, int hour, double x, double y)
+{
+    double axis = jw_cmd_axis(), a, px, py;
+    int i, sign = 1;
+
+    if (!d || hour < 1 || hour > 12)
+        return 0;
+    get_mode = 0;
+    get_step = 0;
+    switch (hour) {
+    case 1: case 4: case 5: case 7: case 8:
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0)
+            return 0;
+        if (d->obj[i].cls == JW_ENKO) {
+            /* 原典は 0x2738（10040「円接線角」）を出して 円周上の点を待つ。
+               その枝（FUN_00772770 の 3・5・6）は入れていない */
+            return 0;
+        }
+        if (d->obj[i].cls != JW_SEN && d->obj[i].cls != JW_MOJI)
+            return 0;
+        a = clk_dir_deg(d->obj[i].d[2] - d->obj[i].d[0],
+                        d->obj[i].d[3] - d->obj[i].d[1]);
+        if (hour == 7 || hour == 8)
+            sign = -1;
+        if (hour == 5 || hour == 7) {
+            jw_cmd_set_axis(clk_rel90(a, 0.0, sign));
+            return 1;
+        }
+        a = clk_rel90(a, axis, sign);
+        if (hour == 1) {
+            a += 90.0;
+            if (a <= -90.0)
+                a += 180.0;
+            if (a > 90.0)
+                a -= 180.0;
+        }
+        get_take_angle(a * PI / 180.0);
+        return 1;
+    case 2: case 3: case 9: case 10:
+        if (!clk_get_first(d, v, x, y, &px, &py))
+            return 0;
+        get_ax = px;
+        get_ay = py;
+        get_step = 1;
+        get_mode = CLKGET_BASE + hour;
+        return 1;
+    case 6: case 12:
+        i = jw_pick(d, v, x, y, 0);
+        if (i < 0 || d->obj[i].cls != JW_MOJI)
+            return 0;
+        {
+            const char *t = jw_str(d, d->obj[i].text);
+
+            if (!t || !*t)
+                return 0;
+            if (hour == 6)
+                get_take_angle(atof(t) * PI / 180.0);
+            else
+                get_take_length(atof(t) / write_scale(d));
+        }
+        return 1;
+    default:                            /* 11 */
+        i = jw_pick(d, v, x, y, 3);
+        if (i < 0)
+            return 0;
+        if (d->obj[i].cls == JW_ENKO)
+            get_take_length(get_arc_len ? arc_length(&d->obj[i]) : d->obj[i].d[2]);
+        else if (d->obj[i].cls == JW_SEN)
+            get_take_length(sqrt((d->obj[i].d[2] - d->obj[i].d[0])
+                                 * (d->obj[i].d[2] - d->obj[i].d[0])
+                                 + (d->obj[i].d[3] - d->obj[i].d[1])
+                                 * (d->obj[i].d[3] - d->obj[i].d[1])));
+        else
+            return 0;
+        return 1;
+    }
 }
 
 int jw_cmd_read_mode_now(void)

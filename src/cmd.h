@@ -567,6 +567,9 @@ int jw_cmd_zokusei_at(jw_drawing *d, const jw_view *v, double x, double y);
    図形の終わりへ。keep_layer は 基本設定 1523（レイヤは元のまま、札 6004）。1 なら替えた */
 int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
                         int keep_layer);
+/* 右ボタンのクロック PM 1〜12（FUN_0076d330）の角度・長さ取得を 押した点 (x, y) で。
+   二点・三点のもの（2・3・9・10）は 続きの押しを待つ（src/cmd.c の注）。1 なら何か起きた */
+int jw_cmd_clock_get(jw_drawing *d, const jw_view *v, int hour, double x, double y);
 /* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
 void jw_cmd_sen_sizekeep(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */
