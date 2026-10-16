@@ -2311,6 +2311,7 @@ static int kh_value_tab(int tab, int id)
 
 static int kh_arrows;                   /* 2362: 0 切、1 入、2 入で軸角方向移動 (1325) */
 static int kh_tab_direct;               /* KEY 1325 直接属性取得（DAT_00a0c7b8） */
+static int kh_new_layinit;              /* 一般(1) 2447 新規でレイヤ初期化（DAT_00a0b3f8） */
 static int kh_cross;                    /* 2437: 0 切、1 いつも、2 範囲指定のみ、3 範囲始点のみ */
 static int cross_have;                  /* マウスが図面の上にある（cross_x, cross_y に） */
 static double cross_x, cross_y;
@@ -2366,6 +2367,8 @@ static void kh_apply(void)
     /* 一般(2) 2493「線コマンドの指定寸法値を保持する」→ DAT_00a0cc38（SizeKeep）。
        src/cmd.c の jw_cmd_set */
     jw_cmd_sen_sizekeep(kh_value_tab(1, 2493));
+    /* 一般(1) 2447「新規でレイヤ初期化」→ DAT_00a0b3f8（Init）。app_new の new_carry_layers */
+    kh_new_layinit = kh_value_tab(0, 2447);
     kh3_apply();                        /* src/kihon3.h */
 }
 
@@ -7027,6 +7030,52 @@ int app_resize(int w, int h)
  * way the original's is: its layer bar shows every layer with nothing on it.
  * The port does not write them back, which loses nothing but the settings
  * the original would have put in the file. */
+/* 基本設定 一般(1) 2447「新規でレイヤ初期化」（DAT_00a0b3f8、レジストリ Init）。
+ * 文書の OnNewDocument FUN_004d20c0 は、2447 が立っていて 二度目からのとき
+ * （DAT_00a0b3f4 == 1）だけ グループの状態 +0x242c を 2・レイヤ +0x182c を 2
+ * （各グループのレイヤ 0 と グループ 0 は 3）、書込レイヤ +0x24ec を 0、書込
+ * グループ +0x256c を 0 にし、名前を空にする（FUN_00404900 = CString の代入）。
+ * 切（既定）なら そこを触らないので、前の図面の グループ・レイヤ の状態と
+ * 書込レイヤ・名前 が新しい図面に残る。保護（グループ +0x2a7c・レイヤ +0x267c）は
+ * どちらでも 0。移植は 入 のとき 雛形（jw_new_jww）のまま、切 のとき ここで
+ * 状態と書込レイヤと名前を前の図面から写す。縮尺 などほかは雛形のまま（
+ * FUN_004d20c0 の中では触っていないが、先に呼ぶ CDocument::OnNewDocument の
+ * DeleteContents までは読んでいない）。逆コンパイルの読み、原典では押していない */
+static void new_carry_layers(jw_drawing *to, const jw_drawing *from)
+{
+    int g, l;
+
+    for (g = 0; g < 16; g++) {
+        const jw_group *a = &from->group[g];
+        jw_group *b = &to->group[g];
+        const char *s;
+
+        b->state = a->state;
+        b->write_layer = a->write_layer;
+        for (l = 0; l < 16; l++) {
+            b->layer[l].state = a->layer[l].state;
+            s = jw_str(from, a->layer_name[l]);
+            if (a->layer_name[l] >= 0 && s && *s) {
+                int off = jw_add_str_w(to, s, to->version > 0x275);
+
+                if (off >= 0)
+                    b->layer_name[l] = off;
+            } else {
+                b->layer_name[l] = -1;      /* 前の図面で空なら空のまま */
+            }
+        }
+        s = jw_str(from, a->name);
+        if (a->name >= 0 && s && *s) {
+            int off = jw_add_str_w(to, s, to->version > 0x275);
+
+            if (off >= 0)
+                b->name = off;
+        } else {
+            b->name = -1;
+        }
+    }
+}
+
 void app_new(void)
 {
     jw_drawing d;
@@ -7047,6 +7096,8 @@ void app_new(void)
     memcpy(new_hidden, d.obj, (size_t)nnew_hidden * sizeof new_hidden[0]);
     d.nobj = 0;
     d.ndrawn = 0;
+    if (have_drawing && !kh_new_layinit)
+        new_carry_layers(&d, &drawing);
     if (have_drawing)
         jw_free(&drawing);
     drawing = d;
