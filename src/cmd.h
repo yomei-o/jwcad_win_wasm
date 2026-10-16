@@ -574,6 +574,7 @@ int  jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);
 void jw_cmd_fk_xy1_set(int on);                 /* 作図属性 2556 マウス倍率のときXY等倍 */
+int  jw_cmd_ll_keep(int cmd);                    /* (LL) の一つ目の左を戻さない命令か（範囲の箱・日影図/２．５D の高さ） */
 int  jw_cmd_ikk_base_wait(void);                /* 伸縮の一括処理で 基準線・基準点 を待っているか（(LL) free） */
 void jw_cmd_figure_answer(jw_drawing *d, int ok);   /* 図形読込 0x157e の問いの答え */
 int  jw_cmd_figure_ask(void);                   /* 図形読込: 0x157e の問いを出すか（一度だけ 1） */
