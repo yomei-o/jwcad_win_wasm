@@ -304,6 +304,7 @@ WANT = [
     (5254, 'AUTO clock table label'),
     (10032, 'AUTO clock table label'),
     (5477, 'AUTO clock table label'),
+    (5567, 'shadow diagram point row: the wall-band label (FUN_005470d0, 0x15bf)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

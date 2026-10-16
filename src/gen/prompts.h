@@ -579,5 +579,7 @@
 #define JW_STR_10032 "\x8a\xd4\x8au\x8e\xe6\x93\xbe"
 /* 5477: AUTO clock table label */
 #define JW_STR_5477 "\x8fk\x8e\xda"
+/* 5567: shadow diagram point row: the wall-band label (FUN_005470d0, 0x15bf) */
+#define JW_STR_5567 "\x95\xc7\x96\xca\x8e\xa9\x90g\x82\xcc\x93\xfa\x89" "e\x8e\x9e\x8a\xd4"
 
 #endif

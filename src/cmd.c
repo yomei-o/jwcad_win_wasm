@@ -24783,7 +24783,8 @@ int jw_cmd_ikk_base_wait(void)
    頭で 0 にし、FUN_00692820 が 高さの段で書いた字 FUN_00450860 を入れる）があれば
    FUN_0044b2c0(…, +0xac, 1) で消して 0 に。CZukei25D slot 12 FUN_00615520 も
    +0xb8 が 0 で +200 を同じに。一つ目の左は同じ端の前の字を消してから書くので、
-   二度押しで その端の高さが無くなる。逆コンパイルの読み、原典では押していない */
+   二度押しで その端の高さが無くなる。天空図（CZukeiTenkuu slot 12 FUN_00739a90、+0x158）も同じ。
+   逆コンパイルの読み、原典では押していない */
 static int hk_ll_k = -1, hk_ll_n;
 
 /* (LL) の一つ目の左を戻さずに残す命令か（app.c の二度押し）。範囲の箱と
@@ -24794,12 +24795,12 @@ int jw_cmd_ll_keep(int cmd)
         return 0;
     if (range_cmd(cmd))         /* 終点待ち（一つ目の前）か 左で閉じたすぐあと */
         return sel_cross_ok() && (sel_step == 1 || (sel_step == 2 && sel_llbox));
-    return cmd == JW_CMD_HIKAGE || cmd == JW_CMD_25D;
+    return cmd == JW_CMD_HIKAGE || cmd == JW_CMD_25D || cmd == JW_CMD_TENKU;
 }
 
 void jw_cmd_point_ll(jw_drawing *d, const jw_view *v, double x, double y)
 {
-    if (d && (current == JW_CMD_HIKAGE || current == JW_CMD_25D) && hk_ll_k >= 0) {
+    if (d && (current == JW_CMD_HIKAGE || current == JW_CMD_25D || current == JW_CMD_TENKU) && hk_ll_k >= 0) {
         int k = hk_ll_k;
 
         hk_ll_k = -1;
@@ -26399,9 +26400,16 @@ static void hk_point_add(jw_drawing *d, double x, double y)
     hkp_y[hkp_n] = y;
     snprintf(lab, sizeof lab, "No.%d", hk_first_no + hkp_n);
     hkp_n++;
-    wx[0] = x;
-    wx[1] = x + 4.0;
-    wy[0] = wy[1] = y;
+    /* 字は軸角 doc+0x17c0 だけ傾ける（FUN_0069e630: 終点 = 始点 + 長さ × (cos, sin)）。
+       逆コンパイルの読み、原典では押していない */
+    {
+        double ar = jw_cmd_axis() * PI / 180.0;
+
+        wx[0] = x;
+        wy[0] = y;
+        wx[1] = x + 4.0 * cos(ar);
+        wy[1] = y + 4.0 * sin(ar);
+    }
     memset(&to, 0, sizeof to);
     to.cls = JW_TG_TEXT_O;
     to.kind = 1;
@@ -26460,7 +26468,7 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
        （初めの時刻より後なら 一歩前）と 終わりの 11000 の時刻（終わりより前なら 一歩後） */
     wb1 = wb2 = -30003;
     for (k = 0; k < hkp_n; k++) {
-        char line[200];
+        char line[600];
         hk_interval iv[40];
         int niv;
         jw_tg_out to;
@@ -26490,11 +26498,33 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
         }
         niv = hk_intervals(in, nt, t0, step, iv, 40);
         hk_fmt_n0_line(line, sizeof line, hk_first_no + k, iv, niv, step);
+        if (k == 0 && wb1 > -30000) {
+            /* 壁に日が当たらない帯の字は 最初の点の行の終わりに足す（FUN_005470d0 0x548318〜: 行の字の組
+               [1] に L"  "・0x15bf（壁面自身の日影時間）・"(%2d:%02d'%02d\")-(…)" を続けて足す。
+               時刻は +0x3840 を足して h + 8 時）。逆コンパイルの読み、原典では押していない */
+            int s1 = wb1 + 14400, s2 = wb2 + 14400, ln = (int)strlen(line);
+
+            if (step < 60)
+                snprintf(line + ln, sizeof line - (size_t)ln, "  %s(%2d:%02d'%02d\")-(%2d:%02d'%02d\")",
+                         JW_STR_5567, s1 / 3600 + 8, (s1 / 60) % 60, s1 % 60, s2 / 3600 + 8,
+                         (s2 / 60) % 60, s2 % 60);
+            else
+                snprintf(line + ln, sizeof line - (size_t)ln, "  %s(%2d:%02d')-(%2d:%02d')", JW_STR_5567,
+                         s1 / 3600 + 8, (s1 / 60) % 60, s2 / 3600 + 8, (s2 / 60) % 60);
+        }
         for (q = line; *q; q++)
             w += 1.0;
-        wx[0] = cx;
-        wx[1] = cx + w;
-        wy[0] = wy[1] = cy - row;
+        /* 行は 軸角だけ回した下向き (sin, -cos) へ row 下がる（FUN_0069da00:
+           x += sin × d、y -= cos × d）。字の終点は 始点 + 長さ × (cos, sin)（FUN_0069e630）。
+           逆コンパイルの読み、原典では押していない */
+        {
+            double ar = jw_cmd_axis() * PI / 180.0;
+
+            wx[0] = cx + sin(ar) * row;
+            wy[0] = cy - cos(ar) * row;
+            wx[1] = wx[0] + w * cos(ar);
+            wy[1] = wy[0] + w * sin(ar);
+        }
         memset(&to, 0, sizeof to);
         to.cls = JW_TG_TEXT_O;
         to.kind = 1;
@@ -26505,11 +26535,11 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
             made++;
         }
         /* 次の行は 字の高さ + 2、グラフがあれば さらに 3（FUN_0069da00 0x69e4e9〜）。
-           移植の行は 4 刻みで角を使わない（hk_k*.jww に合わせた）ので グラフも角 0 */
+           行の刻みは 軸角 0 なら 4（hk_k*.jww に合わせた）、軸角があれば 上の回した向き */
         row += 4.0;
         if (hk_graph) {
             static hk_gline gl[600];
-            int ng = hk_point_graph(wx[0], wy[0], 0.0, cond.n15, iv, niv, wb1 > -30000, wb1, wb2,
+            int ng = hk_point_graph(wx[0], wy[0], jw_cmd_axis(), cond.n15, iv, niv, wb1 > -30000, wb1, wb2,
                                     gl, 600);
 
             for (i = 0; i < ng; i++) {
@@ -27849,10 +27879,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 }
             }
         }
-        if (current != JW_CMD_TENKU) {  /* +0xac（２．５D は +200）に書いた字 */
-            hk_ll_k = near;
-            hk_ll_n = d->ndrawn;
-        }
+        /* +0xac（２．５D は +200、天空図は +0x158）に書いた字。天空図の slot 12 FUN_00739a90 も
+           +0x158 を FUN_0044b2c0 で消して 0 にする（書くのは FUN_0074e800 の高さの段で 旗 0x80、
+           slot 9 FUN_00739bd0 の頭で 0）。逆コンパイルの読み、原典では押していない */
+        hk_ll_k = near;
+        hk_ll_n = d->ndrawn;
         return;
     }
     if (current == JW_CMD_AUTO) {

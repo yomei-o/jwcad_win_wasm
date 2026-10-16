@@ -470,6 +470,7 @@ int main(void)
     cross_types();
     height(JW_CMD_HIKAGE, "日影図");
     height(JW_CMD_25D, "２．５D");
+    height(JW_CMD_TENKU, "天空図");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);
     return fails != 0;
 }

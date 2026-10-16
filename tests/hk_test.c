@@ -12,6 +12,7 @@
 #include "../src/tategu.h"
 #include "../src/image.h"
 #include "../src/hikage.h"
+#include "../src/gen/prompts.h"
 #include "../src/tenku.h"
 #include "png.h"
 
@@ -1062,6 +1063,39 @@ int main(int argc, char **argv)
         clicks(&r, "B:1071;");
         ok = ok && !strcmp(jw_cmd_bar_label(1071), lab_off);
         clicks(&r, "B:1064;");
+        /* 軸角 90: 行は (sin, -cos) へ 7 下がる = x が 7 増え、y は同じ（FUN_0069da00 の x += sin×d） */
+        {
+            double rx[2] = { 0, 0 }, ryy[2] = { 0, 0 };
+            int nr2 = 0;
+
+            b = slurp("decomp/res/new.jww", &n);
+            app_new();
+            app_resize(1264, 741);
+            app_open(b, n);
+            free(b);
+            ui_view_rect(app_fb()->w, app_fb()->h, &r);
+            jw_cmd_set_axis(90.0);
+            app_command(32771);
+            addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;");
+            app_command(32943);
+            clicks(&r, "b:10;405,300;595,300;595,500;405,500;B:1066;B:1071;");
+            n = app_drawing()->ndrawn;
+            clicks(&r, "500,400;520,400;B:1065;750,650;");
+            dd = app_drawing();
+            for (k = (int)n; k < dd->ndrawn; k++) {
+                const jw_obj *o = &dd->obj[k];
+
+                if (o->cls == JW_MOJI && o->text >= 0 && !strncmp(jw_str(dd, o->text), "N0.", 3) && nr2 < 2) {
+                    rx[nr2] = o->d[0];
+                    ryy[nr2++] = o->d[1];
+                }
+            }
+            clicks(&r, "B:1071;B:1064;");
+            jw_cmd_set_axis(0.0);
+            ok = ok && nr2 == 2 && fabs(rx[1] - rx[0] - 7.0) < 1e-6 && fabs(ryy[1] - ryy[0]) < 1e-6;
+            if (!ok)
+                printf("     軸角 90: x %g %g y %g %g\n", rx[0], rx[1], ryy[0], ryy[1]);
+        }
         if (!ok) {
             printf("     色1 %d・色4 %d・行 %d (%g %g)\n", c1, c4, nrow, ry[0], ry[1]);
             puts("BAD  日影図 指定点の グラフ 無 (1071)");
@@ -1272,6 +1306,49 @@ int main(int argc, char **argv)
             fails++;
         } else
             puts("ok   日影図 壁面日影（1時間毎・指定点・等時間）");
+    }
+    /* 壁面日影の 指定点: 壁に日が当たらない時刻があれば 最初の点の行の終わりに「壁面自身の日影時間(h:mm')-(h:mm')」
+       （FUN_005470d0 0x548318〜、0x15bf）。建物を壁の南に置いて 北向きの面にすると 一日中 当たらない */
+    {
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const jw_drawing *dd;
+        int k, n0, nband = 0, nrow = 0;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,200;600,200;400,200;400,200;400,300;700,400;300,400;");
+        app_command(32943);
+        clicks(&r, "b:10;405,300;595,300;595,200;405,200;B:1069;500,400;");
+        n0 = app_drawing()->ndrawn;
+        clicks(&r, "B:1064;B:1065;B:1121;B:1066;500,250;B:1065;750,650;");
+        dd = app_drawing();
+        for (k = n0; k < dd->ndrawn; k++) {
+            const jw_obj *t = &dd->obj[k];
+            const char *s;
+
+            if (t->cls != JW_MOJI || t->text < 0)
+                continue;
+            s = jw_str(dd, t->text);
+            if (!strncmp(s, "N0.", 3))
+                nrow++;
+            if (strstr(s, JW_STR_5567))
+                nband++;
+            if (getenv("HKWALL"))
+                printf("  band [%s]\n", s);
+        }
+        if (nrow != 1 || nband != 1) {
+            printf("     band rows %d band %d\n", nrow, nband);
+            puts("BAD  日影図 壁面日影 指定点の 壁面自身の日影時間 (0x15bf)");
+            fails++;
+        } else
+            puts("ok   日影図 壁面日影 指定点の 壁面自身の日影時間 (0x15bf)");
     }
     /* 測定点が建物の内側: 窓（はい／いいえ／キャンセル）を app の紙面から出して 釦で答える（hk_s29〜s31） */
     {
