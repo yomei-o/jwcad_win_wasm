@@ -484,7 +484,8 @@ static void sun_path(jw_drawing *d, const hk_tenku_opts *o, double px, double py
         if (ad <= 1e-7)
             snprintf(season, sizeof season, S_SUN_SP S_SHUNSHU S_TAIYOU);
         else if (ad < 23.449999899999998) {
-            /* 任意の日赤緯: 【 %lg ﾟ 】（0x1b5e・0x95590c・0x1833・0x1b58）。原典の答えはまだ無い */
+            /* 任意の日赤緯: 【 %lg ﾟ 】（0x1b5e・0x95590c・0x1833・0x1b58、0x73f02c〜0x73f13d を
+               objdump で読んだ。境は 0x968678 − 0x955eb0 = 23.45 − 1e-7）。原典の答えは無い */
             char nb[32];
 
             snprintf(nb, sizeof nb, "%g", dec);

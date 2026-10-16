@@ -12,6 +12,7 @@
 #include "../src/tategu.h"
 #include "../src/image.h"
 #include "../src/hikage.h"
+#include "../src/tenku.h"
 #include "png.h"
 
 static unsigned char *slurp(const char *path, long *n)
@@ -1099,6 +1100,93 @@ int main(int argc, char **argv)
             printf("BAD  真北の問いが出なかった\n");
             fails++;
         }
+    }
+    /* 天空図の 太陽軌跡: 任意時期 の日赤緯の字と、南方向補正 なし＋真北 の 天空率計算 の塗り。
+       どちらも逆コンパイルの読み（原典の答えは無い）。
+       季節の字は FUN_0073ea50 の 0x73eed9〜0x73f13d: |日赤緯| ≤ 1e-7 なら 春秋分 (0x15d0)、
+       |日赤緯| ≥ 23.45 − 1e-7 なら 負で 冬至 (0x15cf)・ほかは 夏至 (0x15d1)、間は
+       0x1b5e「【」＋ "%lg"（0x95590c）＋ 0x1833「ﾟ」＋ 0x1b58「】」、どれも後ろに 0x1658「 太陽位置」。
+       塗りの光線は FUN_00748da0 で i·2π/N（+0x198 の真北は足さない）、建物の射影 FUN_00733e40 は
+       +0x190（南方向補正）のときだけ回すので、補正なしでは 真北 を変えても塗りは一本も動かない */
+    {
+        static const struct { double dec; const char *lab; } dc[] = {
+            { -10.0, " \x81\x40\x81\x79-10\xdf\x81\x7a \x91\xbe\x97\x7a\x88\xca\x92\x75" },
+            { 12.5, " \x81\x40\x81\x79" "12.5\xdf\x81\x7a \x91\xbe\x97\x7a\x88\xca\x92\x75" },
+            { 23.45, " \x81\x40\x89\xc4\x8e\x8a \x91\xbe\x97\x7a\x88\xca\x92\x75" },
+            { -23.45, " \x81\x40\x93\x7e\x8e\x8a \x91\xbe\x97\x7a\x88\xca\x92\x75" },
+            { 0.0, " \x81\x40\x8f\x74\x8f\x48\x95\xaa \x91\xbe\x97\x7a\x88\xca\x92\x75" },
+        };
+        static jw_drawing td[3];
+        hk_edge3 e[4] = {
+            { 10, 20, 40, 30, 20, 40 }, { 30, 20, 40, 30, 40, 40 },
+            { 30, 40, 40, 10, 40, 40 }, { 10, 40, 40, 10, 20, 40 },
+        };
+        hk_tenku_opts o;
+        int q, bad = 0, nh[3] = { 0, 0, 0 };
+        double pct[3];
+
+        for (q = 0; q < (int)(sizeof dc / sizeof dc[0]); q++) {
+            int i, hit = 0;
+
+            memset(&td[0], 0, sizeof td[0]);
+            hk_tenku_opts_default(&o);
+            o.sun = 1;
+            o.lat = 36.0;
+            o.dec = dc[q].dec;
+            jw_tenku_draw_edges(&td[0], &o, e, 4, 0.0, 0.0, 100.0, 0.0, NULL);
+            for (i = 0; i < td[0].ndrawn; i++)
+                if (td[0].obj[i].cls == JW_MOJI && td[0].obj[i].text >= 0 &&
+                    strstr(jw_str(&td[0], td[0].obj[i].text), dc[q].lab))
+                    hit++;
+            if (hit != 1) {
+                printf("BAD  太陽軌跡 日赤緯 %g の季節の字が %d 個\n", dc[q].dec, hit);
+                bad++;
+            }
+        }
+        for (q = 0; q < 3; q++) {
+            int i;
+
+            memset(&td[q], 0, sizeof td[q]);
+            hk_tenku_opts_default(&o);
+            o.calc = 1;
+            o.sun = q > 0;
+            o.lat = 36.0;
+            o.north = q == 2 ? -90.0 : 0.0;
+            jw_tenku_draw_edges(&td[q], &o, e, 4, 0.0, 0.0, 100.0, 0.0, &pct[q]);
+            for (i = 0; i < td[q].ndrawn; i++)
+                if (td[q].obj[i].cls == JW_SEN && (td[q].obj[i].flags & 0x20))
+                    nh[q]++;
+        }
+        if (nh[0] < 1 || nh[0] != nh[1] || nh[0] != nh[2] || pct[0] != pct[2]) {
+            printf("BAD  南方向補正なし＋真北 の塗り %d・%d・%d 本 天空率 %g・%g\n", nh[0], nh[1], nh[2],
+                   pct[0], pct[2]);
+            bad++;
+        } else {
+            int a, b, k[3] = { 0, 0, 0 };
+
+            /* 塗りの線を並びどおりに較べる */
+            for (a = 0; a < nh[0]; a++) {
+                const jw_obj *L[3];
+
+                for (b = 0; b < 3; b++) {
+                    while (!(td[b].obj[k[b]].cls == JW_SEN && (td[b].obj[k[b]].flags & 0x20)))
+                        k[b]++;
+                    L[b] = &td[b].obj[k[b]++];
+                }
+                for (b = 0; b < 4; b++)
+                    if (fabs(L[0]->d[b] - L[1]->d[b]) > 1e-9 || fabs(L[0]->d[b] - L[2]->d[b]) > 1e-9)
+                        break;
+                if (b < 4) {
+                    printf("BAD  南方向補正なし＋真北 −90 で 塗りの %d 本目が動いた\n", a + 1);
+                    bad++;
+                    break;
+                }
+            }
+        }
+        if (bad)
+            fails += bad;
+        else
+            printf("ok   太陽軌跡 任意時期の季節の字・補正なし＋真北 の塗り（%d 本）\n", nh[0]);
     }
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);
     return fails != 0;
