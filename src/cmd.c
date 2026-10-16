@@ -429,6 +429,8 @@ static double sun_ex, sun_ey;   /* the last one's end: 連続入力 (R) starts t
    tools/jwdraw.ps1's `read:1411` while pressing it -- so the box is the one
    place the angle lives. */
 static void box_put(int id, const char *v);
+static void box_put_raw(int id, const char *v);
+static int sen_sizekeep;        /* 基本設定 2493（jw_cmd_sen_sizekeep） */
 static int fk_unplace(jw_drawing *d);       /* 複写・移動: 置いた一手を取り消す */
 
 /* 角度 (1068): the angle between two directions taken about an origin.
@@ -3981,6 +3983,18 @@ void jw_cmd_set(int id)
     esc_3pt = 0;
     if (id == JW_CMD_MENTORI || id == JW_CMD_BUNKATSU || id == JW_CMD_FUKUSEN)
         box_put(1411, "");      /* asking for it again empties the box (s4_10; 複線 s7_66、tmp/dc7 h2) */
+    if (id == JW_CMD_SEN && prev != JW_CMD_SEN) {
+        /* 線のバーを組む FUN_005be420（CSenDialog の OnInitDialog）: 傾き の箱
+           (+0x958) は毎回 0、寸法 の箱 (+0xaa0) は 基本設定 一般(2) 2493「線
+           コマンドの指定寸法値を保持する」（DAT_00a0cc38、SizeKeep）が 0 なら 0、
+           立っていれば 前の値（doc+0x83f0。箱を読む FUN_005bdb30 が読むたびに書く）。
+           移植の箱は命令ごとに字を持つので、保持のときは箱の字をそのまま残す（打って
+           まだ読まれていない字も残る）。線 のまま押し直す（水平･垂直 の入れ替え）は
+           バーを作り直さないとみて触らない。逆コンパイルの読み、原典では押していない */
+        box_put_raw(1411, "");
+        if (!sen_sizekeep)
+            box_put_raw(1412, "");
+    }
     bk_rr_n = 0;                /* FUN_0075b070: +0x138 = 0 */
     bk_gyaku = bk_senchou = 0;  /* 分割の補助設定（FUN_007619c0 で 0） */
     step = 0;
@@ -23342,6 +23356,43 @@ void jw_cmd_get_arc_length(int on)
     get_arc_len = on != 0;
 }
 
+/* 属性取得 の一回: (x, y) に近い要素の 線種・線色・線幅 と レイヤ を書込みに。
+   命令 属性取得 のクリックと、基本設定 KEY 1325「直接属性取得を行う」のときの
+   Tab（app_key。キーの受け手 FUN_00512920 の 0x80a3 の枝が DAT_00a0c7b8 を
+   見て FUN_007751e0 へ）が呼ぶ。1 なら取った */
+int jw_cmd_zokusei_at(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int i;
+
+    if (!d)
+        return 0;
+    i = jw_pick(d, v, x, y, 0);
+    if (i < 0)
+        return 0;
+    d->write_ltype = d->obj[i].ltype ? d->obj[i].ltype : 1;
+    d->write_color = d->obj[i].color;
+    d->write_width = d->obj[i].width;
+    {   /* and the write layer, which is the group's own */
+        int g = d->obj[i].lgroup & 15, k;
+        for (k = 0; k < 16; k++)
+            if (d->group[k].state == 3 && k != g)
+                d->group[k].state = 2;
+        d->group[g].state = 3;
+        d->group[g].write_layer = d->obj[i].layer & 15;
+        for (k = 0; k < 16; k++)
+            if (d->group[g].layer[k].state == 3)
+                d->group[g].layer[k].state = 2;
+        d->group[g].layer[d->group[g].write_layer].state = 3;
+    }
+    return 1;
+}
+
+/* 基本設定 一般(2) 2493「線コマンドの指定寸法値を保持する」（jw_cmd_set） */
+void jw_cmd_sen_sizekeep(int on)
+{
+    sen_sizekeep = on != 0;
+}
+
 /* one click while a 取得 is on; 1 if it was swallowed */
 /* 基本設定 一般(1) 1522「表示のみレイヤも属性取得」: the 取得 interrupts
    (FUN_004754c0) pick with FUN_0044a270's last argument = DAT_00a0c7b0, which
@@ -27577,27 +27628,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
          * new elements get.  Driving Jw_cad bears both out: after 属性取得 on
          * a line of type 6 on layer 0, a 複線 came out type 6 on layer 0
          * where before it was type 1 on layer 10. */
-        int i;
         if (button != 0 || !d)
             return;             /* (R) turns the layer display round */
-        i = jw_pick(d, v, x, y, 0);
-        if (i < 0)
-            return;
-        d->write_ltype = d->obj[i].ltype ? d->obj[i].ltype : 1;
-        d->write_color = d->obj[i].color;
-        d->write_width = d->obj[i].width;
-        {   /* and the write layer, which is the group's own */
-            int g = d->obj[i].lgroup & 15, k;
-            for (k = 0; k < 16; k++)
-                if (d->group[k].state == 3 && k != g)
-                    d->group[k].state = 2;
-            d->group[g].state = 3;
-            d->group[g].write_layer = d->obj[i].layer & 15;
-            for (k = 0; k < 16; k++)
-                if (d->group[g].layer[k].state == 3)
-                    d->group[g].layer[k].state = 2;
-            d->group[g].layer[d->group[g].write_layer].state = 3;
-        }
+        jw_cmd_zokusei_at(d, v, x, y);
         return;
     }
     if (current == JW_CMD_FUKUSEN) {
