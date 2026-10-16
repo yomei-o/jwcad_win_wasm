@@ -123,9 +123,9 @@ unsigned char *jw_plot_png(const jw_drawing *d, double dpmm, int colour,
  * FUN_00452e30）、要素を 枠の中心のまわりに ９０° なら −π/2、−９０° なら
  * +π/2 回して描く（FUN_0046d5b0）。紙の中心に 枠の中心が来て、倍率を掛ける
  * （倍率 1・中心 0 で 用紙の中心が紙の中心に来るのは原典の PDF で測った。
- * それ以外の倍率と中心は読み）。線幅・線種の刻み・点の大きさは倍率を掛けない
- * （プリント出力形式 の「線幅も倍率」(1330) が既定で切れているので。その窓は
- * 移植に無い）。
+ * それ以外の倍率と中心は読み）。線幅・線種の刻みは プリント出力形式 の
+ * 「線幅も倍率」(1330、既定は切) が入っているときだけ倍率を掛ける（窓は
+ * ネイティブの src/prnative.h、値は jw_pr_opt）。点の大きさは掛けない。
  */
 #define JW_PRINT_CMD 0x8053
 
@@ -134,7 +134,21 @@ typedef struct {
     double scale;       /* 倍率 */
     int rot;            /* 0 ０°、1 ９０°（−π/2 回す）、2 −９０°（+π/2） */
     int colour;         /* カラー印刷 */
+    /* プリント出力形式（DIALOG 344）から。jw_pr_settings が埋める */
+    int wscale;         /* 1330 線幅も倍率: 線幅と線種の刻みにも倍率を掛ける */
+    int by;             /* 連続出力: 0 しない、1 レイヤごと (1324)、2 レイヤグループごと (1323) */
+    int keep1;          /* 1325・1326: 共通（表示のみ）を表示のみのまま */
+    int page;           /* PNG で刷る頁（連続出力のとき。0 から） */
 } jw_plot_frame;
+
+/* 連続出力の頁の数（f が 0 か 連続出力でなければ 1。刷る頁が無ければ 0） */
+int jw_plot_npages(const jw_drawing *d, const jw_plot_frame *f);
+
+/* プリント出力形式（DIALOG 344）の箱の値。id はその箱の id
+ * （1323〜1331・1333・2113・2114）。1064・1065 は持たない。既定はみな 0 */
+int  jw_pr_opt(int id);
+void jw_pr_set_opt(int id, int v);
+void jw_pr_new_doc(void);               /* 新規: 1323〜1326 を 0 に（FUN_004d20c0） */
 
 /* 枠と倍率と回転のとおりに刷る。f が 0 なら上の二つと同じ */
 unsigned char *jw_plot_pdf_at(const jw_drawing *d, const jw_plot_frame *f,

@@ -1646,7 +1646,24 @@ static int open_any(HWND wnd, const wchar_t *path)
    printer's resolution, then stretched onto the page: at its own size when it
    fits, scaled down to fit when it does not, and turned a quarter if that makes
    it bigger.  Cancelling the dialog prints nothing. */
+static int print_gdi_page(HWND wnd, int page);
+
+/* 連続出力（プリント出力形式 1323・1324）なら頁の数だけ。一頁ずつ別のジョブ */
 static int print_gdi(HWND wnd)
+{
+    jw_plot_frame fr;
+    int n, k, ok = 1;
+
+    jw_pr_settings(&fr);
+    n = jw_plot_npages(app_drawing(), &fr);
+    if (n < 1)
+        n = 1;                          /* 刷る頁が無い: 素の一枚（src/plot.c の注） */
+    for (k = 0; k < n && ok; k++)
+        ok = print_gdi_page(wnd, k);
+    return ok;
+}
+
+static int print_gdi_page(HWND wnd, int page)
 {
     PRINTDLGW pd;
     DOCINFOW di;
@@ -1690,6 +1707,7 @@ static int print_gdi(HWND wnd)
         jw_plot_frame fr;               /* 印刷の命令の枠・倍率・回転・カラー印刷 */
 
         jw_pr_settings(&fr);
+        fr.page = page;
         png = jw_plot_png_at(app_drawing(), &fr, dpmm, &pn);
     }
     if (!png || !jw_img_decode(png, pn, &im)) {
