@@ -5346,6 +5346,31 @@ const char *jw_cmd_status(const jw_drawing *d)
             return buf;
         }
     }
+    /* ハッチの輪を訊く間（0x1501・0x1502）の末尾（CZukeiHachi FUN_00672100、数えるのは
+       FUN_00672b20）。輪がまだ始まっていなければ「   【 +0x224 】」、始まっていれば
+       「     【 +0x224 】   < +0x228 >」（L"   %s %ld %s"・L"     %s %ld %s   < %ld >" に
+       7006・数・7000。引数は 逆順に積まれた並びで読んだ）。数え方（FUN_00672b20）: 境界の
+       項目を一つずつ見て、閉じた印（+0x48）があれば +0x228・+0x234 を 0 に戻して +0x224 を足し、
+       なければ +0x228 を足して、輪の頭の項目（+0x5e が立ち +0x28 が 1 でない = 一つ目を左で拾った
+       もの）だけは +0x224 に足さず +0x234 = 1（輪が始まった）にする。移植の対応:
+       右で取った輪・円は項目を一本ずつ（円は一つ）足して最後に閉じ印が付くので 線の数
+       （ht_reg[].n - 1）と 1、左の鎖 ht_nchain は 頭の一つ + 残りは +0x224・+0x228 の両方。
+       範囲選択で 輪にならなかった線は 数えない（原典は一本ずつ入れる）。+0x5e が
+       どの状態か（FUN_00442bd0 が FUN_006738f0 の (2,1) の枝で立てる）は 読みで、原典では押して
+       いない。逆コンパイルの読み、原典では押していない */
+    if (current == JW_CMD_HATCH && !ht_base_wait && !ht_sel
+        && (!strcmp(p, JW_STR_5377) || !strcmp(p, JW_STR_5378))) {
+        int c224 = 0, k;
+
+        for (k = 0; k < ht_nreg; k++)
+            c224 += ht_reg[k].round ? 1 : ht_reg[k].n - 1;
+        if (ht_nchain > 0)
+            snprintf(buf, sizeof buf, "%s     %s %d %s   < %d >", p, JW_STR_7006,
+                     c224 + ht_nchain - 1, JW_STR_7000, ht_nchain);
+        else
+            snprintf(buf, sizeof buf, "%s   %s %d %s", p, JW_STR_7006, c224, JW_STR_7000);
+        return buf;
+    }
     /* 線・矩形・円 の長さは ｍ単位入力 なら ÷DAT_00a0d630 して最後に単位の字
        （線 FUN_006edd60 の "   %s" のあと、矩形 FUN_006ee840 の H のあと、円
        FUN_00647b40 の "      r = %s" のあと）。逆コンパイルの読み、原典では押していない */

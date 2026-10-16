@@ -226,8 +226,22 @@ static void prompts_of_the_commands(void)
     /* ハッチ: 輪を拾う間は 0x1501 、一つ入ると 0x1502 */
     app_command(JW_CMD_HATCH);
     cksame(jw_cmd_prompt(), JW_STR_5377, "ハッチは始めの線・弧を指示");
+    {
+        char w0[256];
+
+        snprintf(w0, sizeof w0, "%s   %s %d %s", JW_STR_5377, JW_STR_7006, 0, JW_STR_7000);
+        cksame(jw_cmd_status(app_drawing()), w0, "  輪が無ければ 【 0 】");
+    }
     click(0.0, 40.0);
     cksame(jw_cmd_prompt(), JW_STR_5378, "  一つ入ると次の線・円を指示");
+    {
+        /* 末尾の数（FUN_00672100: 逆コンパイルの読み、原典では押していない） */
+        char want[256];
+
+        snprintf(want, sizeof want, "%s     %s %d %s   < %d >", JW_STR_5378,
+                 JW_STR_7006, 0, JW_STR_7000, 1);
+        cksame(jw_cmd_status(app_drawing()), want, "  ハッチの末尾は 【 0 】   < 1 >");
+    }
 
     /* 曲線: サインは基準線のあと五点、２次は四点 */
     app_command(JW_CMD_KYOKUSEN);
