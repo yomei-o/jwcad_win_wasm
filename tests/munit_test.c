@@ -224,6 +224,72 @@ int main(void)
         jw_cmd_escape();
     }
 
+    /* 距離指定点 の 距離 1412（FUN_006baad0）・分割 の 割付 の 距離 1412（FUN_007668f0） */
+    app_command(JW_CMD_KYORITEN);
+    jw_cmd_box_put(1412, "0.5");
+    ck(!strcmp(bx(1412), "500"), "  距離指定点の 距離 0.5 は 500");
+    jw_cmd_box_put(1412, "");
+    app_command(JW_CMD_BUNKATSU);
+    jw_cmd_box_put(1411, "3");
+    if (jw_cmd_bar_check(1324) <= 0)
+        jw_cmd_bar(d, 1324);
+    jw_cmd_box_put(1412, "0.4");
+    ck(!strcmp(bx(1412), "400"), "  分割の 割付 の 距離 0.4 は 400");
+    jw_cmd_box_put(1412, "");
+    jw_cmd_bar(d, 1324);
+    ck(!strcmp(bx(1411), "3"), "  分割数 3 は 3 のまま");
+    jw_cmd_box_put(1411, "");
+
+    /* 状態表示の 線の長さ・矩形の W H・円の r は ÷1000 して ｍ（FUN_006edd60・006ee840・
+       00647b40） */
+    {
+        const jw_view *v = app_view();
+        const jw_obj *o;
+        double s = 1.0;
+        char want[96];
+        int g, wg = 0;
+
+        for (g = 0; g < 16; g++)
+            if (d->group[g].state == 3)
+                wg = g;
+        if (d->group[wg].scale > 0.0)
+            s = d->group[wg].scale;
+        app_command(JW_CMD_SEN);
+        jw_cmd_box_put(1412, "");
+        if (jw_cmd_bar_check(1333) > 0)
+            app_key(32);
+        app_press(jw_sx(v, 0.0), jw_sy(v, 0.0), 0);
+        app_press(jw_sx(v, 3.0), jw_sy(v, 4.0), 0);
+        o = &d->obj[d->ndrawn - 1];
+        snprintf(want, sizeof want, "   %.3f\x82\x8d",
+                 hypot(o->d[2] - o->d[0], o->d[3] - o->d[1]) * s / 1000.0);
+        ck(o->cls == JW_SEN && strstr(jw_cmd_status(d), want) != 0
+           && !strcmp(jw_cmd_status(d) + strlen(jw_cmd_status(d)) - strlen(want), want),
+           "  線の状態表示の長さは ÷1000 で末尾に ｍ");
+        app_command(JW_CMD_ENKO);
+        jw_cmd_box_put(1411, "");
+        app_press(jw_sx(v, 0.0), jw_sy(v, 0.0), 0);
+        app_press(jw_sx(v, 0.0), jw_sy(v, 2.0), 0);
+        o = &d->obj[d->ndrawn - 1];
+        snprintf(want, sizeof want, "r = %.3f\x82\x8d", o->d[2] * s / 1000.0);
+        ck(o->cls == JW_ENKO && strstr(jw_cmd_status(d), want) != 0, "  円の r も ÷1000 で ｍ");
+        app_command(JW_CMD_KUKEI);
+        jw_cmd_box_put(1413, "");
+        app_press(jw_sx(v, 0.0), jw_sy(v, 0.0), 0);
+        app_press(jw_sx(v, 6.0), jw_sy(v, 2.0), 0);
+        {
+            char w2[96];
+            const char *st = jw_cmd_status(d);
+            const char *wp = strstr(st, "W=");
+
+            snprintf(w2, sizeof w2, "%s", wp ? wp : "");
+            ck(wp && strstr(w2, "H=") && w2[strlen(w2) - 2] == '\x82' && w2[strlen(w2) - 1] == '\x8d'
+               && atof(w2 + 2) > 0.0 && atof(w2 + 2) < 6.0 * s / 1000.0 + 0.01,
+               "  矩形の W H も ÷1000、H のあとに ｍ");
+        }
+        jw_cmd_escape();
+    }
+
     /* ---- 切ればまた元どおり ---- */
     kh_press(1, 2526);
     kh_ok();
@@ -237,6 +303,12 @@ int main(void)
     ck(!strcmp(bx(1412), "1.5"), "切ればまた 1.5 は 1.5");
     l_off = sen_len(d, "1.5");
     ck(l_off > 0.0 && fabs(l_off - l_mm) > 1.0, "  寸法 1.5 は 1500 の長さではない");
+    ck(strstr(jw_cmd_status(d), "]   ") != 0 && strstr(jw_cmd_status(d), "\x82\x8d") == 0,
+       "  線の状態表示に ｍ は付かない");
+    app_command(JW_CMD_KYORITEN);
+    jw_cmd_box_put(1412, "0.5");
+    ck(!strcmp(bx(1412), "0.5"), "  距離指定点の 距離 0.5 は 0.5");
+    jw_cmd_box_put(1412, "");
     app_command(JW_CMD_NISEN);
     jw_cmd_box_put(1412, "100 , 200");
     jw_cmd_bar(d, 1066);

@@ -5173,19 +5173,27 @@ const char *jw_cmd_status(const jw_drawing *d)
             return buf;
         }
     }
+    /* 線・矩形・円 の長さは ｍ単位入力 なら ÷DAT_00a0d630 して最後に単位の字
+       （線 FUN_006edd60 の "   %s" のあと、矩形 FUN_006ee840 の H のあと、円
+       FUN_00647b40 の "      r = %s" のあと）。逆コンパイルの読み、原典では押していない */
+    if (mu_on && kind >= 1 && kind <= 3) {
+        if (kind != 1)
+            va /= SUN_M_DIV;
+        vb /= SUN_M_DIV;
+    }
     switch (kind) {
     case 1:
         num3(b, (int)sizeof b, d, vb);
-        snprintf(buf, sizeof buf, "%s   [ %.3f\x81\x8b]   %s", p, va, b);
+        snprintf(buf, sizeof buf, "%s   [ %.3f\x81\x8b]   %s%s", p, va, b, mu_on ? SUN_M_STR : "");
         return buf;
     case 2:
         num3(a, (int)sizeof a, d, va);
         num3(b, (int)sizeof b, d, vb);
-        snprintf(buf, sizeof buf, "%s     W=%s    H=%s", p, a, b);
+        snprintf(buf, sizeof buf, "%s     W=%s    H=%s%s", p, a, b, mu_on ? SUN_M_STR : "");
         return buf;
     case 3:
         num3(a, (int)sizeof a, d, va);
-        snprintf(buf, sizeof buf, "%s      r = %s", p, a);
+        snprintf(buf, sizeof buf, "%s      r = %s%s", p, a, mu_on ? SUN_M_STR : "");
         return buf;
     case 4: {
         /* 測定: the scale, the running total to 小数桁 places and the leg
@@ -19814,6 +19822,11 @@ void jw_cmd_m_input(int on)
  *   接円 1411           FUN_007063b0 が円のバーの FUN_004ab530 で読む（いつも ×）
  *   数値位置 1413       複写・移動・パラメトリックの二つ目のバー。FUN_004ae4a0・
  *                       FUN_004ae510 が ×、FUN_004ae320 が ÷（いつも）
+ * 残りの命令の中で読むもの（いつも ×）:
+ *   距離指定点 1412     CZukeiKyori の作図 FUN_006baad0 が 距離の箱（バーの +0xd0）を
+ *                       ÷縮尺 のあと ×DAT_00a0d630（連続 1066 も同じ関数）
+ *   分割 1412           割付 のバーの 距離。FUN_007668f0 が +0xd0（CBunkatsuDialog の
+ *                       DDX 0x584）を ×DAT_00a0d630 のあと ÷縮尺 して +0x7ea8 へ
  * 逆コンパイルの読み、原典では押していない。 */
 static const struct { unsigned cmd; unsigned short id; unsigned char real; } mu_len[] = {
     { JW_CMD_SEN, 1412, 0 },      { JW_CMD_KUKEI, 1413, 0 },
@@ -19829,6 +19842,7 @@ static const struct { unsigned cmd; unsigned short id; unsigned char real; } mu_
     { JW_CMD_SHOUKYO, 1411, 1 },  { JW_CMD_CORNER, 1411, 1 },   { JW_CMD_SHINSHUKU, 1411, 1 },
     { 100000u + JW_CMD_FUKUSHA, 1413, 0 }, { 100000u + JW_CMD_IDOU, 1413, 0 },
     { 100000u + JW_CMD_PARAM, 1413, 0 },
+    { JW_CMD_KYORITEN, 1412, 0 }, { JW_CMD_BUNKATSU, 1412, 0 },
 };
 
 static int mu_len_box(unsigned cmd, int id)
