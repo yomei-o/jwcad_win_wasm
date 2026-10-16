@@ -298,7 +298,7 @@ EMSCRIPTEN_KEEPALIVE int jw_command(int id)
     return finish(app_command(id));
 }
 
-/* クロックメニュー（src/clock.h）の左の離し: 離した向きの命令へ移り、
+/* クロックメニュー（src/clock.h）の左・右の離し: 離した向きの命令へ移り、
    その命令の求め（図形の窓など）は press と同じ数で返す */
 EMSCRIPTEN_KEEPALIVE int jw_clock_end(void)
 {

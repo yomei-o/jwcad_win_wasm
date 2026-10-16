@@ -421,5 +421,43 @@
 #define JW_STR_10035 "- \x90\xfc\x91\xae\x90\xab\x90\xdd\x92\xe8 -"
 /* 5609: clock 3 of division with line A: brick-joint division */
 #define JW_STR_5609 "\x94n\x96\xda\x92n\x95\xaa\x8a\x84"
+/* 10101: right clock AM 3: centre point / A point (FUN_0076ea20) */
+#define JW_STR_10101 "\x92\x86\x90S\x93_\xa5" "A\x93_"
+/* 10102: right clock AM 9: point on a line / crossing (FUN_0076fae0) */
+#define JW_STR_10102 "\x90\xfc\x8f\xe3\x93_\x81" "E\x8c\xf0\x93_"
+/* 10103: right clock AM 6: offset (FUN_0076f880) */
+#define JW_STR_10103 "\x83I\x83t\x83Z\x83" "b\x83g"
+/* 10104: right clock AM 12: circle quarter point (FUN_0076efd0) */
+#define JW_STR_10104 "\x89~\x8e\xfc" "1/4\x93_"
+/* 10105: right clock AM 4: undo */
+#define JW_STR_10105 "\x96\xdf\x81@\x82\xe9"
+/* 10106: right clock AM 5: redo */
+#define JW_STR_10106 "\x90i\x81@\x82\xde"
+/* 10110: not a circle (FUN_0076efd0) */
+#define JW_STR_10110 "\x89~\x82\xc5\x82\xcd\x82\xa0\x82\xe8\x82\xdc\x82\xb9\x82\xf1"
+/* 10123: circle eighth point (2099 on) */
+#define JW_STR_10123 "\x89~\x8e\xfc" "1/8\x93_"
+/* 10014: right clock PM 2: angle between two points */
+#define JW_STR_10014 "\x82Q\x93_\x8a\xd4\x8ap"
+/* 10015: right clock PM 3: angle from the X axis */
+#define JW_STR_10015 "X\x8e\xb2\x8ap\x93x"
+/* 10016: right clock PM 4: line angle */
+#define JW_STR_10016 "\x90\xfc\x8ap\x93x"
+/* 10018: right clock PM 9: angle from the X axis, minus */
+#define JW_STR_10018 "X\x8e\xb2(-)\x8ap\x93x"
+/* 10021: right clock PM 7: axis angle, minus */
+#define JW_STR_10021 "(-)\x8e\xb2\x8ap"
+/* 10022: right clock PM 1: vertical angle */
+#define JW_STR_10022 "\x89\x94\x92\xbc\x8ap"
+/* 10023: right clock PM 11: line length */
+#define JW_STR_10023 "\x90\xfc\x92\xb7 \x8e\xe6\x93\xbe"
+/* 10024: right clock PM 10: length between two points */
+#define JW_STR_10024 "\x82Q\x93_\x8a\xd4 \x92\xb7"
+/* 10025: right clock PM 8: minus angle */
+#define JW_STR_10025 "(-)\x8ap\x93x"
+/* 10030: right clock PM 6: numeric angle */
+#define JW_STR_10030 "\x90\x94\x92l\x8ap\x93x"
+/* 10031: right clock PM 12: numeric length */
+#define JW_STR_10031 "\x90\x94\x92l \x92\xb7"
 
 #endif
