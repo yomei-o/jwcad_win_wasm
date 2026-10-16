@@ -84,9 +84,11 @@ int main(int argc, char **argv)
     FILE *f;
     static const int none[1] = { 0 };
 
+    /* run bare (tools/qtest.sh read), the one tools/check.sh gives it */
     if (argc < 2) {
-        printf("usage: read_test drawing.jww\n");
-        return 2;
+        static char *def[] = { "read_test", "orig/Test5.jww", 0 };
+        argc = 2;
+        argv = def;
     }
     f = fopen(argv[1], "rb");
     if (!f) {

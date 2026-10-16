@@ -61,6 +61,12 @@ int main(int argc, char **argv)
         printf("BAD  out of memory\n");
         return 1;
     }
+    /* run bare (tools/qtest.sh click), it opens what tools/check.sh gives it */
+    if (argc < 2) {
+        static char *def[] = { "click_test", "orig/Test1.jww", 0 };
+        argc = 2;
+        argv = def;
+    }
     if (argc > 1) {
         FILE *f = fopen(argv[1], "rb");
         unsigned char *b;

@@ -150,6 +150,12 @@ int main(int argc, char **argv)
 {
     int i, bad = 0;
 
+    /* run bare (tools/qtest.sh write), one drawing rather than none */
+    if (argc < 2) {
+        static char *def[] = { "write_test", "orig/Test1.jww", 0 };
+        argc = 2;
+        argv = def;
+    }
     for (i = 1; i < argc; i++)
         bad += one(argv[i]);
     if (argc > 1)

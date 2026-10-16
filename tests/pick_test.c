@@ -48,9 +48,11 @@ int main(int argc, char **argv)
     FILE *f;
     int i, lines = 0, found = 0, text = -1;
 
+    /* run bare (tools/qtest.sh pick), the first of the ones tools/check.sh gives it */
     if (argc < 2) {
-        printf("usage: pick_test drawing.jww\n");
-        return 2;
+        static char *def[] = { "pick_test", "orig/Test1.jww", 0 };
+        argc = 2;
+        argv = def;
     }
     app_new();
     app_resize(1264, 741);

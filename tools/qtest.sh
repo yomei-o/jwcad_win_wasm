@@ -14,6 +14,14 @@ for d in /c/prog/w64devkit/bin /c/prog/tools/w64devkit/bin; do
 done
 [ $# -eq 0 ] && set -- bunkatsu nisen mentori mentori2 mentoriarc renzoku chushin waritsuke undostep poly renarc env image flow promptsweep bunkpar hk gaibu mojisel cmdcover dxfsynth jwwver longtext blkcycle rtsynth imgedge perf leak house boxfuzz dxfextreme undoall gaibuwalk mojiwalk boxfresh imgopt tdlg status rchain shinshuku zokumoji param numpos curve workflow prefs mojipos d25 kihonuse kihonfx setsudaen ltypedraw umekomi dxfopt ryoboton komono3 kihon3 imguse font
 OBJ=$(ls tmp/ob/*.o | grep -v replay)
+# these are scored over tmp/geom.jww; make it the way tools/check.sh does
+for t in "$@"; do
+    case $t in coord|figreg|zokattr|snap) ;; *) continue ;; esac
+    [ -f tmp/geom.jww ] && break
+    gcc -O2 -Isrc -o tmp/mkgeom.exe tools/mkgeom.c src/jww.c src/image.c src/imgpic.c src/jwwrite.c src/cp932.c &&
+        ./tmp/mkgeom.exe orig/Test5.jww tmp/geom.jww || echo "BAD  cannot make tmp/geom.jww"
+    break
+done
 bad=0
 for t in "$@"; do
     gcc -O1 -w -std=c99 -Isrc -Itests -o tmp/q_$t.exe tests/${t}_test.c tests/png.c $OBJ -lm -lpsapi || { echo "BUILD FAIL $t"; bad=1; continue; }

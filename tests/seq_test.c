@@ -123,6 +123,12 @@ int main(int argc, char **argv)
     long fn[4];
     int i, j;
 
+    /* run bare (tools/qtest.sh seq), the four tools/check.sh gives it */
+    if (argc == 1) {
+        static char *def[] = { "seq_test", "orig/Test1.jww", "decomp/res/aci1.dxf", "decomp/res/geo.sfc", "decomp/res/t5.jwc", 0 };
+        argc = 5;
+        argv = def;
+    }
     if (argc < 5) {
         printf("BAD  want a .jww, a .dxf, an .sfc and a .jwc\n");
         return 1;
