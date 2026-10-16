@@ -1148,7 +1148,9 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
     if (o->sun) {
         /* 太陽軌跡 は円のすぐあと、建物の線の前（原典 hk_s5）。字の段は (2.5 + 2) 下がり
            （FUN_0073ea50 の +0x1b90 −= 字の高さ + 2）、一段目に「緯度 = 36°」。
-           目盛・天空率計算・測定点表示 と一緒のときの並びは 原典に確認が要る */
+           字の並びは FUN_00748da0 の 0x167e「測定点」（目盛間隔 < 1）／［測定点 No.n ＋ " 　"］＋
+           0x177d「目盛間隔 」＋ コンボの字（目盛間隔 ≥ 1）→ 0x15d4「緯度」→ 0x164e/0x164f の測定面、
+           天空率計算 のあるなしで同じ（hk_s15・s16・s26・s28 と、目盛 と 天空率計算 の組は読み） */
         sun_path(d, o, px, py, cx, cy, size);
         ty -= size + 2.0;
     }
@@ -1158,16 +1160,23 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
         /* [sample] texts, then the hatch, then the 天空率 text, then the skyline */
         if (o->show_point) {
             if (o->interval > 0.0)
-                snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,
+                snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %2g" S_DEG,
                          o->number, o->interval);
             else
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d", o->number);
             add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
             slot++;
         }
+        if (!o->show_point && o->interval > 0.0) {
+            /* 字の段は 天空率計算 のあるなしで同じ（FUN_00748da0 の字の組み立ては一つ）: 目盛間隔 が
+               1 以上なら 測定点表示 がなくても「目盛間隔 」＋ コンボの字（0x177d）。逆コンパイルの読み */
+            snprintf(buf, sizeof buf, S_MEMORI " %2g" S_DEG, o->interval);
+            add_text(d, buf, cx, ty - 3.75 * (slot - 1), 1, size, 1, 2);
+            slot++;
+        }
         if (o->sun) {
-            /* 「緯度 = 36°」は 測定点 No.n の字のあと、測定面の字の前（原典 hk_s15・s16。
-               天空率計算 と 測定点表示 を両方入れたときは 原典に確認が要る） */
+            /* 「緯度 = 36°」は 測定点 No.n（目盛間隔）の字のあと、測定面の字の前（原典 hk_s15・s16・
+               s26 = 天空率計算 と 測定点表示 を両方） */
             sun_lat_text(d, o, cx, ty - 3.75 * (slot - 1), size);
             slot++;
         }
@@ -1222,7 +1231,7 @@ int jw_tenku_draw_edges2(jw_drawing *d, const hk_tenku_opts *o,
             point_mark(d, o, px, py, size);
         if (o->show_point) {
             if (o->interval > 0.0)
-                snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %g" S_DEG,
+                snprintf(buf, sizeof buf, S_SOKUTENN " No.%d " S_ZEN S_MEMORI " %2g" S_DEG,
                          o->number, o->interval);
             else
                 snprintf(buf, sizeof buf, S_SOKUTENN " No.%d", o->number);

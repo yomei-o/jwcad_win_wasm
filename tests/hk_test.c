@@ -1183,10 +1183,41 @@ int main(int argc, char **argv)
                 }
             }
         }
+        /* 天空率計算 ＋ 目盛間隔 5: 字の組み立ては 天空率計算 のあるなしで同じ（FUN_00748da0、読み）。
+           測定点表示 なしなら「目盛間隔  5°」、ありなら「測定点 No.1 　目盛間隔  5°」が 緯度 の前 */
+        for (q = 0; q < 2; q++) {
+            static const char *const want[2] = {
+                "\x96\xda\x90\xb7\x8a\xd4\x8a\x75  5\x81\x8b",
+                "\x91\xaa\x92\xe8\x93\x5f No.1 \x81\x40\x96\xda\x90\xb7\x8a\xd4\x8a\x75  5\x81\x8b",
+            };
+            int i, at = -1, lat_at = -1;
+
+            memset(&td[0], 0, sizeof td[0]);
+            hk_tenku_opts_default(&o);
+            o.calc = 1;
+            o.sun = 1;
+            o.lat = 36.0;
+            o.interval = 5.0;
+            o.show_point = q;
+            jw_tenku_draw_edges(&td[0], &o, e, 4, 0.0, 0.0, 100.0, 0.0, NULL);
+            for (i = 0; i < td[0].ndrawn; i++)
+                if (td[0].obj[i].cls == JW_MOJI && td[0].obj[i].text >= 0) {
+                    const char *t = jw_str(&td[0], td[0].obj[i].text);
+
+                    if (!strcmp(t, want[q]))
+                        at = i;
+                    if (!strncmp(t, "\x88\xdc\x93\x78", 4) && lat_at < 0)
+                        lat_at = i;
+                }
+            if (at < 0 || lat_at < 0 || at > lat_at) {
+                printf("BAD  天空率計算＋目盛間隔 5（測定点表示 %d）の字 %d・緯度 %d\n", q, at, lat_at);
+                bad++;
+            }
+        }
         if (bad)
             fails += bad;
         else
-            printf("ok   太陽軌跡 任意時期の季節の字・補正なし＋真北 の塗り（%d 本）\n", nh[0]);
+            printf("ok   太陽軌跡 任意時期の季節の字・補正なし＋真北 の塗り（%d 本）・天空率計算＋目盛間隔 の字\n", nh[0]);
     }
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);
     return fails != 0;
