@@ -18747,7 +18747,17 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_HIKAGE && id == 1066 && !hk_sub && !hk_pts) {
         hk_pts = 1;                 /* 指定点: 測定点を押す */
         hkp_n = 0;
+        hk_first_no = 1;            /* CZukeiKage3 の作り（0x69c94e）が +0x12c = 1・+0x130 = 0 */
         hk_calc_step = 0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_pts && id == 1070) {
+        /* 初期Ｎｏ 設定: バーの 1070 は FUN_00418c90 で 0x1407 → CZukeiHikage FUN_0068e8c0 が +0xb0 の
+           CZukeiKage3 の slot 31 FUN_0069d330 へ。窓 348（CHikageJikanDialog）を 0x15b7 の字と
+           +0x12c の数で出し、OK で 1 以上なら 切り捨てて +0x12c に。釦は 点の無い間だけ押せる
+           （FUN_0069cc30: 点があれば 7、無ければ 77 = 釦 7 を押せる）。逆コンパイルの読み、原典では押していない */
+        if (hkp_n == 0 && !hk_calc_step)
+            hk_ask_time = 4;
         return 1;
     }
     if (current == JW_CMD_HIKAGE && hk_pts && (id == 1065 || id == 1066)) {
@@ -24235,7 +24245,30 @@ int jw_cmd_hikage_answer(jw_drawing *d, int kind, const char *txt)
         return jw_cmd_hikage_level(d, txt);
     if (kind == 3)
         return jw_cmd_hikage_dec(txt);
+    if (kind == 4)
+        return jw_cmd_hikage_first_no_set(txt);
     return 0;
+}
+
+/* 指定点の 初期Ｎｏ（原典 CZukeiKage3 +0x12c） */
+int jw_cmd_hikage_first_no(void)
+{
+    return hk_first_no;
+}
+
+/* 初期Ｎｏ 設定 の窓の答え: 1 以上なら 切り捨てて入れる（FUN_0069d330）。読めないか 1 未満なら そのまま */
+int jw_cmd_hikage_first_no_set(const char *txt)
+{
+    char *end;
+    double v;
+
+    if (current != JW_CMD_HIKAGE || !hk_pts || !txt)
+        return 0;
+    v = strtod(txt, &end);
+    if (end == txt || !(v >= 1.0) || v > 1e9)
+        return 0;
+    hk_first_no = (int)v;
+    return 1;
 }
 
 /* 等時間の 時間指定: 1 - 8（9～15時 なら 1 - 6）の数。水準は 範囲の上限近くでは 0.01 引く */
@@ -25658,6 +25691,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         if (hk_calc_step) {
             hk_points_write(d, px, py, hk_calc_step);
             hk_calc_step = 0;
+            /* [D 0x0069da00] 書き終えると +0x12c += 点の数・+0x130 = 0（次の点は続きの番号） */
+            hk_first_no += hkp_n;
+            hkp_n = 0;
         } else
             hk_point_add(d, px, py);
         return;

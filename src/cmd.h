@@ -107,6 +107,8 @@ int  jw_cmd_hikage_time(jw_drawing *d, const char *txt);
 int  jw_cmd_hikage_dec(const char *txt);
 int  jw_cmd_hikage_level(jw_drawing *d, const char *txt);   /* 等時間の 時間指定の答え（1 - 8） */
 int  jw_cmd_hikage_answer(jw_drawing *d, int kind, const char *txt);
+int  jw_cmd_hikage_first_no(void);   /* 指定点の 初期Ｎｏ（窓の種類 4 は 初期Ｎｏ 設定） */
+int  jw_cmd_hikage_first_no_set(const char *txt);
 int  jw_cmd_kigou_need_pick(void);   /* 線記号変形: 記号の選択窓を出してほしいとき 1（読むと戻る） */
 void jw_cmd_kigou_choose(int catalog, int item);
 int  jw_cmd_kigou_catalog(void);

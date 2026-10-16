@@ -938,6 +938,57 @@ int main(int argc, char **argv)
         } else
             puts("ok   文書 +0x83d8（FLG_1）と壁面日影");
     }
+    /* 指定点の 初期Ｎｏ 設定 (1070): 0x1407 → CZukeiKage3 slot 31 FUN_0069d330 が 窓 348 を出し、1 以上なら
+       切り捨てて +0x12c に。点があるときは押せない。書き終えると +0x12c += 点の数・+0x130 = 0（FUN_0069da00）。
+       逆コンパイルの読み、原典では押していない */
+    {
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const jw_drawing *dd;
+        int ok = 1, k, n0, lab5 = 0, lab6 = 0, row5 = 0;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;");
+        app_command(32943);
+        clicks(&r, "b:10;405,300;595,300;595,500;405,500;B:1066;B:1070;");
+        ok = ok && jw_cmd_hikage_ask() == 4 && jw_cmd_hikage_first_no() == 1;
+        ok = ok && !jw_cmd_hikage_answer((jw_drawing *)app_drawing(), 4, "0.5") && jw_cmd_hikage_first_no() == 1;
+        ok = ok && jw_cmd_hikage_answer((jw_drawing *)app_drawing(), 4, "5.7") && jw_cmd_hikage_first_no() == 5;
+        n0 = app_drawing()->ndrawn;
+        clicks(&r, "700,200;B:1070;");
+        ok = ok && jw_cmd_hikage_ask() == 0;                /* 点があると押せない */
+        clicks(&r, "B:1065;750,650;760,200;");
+        dd = app_drawing();
+        for (k = n0; k < dd->ndrawn; k++) {
+            const char *s;
+
+            if (dd->obj[k].cls != JW_MOJI || dd->obj[k].text < 0)
+                continue;
+            s = jw_str(dd, dd->obj[k].text);
+            if (!strcmp(s, "No.5"))
+                lab5++;
+            if (!strcmp(s, "No.6"))
+                lab6++;
+            if (!strncmp(s, "N0.5", 4))
+                row5++;
+        }
+        ok = ok && lab5 == 1 && row5 == 1 && lab6 == 1;
+        clicks(&r, "B:1064;B:1066;B:1070;");                /* 入り直すと 1 から */
+        ok = ok && jw_cmd_hikage_ask() == 4 && jw_cmd_hikage_first_no() == 1;
+        if (!ok) {
+            printf("     No.5 %d・N0.5 %d・No.6 %d\n", lab5, row5, lab6);
+            puts("BAD  日影図 指定点の 初期Ｎｏ 設定 (1070)");
+            fails++;
+        } else
+            puts("ok   日影図 指定点の 初期Ｎｏ 設定 (1070)");
+    }
     /* 壁面日影の 1時間毎・指定点・等時間: 建物の北 100 画素に 東西の壁を 東から西へ引く。字は壁の左（南）なので
        壁の線を入れ替える（FUN_00541130）。線は 壁の左（北）で 両端の間だけ、正午の屋根の辺は 壁の上
        h = z − 距離/|s|（地面の影 y_n + z s を 壁へ写す）に一本。指定点は 立面の低い点だけ 正午に影 */

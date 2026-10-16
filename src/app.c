@@ -682,6 +682,7 @@ static int kj_open, kj_sel;             /* 基準点選択（建具の 基準点
 static int td_open;
 static int td_start(int tpl);
 static int td_caret_set(int id);
+static void td_first_no(void);
 static void gz_check(void);
 static void mb_close(int ok);
 static int mb_open, mb_kind;
@@ -695,8 +696,11 @@ static int hk_kind;                     /* 日影の窓の種類（jw_cmd_hikage
 static void tgp_check(void)
 {
     if (!td_open && have_drawing && jw_cmd() == JW_CMD_HIKAGE && (hk_kind = jw_cmd_hikage_ask()) != 0) {
-        if (td_start(348))
+        if (td_start(348)) {
             td_caret_set(1411);
+            if (hk_kind == 4)
+                td_first_no();
+        }
     }
     if (!mb3_open && have_drawing && jw_cmd() == JW_CMD_TENKU && jw_cmd_tenku_ask())
         mb3_open = 1;
@@ -3767,6 +3771,21 @@ static int td_caret_set(int id)
 {
     td_caret = id;
     return 1;
+}
+
+/* 日影図 指定点の 初期Ｎｏ 設定（窓 348）: CHikageJikanDialog の DDX FUN_0054ff80 が 2523 に +0xa8（0x15b7
+   「初期Ｎｏ 設定」）、2524 に +0xac（空）、箱 1411 に +0xb0（いまの番号）を入れる */
+static void td_first_no(void)
+{
+    int i2523 = ui_tdlg_index(td_t, 2523), i2524 = ui_tdlg_index(td_t, 2524);
+    int i1411 = ui_tdlg_index(td_t, 1411);
+
+    if (i2523 >= 0 && i2523 < TD_MAX)
+        td_txtp[i2523] = "\x8f\x89\x8a\xfa\x82m\x82\x8f \x90\xdd\x92\xe8";
+    if (i2524 >= 0 && i2524 < TD_MAX)
+        td_txtp[i2524] = "";
+    if (i1411 >= 0 && i1411 < TD_MAX)
+        snprintf(td_txt[i1411], sizeof td_txt[i1411], "%d", jw_cmd_hikage_first_no());
 }
 
 /* 文字集計設定 (351, CMojiSeiriDialog): 範囲選択の 文字位置･集計 の
