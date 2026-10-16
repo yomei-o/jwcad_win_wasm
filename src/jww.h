@@ -368,6 +368,14 @@ void jw_obj_move(jw_obj *o, double dx, double dy);
 /* 定義の要素 o を ブロックの参照 ref（基点・倍率 x,y・角）で写す。倍率 x・y が
    符号だけ違う（反転した参照）なら x 軸で裏返してから。 */
 void jw_obj_blkput(jw_obj *o, const jw_obj *ref);
+/* 軸角 ax の向きで x・y 違いの倍率 (sx, sy) を (cx, cy) まわりに掛け、ang 回して
+   (dx, dy) ずらす（複写・移動の ﾏｳｽ倍率）。円・円弧は楕円に。 */
+void jw_obj_xform_xy(jw_obj *o, double cx, double cy, double sx, double sy,
+                     double ax, double ang, double dx, double dy);
+/* ブロックの参照に x・y 違いの倍率（FUN_00464870）。回した参照は d に定義を
+   作り直すことがあり、末尾に足した要素の数を返す（d が 0 なら作らない）。 */
+int jw_block_scale_xy(jw_drawing *d, jw_obj *o, double cx, double cy,
+                      double sx, double sy, double ax);
 
 /* Put a string in the drawing's pool and return its offset, for a new text.
    Returns -1 if it could not. */

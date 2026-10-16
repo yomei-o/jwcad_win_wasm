@@ -416,13 +416,16 @@ static int type_of(const jw_obj *o)
 
 static void pdf_obj(Pdf *p, const jw_obj *o, int depth);
 
-/* the members of a definition, carried by a reference to it */
-static void pdf_block(Pdf *p, const jw_obj *ref, int depth)
+/* the members of a definition, carried by a reference to it.  refs[] are
+   the references it is drawn through, outermost first, each as the file has
+   it -- the way src/draw.c's block() goes */
+static void pdf_block(Pdf *p, const jw_obj *const *refs, int nref)
 {
     const jw_drawing *d = p->d;
-    int i, at = -1;
+    const jw_obj *ref = refs[nref - 1];
+    int i, k, at = -1;
 
-    if (depth > 8)
+    if (nref > 9)
         return;
     for (i = d->ndrawn; i < d->nobj; i++)
         if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == ref->block) {
@@ -436,16 +439,25 @@ static void pdf_block(Pdf *p, const jw_obj *ref, int depth)
 
         if (o.cls == JW_LIST)
             break;
-        /* 入れ子の参照も 中の要素も 画面の描画と同じ jw_obj_blkput で写す
-           （反転した参照は x 軸で裏返してから等倍。入れ子の参照は 基点を
-           回し、倍率を掛け、角を足す）。逆コンパイルの読み、原典では押して
-           いない */
-        jw_obj_blkput(&o, ref);
         if (o.cls == JW_BLOCK) {
-            pdf_block(p, &o, depth + 1);
+            const jw_obj *inner[10];
+
+            for (k = 0; k < nref; k++)
+                inner[k] = refs[k];
+            inner[nref] = &d->obj[i];
+            pdf_block(p, inner, nref + 1);
             continue;
         }
-        pdf_obj(p, &o, depth);
+        /* 中の要素は 画面の描画と同じく 内の段から jw_obj_blkput で写す
+           （反転した参照は x 軸で裏返してから等倍、x・y の大きさが違えば
+           x・y 違いの倍率で。原典の描画 FUN_0042b460 は 段ごとに 倍率
+           FUN_00465c40・回転・移動）。前は 入れ子の参照そのものを写して
+           いたが、回った入れ子に x・y 違いの倍率は 参照一つでは言えない
+           （原典は定義を作り直す FUN_00464870）。逆コンパイルの読み、
+           原典では押していない */
+        for (k = nref - 1; k >= 0; k--)
+            jw_obj_blkput(&o, refs[k]);
+        pdf_obj(p, &o, nref);
     }
 }
 
@@ -587,9 +599,14 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
         p->type = -1;
         break;
     }
-    case JW_BLOCK:
-        pdf_block(p, o, depth + 1);
+    case JW_BLOCK: {
+        const jw_obj *one[1];
+
+        one[0] = o;
+        if (depth == 0)
+            pdf_block(p, one, 1);
         break;
+    }
     default:
         break;
     }

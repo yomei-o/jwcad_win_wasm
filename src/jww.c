@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "jww.h"
 #include "gen/pens.h"
@@ -1070,7 +1071,11 @@ void jw_obj_mirror(jw_obj *o, double px, double py, double ux, double uy)
 /* 反転した参照（倍率 x・y の符号が違う。原典の反転は FUN_00464870 で
  * (1,-1) か (-1,1) を掛ける）は R(角)・diag(x,y) を 裏返し diag(1,-1) と
  * 等倍に分けて写す。diag(-s,s) は 180° 回した diag(s,-s)。x・y の大きさが
- * 違うものは原典では定義を作り直す枝で、ここでは x だけ（これまで通り）。
+ * 違うもの（回っていない参照に x・y 違いの倍率を掛けたとき、回した参照なら
+ * 定義を作り直したあと、jw_block_scale_xy）は 原典の描画 FUN_0042b460 が
+ * 段ごとに 倍率 FUN_00465c40（角 0・原点・x・y）・回転・移動 を掛けるので、
+ * 複写・移動の x・y 違いの倍率と同じ jw_obj_xform_xy で写す（円は楕円に）。
+ * 逆コンパイルの読み、原典では押していない。
  */
 void jw_obj_blkput(jw_obj *o, const jw_obj *ref)
 {
@@ -1078,6 +1083,10 @@ void jw_obj_blkput(jw_obj *o, const jw_obj *ref)
     double sy = ref->d[3] != 0.0 ? ref->d[3] : sx;
     double ang = ref->d[4];
 
+    if (fabs(sx) != fabs(sy)) {
+        jw_obj_xform_xy(o, 0.0, 0.0, sx, sy, 0.0, ang, ref->d[0], ref->d[1]);
+        return;
+    }
     if (sx * sy < 0.0) {
         jw_obj_mirror(o, 0.0, 0.0, 1.0, 0.0);
         if (sx < 0.0) {
@@ -1086,6 +1095,233 @@ void jw_obj_blkput(jw_obj *o, const jw_obj *ref)
         }
     }
     jw_obj_xform(o, 0.0, 0.0, sx, ang, ref->d[0], ref->d[1]);
+}
+
+/* ブロックの参照 o に 軸角 ax の向きで x・y 違いの倍率 (sx, sy) を (cx, cy)
+ * まわりに掛ける。原典の倍率 FUN_00465c40 の CDataBlock の枝 FUN_00464870:
+ *   |倍率| が 1e-5〜1e5 の外なら何もしない。x・y とも 1 との差が 1e-7 未満でも
+ *   何もしない。基点 +0x68 は 軸の向きの枠（FUN_005f9a30 → FUN_005f92e0、
+ *   戻すのは FUN_005f8ce0）で x・y を掛ける。そのうえで
+ *   (1) 角 +0x88 と ax の差が 1e-7 未満・CDataHenkei の +4 が 0 でない・
+ *       x == y のどれかなら 倍率 +0x78・+0x80 に x・y を掛けるだけ
+ *   (2) -x == y（反転）なら 掛けて、角を ax で折り返す（jw_obj_mirror と同じ）
+ *   (3) ほか（回した参照に x・y 違い）は 定義を作り直す: 新しい CDataList
+ *       （FUN_004996f0。名前 ""・+0x78 = 4 なので 書くと "@@SfigorgFlag@@4"、
+ *       +0x6c = 0）に 参照の写し（slot 5）を一つ入れる。写しは 基点 (0,0)・
+ *       角 = 角 − ax・倍率は元のまま、つまり 元の定義を R(角−ax)·diag(元の倍率)
+ *       で置いたもの。同じ中身の定義（CDataList の slot 7 FUN_0049bdb0: 名前と
+ *       +0x78 が同じで 要素が順に等しい。参照どうしは FUN_0049bc40 が +0x28・
+ *       色・レイヤ・グループ・基点・倍率・角・指す定義 を比べる）が 定義の並び
+ *       （FUN_0040c0e0）にあればそれを指し、新しいほうは捨てる。無ければ
+ *       並びの末尾へ（FUN_00570770 = AddTail）。参照は 倍率 (x, y)・角 0 に
+ *       してから ax 回す（FUN_0046d050）ので 角は ax。
+ * CDataHenkei の +4 は 複写・移動（FUN_00653e10）・描画（FUN_0042b460）・
+ * ブロック解除（FUN_00458440）とも FUN_00464040 で 0 にした局所のもの
+ * なので (1) の その条件は 移植では見ない（逆アセンブルで確認）。
+ * 移植の違い: 定義の番号 list[0] は 原典では -1 のまま並びに入る（書くときの
+ * 番号の振り方は読んでいない）が、移植の参照は番号で定義を指すので
+ * ブロック化と同じく 今ある最大＋1。時刻 list[2] は今。指す定義が同じかは
+ * 番号で比べる（原典は定義の時刻と中身）。d が 0 なら (3) は作れないので
+ * (1) と同じにする（仮表示。仮表示はもともと参照の中身を描かない）。
+ * 末尾に足した要素の数（0 か 2）を返す。o が d->obj の中を指していても
+ * o を書き終えてから足すが、足したあと d->obj は動いていることがある。
+ * 逆コンパイルの読み、原典では押していない。
+ */
+int jw_block_scale_xy(jw_drawing *d, jw_obj *o, double cx, double cy,
+                      double sx, double sy, double ax)
+{
+    double ca = cos(ax), sa = sin(ax);
+    double x = o->d[0] - cx, y = o->d[1] - cy, u, w;
+    jw_obj m;
+    jw_obj *l;
+    int i, num = -1;
+
+    if (!(fabs(sx) >= 1e-5 && fabs(sy) >= 1e-5 && fabs(sx) <= 1e5
+          && fabs(sy) <= 1e5))
+        return 0;
+    if (fabs(sx - 1.0) < 1e-7 && fabs(sy - 1.0) < 1e-7)
+        return 0;
+    if (o->d[2] == 0.0)         /* 移植の読みの 0 は 1（y は x と同じ） */
+        o->d[2] = 1.0;
+    if (o->d[3] == 0.0)
+        o->d[3] = o->d[2];
+    u = (ca * x + sa * y) * sx;
+    w = (-sa * x + ca * y) * sy;
+    o->d[0] = cx + ca * u - sa * w;
+    o->d[1] = cy + sa * u + ca * w;
+    if (fabs(o->d[4] - ax) < 1e-7 || sx == sy || !d) {
+        o->d[2] *= sx;
+        o->d[3] *= sy;
+        return 0;
+    }
+    if (-sx == sy) {
+        o->d[2] *= sx;
+        o->d[3] *= sy;
+        o->d[4] -= (o->d[4] - ax) * 2.0;
+        return 0;
+    }
+    /* (3) 定義を作り直す。写しは 基点 (0,0)・角 − ax・倍率はそのまま */
+    m = *o;
+    m.d[0] = m.d[1] = 0.0;
+    m.d[4] = o->d[4] - ax;
+    m.sel = m.was_sel = 0;
+    m.flags = (unsigned short)(m.flags & ~2u);
+    m.id = 0;
+    for (i = d->ndrawn; i + 1 < d->nobj; i++) {
+        const jw_obj *e = &d->obj[i + 1];
+        const char *nm, *q;
+
+        l = &d->obj[i];
+        if (l->cls != JW_LIST || l->n != 1)
+            continue;
+        nm = jw_str(d, l->text);
+        q = strstr(nm, "@@SfigorgFlag@@");
+        if (q ? (q != nm || atoi(q + 15) != 4) : *nm != 0)
+            continue;           /* 名前 "" と +0x78 = 4 でない */
+        if (e->cls == JW_BLOCK && e->ltype == m.ltype && e->color == m.color
+            && e->layer == m.layer && e->lgroup == m.lgroup
+            && e->d[0] == m.d[0] && e->d[1] == m.d[1] && e->d[2] == m.d[2]
+            && e->d[3] == m.d[3] && e->d[4] == m.d[4] && e->block == m.block) {
+            num = l->list[0];
+            break;
+        }
+    }
+    o->d[2] = sx;
+    o->d[3] = sy;
+    o->d[4] = ax;
+    if (num >= 0) {
+        o->block = num;
+        return 0;
+    }
+    for (i = d->ndrawn, num = 0; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] >= num)
+            num = d->obj[i].list[0] + 1;
+    o->block = num;             /* o はここまで（この先 d->obj が動く） */
+    l = jw_add_def(d, JW_LIST);
+    if (!l)
+        return 0;
+    l->n = 1;
+    l->list[0] = num;
+    l->list[1] = 0;
+    l->list[2] = (int)time(0);
+    l->text = jw_add_str(d, "@@SfigorgFlag@@4");
+    l = jw_add_def(d, JW_BLOCK);
+    if (!l) {
+        jw_remove(d, d->nobj - 1);
+        return 0;
+    }
+    *l = m;
+    return 2;
+}
+
+/* 倍率が X と Y で違うとき（ﾏｳｽ倍率 1069、src/cmd.c の fk_xform_xy から）の
+ * 一つの要素。軸角 ax の向きで X・Y に sx・sy を掛け、ang 回して (dx, dy)
+ * ずらす。原典は要素の種類ごとの
+ * FUN_00465c40（線 FUN_004686e0・円弧 FUN_00464fd0・点 FUN_00469fa0・文字
+ * FUN_00466e30 ほか）。円・円弧は楕円になる（中心とともに 半径・扁平率・傾き・
+ * 始角を写した楕円の軸で取り直す。裏返しなら向きを逆に）。文字は 文字も倍率
+ * (1328) の切のときの FUN_00465f40 と同じく 置く点だけ移して大きさは変えない
+ * （文字も倍率 の入の枝 FUN_00466e30 の残りは読み切っていない）。
+ * 等倍（sx == sy > 0）なら jw_obj_xform そのまま。逆コンパイルの読み、原典では
+ * 押していない */
+static void xy_map(double c, double s, double ca, double sa, double sx,
+                   double sy, double *x, double *y)
+{
+    /* R(ang) R(ax) diag(sx, sy) R(-ax) */
+    double u = ca * *x + sa * *y, w = -sa * *x + ca * *y, px, py;
+
+    u *= sx;
+    w *= sy;
+    px = ca * u - sa * w;
+    py = sa * u + ca * w;
+    *x = c * px - s * py;
+    *y = s * px + c * py;
+}
+
+static void xy_ellipse(double c, double s, double ca, double sa, double sx,
+                       double sy, double *r, double *flat, double *tilt,
+                       double *start, double sweep)
+{
+    double f = *flat > 0.0 ? *flat : 1.0;
+    double ct = cos(*tilt), st = sin(*tilt);
+    double a = ct * *r, cc = st * *r;          /* 第 1 列 R(tilt)(r, 0) */
+    double b = -st * *r * f, dd = ct * *r * f; /* 第 2 列 R(tilt)(0, rf) */
+    double E, F, G, H, Q, R, s1, s2, a1, a2;
+
+    xy_map(c, s, ca, sa, sx, sy, &a, &cc);
+    xy_map(c, s, ca, sa, sx, sy, &b, &dd);
+    /* [[a b] [cc dd]] = R(phi) diag(s1, s2) R(theta) */
+    E = (a + dd) / 2.0;
+    F = (a - dd) / 2.0;
+    G = (cc + b) / 2.0;
+    H = (cc - b) / 2.0;
+    Q = sqrt(E * E + H * H);
+    R = sqrt(F * F + G * G);
+    s1 = Q + R;
+    s2 = Q - R;
+    a1 = atan2(G, F);
+    a2 = atan2(H, E);
+    if (s1 < 1e-12)
+        return;
+    *r = s1;
+    *tilt = (a2 + a1) / 2.0;
+    *flat = fabs(s2) / s1;
+    if (s2 >= 0.0)
+        *start = *start + (a2 - a1) / 2.0;
+    else
+        *start = -(*start + (a2 - a1) / 2.0) - sweep;
+}
+
+void jw_obj_xform_xy(jw_obj *o, double cx, double cy, double sx, double sy,
+                     double ax, double ang, double dx, double dy)
+{
+    double c = cos(ang), s = sin(ang);
+    double ca = cos(ax), sa = sin(ax);
+    int i, n;
+
+    if (fabs(sx - sy) < 1e-12 && sx > 0.0) {
+        jw_obj_xform(o, cx, cy, sx, ang, dx, dy);
+        return;
+    }
+    if (o->cls == JW_BLOCK) {
+        /* 図面が無いので 定義は作り直さない（jw_block_scale_xy の d が 0） */
+        jw_block_scale_xy(0, o, cx, cy, sx, sy, ax);
+        jw_obj_xform(o, cx, cy, 1.0, ang, dx, dy);
+        return;
+    }
+    if (o->cls == JW_MOJI) {
+        double x = o->d[0] - cx, y = o->d[1] - cy;
+        double ex = o->d[2] - o->d[0], ey = o->d[3] - o->d[1];
+
+        xy_map(c, s, ca, sa, sx, sy, &x, &y);
+        o->d[0] = cx + x + dx;
+        o->d[1] = cy + y + dy;
+        o->d[2] = o->d[0] + c * ex - s * ey;
+        o->d[3] = o->d[1] + s * ex + c * ey;
+        return;
+    }
+    if (o->cls == JW_ENKO) {
+        xy_ellipse(c, s, ca, sa, sx, sy, &o->d[2], &o->d[6], &o->d[5],
+                   &o->d[3], o->d[4]);
+        n = 1;
+    } else if (o->cls == JW_SOLID && (o->ltype == 101 || o->ltype == 111)) {
+        /* 円ソリッド: 半径 d[2]・扁平 d[3]・傾き d[4]・始角 d[5]・開き d[6] */
+        xy_ellipse(c, s, ca, sa, sx, sy, &o->d[2], &o->d[3], &o->d[4],
+                   &o->d[5], o->d[6]);
+        n = 1;
+    } else if (o->cls == JW_TEN)
+        n = 1;
+    else if (o->cls == JW_SOLID)
+        n = 4;
+    else
+        n = 2;
+    for (i = 0; i < n; i++) {
+        double x = o->d[i * 2] - cx, y = o->d[i * 2 + 1] - cy;
+
+        xy_map(c, s, ca, sa, sx, sy, &x, &y);
+        o->d[i * 2] = cx + x + dx;
+        o->d[i * 2 + 1] = cy + y + dy;
+    }
 }
 
 jw_obj *jw_add_def(jw_drawing *d, int cls)

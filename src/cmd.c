@@ -15254,23 +15254,26 @@ int jw_cmd_block_free(jw_drawing *d)
         for (k = 0; k < span; k++) {
             jw_obj copy = d->obj[at + 1 + k], *p;
 
-            /* 反転した参照（倍率 x・y の符号違い）は裏返してから */
-            jw_obj_blkput(&copy, &ref);
-            {   /* 画像は w・h を max(倍率x,倍率y) 倍、文字列の角度に回転を足す。
-                   原典のブロック解除 FUN_00458440 は 定義の要素の写し（slot 5）に
-                   倍率 FUN_00465c40（x・y）・回転 FUN_0046d5b0・移動 FUN_0046bdf0
-                   を掛ける（複写・移動と同じ画像の枝、src/imgpic.c の
-                   jw_pic_xform）。逆コンパイルの読み、原典では押していない */
+            {   /* 原典のブロック解除 FUN_00458440 は 定義の要素の写し（slot 5）に
+                   倍率 FUN_00465c40（角 0・原点・x・y）・回転 FUN_0046d5b0・
+                   移動 FUN_0046bdf0 を掛ける。画像は w・h を max(倍率x,倍率y) 倍、
+                   文字列の角度に回転を足す（複写・移動と同じ画像の枝、
+                   src/imgpic.c の jw_pic_xform）。入れ子の参照は CDataBlock の枝
+                   FUN_00464870 そのまま（jw_block_scale_xy）: 倍率 x・y を掛け、
+                   反転なら角を折り返し、回った入れ子に x・y 違いなら 定義を
+                   作り直す（末尾に足す。戻るは before で図面ごと）。ほかの要素は
+                   描画と同じ jw_obj_blkput（反転した参照は裏返してから）。
+                   逆コンパイルの読み、原典では押していない */
                 jw_obj was = d->obj[at + 1 + k];
                 double bx = ref.d[2] != 0.0 ? ref.d[2] : 1.0;
                 double by = ref.d[3] != 0.0 ? ref.d[3] : bx;
 
+                if (copy.cls == JW_BLOCK) {
+                    jw_block_scale_xy(d, &copy, 0.0, 0.0, bx, by, 0.0);
+                    jw_obj_xform(&copy, 0.0, 0.0, 1.0, ref.d[4], ref.d[0], ref.d[1]);
+                } else
+                    jw_obj_blkput(&copy, &ref);
                 jw_pic_xform(d, &copy, &was, bx > by ? bx : by, ref.d[4]);
-                /* 入れ子の参照の倍率 y は 倍率 y で（FUN_00464870 は +0x78 に
-                   x、+0x80 に y を掛ける。逆コンパイルの読み、原典では押して
-                   いない） */
-                if (copy.cls == JW_BLOCK && bx * by > 0.0)
-                    copy.d[3] = was.d[3] * by;
             }
             p = jw_add(d, copy.cls);
             if (!p)
@@ -17265,107 +17268,22 @@ static int sel_renzoku(jw_drawing *d)
     return 1;
 }
 
-/* 倍率が X と Y で違うとき（ﾏｳｽ倍率 1069）の一つの要素。軸角 ax の向きで
- * X・Y に sx・sy を掛け、ang 回して (dx, dy) ずらす。原典は要素の種類ごとの
- * FUN_00465c40（線 FUN_004686e0・円弧 FUN_00464fd0・点 FUN_00469fa0・文字
- * FUN_00466e30 ほか）。円・円弧は楕円になる（中心とともに 半径・扁平率・傾き・
- * 始角を写した楕円の軸で取り直す。裏返しなら向きを逆に）。文字は 文字も倍率
- * (1328) の切のときの FUN_00465f40 と同じく 置く点だけ移して大きさは変えない
- * （文字も倍率 の入の枝 FUN_00466e30 の残りは読み切っていない）。
- * 等倍（sx == sy > 0）なら jw_obj_xform そのまま。逆コンパイルの読み、原典では
- * 押していない */
-static void fk_map(double c, double s, double ca, double sa, double sx,
-                   double sy, double *x, double *y)
+/* 倍率が X と Y で違うとき（ﾏｳｽ倍率 1069）の一つの要素。軸角 axis_deg の向きで
+ * X・Y に sx・sy を掛け、ang 回して (dx, dy) ずらす（src/jww.c の
+ * jw_obj_xform_xy）。ブロックの参照は 図面 d に 定義を作り直すことがある
+ * （jw_block_scale_xy、FUN_00464870）ので、作った数を fk_newdef に足す。
+ * d が 0（仮表示）なら作らない */
+static int fk_newdef;
+
+static void fk_xform_xy(jw_drawing *d, jw_obj *o, double cx, double cy,
+                        double sx, double sy, double ang, double dx, double dy)
 {
-    /* R(ang) R(ax) diag(sx, sy) R(-ax) */
-    double u = ca * *x + sa * *y, w = -sa * *x + ca * *y, px, py;
-
-    u *= sx;
-    w *= sy;
-    px = ca * u - sa * w;
-    py = sa * u + ca * w;
-    *x = c * px - s * py;
-    *y = s * px + c * py;
-}
-
-static void fk_ellipse(double c, double s, double ca, double sa, double sx,
-                       double sy, double *r, double *flat, double *tilt,
-                       double *start, double sweep)
-{
-    double f = *flat > 0.0 ? *flat : 1.0;
-    double ct = cos(*tilt), st = sin(*tilt);
-    double a = ct * *r, cc = st * *r;          /* 第 1 列 R(tilt)(r, 0) */
-    double b = -st * *r * f, dd = ct * *r * f; /* 第 2 列 R(tilt)(0, rf) */
-    double E, F, G, H, Q, R, s1, s2, a1, a2;
-
-    fk_map(c, s, ca, sa, sx, sy, &a, &cc);
-    fk_map(c, s, ca, sa, sx, sy, &b, &dd);
-    /* [[a b] [cc dd]] = R(phi) diag(s1, s2) R(theta) */
-    E = (a + dd) / 2.0;
-    F = (a - dd) / 2.0;
-    G = (cc + b) / 2.0;
-    H = (cc - b) / 2.0;
-    Q = sqrt(E * E + H * H);
-    R = sqrt(F * F + G * G);
-    s1 = Q + R;
-    s2 = Q - R;
-    a1 = atan2(G, F);
-    a2 = atan2(H, E);
-    if (s1 < 1e-12)
-        return;
-    *r = s1;
-    *tilt = (a2 + a1) / 2.0;
-    *flat = fabs(s2) / s1;
-    if (s2 >= 0.0)
-        *start = *start + (a2 - a1) / 2.0;
-    else
-        *start = -(*start + (a2 - a1) / 2.0) - sweep;
-}
-
-static void fk_xform_xy(jw_obj *o, double cx, double cy, double sx, double sy,
-                        double ang, double dx, double dy)
-{
-    double c = cos(ang), s = sin(ang);
-    double ax = axis_deg * PI / 180.0, ca = cos(ax), sa = sin(ax);
-    int i, n;
-
-    if (fabs(sx - sy) < 1e-12 && sx > 0.0) {
-        jw_obj_xform(o, cx, cy, sx, ang, dx, dy);
+    if (o->cls == JW_BLOCK && !(fabs(sx - sy) < 1e-12 && sx > 0.0)) {
+        fk_newdef += jw_block_scale_xy(d, o, cx, cy, sx, sy, axis_deg * PI / 180.0);
+        jw_obj_xform(o, cx, cy, 1.0, ang, dx, dy);
         return;
     }
-    if (o->cls == JW_MOJI) {
-        double x = o->d[0] - cx, y = o->d[1] - cy;
-        double ex = o->d[2] - o->d[0], ey = o->d[3] - o->d[1];
-
-        fk_map(c, s, ca, sa, sx, sy, &x, &y);
-        o->d[0] = cx + x + dx;
-        o->d[1] = cy + y + dy;
-        o->d[2] = o->d[0] + c * ex - s * ey;
-        o->d[3] = o->d[1] + s * ex + c * ey;
-        return;
-    }
-    if (o->cls == JW_ENKO) {
-        fk_ellipse(c, s, ca, sa, sx, sy, &o->d[2], &o->d[6], &o->d[5],
-                   &o->d[3], o->d[4]);
-        n = 1;
-    } else if (o->cls == JW_SOLID && (o->ltype == 101 || o->ltype == 111)) {
-        /* 円ソリッド: 半径 d[2]・扁平 d[3]・傾き d[4]・始角 d[5]・開き d[6] */
-        fk_ellipse(c, s, ca, sa, sx, sy, &o->d[2], &o->d[3], &o->d[4],
-                   &o->d[5], o->d[6]);
-        n = 1;
-    } else if (o->cls == JW_TEN)
-        n = 1;
-    else if (o->cls == JW_SOLID)
-        n = 4;
-    else
-        n = 2;
-    for (i = 0; i < n; i++) {
-        double x = o->d[i * 2] - cx, y = o->d[i * 2 + 1] - cy;
-
-        fk_map(c, s, ca, sa, sx, sy, &x, &y);
-        o->d[i * 2] = cx + x + dx;
-        o->d[i * 2 + 1] = cy + y + dy;
-    }
+    jw_obj_xform_xy(o, cx, cy, sx, sy, axis_deg * PI / 180.0, ang, dx, dy);
 }
 
 static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
@@ -17380,27 +17298,32 @@ static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
     fk_last_ang = ang;
     if (range_moves()) {
         op_t *o = op_new();
+        fk_newdef = 0;
         for (i = 0; i < sel_n; i++) {
             int at = sel_at[i];
             if (at >= d->nobj)
                 continue;
             op_keep(o, d, at, 0);
             d->obj[at] = sel_was[i];
-            fk_xform_xy(&d->obj[at], base_x, base_y, sx, sy, ang, dx, dy);
+            fk_xform_xy(d, &d->obj[at], base_x, base_y, sx, sy, ang, dx, dy);
             /* 画像は w・h と角度も（src/imgpic.c の jw_pic_xform、倍率は X・Y の大きい方） */
             jw_pic_xform(d, &d->obj[at], &sel_was[i], sx > sy ? sx : sy, ang);
             za_apply(d, &d->obj[at]);
             d->obj[at].flags = (unsigned short)(d->obj[at].flags | 2u);
             d->obj[at].sel = 1;
         }
-        if (o)
+        if (o) {
+            o->ndef += fk_newdef;       /* 作り直したブロックの定義（末尾） */
             fk_placed++;        /* 一手（戻るで取り消す） */
+        }
         return;
     }
     {   /* 複写: every click leaves another copy, all of them measured from
            the one 基準点 -- three clicks in the original left three copies,
            at one, two and three times the step. */
         int made = 0;
+
+        fk_newdef = 0;
         for (i = 0; i < sel_n; i++) {
             jw_obj *p = jw_add(d, sel_was[i].cls);
             int at;
@@ -17408,7 +17331,8 @@ static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
                 break;
             at = (int)(p - d->obj);
             *p = sel_was[i];
-            fk_xform_xy(p, base_x, base_y, sx, sy, ang, dx, dy);
+            fk_xform_xy(d, p, base_x, base_y, sx, sy, ang, dx, dy);
+            p = &d->obj[at];    /* 定義を足すと d->obj が動くことがある */
             /* 画像は w・h と角度も（src/imgpic.c の jw_pic_xform、倍率は X・Y の大きい方） */
             jw_pic_xform(d, p, &sel_was[i], sx > sy ? sx : sy, ang);
             za_apply(d, p);
@@ -17418,10 +17342,11 @@ static void sel_put_xy(jw_drawing *d, double dx, double dy, double sx,
             p->flags = (unsigned short)(p->flags & ~2u);
             p->sel = 0;
             p->id = 0;
-            (void)at;
             made++;
         }
         op_push(made);
+        if (made > 0 && fk_newdef > 0 && nop > 0)
+            op[nop - 1].ndef += fk_newdef;
         if (made > 0)
             fk_placed++;
     }
@@ -18397,7 +18322,7 @@ int jw_cmd_sel_preview(const jw_drawing *d, jw_drawing *out)
     }
     for (i = 0; i < sel_n; i++) {
         pv[n] = sel_was[i];
-        fk_xform_xy(&pv[n], base_x, base_y, sx, sy, ang, dx, dy);
+        fk_xform_xy(0, &pv[n], base_x, base_y, sx, sy, ang, dx, dy);
         if (pic)
             jw_pic_xform(out, &pv[n], &sel_was[i], sx > sy ? sx : sy, ang);
         pv[n].flags = (unsigned short)(pv[n].flags | 2u);
@@ -24098,15 +24023,18 @@ static int au_locked(const jw_drawing *d, const jw_obj *o)
     return g->c != 0 || g->layer[o->layer & 15].state2 != 0;
 }
 
-/* ブロック ref の中の線・円が (x, y) で拾えるか。入れ子は draw.c の block() と同じ写し方 */
-static int au_block_hit(const jw_drawing *d, const jw_view *v, const jw_obj *ref,
-                        const jw_obj *top, double x, double y, int depth)
+/* ブロック refs[nref-1] の中の線・円が (x, y) で拾えるか。refs[] は外から順の
+   参照の並びで、入れ子は draw.c の block() と同じ写し方（内の段から） */
+static int au_block_hit(const jw_drawing *d, const jw_view *v,
+                        const jw_obj *const *refs, int nref,
+                        const jw_obj *top, double x, double y)
 {
+    const jw_obj *ref = refs[nref - 1];
     jw_drawing one;
     jw_obj o;
-    int i, at = -1;
+    int i, k, at = -1;
 
-    if (depth > 8)
+    if (nref > 9)
         return 0;
     for (i = d->ndrawn; i < d->nobj; i++)
         if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == ref->block) {
@@ -24123,16 +24051,22 @@ static int au_block_hit(const jw_drawing *d, const jw_view *v, const jw_obj *ref
         if (o.cls == JW_LIST)
             break;
         if (o.cls == JW_BLOCK) {
-            /* 描画と同じ jw_obj_blkput（反転した参照は裏返してから）。
-               逆コンパイルの読み、原典では押していない */
-            jw_obj_blkput(&o, ref);
-            if (au_block_hit(d, v, &o, top, x, y, depth + 1))
+            const jw_obj *inner[10];
+
+            for (k = 0; k < nref; k++)
+                inner[k] = refs[k];
+            inner[nref] = &d->obj[i];
+            if (au_block_hit(d, v, inner, nref + 1, top, x, y))
                 return 1;
             continue;
         }
         if (o.cls != JW_SEN && o.cls != JW_ENKO)
             continue;
-        jw_obj_blkput(&o, ref);
+        /* 描画と同じ jw_obj_blkput を内の段から（反転した参照は裏返して
+           から、x・y の大きさが違えば x・y 違いの倍率で）。
+           逆コンパイルの読み、原典では押していない */
+        for (k = nref - 1; k >= 0; k--)
+            jw_obj_blkput(&o, refs[k]);
         o.layer = top->layer;
         o.lgroup = top->lgroup;
         o.flags = top->flags;
@@ -24162,12 +24096,15 @@ static int au_reject(const jw_drawing *d, const jw_view *v, double x, double y)
         }
         return 1;
     }
-    for (i = 0; i < d->ndrawn; i++)
-        if (d->obj[i].cls == JW_BLOCK && jw_pick_editable(d, &d->obj[i])
-            && au_block_hit(d, v, &d->obj[i], &d->obj[i], x, y, 0)) {
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *r = &d->obj[i];
+
+        if (r->cls == JW_BLOCK && jw_pick_editable(d, r)
+            && au_block_hit(d, v, &r, 1, r, x, y)) {
             JW_NOTICE(5231);            /* FUN_0044a270 の札「ブロック図形です」 */
             return 1;
         }
+    }
     return 0;
 }
 
