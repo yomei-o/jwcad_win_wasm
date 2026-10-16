@@ -309,6 +309,84 @@ int main(void)
         }
     }
 
+    /* ------------------------------------------------ 入れ子のブロック
+       内: 基点 (10,0)・倍率 x2 y1・0°、外: 基点 (50,0)・倍率 x1 y2・90°。
+       原典の FUN_0042b460 は 段ごとに内から 倍率・回転・移動 を掛けるので
+       画像 20×10 は 内で ×2（40×20）、外で ×max(1,2)=2（80×40）、90° で
+       縦長 40×80。始点は (10,0) を 90° 回して (0,10)+(50,0) = (50,10)、
+       幅は +y へ・高さは -x へ伸びるので 枠は x 10..50・y 10..90。
+       逆コンパイルの読み、原典では押していない（src/draw.c の block） */
+    {
+        fb_t fb;
+        jw_view bv;
+        rect_t rr;
+        jw_obj *o;
+        int x, y, x0 = 99999, x1 = -1, y0 = 99999, y1 = -1;
+        double ww, hh;
+
+        while (d.nobj > 0)
+            jw_remove(&d, d.nobj - 1);
+        d.ndrawn = 0;
+        o = jw_add(&d, JW_BLOCK);
+        o->d[0] = 50.0;
+        o->d[1] = 0.0;
+        o->d[2] = 1.0;
+        o->d[3] = 2.0;
+        o->d[4] = 90.0 * 3.14159265358979323846 / 180.0;
+        o->block = 0;
+        o->color = 2;
+        o->ltype = 1;
+        o = jw_add(&d, JW_LIST);
+        o->list[0] = 0;
+        o->n = 1;
+        o = jw_add(&d, JW_BLOCK);
+        o->d[0] = 10.0;
+        o->d[1] = 0.0;
+        o->d[2] = 2.0;
+        o->d[3] = 1.0;
+        o->d[4] = 0.0;
+        o->block = 1;
+        o->color = 2;
+        o->ltype = 1;
+        o = jw_add(&d, JW_LIST);
+        o->list[0] = 1;
+        o->n = 1;
+        put_text(&d, "^@BMnone.bmp,20,10", 0.0, 0.0, 0.0);
+        d.ndrawn = 1;
+
+        memset(&fb, 0, sizeof fb);
+        ck(fb_init(&fb, 600, 400), "入れ子のブロックの画面");
+        rr.x = rr.y = 0;
+        rr.w = 600;
+        rr.h = 400;
+        memset(&bv, 0, sizeof bv);
+        jw_view_fit(&bv, &rr, d.paper_hw, d.paper_hh);
+        bv.clip = rr;
+        for (k = 0; k < 600 * 400; k++)
+            fb.px[k] = 0xffffff;
+        jw_draw(&fb, &bv, &d);
+        for (y = 0; y < 400; y++)
+            for (x = 0; x < 600; x++)
+                if (fb.px[y * 600 + x] == 0x00c0c0u) {
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (y < y0) y0 = y;
+                    if (y > y1) y1 = y;
+                }
+        fb_free(&fb);
+        printf("     枠 %d..%d x %d..%d（x 10..50 = %d..%d、y 10..90 = %d..%d）\n", x0, x1, y0, y1,
+               jw_sx(&bv, 10.0), jw_sx(&bv, 50.0), jw_sy(&bv, 90.0), jw_sy(&bv, 10.0));
+        ww = jw_ux(&bv, 40.0) - jw_ux(&bv, 0.0);
+        hh = jw_uy(&bv, 80.0) - jw_uy(&bv, 0.0);
+        ck(x1 >= 0 && fabs((x1 - x0) - ww) <= 2.0 && fabs((y1 - y0) - hh) <= 2.0,
+           "入れ子: 段ごとに max を取って 40×80 の枠");
+        ck(x1 >= 0 && abs(x0 - jw_sx(&bv, 10.0)) <= 2 && abs(x1 - jw_sx(&bv, 50.0)) <= 2,
+           "  外の 90° が内の基点も回す（x 10..50）");
+        ck(x1 >= 0 && abs(y1 - jw_sy(&bv, 10.0)) <= 2 && abs(y0 - jw_sy(&bv, 90.0)) <= 2,
+           "  y 10..90");
+        ck(!strcmp(txt(&d, 4), "^@BMnone.bmp,20,10"), "  描いても図面の字はそのまま");
+    }
+
     free(w);
     free(b);
     printf("%s\n", fails ? "FAIL" : "all ok");
