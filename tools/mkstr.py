@@ -223,6 +223,8 @@ WANT = [
     (5196, 'clock PM 12'),
     (10035, 'clock 12 of division with line A: line attributes (FUN_007637e0)'),
     (5609, 'clock 3 of division with line A: brick-joint division'),
+    (5610, 'brick-joint division: the vertical-count dialog (FUN_00763d20)'),
+    (5613, 'division: too many divisions (FUN_007668f0, FUN_00767990)'),
     # 右ボタンのクロック（FUN_0076d330）の札
     (10101, 'right clock AM 3: centre point / A point (FUN_0076ea20)'),
     (10102, 'right clock AM 9: point on a line / crossing (FUN_0076fae0)'),
