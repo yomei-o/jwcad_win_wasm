@@ -14,6 +14,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
@@ -747,6 +751,44 @@ int main(int argc, char **argv)
             }
         }
 
+        /* 等比: .jwf の S_COMM_7 の 8 番目が 1 なら（FUN_007674b0 の DAT_00a0bfa8）
+           r=0.5 の -4.5 は 間隔 1・0.5・0.25・0.125、全長 (1-0.5^4)/0.5 = 1.875。
+           端数の無い -3（r=1）は 0.01〜0.99 を外れるので等分のまま */
+        {
+            static const char on[] = "S_COMM_7 =     0    0    0   50  100   20    1    1    1 \r\n";
+            static const char off[] = "S_COMM_7 =     0    0    0   50  100   20    1    0    1 \r\n";
+            static const double yg[3] = { 100.0 / 1.875, 150.0 / 1.875, 175.0 / 1.875 };
+
+            jw_env_read(d, (const unsigned char *)on, (long)strlen(on));
+            g = d->ndrawn;
+            type_box(1411, "-4.5");
+            jw_cmd_point(d, v, 50, 0, 0);
+            jw_cmd_point(d, v, 50, 100, 0);
+            okk = d->ndrawn == g + 3;
+            for (j = 0; okk && j < 3; j++)
+                okk = fabs(d->obj[g + j].d[1] - yg[j]) < 1e-6
+                      && fabs(d->obj[g + j].d[3] - yg[j]) < 1e-6;
+            ck(okk, "等比（S_COMM_7 の 8 番目 1）: -4.5 は 間隔 1・1/2・1/4・1/8");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+            type_box(1411, "-3");
+            jw_cmd_point(d, v, 50, 0, 0);
+            jw_cmd_point(d, v, 50, 100, 0);
+            okk = d->ndrawn == g + 2 && fabs(d->obj[g].d[1] - 100.0 / 3) < 1e-6
+                  && fabs(d->obj[g + 1].d[1] - 200.0 / 3) < 1e-6;
+            ck(okk, "等比でも r=1（-3）は等分");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+            jw_env_read(d, (const unsigned char *)off, (long)strlen(off));
+            type_box(1411, "-4.5");
+            jw_cmd_point(d, v, 50, 0, 0);
+            jw_cmd_point(d, v, 50, 100, 0);
+            okk = d->ndrawn == g + 3 && fabs(d->obj[g].d[1] - 100.0 / 3) < 1e-6;
+            ck(okk, "8 番目 0 に戻すと等差");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+        }
+
         /* 補助設定の釦: 線（Ａ）を指すまでは出ない */
         type_box(1411, "3");
         sh = jw_cmd_bunkatsu_hojo();
@@ -761,8 +803,8 @@ int main(int argc, char **argv)
         }
         ck(!sh && jw_cmd_bunkatsu_hojo() && nb == 3
            && jw_cmd_bar_enabled(d, 1066) && jw_cmd_bar_enabled(d, 1064)
-           && !jw_cmd_bar_enabled(d, 1065),
-           "線（Ａ）のあとバーに 逆分割・線長割合分割・馬目地分割（馬目地は押せない）");
+           && jw_cmd_bar_enabled(d, 1065),
+           "線（Ａ）のあとバーに 逆分割・線長割合分割・馬目地分割");
         g = d->ndrawn;
         ck(jw_cmd_bar(d, 1066), "逆分割 の釦が効く");
         jw_cmd_point(d, v, 50, 100, 0);
@@ -779,6 +821,108 @@ int main(int argc, char **argv)
            "逆分割: Ｂの端を入れ替えて交差に組む（A0→B1）、分割のあと旗は戻る");
         while (d->ndrawn > g && jw_cmd_can_undo())
             jw_cmd_undo(d);
+
+        /* 馬目地分割（FUN_00763d20・FUN_00767990）: 縦分割数 3・分割数 4.5（箱は 4 に
+           書き戻す）。縦の線は x = 100/3・200/3 の二本、横の目地は y = 25・75 で
+           中の一つ、y = 50 で左右の二つ（逆分割を入れると互い違いが逆） */
+        {
+            static const double W[2][7][4] = {
+                { { 100.0 / 3, 0, 100.0 / 3, 100 }, { 200.0 / 3, 0, 200.0 / 3, 100 },
+                  { 100.0 / 3, 25, 200.0 / 3, 25 }, { 0, 50, 100.0 / 3, 50 },
+                  { 200.0 / 3, 50, 100, 50 }, { 100.0 / 3, 75, 200.0 / 3, 75 } },
+                { { 100.0 / 3, 0, 100.0 / 3, 100 }, { 200.0 / 3, 0, 200.0 / 3, 100 },
+                  { 0, 25, 100.0 / 3, 25 }, { 200.0 / 3, 25, 100, 25 },
+                  { 100.0 / 3, 50, 200.0 / 3, 50 }, { 0, 75, 100.0 / 3, 75 },
+                  { 200.0 / 3, 75, 100, 75 } },
+            };
+            static const int WN[2] = { 6, 7 };
+            int gy, um;
+
+            for (gy = 0; gy < 2; gy++) {
+                jw_cmd_set(JW_CMD_BUNKATSU);
+                type_box(1411, "4.5");
+                g = d->ndrawn;
+                jw_cmd_point(d, v, 50, 0, 0);
+                if (gy)
+                    jw_cmd_bar(d, 1066);
+                um = -1;
+                okk = jw_cmd_bar(d, 1065) && jw_cmd_bunkatsu_umeji_ask(&um)
+                      && !jw_cmd_bunkatsu_umeji_ask(&um) && !jw_cmd_bunkatsu_umeji();
+                jw_cmd_bunkatsu_umeji_set("3");
+                okk = okk && jw_cmd_bunkatsu_umeji();
+                jw_cmd_point(d, v, 50, 100, 0);
+                okk = okk && d->ndrawn == g + WN[gy] && jw_cmd_box(1411)
+                      && !strcmp(jw_cmd_box(1411), "4") && !jw_cmd_bunkatsu_umeji();
+                for (j = 0; okk && j < WN[gy]; j++) {
+                    int q, hit = 0;
+
+                    for (q = 0; q < WN[gy] && !hit; q++) {
+                        const double *o4 = d->obj[g + q].d, *w4 = W[gy][j];
+
+                        hit = (fabs(o4[0] - w4[0]) < 1e-6 && fabs(o4[1] - w4[1]) < 1e-6
+                               && fabs(o4[2] - w4[2]) < 1e-6 && fabs(o4[3] - w4[3]) < 1e-6)
+                           || (fabs(o4[0] - w4[2]) < 1e-6 && fabs(o4[1] - w4[3]) < 1e-6
+                               && fabs(o4[2] - w4[0]) < 1e-6 && fabs(o4[3] - w4[1]) < 1e-6);
+                    }
+                    okk = hit;
+                }
+                if (!okk)
+                    for (j = 0; j < d->ndrawn - g; j++)
+                        printf("     %g,%g - %g,%g\n", d->obj[g + j].d[0], d->obj[g + j].d[1],
+                               d->obj[g + j].d[2], d->obj[g + j].d[3]);
+                ck(okk, gy ? "馬目地分割＋逆分割: 横の目地の互い違いが逆"
+                           : "馬目地分割 縦 3・分割数 4.5: 縦の線 2 本と互い違いの横の目地 4 本、箱は 4");
+                while (d->ndrawn > g && jw_cmd_can_undo())
+                    jw_cmd_undo(d);
+            }
+            /* 縦 2000 × 分割数 60 は 100000 を超える: 5613 で何も作らない。
+               線長割合 (1064) は 馬目地を切る */
+            jw_cmd_set(JW_CMD_BUNKATSU);
+            type_box(1411, "60");
+            g = d->ndrawn;
+            jw_cmd_point(d, v, 50, 0, 0);
+            jw_cmd_bar(d, 1065);
+            jw_cmd_bunkatsu_umeji_set("5000");
+            jw_cmd_bar(d, 1064);
+            okk = !jw_cmd_bunkatsu_umeji();
+            jw_cmd_bar(d, 1064);
+            jw_cmd_bar(d, 1065);
+            jw_cmd_bunkatsu_umeji_ask(&um);
+            okk = okk && um == 2000;
+            jw_cmd_bunkatsu_umeji_set(0);       /* キャンセル: 入らない */
+            okk = okk && !jw_cmd_bunkatsu_umeji();
+            jw_cmd_bar(d, 1065);
+            jw_cmd_bunkatsu_umeji_set("9999");
+            jw_cmd_point(d, v, 50, 100, 0);
+            ck(okk && d->ndrawn == g && jw_cmd_notice_id() == 5613,
+               "馬目地: 縦分割数は 2〜2000、線長割合で切れる、キャンセルは入らない、縦×分割数が 100000 超は 5613");
+            while (d->ndrawn > g && jw_cmd_can_undo())
+                jw_cmd_undo(d);
+
+            /* 表側: 1065 で 数値入力 275 が出て、札 1995 は 5610、箱 1491 は いまの
+               縦分割数（上で 2000）。Esc は入れず、Enter は入れる */
+            {
+                int t = ui_tdlg_find(275), i1995 = ui_tdlg_index(t, 1995);
+                int i1491 = ui_tdlg_index(t, 1491);
+
+                jw_cmd_set(JW_CMD_BUNKATSU);
+                type_box(1411, "4");
+                jw_cmd_point(d, v, 50, 0, 0);
+                jw_cmd_bar(d, 1065);
+                app_paint();
+                okk = app_tdlg_open() >= 0 && app_tdlg_tpl() == 275
+                      && !strcmp(app_tdlg_text(i1995), JW_STR_5610)
+                      && !strcmp(app_tdlg_text(i1491), "2000");
+                app_key(27);
+                okk = okk && app_tdlg_open() < 0 && !jw_cmd_bunkatsu_umeji();
+                jw_cmd_bar(d, 1065);
+                app_paint();
+                app_key(13);
+                okk = okk && app_tdlg_open() < 0 && jw_cmd_bunkatsu_umeji();
+                ck(okk, "馬目地分割の窓（275）: 札 5610・箱に縦分割数、Esc は切のまま、Enter で入る");
+                jw_cmd_set(JW_CMD_BUNKATSU);
+            }
+        }
 
         /* 線長割合分割: 短い方を先に指しても 長い A から短い B へ、割合 0.5 */
         app_new();
@@ -803,6 +947,132 @@ int main(int argc, char **argv)
             ck(okk, "線長割合分割 n=4・長さ 100 と 50: 箱は -4.5、間隔 1 から 0.5 へ");
         }
 #undef MK2
+    }
+
+    /* 楕円（扁平 0.5・傾き 30°・半径 50、中心 (0,0)）の２点間分割・円全周分割。
+     * 逆コンパイルの読み（FUN_00762870・FUN_0045c760・FUN_0045cb90・FUN_0045af50、
+     * 等角度は FUN_00761c60）、原典では押していない。答えは ここで別に積分した
+     * 弧長で見る: 等距離なら点が弧長を等分し、等角度なら中心からの向きが等分 */
+    {
+        const jw_view *v;
+        const double T = 30.0 * M_PI / 180.0, R = 50.0, F = 0.5;
+        double ang[8];
+        int g, j, okk;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        {
+            jw_obj *e = jw_add(d, JW_ENKO), *t;
+            static const double pa[2] = { 0.0, M_PI / 2 };   /* P1・P2 の媒介変数の角 */
+
+            e->d[0] = 0; e->d[1] = 0; e->d[2] = R; e->d[3] = 0;
+            e->d[4] = 2 * M_PI; e->d[5] = T; e->d[6] = F; e->n = 1;
+            for (j = 0; j < 2; j++) {
+                double lx = R * cos(pa[j]), ly = R * F * sin(pa[j]);
+
+                t = jw_add(d, JW_TEN);
+                t->d[0] = cos(T) * lx - sin(T) * ly;
+                t->d[1] = sin(T) * lx + cos(T) * ly;
+            }
+            /* 円全周の始点 P（楕円の外、中心から 媒介変数の角 0 の向き） */
+            t = jw_add(d, JW_TEN);
+            t->d[0] = cos(T) * 80.0;
+            t->d[1] = sin(T) * 80.0;
+        }
+        app_fit();
+        v = app_view();
+#define EPT(i, a) do { double lx_ = R * cos(a), ly_ = R * F * sin(a); \
+        (void)i; ex = cos(T) * lx_ - sin(T) * ly_; ey = sin(T) * lx_ + cos(T) * ly_; } while (0)
+        {
+            double ex, ey;
+            /* 点 k の 局所の角（媒介変数）と 局所の向き（真の角） */
+#define LOC(k, par, tru) do { double x_ = d->obj[k].d[0], y_ = d->obj[k].d[1]; \
+            double lx_ = cos(T) * x_ + sin(T) * y_, ly_ = cos(T) * y_ - sin(T) * x_; \
+            (tru) = atan2(ly_, lx_); (par) = atan2(ly_ / F, lx_); \
+            okk = okk && fabs(lx_ * lx_ / (R * R) + ly_ * ly_ / (R * R * F * F) - 1) < 1e-6; } while (0)
+            struct { const char *what; double qa; int whole, kaku, n, cnt; double want[3]; } C[] = {
+                /* 媒介変数 0→90°、指示は 45°: 弧長を 4 等分 */
+                { "楕円の２点間分割: 指示した側（短い弧）の弧長を等分", M_PI / 4, 0, 0, 4, 3, { 0 } },
+                /* 指示が 180°: 0→90° を 時計回りに 270° */
+                { "楕円の２点間分割: 指示した側の長い弧（時計回り）を等分", M_PI, 0, 0, 4, 3, { 0 } },
+                /* 全周: 中心→P と 中心→指示点（200°）の外積が負 → 時計回り。
+                   半周の弧長は 媒介変数で -180° */
+                { "楕円の円全周分割: 弧長を等分（二つ目が 180°）", 200 * M_PI / 180, 1, 0, 4, 3, { 0 } },
+                /* 等角度: 中心からの向きが 30°・60° */
+                { "楕円の２点間分割 等角度: 中心からの向きを等分", M_PI / 4, 0, 1, 3, 2, { 0 } },
+            };
+            int f;
+
+            for (f = 0; f < 4; f++) {
+                char nb[8];
+
+                g = d->ndrawn;
+                jw_cmd_set(JW_CMD_BUNKATSU);
+                if (C[f].kaku)
+                    jw_cmd_bar(d, 1690);
+                snprintf(nb, sizeof nb, "%d", C[f].n);
+                type_box(1411, nb);
+                if (C[f].whole) {
+                    jw_cmd_point(d, v, d->obj[3].d[0], d->obj[3].d[1], 1);
+                    EPT(0, C[f].qa);
+                    jw_cmd_point(d, v, ex, ey, 1);
+                } else {
+                    jw_cmd_point(d, v, d->obj[1].d[0], d->obj[1].d[1], 1);
+                    jw_cmd_point(d, v, d->obj[2].d[0], d->obj[2].d[1], 1);
+                    EPT(0, C[f].qa);
+                    jw_cmd_point(d, v, ex, ey, 0);
+                }
+                okk = d->ndrawn == g + C[f].cnt;
+                for (j = 0; okk && j < C[f].cnt; j++) {
+                    double par, tru;
+
+                    LOC(g + j, par, tru);
+                    ang[j] = C[f].kaku ? tru : par;
+                }
+                if (okk && C[f].kaku) {
+                    okk = fabs(ang[0] - M_PI / 6) < 1e-6 && fabs(ang[1] - M_PI / 3) < 1e-6;
+                } else if (okk) {
+                    /* 媒介変数の角の並び a0..a4 の 区間ごとの弧長（Simpson、細かく） */
+                    double a[5], seg[4], sw;
+                    int s2, m = 20000;
+
+                    a[0] = 0.0;
+                    sw = f == 0 ? M_PI / 2 : f == 1 ? -3 * M_PI / 2 : -2 * M_PI;
+                    for (j = 0; j < 3; j++) {
+                        double x = ang[j];
+
+                        if (sw > 0) while (x < a[j] - 1e-9) x += 2 * M_PI;
+                        else while (x > a[j] + 1e-9) x -= 2 * M_PI;
+                        a[j + 1] = x;
+                    }
+                    a[4] = sw;
+                    for (j = 0; j < 4; j++) {
+                        double h = (a[j + 1] - a[j]) / m, sum = 0;
+
+                        for (s2 = 0; s2 <= m; s2++) {
+                            double t = a[j] + h * s2;
+                            double sp = R * sqrt(sin(t) * sin(t) + F * F * cos(t) * cos(t));
+
+                            sum += sp * (s2 == 0 || s2 == m ? 1 : s2 % 2 ? 4 : 2);
+                        }
+                        seg[j] = fabs(sum * h / 3);
+                    }
+                    for (j = 1; j < 4; j++)
+                        okk = okk && fabs(seg[j] - seg[0]) < 1e-3;
+                    if (f == 2)
+                        okk = okk && fabs(a[2] + M_PI) < 1e-4;
+                    if (!okk)
+                        printf("     弧長 %g %g %g %g\n", seg[0], seg[1], seg[2], seg[3]);
+                }
+                ck(okk, C[f].what);
+                while (d->ndrawn > g && jw_cmd_can_undo())
+                    jw_cmd_undo(d);
+                if (C[f].kaku)
+                    jw_cmd_bar(d, 1689);
+            }
+#undef LOC
+        }
+#undef EPT
     }
 
     jw_free(&ref);

@@ -12,6 +12,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/ui.h"
@@ -306,6 +310,119 @@ static void cross(void)
     ck(picked(d, 1, 1, 1, 0), "  複写 でも (LL)");
 }
 
+/* 範囲枠交差の 線より先の型（FUN_0040ab00 の枝）: 同じ箱 (250,250)-(550,350)。
+   円弧 FUN_0040b360（-1 丸ごと内・3 枠と交わる・0）、四角のソリッド
+   FUN_0040eb50（角が一つでも内）、寸法図形 FUN_0040f2a0（寸法線で丸ごと） */
+static jw_obj *add_arc(jw_drawing *d, int cx, int cy, int rpx, double st,
+                       double sw, double tilt, double flat)
+{
+    jw_obj *o = jw_add(d, JW_ENKO);
+
+    o->d[0] = mx(cx);
+    o->d[1] = my(cy);
+    o->d[2] = mx(cx + rpx) - mx(cx);
+    o->d[3] = st;
+    o->d[4] = sw;
+    o->d[5] = tilt;
+    o->d[6] = flat;
+    return o;
+}
+
+static jw_obj *add_solid(jw_drawing *d, const int *xy)
+{
+    jw_obj *o = jw_add(d, JW_SOLID);
+    int k;
+
+    for (k = 0; k < 4; k++) {
+        o->d[2 * k] = mx(xy[2 * k]);
+        o->d[2 * k + 1] = my(xy[2 * k + 1]);
+    }
+    return o;
+}
+
+static void add_sunpou(jw_drawing *d)
+{
+    static const int seg[3][4] = {
+        { 500, 320, 600, 320 },         /* 1 寸法線: 枠の右の辺を横切る */
+        { 500, 400, 500, 420 },         /* 3・4 引出し線: 外 */
+        { 600, 400, 600, 420 },
+    };
+    int k;
+
+    for (k = 0; k < 8; k++) {
+        jw_obj *o = jw_add(d, k == 1 ? JW_MOJI : k >= 4 ? JW_TEN : JW_SEN);
+        const int *s = seg[k == 0 ? 0 : k == 2 ? 1 : 2];
+
+        o->sub = (unsigned char)(k + 1);
+        if (k == 1) {                   /* 2 値: 外 */
+            o->d[0] = mx(540);
+            o->d[1] = my(200);
+            o->d[2] = mx(580);
+            o->d[3] = my(200);
+        } else if (k >= 4) {            /* 5〜8 点: 外 */
+            o->d[0] = mx(600 + k);
+            o->d[1] = my(420);
+        } else {
+            o->d[0] = mx(s[0]);
+            o->d[1] = my(s[1]);
+            o->d[2] = mx(s[2]);
+            o->d[3] = my(s[3]);
+        }
+    }
+}
+
+static void cross_types(void)
+{
+    static const int s_in[8] = { 530, 330, 600, 330, 600, 380, 530, 380 };
+    static const int s_edge[8] = { 520, 200, 540, 200, 540, 400, 520, 400 };
+    static const char *what[] = {
+        "円（中）", "円（枠の右の辺を横切る）", "円弧（円は横切るが弧は外）",
+        "円弧（弧は中、円は下の辺を横切る）", "楕円（扁平 0.5 で横切る）",
+        "楕円（傾き 90° で外、傾けなければ届く）", "円（箱を囲む）",
+        "ソリッド（角が一つ中）", "ソリッド（辺が横切るだけ）",
+    };
+    /* (L) で閉じたとき・(LL) のとき に選ばれるか */
+    static const int want_l[] = { 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+    static const int want_ll[] = { 1, 1, 0, 1, 1, 0, 0, 1, 0 };
+    int pass, i;
+
+    printf("範囲枠交差の 円弧・楕円・ソリッド・寸法図形:\n");
+    for (pass = 0; pass < 2; pass++) {
+        jw_drawing *d = fresh();
+        int ok = 1, sun = 1;
+
+        add_arc(d, 400, 300, 40, 0.0, 2 * M_PI, 0.0, 1.0);
+        add_arc(d, 550, 300, 30, 0.0, 2 * M_PI, 0.0, 1.0);
+        add_arc(d, 550, 300, 30, -M_PI / 3, 2 * M_PI / 3, 0.0, 1.0);
+        add_arc(d, 300, 340, 30, 0.0, M_PI, 0.0, 1.0);
+        add_arc(d, 560, 300, 30, 0.0, 2 * M_PI, 0.0, 0.5);
+        add_arc(d, 580, 300, 40, 0.0, 2 * M_PI, M_PI / 2, 0.3);
+        add_arc(d, 400, 300, 400, 0.0, 2 * M_PI, 0.0, 1.0);
+        add_solid(d, s_in);
+        add_solid(d, s_edge);
+        add_sunpou(d);
+        app_command(JW_CMD_HANI);
+        click(250, 250);
+        click(550, 350);
+        if (pass) {
+            app_press(550, 350, 0);
+            app_release(550, 350, 0);
+        }
+        for (i = 0; i < 9; i++)
+            if (d->obj[i].sel != (pass ? want_ll : want_l)[i]) {
+                printf("     %s が %s\n", what[i], d->obj[i].sel ? "選ばれた" : "選ばれない");
+                ok = 0;
+            }
+        for (i = 9; i < 17; i++)
+            if (d->obj[i].sel != pass)
+                sun = 0;
+        ck(ok, pass ? "  (LL): 枠と交わる円・円弧・楕円、角が中のソリッド"
+                    : "  (L): 丸ごと中のものだけ");
+        ck(sun, pass ? "  (LL): 寸法線が横切る寸法図形は部品ごと（値の字も）"
+                     : "  (L): 寸法線が横切る寸法図形は選ばない");
+    }
+}
+
 /* 日影図・２．５D の (LL) 高さ消去（案内 5524・5519）: 線の端の高さの字 */
 static int height_texts(const jw_drawing *d)
 {
@@ -350,6 +467,7 @@ int main(void)
     curve();
     clip();
     cross();
+    cross_types();
     height(JW_CMD_HIKAGE, "日影図");
     height(JW_CMD_25D, "２．５D");
     printf(fails ? "%d BAD\n" : "all ok\n", fails);

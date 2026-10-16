@@ -421,5 +421,9 @@
 #define JW_STR_10035 "- \x90\xfc\x91\xae\x90\xab\x90\xdd\x92\xe8 -"
 /* 5609: clock 3 of division with line A: brick-joint division */
 #define JW_STR_5609 "\x94n\x96\xda\x92n\x95\xaa\x8a\x84"
+/* 5610: brick-joint division: the vertical-count dialog (FUN_00763d20) */
+#define JW_STR_5610 "\x94n\x96\xda\x92n \x8f" "c\x95\xaa\x8a\x84\x90\x94 (2\x81`2000)"
+/* 5613: division: too many divisions (FUN_007668f0, FUN_00767990) */
+#define JW_STR_5613 "\x95\xaa\x8a\x84\x90\x94\x82\xaa\x91\xbd\x82\xb7\x82\xac\x82\xdc\x82\xb7\x81" "B"
 
 #endif
