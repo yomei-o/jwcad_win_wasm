@@ -4833,7 +4833,7 @@ static void paint_bar(fb_t *fb, const jw_drawing *d)
         case JW_CTL_COMBO: {
             /* the boxes the port keeps a number in are drawn with it, and
                with a caret while they are the one being typed into */
-            const char *t = jw_cmd_box(c[i].id);
+            const char *t = jw_cmd_box_raw(c[i].id);
             paint_combo(fb, c[i].x, c[i].y, c[i].w, c[i].h);
             if (t) {
                 int tx = c[i].x + 4, ty = c[i].y + (c[i].h - th) / 2;
