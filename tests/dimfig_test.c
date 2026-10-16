@@ -11,6 +11,10 @@
  *   p169          部品 3〜8 は 線種 1・線色 2・座標 0、頭は 1・2・0x2000
  *
  * 2424 で作った図形を原典に描かせた答えは無い（寸法図形化 の答えと形を照らす）。
+ *
+ * 半径・直径（FUN_007891b0 0x789cf4・0x78a129）も同じ形で、点は図形の後ろ。
+ * 角度（FUN_00786fb0）は bda0 を見ない（命令で 0xa0bda0 を探して無い）ので
+ * 入でも ふつうの要素のまま。拾い・読取点 は 空の部品（座標 0）を見ない。
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +24,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/jww.h"
+#include "../src/pick.h"
 
 static int fails;
 
@@ -80,13 +85,121 @@ static const unsigned char CLS[8] = {
     JW_SEN, JW_MOJI, JW_SEN, JW_SEN, JW_TEN, JW_TEN, JW_TEN, JW_TEN
 };
 
+/* 半径（1065）・直径（1066）: (400,100) 半径 30 の円を (430,100) で指示。
+   切 なら 線・値・点二つ、入 なら 部品 1〜8 のあとに 点二つ
+   （FUN_007891b0: 寸法線は 0x789cf4 で図形へ、値の段 0x78a129 で足す、
+   点は 0x78a6xx〜 で後ろ） */
+static void radius_dim(jw_drawing *d, int button)
+{
+    const char *what = button == 1065 ? "半径" : "直径";
+    jw_obj *c = jw_add(d, JW_ENKO), off[4];
+    int b0, b1, k, i, f, depth;
+    char txt[64] = "";
+
+    c->d[0] = 400.0;
+    c->d[1] = 100.0;
+    c->d[2] = 30.0;
+    c->d[3] = 0.0;
+    c->d[4] = 6.283185307179586;
+    c->d[5] = 0.0;
+    c->d[6] = 1.0;
+    c->n = 1;
+    printf("-- %s\n", what);
+    for (k = 0; k < 2; k++) {
+        jw_cmd_sunpo_chk_set(2424, k);
+        b0 = d->ndrawn;
+        depth = jw_cmd_undo_depth();
+        jw_cmd_set(JW_CMD_SUNPO);
+        jw_cmd_bar(d, button);
+        jw_cmd_point(d, app_view(), 430.0, 100.0, 0);
+        jw_cmd_set(0);
+        b1 = d->ndrawn - b0;
+        ck(jw_cmd_undo_depth() == depth + 1, "  一つの 戻る");
+        if (!k) {
+            ck(b1 == 4 && d->obj[b0].cls == JW_SEN
+               && d->obj[b0 + 1].cls == JW_MOJI
+               && d->obj[b0 + 2].cls == JW_TEN && d->obj[b0 + 3].cls == JW_TEN
+               && !d->obj[b0].sub && !d->obj[b0 + 1].sub,
+               "  切: 線・値・点二つ（これまでどおり）");
+            for (i = 0; i < 4 && i < b1; i++)
+                off[i] = d->obj[b0 + i];
+            if (b1 >= 2 && d->obj[b0 + 1].cls == JW_MOJI)
+                snprintf(txt, sizeof txt, "%s", jw_str(d, d->obj[b0 + 1].text));
+        } else {
+            ck(b1 == 8 + 2, "  入: 部品八つと 点二つ");
+            f = find_fig(d, b0);
+            ck(f == b0, "  部品 1〜8 が先、点が後ろ");
+            if (f == b0 && b1 == 10) {
+                const jw_obj *p = &d->obj[f], *t = &d->obj[f + 1];
+                for (i = 0, k = 1; i < 8; i++)
+                    k &= d->obj[f + i].cls == CLS[i] && d->obj[f + i].sub == i + 1;
+                ck(k, "  部品の型は 線・字・線・線・点・点・点・点");
+                ck(near(p->d[0], off[0].d[0]) && near(p->d[1], off[0].d[1])
+                   && near(p->d[2], off[0].d[2]) && near(p->d[3], off[0].d[3])
+                   && p->flags == off[0].flags && p->color == off[0].color,
+                   "  部品 1 は 切 のときの線と同じ");
+                ck(!strcmp(jw_str(d, t->text), txt) && t->flags == off[1].flags
+                   && (t->flags & (button == 1065 ? 0x100 : 0x200))
+                   && near(t->d[0], off[1].d[0]) && near(t->d[1], off[1].d[1]),
+                   "  部品 2 は 切 のときの値と同じ（R・φ の旗も）");
+                ck(p->list[0] == 0 && (p->list[2] & 0xffff) == 0x2000,
+                   "  頭は +0x1c0 0・旗 0x2000");
+                ck(d->obj[f + 8].cls == JW_TEN && !d->obj[f + 8].sub
+                   && near(d->obj[f + 8].d[0], off[2].d[0])
+                   && d->obj[f + 9].cls == JW_TEN
+                   && near(d->obj[f + 9].d[0], off[3].d[0]),
+                   "  点二つは ふつうの要素で 図形の後ろ");
+            }
+            k = 1;
+        }
+        jw_cmd_undo(d);
+        ck(d->ndrawn == b0, "  戻る で消える");
+    }
+    jw_cmd_sunpo_chk_set(2424, 0);
+}
+
+/* 角度（1068）: FUN_00786fb0 は bda0 を見ないので 入でも sub は付かない */
+static void angle_dim(jw_drawing *d)
+{
+    int k, b0, n[2] = { 0, 0 }, any = 0, i;
+
+    jw_obj *v = jw_add(d, JW_SEN);       /* 終りの読取点に (100,200) */
+
+    v->d[0] = 100.0;
+    v->d[1] = 100.0;
+    v->d[2] = 100.0;
+    v->d[3] = 200.0;
+    printf("-- 角度\n");
+    for (k = 0; k < 2; k++) {
+        jw_cmd_sunpo_chk_set(2424, k);
+        b0 = d->ndrawn;
+        jw_cmd_set(JW_CMD_SUNPO);
+        jw_cmd_bar(d, 1068);
+        jw_cmd_point(d, app_view(), 100.0, 100.0, 0);   /* 原点 */
+        jw_cmd_point(d, app_view(), 140.0, 140.0, 0);   /* 引出線の始め */
+        jw_cmd_point(d, app_view(), 150.0, 150.0, 0);   /* 寸法線の位置 */
+        jw_cmd_point(d, app_view(), 200.0, 100.0, 1);   /* 始め（読む） */
+        jw_cmd_point(d, app_view(), 100.0, 200.0, 1);   /* 終り（読む） */
+        jw_cmd_set(0);
+        n[k] = d->ndrawn - b0;
+        for (i = b0; i < d->ndrawn; i++)
+            any |= d->obj[i].sub;
+        if (n[k] > 0)
+            jw_cmd_undo(d);
+    }
+    printf("     切 %d 要素、入 %d 要素\n", n[0], n[1]);
+    ck(n[0] > 0 && n[0] == n[1] && !any, "  入でも 切 と同じ数、sub は 0");
+    jw_cmd_sunpo_chk_set(2424, 0);
+}
+
 int main(void)
 {
     unsigned char *b, *w = 0;
     long n, wn = 0;
     jw_drawing *d, rd, ans;
     jw_obj *ln;
-    int b0, b1, n0, n1, k, f, fa, i, depth;
+    int b0, b1, n0, n1, k, f, fa, i, depth, pk0, rd0;
+    double rx0, ry0;
     char txt0[64] = "";
 
     app_resize(1264, 741);
@@ -118,6 +231,15 @@ int main(void)
     ck(i == 0, "  sub は 0");
     if (d->obj[b0 + 5].cls == JW_MOJI)
         snprintf(txt0, sizeof txt0, "%s", jw_str(d, d->obj[b0 + 5].text));
+
+    /* 原点の 拾い・読取点（空の部品は ここに座標 0 で並ぶ）を先に控える */
+    {
+        double rx = 0.0, ry = 0.0;
+        pk0 = jw_pick(d, app_view(), 0.0, 0.0, 0);
+        rd0 = jw_read(d, app_view(), 0.0, 0.0, &rx, &ry);
+        rx0 = rx;
+        ry0 = ry;
+    }
 
     /* ---- 入: 点・引出線 は ふつうに、その後に 部品 1〜8 */
     jw_cmd_sunpo_chk_set(2424, 1);
@@ -157,6 +279,15 @@ int main(void)
         ck(p->list[0] == 0 && (p->list[2] & 0xffff) == 0x2000
            && (p->mark & 0xffffff) == (1 | (2 << 8)),
            "  頭は +0x1c0 0・旗 0x2000・線種 1・線色 2");
+    }
+    {   /* 空の部品は 拾わない・読まない（描き手の sun_part_hidden と同じ） */
+        double rx = 0.0, ry = 0.0;
+        int pk = jw_pick(d, app_view(), 0.0, 0.0, 0);
+        int rr = jw_read(d, app_view(), 0.0, 0.0, &rx, &ry);
+        ck(pk == pk0 && !(f >= 0 && pk >= f + 2 && pk < f + 8),
+           "  原点で拾っても 空の部品は当たらない");
+        ck(rr == rd0 && (!rr || (rx == rx0 && ry == ry0)),
+           "  原点の読取点も 図形の前と同じ");
     }
 
     /* ---- 保存して読み戻すと CDataSunpou 一つ、原典の答えと同じ形 */
@@ -220,6 +351,9 @@ int main(void)
     ck(d->ndrawn == b1, "戻る で 寸法図形ごと消える");
 
     jw_cmd_sunpo_chk_set(2424, 0);
+    radius_dim(d, 1065);
+    radius_dim(d, 1066);
+    angle_dim(d);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
