@@ -338,6 +338,29 @@ int jw_pick_editable(const jw_drawing *d, const jw_obj *o)
     return editable(d, o);
 }
 
+/* 寸法図形（CDataSunpou）の空の部品は拾わない・読まない。描き手
+   src/draw.c の sun_part_hidden と同じ決め方（部品 7・8 はいつも、部品 3〜6
+   は 頭 +0x1c0〔部品 1 の list[0]〕が 0 のとき）。寸法図形化・寸法図形
+   （2424）で作った図形は 部品 3〜8 が座標 0 の空なので、原点に 点・線 が
+   有るように拾えていた。原典の当たり判定 CDataSunpou slot 17
+   FUN_0042d7f0 は 部品 1（+0x68 寸法線）と 部品 2（+0xd0 値）の slot 17
+   しか呼ばない —— 部品 3〜8 はいつも当たらない。移植は 描かないものだけを
+   外す（+0x1c0 が 0 でない図形の 引出線・点 は 今のまま拾う） */
+static int sun_part_empty(const jw_drawing *d, const jw_obj *o)
+{
+    long at = (long)(o - d->obj);
+    const jw_obj *h;
+
+    if (o->sub < 3 || o->sub > 8)
+        return 0;
+    if (o->sub >= 7)
+        return 1;
+    if (at < o->sub - 1)
+        return 0;
+    h = o - (o->sub - 1);
+    return h->sub == 1 && h->list[0] == 0;
+}
+
 /* One candidate read point, kept if it is the nearest so far.
  *
  * The measure is in screen pixels, not millimetres of paper, and it is
@@ -529,7 +552,7 @@ int jw_read(const jw_drawing *d, const jw_view *v, double x, double y,
     for (i = 0; i < d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i];
         double ex[2], ey[2];
-        if (!editable(d, o))
+        if (!editable(d, o) || sun_part_empty(d, o))
             continue;
         switch (o->cls) {
         case JW_SEN:
@@ -682,7 +705,7 @@ int jw_pick_tie(const jw_drawing *d, const jw_view *v, double x, double y,
         int ok, taken = 0;
         double e;
 
-        if (!editable(d, o))
+        if (!editable(d, o) || sun_part_empty(d, o))
             continue;
         switch (o->cls) {
         case JW_SEN:

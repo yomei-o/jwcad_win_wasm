@@ -361,6 +361,69 @@ static const struct {
       330, 0, 0, 0, 391, 717, 0, 1 },
 };
 
+/* 寸法図形（2424）を入れて同じ一括処理: 原典の FUN_0077c130 は 間ごとに
+   ふつうの寸法 FUN_00783730 を呼ぶ（0x77cb60）ので、間ごとに 寸法線と値が
+   寸法図形一つ（部品 1〜8）になり、点・引出線 は ふつうの要素のまま。
+   切 の図と比べる（2424 で作った図形を原典に描かせた答えは無い） */
+static void dimfig_run(void)
+{
+    static piece_t a[256];
+    static double sen[512][4];
+    static char val[128][64];
+    int nsen = 0, nval = 0, k, i, j, nfig = 0, okv = 1, okl = 1, okp = 1;
+    int n0, n1;
+    const jw_drawing *d;
+
+    printf("-- 寸法図形（2424）を入れて (probe42 の図)\n");
+    jw_cmd_sunpo_chk_set(2424, 0);
+    ours(RUNS[3].base, RUNS[3].y, 0, 0, 0, LL, a, 256);
+    d = (const jw_drawing *)app_drawing();
+    n0 = d->ndrawn;
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        if (o->cls == JW_SEN && (o->flags & 0x2000) && nsen < 512) {
+            for (k = 0; k < 4; k++)
+                sen[nsen][k] = o->d[k];
+            nsen++;
+        }
+        if (o->cls == JW_MOJI && nval < 128)
+            snprintf(val[nval++], 64, "%s", jw_str(d, o->text));
+    }
+    jw_cmd_sunpo_chk_set(2424, 1);
+    ours(RUNS[3].base, RUNS[3].y, 0, 0, 0, LL, a, 256);
+    jw_cmd_sunpo_chk_set(2424, 0);
+    d = (const jw_drawing *)app_drawing();
+    n1 = d->ndrawn;
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+        if (o->sub != 1)
+            continue;
+        if (i + 7 >= d->ndrawn || d->obj[i + 7].sub != 8
+            || d->obj[i + 1].cls != JW_MOJI) {
+            okp = 0;
+            continue;
+        }
+        if (nfig >= nval || strcmp(jw_str(d, d->obj[i + 1].text), val[nfig]))
+            okv = 0;
+        for (j = 0, k = 0; j < nsen && !k; j++)
+            k = fabs(sen[j][0] - o->d[0]) < 1e-9 && fabs(sen[j][1] - o->d[1]) < 1e-9
+                && fabs(sen[j][2] - o->d[2]) < 1e-9 && fabs(sen[j][3] - o->d[3]) < 1e-9;
+        okl &= k;
+        for (k = 2; k < 8; k++)
+            okp &= d->obj[i + k].d[0] == 0.0 && d->obj[i + k].d[1] == 0.0
+                   && d->obj[i + k].sub == k + 1;
+        nfig++;
+    }
+    for (i = 0, k = 0; i < d->ndrawn; i++)
+        k += d->obj[i].cls == JW_MOJI && !d->obj[i].sub;
+    printf("     切 %d 要素・値 %d、入 %d 要素・寸法図形 %d\n", n0, nval, n1, nfig);
+    ck(nval > 1 && nfig == nval && k == 0, "  値ごとに 寸法図形一つ（手で引いた一本も）");
+    ck(n1 == n0 + 6 * nval, "  要素は 寸法図形ごとに 空の部品 六つだけ増える");
+    ck(okv, "  部品 2 の値は 切 のときと同じ順・同じ字");
+    ck(okl, "  部品 1 は 切 のときの寸法線のどれか");
+    ck(okp, "  部品 3〜8 は 空で 一続き");
+}
+
 int main(void)
 {
     static piece_t a[256], b[256];
@@ -379,6 +442,7 @@ int main(void)
         flatten(b, nb);
         compare(a, na, b, nb);
     }
+    dimfig_run();
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

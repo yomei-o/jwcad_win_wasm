@@ -21826,6 +21826,10 @@ static void sunpo_text(char *out, int n, double mm, double scale)
  * A circle of 86.588921 on a 1/200 group came out as R17,317.78.
  * 端部 が 矢印・逆矢印 のときの点の代わりは下（FUN_007891b0 の読み）。
  */
+static jw_obj *sun_dimline(jw_drawing *d, double x0, double y0, double x1,
+                           double y1);
+static int sun_fig_close(jw_drawing *d, int first);
+
 static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
 {
     int i = jw_pick(d, v, x, y, 6), wg = 0, k, si;
@@ -21835,6 +21839,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
     const char *p;
     jw_obj *o;
     int nch = 0, made = 1;      /* 線は必ず一つ */
+    int fig = -1;
 
     if (i < 0 || d->obj[i].cls != JW_ENKO)
         return;
@@ -21861,16 +21866,19 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         cy -= r * uy;
     }
 
-    o = jw_add(d, JW_SEN);
-    if (!o)
-        return;
-    o->color = sun_sencol;
-    o->ltype = 1;
-    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-    o->d[0] = cx;
-    o->d[1] = cy;
-    o->d[2] = ex;
-    o->d[3] = ey;
+    /* 寸法図形（2424、DAT_00a0bda0）なら 寸法線は ここでは足さず 値と
+       一緒に（sun_fig_close）。FUN_007891b0 の 0x789cf4 で bda0 なら
+       寸法線を FUN_00450860 で足さず スタックの CDataSunpou（ctor
+       FUN_0041f8d0 0x789ceb）に FUN_00420110 で写し、値の段 0x78a129 で
+       字を FUN_00479550 で書いて FUN_00450860 で一つの図形として足す
+       （+0x44 = 0x2000、寸法線 +0xac に 0x2000、字 +0x114 に 0x10 と
+       半径 0x100・直径 0x200）。点・矢印・逆矢印の突出 は値のあと
+       （0x78a6xx〜）に ふつうの要素で足されるので 図形の後ろ */
+    if (!sun_zukei) {
+        if (!sun_dimline(d, cx, cy, ex, ey))
+            return;
+    } else
+        made = 0;
 
     for (k = 0; k < 16; k++)
         if (d->group[k].state == 3)
@@ -21903,6 +21911,14 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         p += wide ? 2 : 1;
         nch++;
     }
+    if (sun_zukei) {
+        /* 値が置けないなら 寸法線だけ ふつうに（sunpo_make と同じ移植の守り） */
+        if (!sun_dimline(d, cx, cy, ex, ey))
+            return;
+        made = 1;
+        if (cw > 0.0 && ch > 0.0 && nch)
+            fig = d->ndrawn - 1;
+    }
     if (cw > 0.0 && ch > 0.0 && nch) {
         double mx = (cx + ex) / 2.0 - uy * sun_hanare;
         double my = (cy + ey) / 2.0 + ux * sun_hanare;
@@ -21926,6 +21942,8 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
             o->text = jw_add_str(d, txt);
             o->face = jw_add_str(d, JW_MOJI_FACE);
             made++;
+            if (fig >= 0)
+                made += sun_fig_close(d, fig);
         }
     }
     if (!sun_arrows()) {
@@ -22798,7 +22816,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     double cw, ch, sp, tw = 0.0, mid, t;
     char txt[64];
     const char *p;
-    int nch = 0, i, wg = 0, made = 0;
+    int nch = 0, i, wg = 0, made = 0, fig = -1;
     jw_obj *o;
 
     if (len <= 0.0)
@@ -22807,14 +22825,14 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
         if (d->group[i].state == 3)
             wg = i;
 
-    o = jw_add(d, JW_SEN);
-    if (!o)
-        return 0;
-    o->color = sun_sencol;
-    o->ltype = 1;
-    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-    o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
-    made++;
+    /* 寸法図形（2424）なら 寸法線は 値と一緒に（sunpo_make と同じ）。
+       原典の一括処理 FUN_0077c130 は 間ごとに ふつうの寸法 FUN_00783730 を
+       呼ぶ（0x77cb60）ので bda0 の扱いも同じ（0x784bff・0x786299） */
+    if (!sun_zukei) {
+        if (!sun_dimline(d, x0, y0, x1, y1))
+            return 0;
+        made++;
+    }
 
     /* 端部 and 引出線 at each end that has neither yet -- the near one
        first, which is sunpo_make's own order.  Usually only the far end
@@ -22874,6 +22892,14 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
         p += wide ? 2 : 1;
         nch++;
     }
+    if (sun_zukei) {
+        /* 値が置けないなら 寸法線だけ ふつうに（移植の守り） */
+        if (!sun_dimline(d, x0, y0, x1, y1))
+            return made;
+        made++;
+        if (cw > 0.0 && ch > 0.0 && nch)
+            fig = d->ndrawn - 1;
+    }
     if (cw <= 0.0 || ch <= 0.0 || !nch)
         return made;
     mid = (s0 + s1) / 2.0;
@@ -22897,6 +22923,8 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     o->text = jw_add_str(d, txt);
     o->face = jw_add_str(d, JW_MOJI_FACE);
     made++;
+    if (fig >= 0)
+        made += sun_fig_close(d, fig);
     return made;
 }
 
