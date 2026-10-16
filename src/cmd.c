@@ -543,6 +543,7 @@ static int tn_nq = -1, tn_nq_pend;   /* 真北が無いときの問い（0x15e2�
 static int tn_ans = -1, tn_pend, tn_pend_b;   /* 測定点が建物の内側のときの問い: 答え（-1 未回答）・待ち・押したボタン */
 static double tn_pend_x, tn_pend_y;
 static const jw_view *tn_pend_v;
+static int cmd_shift, cmd_ctrl;   /* 押した時の Shift・Ctrl（原典 DAT_00a0cc6c・DAT_00a0cc74、jw_cmd_keymods） */
 static int tn_s_plan = 1, tn_s_calc, tn_s_conf;   /* 三斜のバー 9011: 1690 初めから点・1329・2114 */
 /* 天空率比較計算 (1066): 0 でなければ 歩み + 1（原典 CZukeiTenkuu +0x1b0 = 0/1/2）。
    tn_cv・tn_cx/cy は 計画・比較 の字の数値と位置、tn_cdec は 小数の桁の大きいほう（+0x828、2 以上）、
@@ -15812,6 +15813,14 @@ int jw_env_read(jw_drawing *d, const unsigned char *b, long n)
                     d->print_width[idx] = w;
                 taken++;
             }
+        } else if (!strcmp(key, "FLG_1")) {
+            /* 原典は "%d %d %d %d %d %d" で読み、二つ目を 0 以上に切って 文書 +0x83d8 へ
+               （一つ目は DAT_00a0cabc、三つ目は +0x83a8。移植はまだ持たない） */
+            int f[3] = { -1, -1, -1 };
+
+            sscanf(v, "%d %d %d", &f[0], &f[1], &f[2]);
+            d->hk_flg1 = f[1] > 0 ? f[1] : 0;
+            taken++;
         } else if (env_sunpo_read(key, v)) {
             taken++;
         } else if (!strcmp(key, "MWIDE") || !strcmp(key, "MHIGH")
@@ -18883,7 +18892,17 @@ static int bar_press(jw_drawing *d, int id)
     if (current == JW_CMD_HIKAGE && id == 1066 && !hk_sub && !hk_pts) {
         hk_pts = 1;                 /* 指定点: 測定点を押す */
         hkp_n = 0;
+        hk_first_no = 1;            /* CZukeiKage3 の作り（0x69c94e）が +0x12c = 1・+0x130 = 0 */
         hk_calc_step = 0;
+        return 1;
+    }
+    if (current == JW_CMD_HIKAGE && hk_pts && id == 1070) {
+        /* 初期Ｎｏ 設定: バーの 1070 は FUN_00418c90 で 0x1407 → CZukeiHikage FUN_0068e8c0 が +0xb0 の
+           CZukeiKage3 の slot 31 FUN_0069d330 へ。窓 348（CHikageJikanDialog）を 0x15b7 の字と
+           +0x12c の数で出し、OK で 1 以上なら 切り捨てて +0x12c に。釦は 点の無い間だけ押せる
+           （FUN_0069cc30: 点があれば 7、無ければ 77 = 釦 7 を押せる）。逆コンパイルの読み、原典では押していない */
+        if (hkp_n == 0 && !hk_calc_step)
+            hk_ask_time = 4;
         return 1;
     }
     if (current == JW_CMD_HIKAGE && hk_pts && (id == 1065 || id == 1066)) {
@@ -23780,11 +23799,13 @@ static void hk_wall_swap_line(jw_drawing *d, int k)
 }
 
 /* 壁で 辺を切る（ed → ed2）。返り値 切った辺の数、原典が札で終わるところなら 札を出して -1 */
-static int hk_wall_prep(const hk_edge *ed, int ne, hk_edge *ed2, int max, hk_wall *w, double north)
+static int hk_wall_prep(const jw_drawing *d, const hk_edge *ed, int ne, hk_edge *ed2, int max, hk_wall *w,
+                        double north)
 {
     int m;
 
     hk_wall_init(w, hk_wall_xy[0], hk_wall_xy[1], hk_wall_xy[2], hk_wall_xy[3], north);
+    w->flag = d->hk_flg1;           /* 文書 +0x83d8（.jwf の FLG_1） */
     m = hk_wall_clip(w, ed, ne, ed2, max);
     if (m == -5534)
         JW_NOTICE(5534);            /* 壁面線が建物通過 */
@@ -24088,7 +24109,7 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
     if (ne < 2)
         return 0;
     if (hk_wall_on) {               /* 壁面日影（FUN_0069ac30 は 壁を FUN_00542310・FUN_0054a0b0 へ渡す） */
-        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        ne = hk_wall_prep(d, ed, ne, ed2, 2000, &wall, north);
         if (ne < 1)
             return 0;
         E = ed2;
@@ -24254,7 +24275,7 @@ static int hk_outlines(jw_drawing *d, int half)
     if (ne < 2)
         return 0;
     if (hk_wall_on) {               /* 壁面日影: 壁で切った建物の影を 壁の立面に映す */
-        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        ne = hk_wall_prep(d, ed, ne, ed2, 2000, &wall, north);
         if (ne < 0)
             return 0;
         E = ed2;
@@ -24369,7 +24390,36 @@ int jw_cmd_hikage_answer(jw_drawing *d, int kind, const char *txt)
         return jw_cmd_hikage_level(d, txt);
     if (kind == 3)
         return jw_cmd_hikage_dec(txt);
+    if (kind == 4)
+        return jw_cmd_hikage_first_no_set(txt);
     return 0;
+}
+
+/* 指定点の 初期Ｎｏ（原典 CZukeiKage3 +0x12c） */
+void jw_cmd_keymods(int shift, int ctrl)
+{
+    cmd_shift = shift != 0;
+    cmd_ctrl = ctrl != 0;
+}
+
+int jw_cmd_hikage_first_no(void)
+{
+    return hk_first_no;
+}
+
+/* 初期Ｎｏ 設定 の窓の答え: 1 以上なら 切り捨てて入れる（FUN_0069d330）。読めないか 1 未満なら そのまま */
+int jw_cmd_hikage_first_no_set(const char *txt)
+{
+    char *end;
+    double v;
+
+    if (current != JW_CMD_HIKAGE || !hk_pts || !txt)
+        return 0;
+    v = strtod(txt, &end);
+    if (end == txt || !(v >= 1.0) || v > 1e9)
+        return 0;
+    hk_first_no = (int)v;
+    return 1;
 }
 
 /* 等時間の 時間指定: 1 - 8（9～15時 なら 1 - 6）の数。水準は 範囲の上限近くでは 0.01 引く */
@@ -24818,7 +24868,7 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     if (ne < 2)
         return 0;
     if (hk_wall_on) {               /* 壁面日影（FUN_0069e850 は 壁を FUN_00542310・FUN_005470d0 へ渡す） */
-        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        ne = hk_wall_prep(d, ed, ne, ed2, 2000, &wall, north);
         if (ne < 0)
             return 0;
         E = ed2;
@@ -25792,6 +25842,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         if (hk_calc_step) {
             hk_points_write(d, px, py, hk_calc_step);
             hk_calc_step = 0;
+            /* [D 0x0069da00] 書き終えると +0x12c += 点の数・+0x130 = 0（次の点は続きの番号） */
+            hk_first_no += hkp_n;
+            hkp_n = 0;
         } else
             hk_point_add(d, px, py);
         return;
@@ -26051,6 +26104,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 hk_sansha_opts_set_mode(&so, tn_s_plan);   /* 初めは《計画建物用》 */
                 so.calc = tn_s_calc;
                 so.conf = tn_s_conf;   /* 三斜計算。切なら円と投影の線だけ（hk_sa1） */
+                /* CZukeiTenkuu の左（_byclass CZukeiTenkuu.c 1066〜）が 押した時の Shift（DAT_00a0cc6c）
+                   XOR DAT_00a0becc（.jwf、移植は 0）を +0xe4、Ctrl（DAT_00a0cc74）を +0xe8 に */
+                so.conf_all = cmd_shift;
+                so.conf_plan_no = cmd_ctrl;
                 r = jw_tenku_sansha_draw_ex(d, &so, tn_px, tn_py, px, py, NULL);            } else
                 r = jw_tenku_draw(d, &o, tn_px, tn_py, px, py, NULL);
             if (r >= 0) {
