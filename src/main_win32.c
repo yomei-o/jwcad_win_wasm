@@ -1798,10 +1798,12 @@ static int print_gdi_page(HWND wnd, int page)
 #include "prnative.h"                   /* 印刷の窓・プリンタの設定・出力方法設定・連続印刷 */
 #include "fonative.h"                   /* ファイル名変更・削除・属性変更・一括変換 */
 
-/* The right button does two jobs: dragged it moves the drawing, clicked it is
- * a point for the command in force -- which is what the original's status
- * line means by "(R)".  Which one it was is settled on the way up, by whether
- * it moved: a couple of pixels of shake while clicking should not count. */
+/* The right button: clicked it is a point for the command in force -- which is
+ * what the original's status line means by "(R)" -- and dragged past the
+ * threshold it is the right-hand clock menu (src/clock.h), as in the original;
+ * the drawing is moved by both buttons (src/ryoboton.h) or the middle button.
+ * Which it was is settled on the way: a couple of pixels of shake while
+ * clicking should not count. */
 #define DRAG_SLOP 3
 
 /* 両ボタン（src/ryoboton.h）。図面の上の左押しはすぐ app_press へ渡さずに
@@ -1816,6 +1818,10 @@ static int lheld, lhx, lhy, lhshift, lhctrl;
    引けば時計にする。時計の間に右を押せば AM/PM を替え、その右の離しは捨てる
    （原典の右押し FUN_0050d070 が 右の押しの旗 +0x90cc を落とす） */
 static int rswallow;
+/* 右ボタンも 左と同じに 預かる（rheld）: しきい（1054）を越えて引けば右の時計、
+   動かさずに離せば 押した点で右クリック。時計の間に左が押されれば AM/PM を替え
+   （その左の離しは捨てる: lswallow）、右を押したまま左なら両ボタン */
+static int rheld, rhx, rhy, rcan, rmoved, lswallow;
 
 static void held_flush(HWND wnd)
 {
@@ -1966,7 +1972,7 @@ static int touch_msg(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 
 static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    static int dragging, dragright, moved, lastx, lasty, downx, downy;
+    static int dragging, lastx, lasty;      /* 中ボタンのドラッグ（画面の移動） */
 
     switch (msg) {
     case WM_MOUSEWHEEL: {
@@ -1998,8 +2004,18 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             app_ll_slop(2);
         if (ryo_active())
             return 0;
-        if (dragging && dragright) {    /* 右を押したまま左: 両ボタン */
-            dragging = 0;
+        if (app_clock_active() && app_clock_button()) {
+            /* 右の時計の間の左（FUN_00507d00）: AM/PM を替える。替えなければ 両ボタン */
+            if (app_clock_right())
+                lswallow = 1;
+            else
+                ryo_begin(x, y);
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
+        if (rheld) {                    /* 右を押したまま左: 両ボタン */
+            rheld = 0;
             ryo_begin(x, y);
             app_paint();
             InvalidateRect(wnd, NULL, FALSE);
@@ -2024,7 +2040,13 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONUP:
-        if (app_clock_active()) {       /* 時計: 離した向きの命令へ */
+        if (lswallow) {                 /* 右の時計の AM/PM を替えた左の離し */
+            lswallow = 0;
+            if (!app_clock_active() && !(wp & MK_RBUTTON))
+                ReleaseCapture();
+            return 0;
+        }
+        if (app_clock_active() && !app_clock_button()) {    /* 時計: 離した向きの命令へ */
             int redraw;
 
             if (!(wp & MK_RBUTTON))
@@ -2057,7 +2079,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         if (ryo_active())
             return 0;
         if (msg == WM_RBUTTONDOWN && app_clock_active()) {
-            if (app_clock_right())      /* 時計の間の右: AM/PM */
+            if (app_clock_right())      /* 左の時計の間の右: AM/PM */
                 rswallow = 1;
             else                        /* 1054 が負: 時計をやめて 両ボタン */
                 ryo_begin(MX(LOWORD(lp)), MX(HIWORD(lp)));
@@ -2073,11 +2095,18 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             return 0;
         }
         held_flush(wnd);
+        if (msg == WM_RBUTTONDOWN) {    /* 右: 時計か クリックか（離すか引くまで預かる） */
+            rheld = 1;
+            rmoved = 0;
+            rhx = MX(LOWORD(lp));
+            rhy = MX(HIWORD(lp));
+            rcan = ryo_holdable(rhx, rhy);
+            SetCapture(wnd);
+            return 0;
+        }
         dragging = 1;
-        dragright = msg == WM_RBUTTONDOWN;
-        moved = 0;
-        lastx = downx = MX(LOWORD(lp));
-        lasty = downy = MX(HIWORD(lp));
+        lastx = MX(LOWORD(lp));
+        lasty = MX(HIWORD(lp));
         SetCapture(wnd);
         return 0;
     case WM_MBUTTONUP:
@@ -2093,14 +2122,36 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                 ryo_finish(wnd);
             return 0;
         }
+        if (msg == WM_RBUTTONUP && app_clock_active() && app_clock_button()) {
+            int redraw;                 /* 右の時計: 離した向きの命令へ（FUN_0050d3f0） */
+
+            if (!(wp & MK_LBUTTON))
+                ReleaseCapture();
+            app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
+            redraw = app_clock_end();
+            redraw |= do_action(wnd);
+            if (redraw) {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+            return 0;
+        }
+        if (msg == WM_RBUTTONUP) {
+            int was = rheld;
+
+            rheld = 0;
+            ReleaseCapture();
+            app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
+            /* 動かさずに離した: 押した点で右クリック（原典の仮想関数 11 は +0x85d0 の
+               押した点）。時計になりえない所は 3 画素まで */
+            if (was && !rmoved && app_press(rhx, rhy, 1)) {
+                app_paint();
+                InvalidateRect(wnd, NULL, FALSE);
+            }
+            return 0;
+        }
         dragging = 0;
         ReleaseCapture();
-        app_keymods((wp & MK_SHIFT) != 0, (wp & MK_CONTROL) != 0);
-        if (msg == WM_RBUTTONUP && !moved
-            && app_press(MX(LOWORD(lp)), MX(HIWORD(lp)), 1)) {
-            app_paint();
-            InvalidateRect(wnd, NULL, FALSE);
-        }
         return 0;
     case WM_MOUSEMOVE: {
         int x = MX(LOWORD(lp)), y = MX(HIWORD(lp));
@@ -2115,7 +2166,7 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             return 0;
         }
         if (app_clock_active()) {
-            if (!(wp & MK_LBUTTON)) {   /* 離しを取りこぼした */
+            if (!(wp & (app_clock_button() ? MK_RBUTTON : MK_LBUTTON))) {   /* 離しを取りこぼした */
                 app_clock_cancel();
                 ReleaseCapture();
             } else
@@ -2124,6 +2175,17 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             InvalidateRect(wnd, NULL, FALSE);
             return 0;
         }
+        if (rheld && rcan && app_rclock_ready(rhx, rhy, x, y)) {
+            rheld = 0;                  /* しきいを越えて引いた: 右のクロックメニュー */
+            app_rclock_begin(rhx, rhy);
+            app_clock_move(x, y);
+            app_paint();
+            InvalidateRect(wnd, NULL, FALSE);
+            return 0;
+        }
+        if (rheld && (abs(x - rhx) > DRAG_SLOP || abs(y - rhy) > DRAG_SLOP)
+            && !(rcan && app_rclock_possible()))
+            rmoved = 1;                 /* 時計になりえない所で動かした: クリックにしない */
         if (lheld && app_clock_ready(lhx, lhy, x, y)) {
             lheld = 0;                  /* しきいを越えて引いた: クロックメニュー */
             app_clock_begin(lhx, lhy);
@@ -2138,8 +2200,6 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             && !app_clock_possible())
             held_flush(wnd);            /* 動いた: 預かった左を渡してから */
         if (dragging) {
-            if (abs(x - downx) > DRAG_SLOP || abs(y - downy) > DRAG_SLOP)
-                moved = 1;
             app_pan(x - lastx, y - lasty);
             lastx = x;
             lasty = y;

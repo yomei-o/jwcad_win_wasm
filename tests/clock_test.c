@@ -1,4 +1,4 @@
-/* クロックメニュー（左ボタン、src/clock.h）。
+/* クロックメニュー（左ボタン・右ボタン、src/clock.h）。
  *
  * 向きの割り方（FUN_004fc1d0）、左の表（FUN_0076c9c0 の AM・PM）、札の番号、
  * しきい（1054 Drag\Minimum 35）を越えて引いたら時計・内で離したらクリック、
@@ -439,6 +439,178 @@ int main(void)
         jw_cmd_undo(d);
         ck(f >= 0 && d->obj[f].sub == 1 && d->obj[f + 7].sub == 8 && d->obj[f].layer == ((wl + 2) & 15),
            "寸法図形: 戻るで元に");
+    }
+
+    /* ---- 右ボタンの時計（FUN_0076d330、src/clock.h） ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        double qx, qy, k2 = 0.7071067811865476;
+        int px, py, n;
+
+        /* 円・円弧の向きの点（FUN_005f92e0・FUN_0045b790）: 1/4 点は小さい方の成分を 0 に */
+        {
+            jw_obj c;
+
+            memset(&c, 0, sizeof c);
+            c.cls = JW_ENKO;
+            c.d[2] = 10.0;
+            c.d[4] = 6.283185307179586;
+            c.d[6] = 1.0;
+            ck(clk_circle_pt(&c, 3, 8, 0, 0, &qx, &qy) && fabs(qx) < 1e-9 && fabs(qy - 10) < 1e-9,
+               "円の 1/4 点: (3,8) は 真上 (0,10)");
+            ck(clk_circle_pt(&c, 8, -3, 0, 0, &qx, &qy) && fabs(qx - 10) < 1e-9 && fabs(qy) < 1e-9,
+               "円の 1/4 点: (8,-3) は 右 (10,0)");
+            ck(clk_circle_pt(&c, 6, 5, 0, 1, &qx, &qy) && fabs(qx - 10 * k2) < 1e-9
+               && fabs(qy - 10 * k2) < 1e-9, "1/8 点: (6,5) は 差が大きい方の半分より近いので 斜め");
+            ck(clk_circle_pt(&c, -6, -5, 0, 1, &qx, &qy) && fabs(qx + 10 * k2) < 1e-9
+               && fabs(qy + 10 * k2) < 1e-9, "1/8 点: (-6,-5) は 左下の斜め");
+            ck(clk_circle_pt(&c, 10, 1, 0, 1, &qx, &qy) && fabs(qx - 10) < 1e-9 && fabs(qy) < 1e-9,
+               "1/8 点: (10,1) は 軸の上");
+            ck(clk_circle_pt(&c, 4.33012701892219 - 0.25, 2.5 + 0.43301270189222, 30, 0, &qx, &qy)
+               && fabs(qx - 8.660254037844386) < 1e-6 && fabs(qy - 5) < 1e-6,
+               "軸角 30° の枠で 1/4 点（その向きの軸の上）");
+            ck(!clk_circle_pt(&c, 0, 0, 0, 0, &qx, &qy), "中心の上は 点が出ない");
+            c.d[6] = 0.5;
+            ck(clk_circle_pt(&c, 3, 8, 0, 0, &qx, &qy) && fabs(qx) < 1e-9 && fabs(qy - 5) < 1e-9,
+               "楕円（扁平率 0.5）の 真上は (0,5)");
+        }
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        app_fit();
+        app_paint();
+        v = app_view();
+        ui_view_rect(1000, 700, &r);
+        cx = r.x + r.w / 2;
+        cy = r.y + r.h / 2;
+
+        /* しきい: 1326 が切なら左と同じ。入なら左は時計にならず、右は時計になる */
+        app_command(JW_CMD_SEN);
+        ck(app_rclock_possible() && app_rclock_ready(cx, cy, cx + 36, cy)
+           && !app_rclock_ready(cx, cy, cx + 35, cy), "右も 35 画素を越えれば時計");
+        clk_settings(1, 35, 0, 0, 0);
+        ck(!app_clock_possible() && app_rclock_possible()
+           && app_rclock_ready(cx, cy, cx + 36, cy), "1326 が入: 左は時計にならず 右は時計（FUN_005185e0）");
+        clk_settings(0, 35, 0, 0, 0);
+
+        /* AM 4 戻る・5 進む（札 10105・10106、FUN_00504100・FUN_00503e90） */
+        jw_cmd_point(d, v, 100.0, 100.0, 0);
+        jw_cmd_point(d, v, 200.0, 100.0, 0);
+        ck(d->ndrawn == 1, "線を一本引いた");
+        at_hour(4, 60, &dx, &dy);
+        app_rclock_begin(cx, cy);
+        ck(app_clock_active() && app_clock_button() == 1, "右の時計が始まる");
+        app_clock_move(cx + dx, cy + dy);
+        ck(app_clock_now() == 4 && jw_cmd_notice_id() == 10105, "右 AM 4 の札 10105 戻る");
+        app_clock_end();
+        ck(!app_clock_active() && d->ndrawn == 0 && jw_cmd_notice_id() == 0, "右 AM 4 を離すと 戻る");
+        at_hour(5, 60, &dx, &dy);
+        app_rclock_begin(cx, cy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10106, "右 AM 5 の札 10106 進む");
+        app_clock_end();
+        ck(d->ndrawn == 1 && jw_cmd() == JW_CMD_SEN, "右 AM 5 を離すと 進む（命令はそのまま）");
+
+        /* 札: AM 3・6・9・12、PM、左の表へ回る時 */
+        app_rclock_begin(cx, cy);
+        at_hour(3, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10101, "右 AM 3 の札 10101 中心点・A点");
+        at_hour(6, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10103, "右 AM 6 の札 10103 オフセット");
+        at_hour(9, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10102, "右 AM 9 の札 10102 線上点・交点");
+        at_hour(12, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10104, "右 AM 12 の札 10104 円周1/4点");
+        at_hour(2, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10002, "右 AM 2 は 左の表の札 10002（円）");
+        /* 左が押されると 右の AM/PM が替わる（FUN_00507d00） */
+        ck(app_clock_right() && app_clock_pm() == 1, "右の時計の間の左で 右が PM");
+        ck(jw_cmd_notice_id() == 10014, "右 PM 2 の札 10014 ２点間角");
+        app_clock_end();
+        ck(app_clock_pm() == 0, "離すと 右の AM/PM は 2109 が切なので AM に戻る");
+        app_rclock_begin(cx, cy);
+        app_clock_right();
+        at_hour(1, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10022, "右 PM 1 の札 10022 鉛直角");
+        at_hour(12, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10031, "右 PM 12 の札 10031 数値 長");
+        at_hour(5, 60, &dx, &dy);
+        app_clock_move(cx + dx, cy + dy);
+        ck(jw_cmd_notice_id() == 10020, "右 PM 5 の札 10020 軸角取得");
+        app_clock_cancel();
+        ck(!app_clock_active() && app_clock_pm() == 0, "やめると 右の AM/PM も戻る");
+        /* 左の時計の AM/PM とは別 */
+        app_clock_begin(cx, cy);
+        ck(app_clock_button() == 0 && app_clock_right() && app_clock_pm() == 1, "左の時計の右は 左の AM/PM");
+        app_clock_cancel();
+
+        /* 12 時: 円の 1/4 点（FUN_0076efd0）。点 の命令に 左の点として渡る */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_ENKO);
+        o->d[0] = 100; o->d[1] = 100; o->d[2] = 50; o->d[3] = 0; o->d[4] = 6.283185307179586;
+        o->d[5] = 0; o->d[6] = 1;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 10; o->d[1] = 20; o->d[2] = 200; o->d[3] = 20;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+        n = d->ndrawn;
+        px = jw_sx(v, 103.0);
+        py = jw_sy(v, 149.0);
+        app_rclock_begin(px, py);
+        at_hour(12, 60, &dx, &dy);
+        app_clock_move(px + dx, py + dy);
+        ck(jw_cmd_notice_id() == 10104, "点: 右 12 時の札");
+        app_clock_end();
+        ck(d->ndrawn == n + 1 && d->obj[n].cls == JW_TEN
+           && fabs(d->obj[n].d[0] - 100.0) < 1e-6 && fabs(d->obj[n].d[1] - 150.0) < 1e-6,
+           "円の上を 3 mm 横ずれで押して 12 時 → 真上の 1/4 点 (100,150) に 点");
+        n = d->ndrawn;
+        px = jw_sx(v, 50.0);
+        py = jw_sy(v, 21.0);
+        app_rclock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        app_clock_end();
+        ck(d->ndrawn == n && jw_cmd_notice_id() == 10110, "線を押して 12 時 → 札 10110 円ではありません、何も置かない");
+        n = d->ndrawn;
+        px = jw_sx(v, 300.0);
+        py = jw_sy(v, 250.0);
+        app_rclock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        app_clock_end();
+        ck(d->ndrawn == n, "何も無い所の 12 時は 何もしない");
+        clk_settings(0, 35, 0, 0, 1);
+        px = jw_sx(v, 100.0 + 50.0 * k2 + 1.0);
+        py = jw_sy(v, 100.0 + 50.0 * k2 + 0.5);
+        app_rclock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        ck(jw_cmd_notice_id() == 10123, "2099 が入: 札 10123 円周1/8点");
+        n = d->ndrawn;
+        app_clock_end();
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - (100.0 + 50.0 * k2)) < 1e-6
+           && fabs(d->obj[n].d[1] - (100.0 + 50.0 * k2)) < 1e-6,
+           "2099: 斜めの 1/8 点に 点");
+        clk_settings(0, 35, 0, 0, 0);
+        app_command(JW_CMD_SEN);
+        n = d->ndrawn;
+        px = jw_sx(v, 103.0);
+        py = jw_sy(v, 149.0);
+        app_rclock_begin(px, py);
+        app_clock_move(px + dx, py + dy);
+        app_clock_end();
+        ck(d->ndrawn == n && jw_cmd() == JW_CMD_SEN, "線 の 12 時は 何もしない（FUN_006f3490 は読んでいない）");
+        app_command(JW_CMD_SEN);
     }
 
     /* AUTO の間は時計にしない（AUTO 自前の時計は入れていない） */

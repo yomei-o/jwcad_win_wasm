@@ -223,8 +223,26 @@ WANT = [
     (5196, 'clock PM 12'),
     (10035, 'clock 12 of division with line A: line attributes (FUN_007637e0)'),
     (5609, 'clock 3 of division with line A: brick-joint division'),
-    (5610, 'brick-joint division: the vertical-count dialog (FUN_00763d20)'),
-    (5613, 'division: too many divisions (FUN_007668f0, FUN_00767990)'),
+    # 右ボタンのクロック（FUN_0076d330）の札
+    (10101, 'right clock AM 3: centre point / A point (FUN_0076ea20)'),
+    (10102, 'right clock AM 9: point on a line / crossing (FUN_0076fae0)'),
+    (10103, 'right clock AM 6: offset (FUN_0076f880)'),
+    (10104, 'right clock AM 12: circle quarter point (FUN_0076efd0)'),
+    (10105, 'right clock AM 4: undo'),
+    (10106, 'right clock AM 5: redo'),
+    (10110, 'not a circle (FUN_0076efd0)'),
+    (10123, 'circle eighth point (2099 on)'),
+    (10014, 'right clock PM 2: angle between two points'),
+    (10015, 'right clock PM 3: angle from the X axis'),
+    (10016, 'right clock PM 4: line angle'),
+    (10018, 'right clock PM 9: angle from the X axis, minus'),
+    (10021, 'right clock PM 7: axis angle, minus'),
+    (10022, 'right clock PM 1: vertical angle'),
+    (10023, 'right clock PM 11: line length'),
+    (10024, 'right clock PM 10: length between two points'),
+    (10025, 'right clock PM 8: minus angle'),
+    (10030, 'right clock PM 6: numeric angle'),
+    (10031, 'right clock PM 12: numeric length'),
 ]
 
 STRINGS = 'decomp/res/string.txt'
