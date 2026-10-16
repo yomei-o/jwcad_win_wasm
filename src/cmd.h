@@ -260,6 +260,8 @@ int  jw_cmd_bar(jw_drawing *d, int id);
 int  jw_cmd_bar_r(jw_drawing *d, int id);
 /* Whether that button is there to be pressed, for the drawing of the bar. */
 int  jw_cmd_bar_check(int id);
+/* 1326（DAT_00a0cacc、クロックメニューを使用しない）。状態行の字が替わる */
+void jw_cmd_nonclock_set(int on);
 /* 接円 (32872) の 接楕円 (1065) の間: 型（10 ３点指示・20 菱形内接・30 平行四辺内接・
    50 ３点半楕円）、型を選ぶ前は -1、接楕円でなければ 0。逆コンパイルの読み、
    原典では押していない（src/cmd.c の sde_ の塊の前の注） */
@@ -569,6 +571,7 @@ int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
                         int keep_layer);
 /* 右ボタンのクロック PM 1〜12（FUN_0076d330）の角度・長さ取得を 押した点 (x, y) で。
    二点・三点のもの（2・3・9・10）は 続きの押しを待つ（src/cmd.c の注）。1 なら何か起きた */
+int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y);   /* 左 PM 6【全】属性取得の 箱への書込み（線のとき） */
 int jw_cmd_clock_get(jw_drawing *d, const jw_view *v, int hour, double x, double y);
 /* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
 void jw_cmd_sen_sizekeep(int on);

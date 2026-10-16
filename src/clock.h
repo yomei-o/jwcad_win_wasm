@@ -81,7 +81,8 @@ int clk_dir(int dx, int dy, int *ampm, int *prevd2, int only4);
 /* 左の時計の表（FUN_0076c9c0）: 移る命令の番号。0 は何もしない。
    cur はいまの命令（AM 1 は 線 なら 矩形）、copy は 前の 複写・移動 が複写か
    （view+0x9058、原典の既定 1） */
-enum { CLK_ZOKU = -1,           /* AM 6 属性取得（押した点で） */
+enum { CLK_ZOKUALL = -3,       /* PM 6【全】属性取得（押した点で） */
+       CLK_ZOKU = -1,           /* AM 6 属性取得（押した点で） */
        CLK_SENSHU = -2 };       /* AM 5 線種変更（押した点の要素、FUN_0076e360） */
 int clk_cmd(int dir, int pm, int cur, int copy);
 /* 札の文字列番号と字（CP932）。dir が 13 などは 10013 キャンセル */
@@ -201,7 +202,7 @@ int clk_cmd(int dir, int pm, int cur, int copy)
                                 CLK_ZOKU, 0, JW_CMD_SHINSHUKU, JW_CMD_AUTO,
                                 JW_CMD_SHOUKYO, JW_CMD_FUKUSEN, JW_CMD_MOJI };
     static const int pmt[13] = { 0, JW_CMD_KIGOU, JW_CMD_KYOKUSEN, JW_CMD_TATEGU_RITSU,
-                                 JW_CMD_TATEGU_DAN, JW_CMD_TATEGU, 0, JW_CMD_HATCH,
+                                 JW_CMD_TATEGU_DAN, JW_CMD_TATEGU, CLK_ZOKUALL, JW_CMD_HATCH,
                                  JW_CMD_RENZOKU, JW_CMD_CHUSHIN, JW_CMD_NISEN,
                                  JW_CMD_SUNPO, JW_CMD_PARAM };
 
@@ -247,6 +248,7 @@ void clk_settings(int nonclock, int minimum, int lkeep, int rkeep, int circle8)
     int m = minimum < 0 ? -minimum : minimum;
 
     clk_nonclock = nonclock != 0;
+    jw_cmd_nonclock_set(clk_nonclock);
     /* OK（FUN_005d02e0 の前の CSonotaPage の OK）は |箱| が 20〜200 のときだけ入れる */
     if (m >= 20 && m <= 200)
         clk_min = minimum;
@@ -507,6 +509,20 @@ static void clk_zoku_run(void)
     app_command(cur);
 }
 
+/* PM 6【全】属性取得（FUN_007751e0(1, 押した点)）: 属性は AM 6 と同じ。そのあと 命令の
+   仮想関数 51 へ 角度・長さ（jw_cmd_clock_zokuall、線のときだけ 傾きと寸法の箱へ）。
+   字・点の中身の写し（DAT_00a0be48・FUN_00404860）は入れていない */
+static void clk_zokuall_run(void)
+{
+    double mx, my;
+
+    clk_zoku_run();
+    if (!have_drawing)
+        return;
+    to_paper(clk_x0, clk_y0, &mx, &my);
+    jw_cmd_clock_zokuall(&drawing, &view, mx, my);
+}
+
 /* 取得の命令の番号の値 → 右の PM の種類（0 は取得でない）。値 83・87・89 は
    正が 5・4・3、負が 7・8・9 */
 static int clk_get_type(int v)
@@ -622,8 +638,8 @@ static int clk_auto_tab(int row, int dir, int run, int *id, const char **s)
  *   1・2・3 時  Ａが線で（+0xac == 0、CDataSen）割付（+0x7e84）・等角度（+0xb8）が
  *          切のとき 逆分割 FUN_00763ee0（札 5611）・線長割合分割 FUN_00763cd0
  *          （5612）・馬目地分割 FUN_00763d20(0)（5609）。移植は バーの釦 1066・
- *          1064 と同じ（jw_cmd_bunkatsu_hojo、src/cmd.c）。馬目地は 縦分割数の
- *          窓を写していないので 札だけ（釦 1065 も押せない）
+ *          1064・1065 と同じ（jw_cmd_bunkatsu_hojo、src/cmd.c）。馬目地は
+ *          縦分割数の窓（275、app.c um_open）が出る
  * ほかは既定の表（FUN_0076c9c0）。DAT_00a0c7c0 と FUN_00778a40（AUTO の覚え）は
  * 入れていない。 */
 static int clk_own(int dir, int pm, int run, int *id, const char **s)
@@ -641,8 +657,8 @@ static int clk_own(int dir, int pm, int run, int *id, const char **s)
         return 1;
     }
     if (dir >= 1 && dir <= 3 && jw_cmd_bunkatsu_hojo()) {
-        if (run && dir != 3)
-            jw_cmd_bar(&drawing, dir == 1 ? 1066 : 1064);
+        if (run)    /* 3 時は 1065（FUN_00763d20(0) → 縦分割数の窓 275、app.c um_open） */
+            jw_cmd_bar(&drawing, dir == 1 ? 1066 : dir == 2 ? 1064 : 1065);
         *id = hid[dir];
         *s = hs[dir];
         return 1;
@@ -932,6 +948,10 @@ static int clk_table_run(int d, int pm)
     else if (cur == JW_CMD_IDOU)
         clk_copy = 0;
     c = clk_cmd(d, pm, cur, clk_copy);
+    if (c == CLK_ZOKUALL) {
+        clk_zokuall_run();
+        return 1;
+    }
     if (c == CLK_ZOKU) {
         /* FUN_007751e0(0, 押した点): いまの命令のまま 押した点の要素から属性を
            取る。移植は 属性取得 に入って押した点で押し、前の命令へ戻す */

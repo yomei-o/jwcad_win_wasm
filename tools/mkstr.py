@@ -307,6 +307,9 @@ WANT = [
     (5567, 'shadow diagram point row: the wall-band label (FUN_005470d0, 0x15bf)'),
     (7000, 'the opening bracket of the status-line tails (FUN_007063b0, hatch FUN_00672100)'),
     (7006, 'the closing bracket of the status-line tails'),
+    (5704, 'hatsu-raku second prompt tail, clock on (FUN_00683e00, 0x1648)'),
+    (5705, 'hatsu-raku second prompt tail, clock off (0x1649)'),
+    (5709, 'parallel line direction tail, clock off (FUN_00658890, 0x164d)'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

@@ -5466,6 +5466,15 @@ static const char *sel_prompt_add(void)
     return b;
 }
 
+/* DAT_00a0cacc（1326）。包絡の終点（FUN_00683e00 の 0x1648／0x1649）と複線の
+ * 方向（FUN_00658890 の 0x164c／0x164d）の字を切り替える。逆コンパイルの読み、
+ * 原典では押していない */
+static int cmd_nonclock;
+void jw_cmd_nonclock_set(int on)
+{
+    cmd_nonclock = on != 0;
+}
+
 const char *jw_cmd_prompt(void)
 {
     if (current == JW_CMD_HIKAGE && hk_pv)
@@ -5601,7 +5610,15 @@ const char *jw_cmd_prompt(void)
            下さい　(L)包絡処理　(R)範囲内消去」.  The running original adds
            「(Shift+L) (Ｌ←)中間消去」 to the second, which the string table
            does not carry. */
-        return hou_step == 0 ? JW_STR_5327 : JW_STR_5328;
+        if (hou_step == 0)
+            return JW_STR_5327;
+        {   /* FUN_00683e00: 0x14d0 の後ろに 1326 が切なら 0x1648、入なら 0x1649 */
+            static char hp[200];
+
+            snprintf(hp, sizeof hp, "%s%s", JW_STR_5328,
+                     cmd_nonclock ? JW_STR_5705 : JW_STR_5704);
+            return hp;
+        }
     case JW_CMD_FUKUSEN:
         /* 「複線にする図形を選択してください ﾏｳｽ(L)　前回値 ﾏｳｽ(R)」 then
            「複線方向を指示 ﾏｳｽ(L)…」 */
@@ -5623,7 +5640,8 @@ const char *jw_cmd_prompt(void)
         {
             static char fp[200];
 
-            snprintf(fp, sizeof fp, "%s%s", JW_STR_5310, JW_STR_5708);
+            snprintf(fp, sizeof fp, "%s%s", JW_STR_5310,
+                     cmd_nonclock ? JW_STR_5709 : JW_STR_5708);   /* FUN_00658890 */
             return fp;
         }
     case JW_CMD_SHINSHUKU:
@@ -24908,6 +24926,47 @@ static int clk_get_next(jw_drawing *d, const jw_view *v, double x, double y,
     /* h == 3・9: FUN_007748b0 */
     a = clk_wrap180(a - axis);
     get_take_angle((h == 9 ? -a : a) * PI / 180.0);
+    return 1;
+}
+
+/* 左 PM 6【全】属性取得（FUN_007751e0(1, 押した点)）の後半: 取った要素の 角度・長さを
+ * いまの命令の仮想関数 51（*view+0xcc、引数は 角度 local_cb38・長さ local_cb0c・円弧の
+ * 始角 終角・扁平率×100）へ渡す。線（CZukeiSen）の 51 は FUN_006f0450 →
+ * FUN_006f0330（FUN_005be990 = 傾きの箱）と FUN_006f0390（1e-07 以上のとき
+ * FUN_005be9e0 = 寸法の箱）で、命令が線のときだけ（バーの +0x1a0 が +0x861c と同じ）。
+ *   押したのが線: 角度は FUN_007770c0（向き − 軸角を -90 より大きく 90 以下、0・90 は
+ *   ぴったり）、長さは 両端の距離 × 書込みグループの縮尺
+ *   押したのが円: 角度は 傾き − 軸角（そのまま）、長さは 半径 × 縮尺
+ * 命令が 円・文字・複線 のときの 51（FUN_006485b0・FUN_006c4840・FUN_0065c360）、
+ * 押したのが文字のときは 入れていない。ｍ単位入力（DAT_00a0d62c）の ÷DAT_00a0d630 も
+ * 入れていない。逆コンパイルの読み、原典では押していない。1 なら箱に入れた */
+int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
+{
+    double axis = jw_cmd_axis(), ang, len;
+    char b[48];
+    int i;
+
+    if (!d || current != JW_CMD_SEN)
+        return 0;
+    i = jw_pick(d, v, x, y, 3);
+    if (i < 0)
+        return 0;
+    if (d->obj[i].cls == JW_SEN) {
+        ang = clk_rel90(clk_dir_deg(d->obj[i].d[2] - d->obj[i].d[0],
+                                    d->obj[i].d[3] - d->obj[i].d[1]), axis, 1);
+        len = hypot(d->obj[i].d[2] - d->obj[i].d[0], d->obj[i].d[3] - d->obj[i].d[1]);
+    } else if (d->obj[i].cls == JW_ENKO) {
+        ang = d->obj[i].d[5] * 180.0 / PI - axis;
+        len = d->obj[i].d[2];
+    } else
+        return 0;
+    len *= write_scale(d);
+    snprintf(b, sizeof b, "%.10g", ang);
+    jw_cmd_box_put(1411, b);
+    if (len >= 1e-07) {
+        snprintf(b, sizeof b, "%.10g", len);
+        jw_cmd_box_put(1412, b);
+    }
     return 1;
 }
 

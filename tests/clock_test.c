@@ -15,6 +15,7 @@
 #include "../src/cmd.h"
 #include "../src/clock.h"
 #include "../src/jww.h"
+#include "../src/gen/prompts.h"
 
 static int fails;
 
@@ -140,7 +141,7 @@ int main(void)
        "AM 6 属性取得、AM 5 線種変更");
     ck(clk_cmd(1, 1, 0, 1) == JW_CMD_KIGOU && clk_cmd(2, 1, 0, 1) == JW_CMD_KYOKUSEN
        && clk_cmd(3, 1, 0, 1) == JW_CMD_TATEGU_RITSU && clk_cmd(4, 1, 0, 1) == JW_CMD_TATEGU_DAN
-       && clk_cmd(5, 1, 0, 1) == JW_CMD_TATEGU && clk_cmd(6, 1, 0, 1) == 0
+       && clk_cmd(5, 1, 0, 1) == JW_CMD_TATEGU && clk_cmd(6, 1, 0, 1) == CLK_ZOKUALL
        && clk_cmd(7, 1, 0, 1) == JW_CMD_HATCH && clk_cmd(8, 1, 0, 1) == JW_CMD_RENZOKU
        && clk_cmd(9, 1, 0, 1) == JW_CMD_CHUSHIN && clk_cmd(10, 1, 0, 1) == JW_CMD_NISEN
        && clk_cmd(11, 1, 0, 1) == JW_CMD_SUNPO && clk_cmd(12, 1, 0, 1) == JW_CMD_PARAM,
@@ -180,6 +181,14 @@ int main(void)
     app_clock_end();
     ck(!app_clock_active() && jw_cmd() == JW_CMD_HOURAKU, "離すと 包絡");
     ck(jw_cmd_notice_id() == 0, "札は下りる");
+    /* 包絡の終点の状態行（FUN_00683e00）: 1326 が切なら 5704、入なら 5705 */
+    app_press(cx, cy, 0);
+    ck(strstr(jw_cmd_prompt(), JW_STR_5704) != NULL, "包絡の終点: 5704 (Shift+L) (Ｌ←)中間消去");
+    jw_cmd_nonclock_set(1);
+    ck(strstr(jw_cmd_prompt(), JW_STR_5705) != NULL && !strstr(jw_cmd_prompt(), JW_STR_5704),
+       "1326 が入なら 5705");
+    jw_cmd_nonclock_set(0);
+    jw_cmd_set(JW_CMD_HOURAKU);
 
     /* 1 時: 線 でないので 線、線からなら 矩形 */
     at_hour(1, 60, &dx, &dy);
@@ -312,6 +321,16 @@ int main(void)
         ck(jw_cmd_notice_id() == 5612, "2 時は 札 5612 線長割合分割");
         app_clock_move(cx + 60, cy);
         ck(jw_cmd_notice_id() == 5609, "3 時は 札 5609 馬目地分割");
+        {   /* 離すと 縦分割数の窓の依頼（バーの 1065 と同じ） */
+            int um = 0, okk;
+
+            app_clock_end();
+            okk = jw_cmd_bunkatsu_umeji_ask(&um);
+            ck(okk, "3 時で離すと 馬目地の縦分割数の窓を出す");
+            jw_cmd_bunkatsu_umeji_set(0);
+            app_clock_begin(cx, cy);
+            app_clock_move(cx, cy - 60);
+        }
         app_clock_move(cx, cy - 60);
         ck(jw_cmd_notice_id() == 10035, "12 時は 札 10035 線属性設定");
         app_clock_move(cx - 60, cy);
@@ -320,6 +339,36 @@ int main(void)
         app_clock_end();
         ck(app_zoku_open(), "12 時で離すと 線属性 の窓");
         app_key(27);
+    }
+
+    /* ---- PM 6【全】属性取得（FUN_007751e0(1)）: 線の傾き・寸法の箱へ ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py;
+        int dx2, dy2;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 100; o->d[3] = 100;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_SEN);
+        px = jw_sx(v, 50.0);
+        py = jw_sy(v, 50.0);
+        at_hour(6, 60, &dx2, &dy2);
+        app_clock_begin(px, py);
+        app_clock_right();
+        app_clock_move(px + dx2, py + dy2);
+        ck(app_clock_pm() == 1 && jw_cmd_notice_id() == 10026, "PM 6 の札 10026");
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_SEN, "PM 6: 命令は線のまま");
+        ck(fabs(atof(jw_cmd_box(1411)) - 45.0) < 1e-6, "PM 6: 傾きの箱に 45");
+        printf("len box [%s]\n", jw_cmd_box(1412));
+        ck(fabs(atof(jw_cmd_box(1412)) - 14142.13562) < 1e-3, "PM 6: 寸法の箱に 長さ × 縮尺（1/100）");
     }
 
     /* ---- AM 5 線種変更（FUN_0076e360）---- */

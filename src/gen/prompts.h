@@ -585,5 +585,11 @@
 #define JW_STR_7000 "\x81z"
 /* 7006: the closing bracket of the status-line tails */
 #define JW_STR_7006 "\x81y"
+/* 5704: hatsu-raku second prompt tail, clock on (FUN_00683e00, 0x1648) */
+#define JW_STR_5704 "(Shift+L) (\x82k\x81\xa9)\x92\x86\x8a\xd4\x8f\xc1\x8b\x8e "
+/* 5705: hatsu-raku second prompt tail, clock off (0x1649) */
+#define JW_STR_5705 "(Shift+L)\x92\x86\x8a\xd4\x8f\xc1\x8b\x8e"
+/* 5709: parallel line direction tail, clock off (FUN_00658890, 0x164d) */
+#define JW_STR_5709 "      \x81iShift\x81{L\x81" "AR\x81j\x92[\x93_\x8ew\x92\xe8"
 
 #endif
