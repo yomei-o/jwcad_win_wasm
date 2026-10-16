@@ -978,8 +978,15 @@ static void moji_hani_clip(void)
 
     /* 切り取り: 字が消えて控えに残る */
     moji_box(-80.0, 60.0, 60.0, -10.0);
-    ck(app_command(57635) && moji_texts(d) == 0 && !jw_cmd_moji_ready()
+    ck(app_command(57635) && moji_texts(d) == 0
        && jw_cmd_moji_clip(&b, &n) && n == 9, "切り取りは字を消して控える");
+    ck(jw_cmd_notice_id() == 5299, "  札「コピー」（0x14b3）");
+    ck(jw_cmd_moji_ready(), "  バー（+0x5d4）は下ろさない");
+    click(50.0, -30.0);
+    ck(!jw_cmd_moji_ready(), "  図面を押すと下りる");
+    app_command(JW_CMD_MOJI);
+    ck(!app_command(57634) && jw_cmd_notice_id() == 5201,
+       "選択が空のコピーは札「図形がありません」（0x1451）");
     app_command(JW_CMD_SEN);
     click(0.0, 0.0);
     click(10.0, 0.0);

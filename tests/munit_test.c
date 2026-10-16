@@ -144,6 +144,11 @@ int main(void)
 
     app_command(JW_CMD_FUKUSEN);
     ck(jw_cmd_box(1411) != 0, "  複線に入る");
+    ck(jw_cmd_box(1412) != 0, "  複線の 留線出 1412 の箱がある");
+    jw_cmd_box_put(1412, "0.25");
+    ck(!strcmp(bx(1412), "250") && !strcmp(raw(1412), "0.25"),
+       "  留線出 0.25 は 命令には 250（FUN_004b2390）");
+    jw_cmd_box_put(1412, "");
     app_command(JW_CMD_ENKO);
     jw_cmd_box_put(1411, "0.3");
     ck(!strcmp(bx(1411), "300"), "  円の 半径 0.3 は 300");
@@ -336,6 +341,45 @@ int main(void)
     jw_cmd_bar(d, 1066);
     ck(!strcmp(raw(1412), "200 , 400"), "  ２倍間隔 は 200 , 400");
     jw_cmd_box_put(1412, "");
+
+    /* 複線の 留線付両側複線 (1069) は 留線出 1412 だけ蓋が外へ（FUN_0065be40 → FUN_0065e9e0） */
+    {
+        double e0 = -1.0, e1 = -1.0;
+        int k, n0;
+
+        for (k = 0; k < 2; k++) {
+            const jw_obj *ln, *cap;
+            jw_obj *o;
+
+
+            app_new();
+            d = (jw_drawing *)app_drawing();
+            o = jw_add(d, JW_SEN);
+            o->d[0] = -20.0;
+            o->d[1] = 0.0;
+            o->d[2] = 20.0;
+            o->d[3] = 0.0;
+            app_fit();
+            jw_cmd_set(JW_CMD_TEN);
+            jw_cmd_set(JW_CMD_FUKUSEN);
+            jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+            jw_cmd_box_put(1411, "10");
+            jw_cmd_box_put(1412, k ? "5" : "");
+            n0 = d->ndrawn;
+            jw_cmd_bar(d, 1069);
+            if (d->ndrawn != n0 + 4)
+                break;
+            ln = &d->obj[0];
+            cap = &d->obj[n0];
+            if (k)
+                e1 = fabs(cap->d[0] - ln->d[0]) + fabs(cap->d[1] - ln->d[1]);
+            else
+                e0 = fabs(cap->d[0] - ln->d[0]) + fabs(cap->d[1] - ln->d[1]);
+            jw_cmd_box_put(1412, "");
+        }
+        ck(e0 >= 0.0 && e1 >= 0.0 && fabs(e1 - e0 - 0.05) < 1e-9,
+           "  留線出 5（1/100 で 0.05）の蓋は 空のときより その分だけ線の外へ出る");
+    }
 
     printf("%s\n", fails ? "FAIL" : "all ok");
     return fails != 0;

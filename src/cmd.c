@@ -17090,8 +17090,16 @@ int jw_cmd_clip_copy(jw_drawing *d, int cut)
     double bx, by;
     long n = 0;
 
-    if (!d || jw_cmd_sel_count(d) <= 0)
+    if (!d)
         return 0;
+    /* 札: FUN_004fb140（コピー FUN_00503c40 → (0)、切り取り FUN_00503c80 → (1)）は
+       選択が空なら 0x1451 の札「図形がありません」、でなければ 0x1456「お待ちください」
+       を出して写し、最後に FUN_004fb731 が 0x14b3 の札「コピー」（切り取りも同じ）。
+       お待ちくださいは続けて消えるので見えない。逆コンパイルの読み、原典では押していない */
+    if (jw_cmd_sel_count(d) <= 0) {
+        JW_NOTICE(5201);
+        return 0;
+    }
     clip_base(d, &bx, &by);
     if (!jw_cmd_figure_save(d, bx, by, &b, &n) || !b)
         return 0;
@@ -17099,8 +17107,11 @@ int jw_cmd_clip_copy(jw_drawing *d, int cut)
     clip = b;
     clip_n = n;
     ms_clip_take(d);            /* 選んだ文字は字の並びとしても（FUN_004fb140） */
-    if (cut && current == JW_CMD_MOJI)
-        ms_text = 0;            /* 文字の範囲選択で選んだ字は切り取りで無くなる */
+    JW_NOTICE(5299);            /* 札「コピー」（FUN_004fb731 の 0x14b3） */
+    /* 文字の範囲選択のバー（CZukeiMoji +0x5d4 = ms_text）は切り取りで下ろさない:
+       FUN_004fb140・FUN_004fb731 は +0x5d4 に触れず、下ろすのは図面を押したとき
+       （CZukeiMoji の押下で FUN_0044c830 のあと +0x5d4 = 0）だけ。字は無くなっても
+       バー（貼付・文書）は次に押すまで残る。逆コンパイルの読み、原典では押していない */
     if (cut) {
         /* straight out, without the 範囲選択 walk's own conditions:
            the original, given three lines and a range round them, left
@@ -20737,6 +20748,22 @@ int jw_cmd_bar(jw_drawing *d, int id)
             double bx = src->d[2], by = src->d[3];
             int made = 0;
             if (id == 1069) {
+                /* 留線出（箱 1412、ini [FUKUSEN] TomeDe = view+0x8438）。CZukeiFukusen の
+                   1069 の枝 FUN_0065be40 は 間隔 FUN_004b2320 のあと 箱 1412 を FUN_004b2390
+                   （箱の数 ÷縮尺、ｍ単位入力なら ×DAT_00a0d630）で読み、第三引数に
+                   FUN_0065e9e0(1, 間隔, 留線出) へ。そこは 蓋の端を (-留線出, ±間隔) と
+                   (線長+留線出, ±間隔) に置く（FUN_005f8ce0 で線の向きへ）。箱が空なら 0 で
+                   従来のまま（原典で押した 1000 の答え）。端が他の線と交わる枝（交点で止める）
+                   は読み切っていない。逆コンパイルの読み、原典では押していない */
+                const char *tt = jw_cmd_box(1412);
+                double tome = tt && *tt ? box_num(tt, 0.0) / write_scale(d) : 0.0;
+
+                if (fabs(tome) > 1e-9) {
+                    ax -= dx / len * tome;
+                    ay -= dy / len * tome;
+                    bx += dx / len * tome;
+                    by += dy / len * tome;
+                }
                 /* the two caps first, each from one side to the other */
                 for (k = 0; k < 2; k++) {
                     jw_obj *o = jw_add(d, JW_SEN);
@@ -20851,7 +20878,7 @@ int jw_cmd_sunpo_angle(void)
  *   連続線 CRenzokuSenDailog 1411・1412   FUN_005b8390・FUN_005b8450（実寸のときだけ。下の real）
  *   多角形 CTakakukeiDialog 1411・1412    FUN_005ec9d0・005eca50・005ecad0／005ec8b0・005ec920
  *   面取 CMentoriDialog 1411・1412・1413  FUN_0056fd50・0056fdf0・0056fe60・0056fed0／0056fc60・0056fcd0
- *   複線 CFukusenDialog 1411              FUN_004b2320／004b2250
+ *   複線 CFukusenDialog 1411              FUN_004b2320／004b2250（1412 留線出 は読みだけ FUN_004b2390）
  *   接線 CSesenDialog 1411                FUN_005cb8c0／005cb820
  *   円 CEnkoDialog 1411                   FUN_004ab530／004ac6e0
  *   建具 CTateguDialog 1426               FUN_005f6790（平面・断面・立面）
@@ -20894,7 +20921,7 @@ static const struct { unsigned cmd; unsigned short id, real; } mu_len[] = {
     { JW_CMD_RENZOKU, 1411, 1 },  { JW_CMD_RENZOKU, 1412, 1 },
     { JW_CMD_TAKAKU, 1411, 0 },   { JW_CMD_TAKAKU, 1412, 0 },
     { JW_CMD_MENTORI, 1411, 0 },  { JW_CMD_MENTORI, 1412, 0 },  { JW_CMD_MENTORI, 1413, 1 },
-    { JW_CMD_FUKUSEN, 1411, 0 },
+    { JW_CMD_FUKUSEN, 1411, 0 },  { JW_CMD_FUKUSEN, 1412, 0 },   /* 1412 は 留線出（FUN_004b2390） */
     { JW_CMD_SESSEN, 1411, 0 },
     { JW_CMD_ENKO, 1411, 0 },     { JW_CMD_SEKIEN, 1411, 0 },
     { JW_CMD_TATEGU, 1426, 0 },   { JW_CMD_TATEGU_DAN, 1426, 0 }, { JW_CMD_TATEGU_RITSU, 1426, 0 },
