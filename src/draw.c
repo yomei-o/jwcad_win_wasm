@@ -863,6 +863,26 @@ static int pen_wide(const jw_drawing *d, int pen)
  * Which layer an element is on is +0x2e and its group +0x2f -- not the long
  * at +0x04, which is a serial number.  The same function indexes the state
  * arrays with exactly those two bytes. */
+/* 寸法図形（CDataSunpou）の部品で描かないもの。原典の描画（vftable 0x95a8c4
+   の slot 15、FUN_004252e0）は 部品 3〜6（+0x1c8 +0x2b0 +0x398 +0x418）を
+   +0x1c0 が 0 でないときだけ描き、部品 7・8（+0x230 +0x318）は描かない。
+   +0x1c0 は部品 1 の list[0]（src/jww.c の read_sunpou）。寸法図形化 や
+   寸法図形（2424）で作った図形は +0x1c0 が 0 で、部品 3〜8 は座標 0 の空 */
+static int sun_part_hidden(const jw_drawing *d, const jw_obj *o)
+{
+    long at = (long)(o - d->obj);
+    const jw_obj *h;
+
+    if (o->sub < 3 || o->sub > 8)
+        return 0;
+    if (o->sub >= 7)
+        return 1;
+    if (at < o->sub - 1)
+        return 0;
+    h = o - (o->sub - 1);
+    return h->sub == 1 && h->list[0] == 0;
+}
+
 static int shown(const jw_drawing *d, const jw_obj *o)
 {
     int g = o->lgroup & 15, l = o->layer & 15;
@@ -3404,6 +3424,8 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
         if (!state || o->cls == JW_SOLID)
             continue;
         if ((state == 1) != grey_pass)
+            continue;
+        if (sun_part_hidden(d, o))
             continue;
         unsigned int col = obj_colour(d, o);
         int wide = obj_wide(d, o);

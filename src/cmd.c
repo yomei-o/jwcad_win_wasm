@@ -1072,8 +1072,10 @@ static int    sun_degketa = JW_SUN_DEGKETA;
  * 表示と保存だけのもの: 文字方向無補正、文字高位置中心（FUN_00783730 の
  * 0x785f68〜 で 字の置き場を 文字の高さの半分 ずらし、間隔に 突出寸法 を
  * 足して FUN_00479c40 に渡す間隔を 0 にするが、FUN_00479c40 が二点と間隔で
- * 字をどう置くかを読み切っていない）、寸法図形・現寸法設定に変更（移植は
- * 寸法図形を作らない）、グループ化。 */
+ * 字をどう置くかを読み切っていない）、グループ化。
+ * 寸法図形（2424）は ふつうの寸法（sunpo_make）だけ 寸法図形にする
+ * （sun_fig_close の注）。角度・半径・直径・一括処理 は まだ 作らない。
+ * 現寸法設定に変更（2425）は パラメトリック変形 の 値の書き直しで見る。 */
 static int sun_italic, sun_bold, sun_solid, sun_nohosei;
 static int sun_zen, sun_zen_sp, sun_zen_comma, sun_zen_dot;
 static int sun_munit;                       /* 0 mm, 1 ｍ */
@@ -22300,6 +22302,71 @@ static void sun_eq_geom(double vx, double vy, double bx, double by,
     }
 }
 
+/* 寸法線一つ（ふつうの寸法の 0x784c1c〜、寸法図形の部品 1 も同じ形） */
+static jw_obj *sun_dimline(jw_drawing *d, double x0, double y0, double x1,
+                           double y1)
+{
+    jw_obj *o = jw_add(d, JW_SEN);
+
+    if (!o)
+        return 0;
+    o->color = sun_sencol;
+    o->ltype = 1;
+    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
+    o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
+    return o;
+}
+
+/* 寸法図形（2424、DAT_00a0bda0）の締め。first は部品 1（寸法線）、その次が
+ * 部品 2（値）。残りの部品 3〜8（線二本・点四つ）を空で足し、sub 1〜8 の
+ * 一続きにして 頭（CDataSunpou そのもの）の欄を部品 1 に載せる（src/jww.h の
+ * sub の注、書き手 src/jwwrite.c が CDataSunpou 一つにまとめる）。足した数を返す。
+ *
+ * 原典 FUN_00783730: 寸法線を作った所（0x784bff〜）で bda0 なら 図形には
+ * 足さず スタックの CDataSunpou（-0xcf8、ctor FUN_0041f8d0）の +0x68 に
+ * FUN_00420110 で写し、値の段（0x786299〜）で 字を +0xd0 に FUN_00479550 で
+ * 書き、FUN_00450860 で一つの図形として足す（+0x44 = 0x2000、寸法線 +0xac に
+ * 0x2000、字 +0x114 に 0x10、累進なら 0x1000）。点・引出線・矢印 は ふつうに
+ * 図形の前に足されたまま。**部品 3〜8（+0x1c8 +0x2b0 +0x398 +0x418 +0x230
+ * +0x318）は この関数のどこも書かない**（命令で -0xb30 -0xa48 -0x960 -0x8e0
+ * -0xac8 -0x9e0(%ebp) を探して一つも無い）ので ctor のまま: CData の ctor
+ * FUN_0041f2d0 の +0x28 = 1・+0x2a = 2・+0x2c = 0・+0x2e = いまのレイヤ・
+ * +0x2f = いまのグループ・+0x44 = 0、座標 0、+0x1c0 の ushort も 0。頭も同じ
+ * ctor で +0x44 = 0x2000。原典の答え decomp/res/p169_dimfig.jww（寸法図形化
+ * したもの）がこの形（部品 3〜8 は 1・2・0・0 で座標 0、頭は 1・2 と 0x2000、
+ * 寸法線の後ろに 点二つ・引出線二本 がふつうの要素で並ぶ）。
+ * 版 419 までは 部品は二つ（CDataSunpou::Serialize 0x0042f110） */
+static int sun_fig_close(jw_drawing *d, int first)
+{
+    int nm = d->version > 0x1a3 ? 8 : 2, k, wg = 0, made = 0;
+    unsigned lay;
+    jw_obj *o;
+
+    for (k = 0; k < 16; k++)
+        if (d->group[k].state == 3)
+            wg = k;
+    lay = (unsigned)(d->group[wg].write_layer & 15);
+    for (k = 3; k <= nm; k++) {
+        o = jw_add(d, k <= 4 ? JW_SEN : JW_TEN);
+        if (!o)
+            return made;            /* 欠けた一続きは ふつうの要素のまま */
+        o->ltype = 1;
+        o->color = 2;
+        o->width = 0;
+        o->n = 0;
+        made++;
+    }
+    for (k = 0; k < nm; k++)
+        d->obj[first + k].sub = (unsigned char)(k + 1);
+    o = &d->obj[first];
+    o->list[0] = 0;                 /* +0x1c0 */
+    o->list[1] = 0;
+    o->list[2] = (int)(0x2000u | (lay << 16));
+    o->mark = (int)(1u | (2u << 8) | (((unsigned)wg & 0xff) << 24));
+    o->turn = 0;
+    return made;
+}
+
 static void sunpo_make(jw_drawing *d, double bx, double by)
 {
     double a = sun_angle() * PI / 180.0;
@@ -22361,15 +22428,12 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         }
     }
 
-    /* 寸法線 */
-    o = jw_add(d, JW_SEN);
-    if (!o)
-        return;
-    o->color = sun_sencol;
-    o->ltype = 1;
-    o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-    o->d[0] = x0; o->d[1] = y0; o->d[2] = x1; o->d[3] = y1;
-    made++;
+    /* 寸法線。寸法図形（2424）なら ここでは足さず 値と一緒に（sun_fig_close） */
+    if (!sun_zukei) {
+        if (!sun_dimline(d, x0, y0, x1, y1))
+            return;
+        made++;
+    }
 
     /* 端部 (1062) -- a point at each end, or an arrowhead.
      *
@@ -22510,8 +22574,22 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         p += wide ? 2 : 1;
         nch++;
     }
+    if (sun_zukei && !(cw > 0.0 && ch > 0.0 && nch)) {
+        /* 値が置けないなら 寸法線だけ ふつうに（移植の守り） */
+        if (sun_dimline(d, x0, y0, x1, y1))
+            made++;
+    }
     if (cw > 0.0 && ch > 0.0 && nch) {
         double mid = (s0 + s1) / 2.0 + hkc, t = tl + sun_hanare;
+        int fig = -1;
+        if (sun_zukei) {
+            if (!sun_dimline(d, x0, y0, x1, y1)) {
+                op_push(made);
+                return;
+            }
+            fig = d->ndrawn - 1;
+            made++;
+        }
         o = jw_add(d, JW_MOJI);
         if (o) {
             o->color = (unsigned short)d->style[i].color;
@@ -22551,9 +22629,11 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                drawing the original quietly filled in on the next save */
             o->face = jw_add_str(d, JW_MOJI_FACE);
             made++;
+            if (fig >= 0)
+                made += sun_fig_close(d, fig);
         }
     }
-    ika_live = 1;               /* 一括処理 wakes up once one dimension is in */
+    ika_live = 1;             /* 一括処理 wakes up once one dimension is in */
     op_push(made);
 }
 
