@@ -36,6 +36,11 @@ Jw_cad 10.03.6 を逆コンパイルから C に書き直したものです。
 動かさない。commit は日本語で main に、こまめに push。共用の VM では自分のプロセスだけ PID で止める。
 VM の `C:\prog\jwcad_win_wasm` は別の Claude のもの、触らない。
 
+## 2026-10-17 ２．５D: 円弧の末尾 g の球（FUN_00620ef0・FUN_0061af10）
+
+* `src/d25view.c` の `arc_sphere`。刻み s = 90/整数（v2、1 未満・90 超は 15）、角 a の輪 A（0 から）・輪 B（s から、a < 180）。アイソメ以外は線（輪 A (R cos d, RK sin d cos a, RK sin d sin a)、輪 B (R cos a, RK sin a sin d, RK sin a cos d)）、アイソメは同じ輪を楕円で（`gen` の中心・U・V）。点は `FUN_00621ac0` の回し（(x,z) を v1 度、(x,y) を傾き）＋中心・高さ+底上げ。
+* 根拠は逆コンパイルの読み、原典では押していない（`local_a4`/`local_9c` は 弧の中心と読んだ。アイソメ輪 A の V は sin/cos が非アイソメと入れ替わる、読みどおり）。`tests/d25_test.c`
+
 ## 2026-10-17 反転した参照の中の字: 始点・終点の入れ替え（FUN_00465f40）
 
 * 倍率が負の参照（`jw_obj_blkput`、`src/jww.c` の `blk_text_flip`）: 字の基線に (x, y) を掛けた角が ±90° を越え +0xd0 が (-90,90] の内

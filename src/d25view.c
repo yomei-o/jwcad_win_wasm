@@ -421,7 +421,7 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
  * 刻みごとの縦の線（全円でなければ始めの縦の線も）。アイソメ（段 3、元レイヤの
  * 旗 +0x338 は移植に無いので 0）で 螺旋でなく 刻みが正なら 輪は 線でなく楕円
  * （FUN_00619710 → CData3DEnko、描き FUN_0043dd30 は アイソメでだけ描く）。
- * 入れていないもの: 末尾 g G（kind 10、FUN_0061af10・FUN_00620ef0 の球）と、
+ * 末尾 g G（kind 10）の球は arc_sphere。入れていないもの:
  * 扁平率 0.1 で 高さ ≥ 1000 m の弧（勾配の補助線を仮に作る 0x61e9xx）。勾配の
  * 補助線の写しは gx_pair（線は字の v h で旗 3・0xf、楕円は旗 0 とした） */
 typedef struct {
@@ -949,6 +949,112 @@ static double wrap_pi(double a)
     return a;
 }
 
+/* 球（末尾 g G、kind 10）。逆コンパイルの読み、原典では押していない。
+ * FUN_00620ef0（アイソメ以外）: 円弧の 半径 R・扁平率 K・傾き を取り、刻み（1 未満・90 超は 15）を 90/整数 に直し、
+ * 角 a = 0, s, 2s.. (< 179.9999999) の輪を 点 0..360 を刻みで 線に: 輪 A（a = 0 から）
+ * (R cos d, R K sin d cos a, R K sin d sin a)、輪 B（a = s から）(R cos a, R K sin a sin d, R K sin a cos d)。
+ * 点は FUN_00621ac0 で (x,z) を v1 度（y 軸の回り）、次に (x,y) を傾き（z 軸の回り）だけ回し、
+ * 中心 (cx, cy) と 高さ v0 + 底上げを足して つなぐ。
+ * FUN_0061af10（アイソメ段 3）: 同じ輪を 楕円（CData3DEnko）で: 輪 A は 中心 0、U = (R,0,0)、
+ * V = (0, R K sin a, R K cos a)（原典は 四隅 (±R, ±s, ±c) を置く）。輪 B は 中心 (R cos a,0,0)、
+ * U = (0, R K sin a, 0)、V = (0, 0, R K sin a)。同じ回しを足す */
+static void sph_xf(const d25_rot *ra, const d25_rot *rt, double x, double y, double z, double *ox,
+                   double *oy, double *oz)
+{
+    double x1, z1;
+
+    rot_pt(ra, x, z, &x1, &z1);
+    rot_pt(rt, x1, y, ox, oy);
+    *oz = z1;
+}
+
+static void sph_ell(const jw_obj *o, const d25_rot *ra, const d25_rot *rt, double cx, double cy,
+                    double zz, const double c0[3], const double u0[3], const double v0[3])
+{
+    d25_ell e;
+    double t[3];
+
+    memset(&e, 0, sizeof e);
+    sph_xf(ra, rt, c0[0], c0[1], c0[2], &t[0], &t[1], &t[2]);
+    e.c[0] = t[0] + cx;
+    e.c[1] = t[1] + cy;
+    e.c[2] = zz + t[2];
+    sph_xf(ra, rt, u0[0], u0[1], u0[2], &e.U[0], &e.U[1], &e.U[2]);
+    sph_xf(ra, rt, v0[0], v0[1], v0[2], &e.V[0], &e.V[1], &e.V[2]);
+    e.gen = 1;
+    e.full = 1;
+    e.sw = 2.0 * PI;
+    add_ell(o, &e);
+}
+
+static void arc_sphere(const jw_obj *o, double base, double h, double rotv, double stp)
+{
+    double R = o->d[2], K = o->d[6] > 0.0 ? o->d[6] : 1.0, s, a, d, td;
+    double zz = h + base, cx = o->d[0], cy = o->d[1];
+    d25_rot ra, rt;
+    int m, pass;
+
+    if (R < 1e-07)
+        return;
+    if (stp < 1.0 || stp > 90.0)
+        stp = 15.0;
+    m = (int)(90.0 / stp);
+    if (m < 1)
+        m = 1;
+    s = 90.0 / m;
+    td = o->d[5] * 180.0 / PI;
+    rot_set(&rt, 0.0, 0.0, td * PI / 180.0);
+    rot_set(&ra, 0.0, 0.0, rotv * PI / 180.0);
+    for (pass = 0; pass < 2; pass++) {
+        for (a = pass ? s : 0.0; a < 179.9999999; a += s) {
+            double ca = cos(a * PI / 180.0), sa = sin(a * PI / 180.0);
+
+            if (m_mode == 3) {
+                double c0[3] = {0, 0, 0}, u0[3], v0[3];
+
+                if (!pass) {
+                    u0[0] = R; u0[1] = 0; u0[2] = 0;
+                    v0[0] = 0; v0[1] = sa * R * K; v0[2] = ca * R * K;
+                } else {
+                    c0[0] = ca * R;
+                    u0[0] = 0; u0[1] = sa * R * K; u0[2] = 0;
+                    v0[0] = 0; v0[1] = 0; v0[2] = sa * R * K;
+                }
+                sph_ell(o, &ra, &rt, cx, cy, zz, c0, u0, v0);
+            } else {
+                double q[6], px = 0, py = 0, pz = 0;
+
+                for (d = 0.0; d <= 360.0000001; d += s) {
+                    double cd = cos(d * PI / 180.0), sd = sin(d * PI / 180.0), x, y, z;
+                    double X, Y, Z;
+
+                    if (!pass) {
+                        x = cd * R;
+                        y = sd * R * K * ca;
+                        z = sd * R * K * sa;
+                    } else {
+                        x = ca * R;
+                        y = sd * (sa * R * K);
+                        z = cd * (sa * R * K);
+                    }
+                    sph_xf(&ra, &rt, x, y, z, &X, &Y, &Z);
+                    X += cx;
+                    Y += cy;
+                    Z += zz;
+                    if (d > 1e-07) {
+                        q[0] = px; q[1] = py; q[2] = pz;
+                        q[3] = X; q[4] = Y; q[5] = Z;
+                        add_line(o, q);
+                    }
+                    px = X;
+                    py = Y;
+                    pz = Z;
+                }
+            }
+        }
+    }
+}
+
 static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, double lh_h)
 {
     double v[12], h, dd, step, a0, sw, rb, rt, fb, ft, tcx, tcy, da;
@@ -992,8 +1098,11 @@ static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, d
         }
         break;
     }
-    if (kind == 10)
-        return;                         /* 球（FUN_0061af10・FUN_00620ef0）は入れていない */
+    if (kind == 10) {
+        /* 球: 高さ v0、回し v1（度、生の値）、刻み v2（n<2 は 5） */
+        arc_sphere(o, base, n == 0 && lh ? lh_h : v[0] * k_unit, v[1], n < 2 ? 5.0 : v[2]);
+        return;
+    }
     arc_fl = kind == 0 ? 0u : kind == 2 ? 0xfu : 3u;
     if (n < 0)
         n = 0;
