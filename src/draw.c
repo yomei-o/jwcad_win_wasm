@@ -2894,15 +2894,30 @@ const int *jw_draw_hl_path(void)
 }
 
 /* `sel` draws everything in the reference picked; `hlk` is how far down
-   the tree's path this reference is (-1: not on it) */
+   the tree's path this reference is (-1: not on it).  `refs[0..nref-1]` are
+   the references this definition is drawn through, outermost first, each
+   as the file has it (in the coordinates of the definition holding it).
+
+   入れ子のブロックは 段ごとに 内側から 倍率・回転・移動 を掛ける。原典の
+   要素の側 FUN_0042b460 は 画面 +0x16b4 に積んだブロックの並びを 後ろから
+   （FUN_004b7500 → FUN_0049ad10 が CNode の +4 = pPrev へ進む。積むのは
+   FUN_004b5070 の AddTail なので 内側が先）たどり、ブロックごとに
+   倍率 FUN_00465c40（+0x78・+0x80）・回転 FUN_0046d5b0（+0x88）・
+   移動 FUN_0046bdf0（+0x68..）を写しに掛ける。なので 画像は 段ごとに
+   w・h を max(その段の倍率x, 倍率y) 倍・角度を足す（前は 倍率を掛け合わせて
+   から一度に max を取っていた）。外の段の回転は 内のブロックの基点も回す
+   （前は 基点を 外の倍率でずらすだけで 回していなかった）。DAT_00a0cb60 が
+   立っていると いちばん内の段だけになる枝は 何の時かを読んでいないので
+   入れていない。逆コンパイルの読み、原典では押していない */
 static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
-                  const jw_obj *ref, int depth, int sel, int hlk)
+                  const jw_obj *const *refs, int nref, int sel, int hlk)
 {
+    const jw_obj *ref = refs[nref - 1];
     jw_drawing one;
     jw_obj o;
-    int i, at = -1;
+    int i, k, at = -1;
 
-    if (depth > 8)
+    if (nref > 9)
         return;
     for (i = d->ndrawn; i < d->nobj; i++)
         if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == ref->block) {
@@ -2916,64 +2931,61 @@ static void block(fb_t *fb, const jw_view *v, const jw_drawing *d,
     one.nobj = one.ndrawn = 1;
     one.mesh_ix = one.mesh_iy = 0.0;    /* the grid is already down */
     for (i = at + 1; i < d->nobj && i <= at + d->obj[at].n; i++) {
+        char *pool = 0;
+
         o = d->obj[i];
         if (o.cls == JW_LIST)
             break;              /* a definition of its own, not a member */
         if (o.cls == JW_BLOCK) {
+            const jw_obj *inner[10];
             int nsel = sel, nhl = -1;
 
-            /* the inner reference, carried by the outer one */
-            o.d[0] = o.d[0] * ref->d[2] + ref->d[0];
-            o.d[1] = o.d[1] * ref->d[3] + ref->d[1];
-            o.d[2] *= ref->d[2];
-            o.d[3] *= ref->d[3];
-            o.d[4] += ref->d[4];
+            for (k = 0; k < nref; k++)
+                inner[k] = refs[k];
+            inner[nref] = &d->obj[i];
             if (hlk >= 0 && hlk < hl_n && hl_path[hlk] == i) {
                 if (hlk == hl_n - 1)
                     nsel = 1;
                 else
                     nhl = hlk + 1;
             }
-            block(fb, v, d, &o, depth + 1, nsel, nhl);
+            block(fb, v, d, inner, nref + 1, nsel, nhl);
             continue;
         }
-        /* One scale, not two: an element can be turned and made bigger,
-           but nothing in a drawing is stretched more one way than the
-           other, so a reference with two different scales is drawn with
-           the first of them. */
-        jw_obj_xform(&o, 0.0, 0.0, ref->d[2], ref->d[4],
-                     ref->d[0], ref->d[1]);
-        if (sel)
-            o.sel = 1;
-        /* 画像（"^@BM" の字）は w・h を max(倍率x,倍率y) 倍、文字列の角度に
-           回転を足す。原典のブロックの描画 FUN_0049a3d0 は ブロックを
-           画面の +0x16b4 の並びに積んで定義の要素をそのまま描き
-           （FUN_0049a480 → slot 15）、要素の側 FUN_0042b460 が 写し
-           （slot 5）に 積んだブロックごと 倍率 FUN_00465c40（+0x78・+0x80）・
-           回転 FUN_0046d5b0（+0x88）・移動 FUN_0046bdf0 を掛ける。画像の
-           枝は 複写・移動と同じ（src/imgpic.c の jw_pic_xform）。図面は
-           書き換えないので 字の置き場を写しにして掛ける。入れ子は 移植が
-           倍率を掛け合わせてから一度に掛ける（原典は段ごとに max を取る）。
-           逆コンパイルの読み、原典では押していない */
+        /* 画像（"^@BM" の字）は 段ごとに w・h を max(倍率x,倍率y) 倍、
+           文字列の角度に回転を足す。枝は 複写・移動と同じ（src/imgpic.c の
+           jw_pic_xform）。図面は書き換えないので 字の置き場を写しにして
+           掛ける。ブロック解除 FUN_00458440 も一段ぶん同じ三つを掛ける */
         if (jw_is_pic(d, &d->obj[i]) && d->npool > 0) {
-            jw_obj was = d->obj[i];
-            char *pool = (char *)malloc((size_t)d->npool);
-
+            pool = (char *)malloc((size_t)d->npool);
             if (pool) {
                 memcpy(pool, d->pool, (size_t)d->npool);
                 one.pool = pool;
                 one.npool = one.cpool = d->npool;
-                jw_pic_xform(&one, &o, &was, ref->d[2] > ref->d[3] ? ref->d[2] : ref->d[3],
-                             ref->d[4]);
-                jw_draw(fb, v, &one);
-                free(one.pool);
-                one.pool = d->pool;
-                one.npool = d->npool;
-                one.cpool = d->cpool;
-                continue;
             }
         }
+        for (k = nref - 1; k >= 0; k--) {
+            const jw_obj *r = refs[k];
+            jw_obj was = o;
+
+            /* One scale, not two: an element can be turned and made
+               bigger, but nothing in a drawing is stretched more one way
+               than the other, so a reference with two different scales is
+               drawn with the first of them. */
+            jw_obj_xform(&o, 0.0, 0.0, r->d[2], r->d[4], r->d[0], r->d[1]);
+            if (pool)
+                jw_pic_xform(&one, &o, &was, r->d[2] > r->d[3] ? r->d[2] : r->d[3],
+                             r->d[4]);
+        }
+        if (sel)
+            o.sel = 1;
         jw_draw(fb, v, &one);
+        if (pool) {
+            free(one.pool);     /* jw_add_str_w may have moved it */
+            one.pool = d->pool;
+            one.npool = d->npool;
+            one.cpool = d->cpool;
+        }
     }
 }
 
@@ -3649,7 +3661,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 else
                     hlk = 1;
             }
-            block(fb, v, d, o, 0, sel, hlk);
+            block(fb, v, d, &o, 1, sel, hlk);
             break;
         }
         default:
