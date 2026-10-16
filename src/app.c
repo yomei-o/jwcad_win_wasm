@@ -4448,7 +4448,7 @@ static void kp_sum(void)
 
 static int kp_start(int box)
 {
-    const char *t = jw_cmd_box(box), *p;
+    const char *t = jw_cmd_box_raw(box), *p;
 
     if (!t || !td_start(314))
         return 0;

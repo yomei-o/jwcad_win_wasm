@@ -19591,7 +19591,123 @@ int jw_cmd_sunpo_angle(void)
     return jw_whole(sun_angle());
 }
 
-static void box_put(int id, const char *v)
+/* 基本設定 一般(2) 2526「ｍ単位入力」(DAT_00a0d62c)。
+ *
+ * 原典はバーの長さの箱を読む関数（線 CSenDialog の FUN_005bdb30 など）で 箱の数 ÷縮尺 の
+ * あと 旗が立っていれば × DAT_00a0d630（1000）、書き戻す関数（FUN_005be9e0 など）で ÷ する。
+ * 角度・個数・倍率の箱はそれを通らない。移植の箱の字は全部 box_slot にあるので、
+ * 命令の読み口 jw_cmd_box が 下の表の (命令, id) の箱だけ 数を ×1000 した字を返し、
+ * 命令が書き戻す box_put は ÷1000 してから入れる。表側（バーの表示・打ち込み・
+ * 電卓・式の計算）は生の字の口 jw_cmd_box_raw・box_put_raw を使う。
+ *
+ * 表は原典のバーの読み手・書き手（RESUME.md 2026-10-16 の分類の (1)）を移植の命令に写したもの:
+ *   線 CSenDialog 1412（矩形は 1413）     FUN_005bdb30・005bdbe0・005bdd00／005be9e0・005beb70
+ *   ２線 CSen2Dialog 1412・1413           FUN_005baf70・005bb010・005bb0d0／005bb2c0・005bb380
+ *   連続線 CRenzokuSenDailog 1412         FUN_005b8450（丸面辺寸法 1411 は図寸のままで通らない）
+ *   多角形 CTakakukeiDialog 1411・1412    FUN_005ec9d0・005eca50・005ecad0／005ec8b0・005ec920
+ *   面取 CMentoriDialog 1411・1412・1413  FUN_0056fd50・0056fdf0・0056fe60・0056fed0／0056fc60・0056fcd0
+ *   複線 CFukusenDialog 1411              FUN_004b2320／004b2250
+ *   接線 CSesenDialog 1411                FUN_005cb8c0／005cb820
+ *   円 CEnkoDialog 1411                   FUN_004ab530／004ac6e0
+ *   建具 CTateguDialog 1426               FUN_005f6790（平面・断面・立面）
+ *   伸縮 CIkktuDialog 1413                FUN_004ca970
+ * 円の 扁平率 1412 は 負（長さで打つ）ときだけ × する（FUN_004ab8a0）が、移植は負の
+ * 扁平率を持たないので表に入れていない。逆コンパイルの読み、原典では押していない。 */
+static int mu_on;
+
+void jw_cmd_m_input(int on)
+{
+    mu_on = on != 0;
+}
+
+static const struct { unsigned short cmd, id; } mu_len[] = {
+    { JW_CMD_SEN, 1412 },      { JW_CMD_KUKEI, 1413 },
+    { JW_CMD_NISEN, 1412 },    { JW_CMD_NISEN, 1413 },
+    { JW_CMD_RENZOKU, 1412 },
+    { JW_CMD_TAKAKU, 1411 },   { JW_CMD_TAKAKU, 1412 },
+    { JW_CMD_MENTORI, 1411 },  { JW_CMD_MENTORI, 1412 },  { JW_CMD_MENTORI, 1413 },
+    { JW_CMD_FUKUSEN, 1411 },
+    { JW_CMD_SESSEN, 1411 },
+    { JW_CMD_ENKO, 1411 },
+    { JW_CMD_TATEGU, 1426 },   { JW_CMD_TATEGU_DAN, 1426 }, { JW_CMD_TATEGU_RITSU, 1426 },
+    { JW_CMD_SHINSHUKU, 1413 },
+};
+
+static int mu_len_box(unsigned cmd, int id)
+{
+    int i;
+
+    if (!mu_on)
+        return 0;
+    for (i = 0; i < (int)(sizeof mu_len / sizeof mu_len[0]); i++)
+        if (mu_len[i].cmd == cmd && mu_len[i].id == (unsigned short)id)
+            return 1;
+    return 0;
+}
+
+static int box_calc(const char *t, double *out);
+
+/* 箱の字の数を ×1000（up）か ÷1000 にした字。"," で区切った一つずつで、前後の空きは
+   そのまま、数でも式でもないものは字のまま。返すのは 回して使う 8 つの置き場の一つ */
+static const char *mu_scale(const char *t, int up)
+{
+    static char ring[8][sizeof box[0].t];
+    static int r;
+    char *out;
+    const char *p = t;
+    size_t o = 0;
+
+    if (!t || !*t)
+        return t;
+    r = (r + 1) & 7;
+    out = ring[r];
+    for (;;) {
+        const char *q = strchr(p, ',');
+        size_t n = q ? (size_t)(q - p) : strlen(p), a = 0, b = n, k;
+        char part[sizeof box[0].t], seg[sizeof box[0].t + 32];
+        char *end;
+        double v;
+        int num = 0;
+
+        if (n >= sizeof part)
+            return t;
+        memcpy(part, p, n);
+        part[n] = 0;
+        while (a < b && part[a] == ' ')
+            a++;
+        while (b > a && part[b - 1] == ' ')
+            b--;
+        if (b > a) {
+            char c = part[b];
+
+            part[b] = 0;
+            v = strtod(part + a, &end);
+            if (end == part + b)
+                num = 1;
+            else
+                num = box_calc(part + a, &v);
+            part[b] = c;
+            num = num && v == v && v > -1e12 && v < 1e12;
+        }
+        if (num)
+            k = (size_t)snprintf(seg, sizeof seg, "%.*s%.15g%s", (int)a, part,
+                                 up ? v * 1000.0 : v / 1000.0, part + b);
+        else
+            k = (size_t)snprintf(seg, sizeof seg, "%s", part);
+        if (o + k + 2 > sizeof ring[0])
+            return t;
+        memcpy(out + o, seg, k);
+        o += k;
+        if (!q)
+            break;
+        out[o++] = ',';
+        p = q + 1;
+    }
+    out[o] = 0;
+    return out;
+}
+
+static void box_put_raw(int id, const char *v)
 {
     char *t = box_slot(bar_cmd(), id);
 
@@ -19599,6 +19715,12 @@ static void box_put(int id, const char *v)
         strncpy(t, v, sizeof box[0].t - 1);
         t[sizeof box[0].t - 1] = 0;
     }
+}
+
+/* 命令が箱へ書き戻す字（ｍ のときの長さの箱は ÷1000、FUN_005be9e0 など） */
+static void box_put(int id, const char *v)
+{
+    box_put_raw(id, mu_len_box(bar_cmd(), id) ? mu_scale(v, 0) : v);
 }
 
 /* Switch the hatch to one of the five modes, swapping the bar's numbers over
@@ -19621,7 +19743,16 @@ static void ht_mode_set(int id)
     ht_mode = id;
 }
 
+/* 命令の読み口: ｍ単位入力 のとき 長さの箱は ×1000 した字（上の mu_len） */
 const char *jw_cmd_box(int id)
+{
+    const char *t = box_slot(bar_cmd(), id);
+
+    return t && *t && mu_len_box(bar_cmd(), id) ? mu_scale(t, 1) : t;
+}
+
+/* 表側の口: 箱に入っている字そのまま */
+const char *jw_cmd_box_raw(int id)
 {
     return box_slot(bar_cmd(), id);
 }
@@ -19644,7 +19775,7 @@ int jw_cmd_box_put(int id, const char *v)
         return 0;
     if (!jw_cmd_box(id))
         return 0;
-    box_put(id, v);
+    box_put_raw(id, v);                 /* 打った字・ダイアログの字はそのまま */
     return 1;
 }
 
@@ -20213,7 +20344,7 @@ static void box_sum(int id)
         p = q + 1;
     }
     if (any)
-        box_put(id, out);
+        box_put_raw(id, out);           /* 式の答えは打った字の代わり（ｍ でも割らない） */
 }
 
 void jw_cmd_box_click(int id)

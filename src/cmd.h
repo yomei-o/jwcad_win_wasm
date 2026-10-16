@@ -533,7 +533,8 @@ int  jw_cmd_sunpo_angle(void);
 /* The boxes on the command bar that can be typed into -- 多角形's 寸法,
    角数 and 底辺角度 so far.  The text of one, or NULL if the port does not
    keep that box; `focus` is the one being typed into, 0 for none. */
-const char *jw_cmd_box(int id);
+const char *jw_cmd_box(int id);      /* 命令が読む字（ｍ単位入力 なら長さの箱は ×1000） */
+const char *jw_cmd_box_raw(int id);  /* 箱に入っている字そのまま（表示・打ち込み） */
 int  jw_cmd_box_focus(void);
 void jw_cmd_box_click(int id);      /* a press on one: it takes the typing */
 int  jw_cmd_box_key(int c);         /* a character; 1 if it was taken */
@@ -555,6 +556,8 @@ void jw_cmd_moji_point_first(int on);
 void jw_cmd_fukusen_enter_on(int on);
 /* 基本設定 一般(2) 2525: 箱の式の一つの \ を 1000 に（\\ は x のまま断る） */
 void jw_cmd_yen_m(int on);
+/* 基本設定 一般(2) 2526 ｍ単位入力: 長さの箱を ｍ で読み書き（src/cmd.c mu_len） */
+void jw_cmd_m_input(int on);
 int  jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v);
 int  jw_cmd_zuzoku(int k);
 void jw_cmd_zuzoku_set(int k, int on);

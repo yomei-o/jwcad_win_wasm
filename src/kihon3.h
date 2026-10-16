@@ -4,6 +4,7 @@
  *
  *   一般(1) 2527 初期ｺﾏﾝﾄﾞ：AUTOﾓｰﾄﾞ      起動のとき AUTO から
  *   一般(2) 2525 ［10\］を10,000(10m)に    箱の式の \ を 1000（src/cmd.c box_calc）
+ *   一般(2) 2526 ｍ単位入力                 長さの箱を ｍ で（src/cmd.c mu_len）
  *   一般(2) 2266 ＋ / 2267 －（ﾏｳｽﾎｲｰﾙ）    ホイールで 拡大・縮小率 (1952) の倍率
  *   文字    1886 輪郭を背景色・1900 範囲を背景色・1563 範囲増寸法（src/draw.c text_bg）
  *   文字    1883 既に作図されている文字のサイズも変更する（1884 の九つの 変更基準点）
@@ -61,6 +62,7 @@ static void kh3_apply(void)
     double ex;
 
     jw_cmd_yen_m(kh_value_tab(1, 2525));
+    jw_cmd_m_input(kh_value_tab(1, 2526));      /* ｍ単位入力（src/cmd.c mu_len） */
     kh3_wheel = kh_value_tab(1, 2266) ? 1 : kh_value_tab(1, 2267) ? -1 : 0;
     /* doc+0x82c8: 0、1886 なら 1、1900 なら 2（あとが勝つ）。1563 は DDV -1〜10 */
     jw_draw_text_bg = kh_value_tab(4, 1900) ? 2 : kh_value_tab(4, 1886) ? 1 : 0;
