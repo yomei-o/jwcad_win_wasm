@@ -36,11 +36,18 @@ Jw_cad 10.03.6 を逆コンパイルから C に書き直したものです。
 動かさない。commit は日本語で main に、こまめに push。共用の VM では自分のプロセスだけ PID で止める。
 VM の `C:\prog\jwcad_win_wasm` は別の Claude のもの、触らない。
 
+<<<<<<< HEAD
 ## 2026-10-17 クロックメニュー PM 6【全】属性取得: 命令が文字（FUN_006c4840）
 
 * 押した字の 大きさ・間隔・色（`FUN_00583240`）、角度（`FUN_00583200`、字の角度 − 軸角）、縦字（+0xa00 = +0x44 の 0x20）、
   斜体・太字を いまの設定へ、入力欄は空に（`FUN_00583190`）。`src/cmd.c` の `moji_take_attr`（`moji_got_pick` と共通）、
   `jw_cmd_clock_zokuall` の文字の枝。押したのが点の枝・書体名（`FUN_004640c0`）の枝は未。根拠は逆コンパイルの読み、原典では押していない。`tests/clock_test.c`
+=======
+## 2026-10-17 ２．５D: 円弧の末尾 g の球（FUN_00620ef0・FUN_0061af10）
+
+* `src/d25view.c` の `arc_sphere`。刻み s = 90/整数（v2、1 未満・90 超は 15）、角 a の輪 A（0 から）・輪 B（s から、a < 180）。アイソメ以外は線（輪 A (R cos d, RK sin d cos a, RK sin d sin a)、輪 B (R cos a, RK sin a sin d, RK sin a cos d)）、アイソメは同じ輪を楕円で（`gen` の中心・U・V）。点は `FUN_00621ac0` の回し（(x,z) を v1 度、(x,y) を傾き）＋中心・高さ+底上げ。
+* 根拠は逆コンパイルの読み、原典では押していない（`local_a4`/`local_9c` は 弧の中心と読んだ。アイソメ輪 A の V は sin/cos が非アイソメと入れ替わる、読みどおり）。`tests/d25_test.c`
+>>>>>>> worktree-agent-ab2c62f8b4a060dce
 
 ## 2026-10-17 反転した参照の中の字: 始点・終点の入れ替え（FUN_00465f40）
 

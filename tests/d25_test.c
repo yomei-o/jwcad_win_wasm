@@ -441,6 +441,28 @@ static int arcs(void)
     jw_cmd_bar(d, 1064);
     vck(jw_d25_nline() == 4 && jw_d25_nell() == 0, "刻み −30 は 縦の線 4 本だけ");
 
+    /* 末尾 g の球「3,0,30g」（FUN_00620ef0・FUN_0061af10）: 刻み 30°、輪 A 6 本・輪 B 5 本 */
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0,30g");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 132 && jw_d25_nell() == 0, "球は 輪 11 本の 12 刻み = 線 132 本");
+    {
+        const double c30 = cos(30.0 * 3.14159265358979323846 / 180.0);
+
+        vck(jw_d25_line(0, p) && veq(p[0], 1050) && veq(p[1], 1000) && veq(p[2], 30)
+            && veq(p[3], 1000 + 50 * c30) && veq(p[4], 1025) && veq(p[5], 30),
+            "  輪 A の一本目 (a=0): xy 平面の輪、高さ 30");
+        vck(jw_d25_line(72, p) && veq(p[0], 1000 + 50 * c30) && veq(p[1], 1000)
+            && veq(p[2], 30 + 25),
+            "  輪 B は a=30 から: x = R cos a、始めの点は 高さ + R K sin a");
+    }
+    jw_cmd_bar(d, 1121);
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nell() == 11 && jw_d25_nline() == 0, "  アイソメでは 楕円 11 個");
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0,-30");
+    jw_cmd_bar(d, 1064);
+
     /* 矢印キー: 立体の画面では 2.5D の視点（← 回転 −5°、↑ 前へ 10 m） */
     app_paint();
     jw_d25_knobs(k);
