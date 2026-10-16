@@ -551,6 +551,82 @@ static int faces(void)
     return vfail != 0;
 }
 
+/* ---- 勾配の文字 t T d D（FUN_00613c10・FUN_0061c770）。逆コンパイルの読み、
+   原典では押していない ---- */
+static int grads(void)
+{
+    long n;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    jw_drawing *d;
+    jw_obj *o;
+    double p[6], el, c45 = cos(45.0 * 3.14159265358979323846 / 180.0) * 10.0;
+    int i, ok;
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+    o = jw_add(d, JW_SEN);
+    o->d[0] = 1000; o->d[1] = 1000;
+    o->d[2] = 2000; o->d[3] = 1000;
+    o->color = 2;
+    o->ltype = 1;
+
+    /* 始点「0,2,2,90,0T」・終点「1,2,2,90,0t」: 幅 20 の 四角（刻み 90°、45° ずらし）の筒、
+       高さ 0 → 10。真ん中の線・刻みごとの線 4・始点の辺 4 */
+    add_text(d, 1000, 1000, "0,2,2,90,0T");
+    add_text(d, 2000, 1000, "1,2,2,90,0t");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 9, "勾配の筒は 真ん中の線・刻みの線 4・始点の辺 4 の 9 本");
+    vck(jw_d25_line(0, p) && veq(p[0], 1000) && veq(p[1], 1000) && veq(p[2], 0)
+        && veq(p[3], 2000) && veq(p[4], 1000) && veq(p[5], 10), "  真ん中の線 (z 0 → 10)");
+    el = sqrt(1000.0 * 1000.0 + 100.0);
+    ok = jw_d25_line(1, p);
+    /* 45°: 断面の (7.07, 7.07) を 勾配の面に立てて 線の上へ */
+    vck(ok && veq(p[0], 1000 - 10.0 / el * c45) && veq(p[1], 1000 + c45)
+        && veq(p[2], c45 * 1000.0 / el)
+        && veq(p[3], 2000 - 10.0 / el * c45) && veq(p[4], 1000 + c45)
+        && veq(p[5], 10 + c45 * 1000.0 / el), "  45° の刻みの線は 勾配の面に立つ");
+    if (vfail)
+        for (i = 0; jw_d25_line(i, p); i++)
+            printf("    3D %d: (%.4f,%.4f,%.4f)-(%.4f,%.4f,%.4f)\n", i, p[0], p[1], p[2], p[3],
+                   p[4], p[5]);
+    jw_cmd_bar(d, 1121);
+
+    /* 「0,1,1,0D」を両端に: 一辺 10 の四角の筒（d D は幅を √2 倍、刻み 90°）。両端の辺 */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI && d->obj[i].d[1] == 1000
+            && (d->obj[i].d[0] == 1000 || d->obj[i].d[0] == 2000))
+            d->obj[i].d[1] += 10000;
+    add_text(d, 1000, 1000, "0,1,1,0D");
+    add_text(d, 2000, 1000, "0,1,1,0D");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 13, "「D」を両端に: 1 + 4 + 4 + 4 本");
+    ok = 1;
+    for (i = 1; jw_d25_line(i, p); i++)
+        if (!(veq(fabs(p[1] - 1000), 5) && veq(fabs(p[2]), 5) && veq(fabs(p[4] - 1000), 5)
+              && veq(fabs(p[5]), 5)))
+            ok = 0;
+    vck(ok, "  隅は どれも (±5, ±5)");
+    jw_cmd_bar(d, 1121);
+
+    /* 幅が両端とも 0 なら 筒にしない（ふつうの線へ） */
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_MOJI && d->obj[i].d[1] == 1000
+            && (d->obj[i].d[0] == 1000 || d->obj[i].d[0] == 2000))
+            d->obj[i].d[1] += 10000;
+    add_text(d, 1000, 1000, "3,0,0t");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() >= 1 && jw_d25_line(0, p) && !veq(p[0], p[3]), "幅 0 の t は筒にしない");
+    jw_cmd_bar(d, 1121);
+    printf("%-4s grads\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
 int main(void)
 {
     int bad = run(32937, "decomp/res/p197_h1.jww", "2.5D");
@@ -558,6 +634,7 @@ int main(void)
     bad += views();
     bad += arcs();
     bad += faces();
+    bad += grads();
 
     bad += run(32943, "decomp/res/p198_k1.jww", "hikage");
     bad += run(32971, "decomp/res/p198_t1.jww", "tenku");
