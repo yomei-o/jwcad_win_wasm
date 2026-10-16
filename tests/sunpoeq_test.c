@@ -149,8 +149,9 @@ int main(void)
     ck(jw_cmd_sunpo_move(app_view(), 100.0 + 2 * px, 100.0 + 2 * px),
        "  四画素で進む");
     ck(!strcmp(prompt(), JW_STR_5331), "  案内は 寸法の始点");
-    ck(!jw_cmd_bar(d, 1060) && jw_cmd_sunpo_eq() == 1,
-       "  始点待ちでは ＝ は回らない（引出角 の釦になる）");
+    ck(jw_cmd_bar(d, 1060) && jw_cmd_sunpo_eq() == 1
+       && jw_cmd_sunpo_hikikaku(0, 0),
+       "  始点待ちでは ＝ は回らない（引出角 の釦になる。S_SET5 が無いので 0 のまま）");
     b0 = d->ndrawn;
     measure(d);
     ck(d->ndrawn > b0, "  寸法が引けた");

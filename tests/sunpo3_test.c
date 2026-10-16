@@ -278,6 +278,55 @@ int main(void)
         jw_cmd_set(0);
     }
 
+    /* ---- 段 3 から先の 1060 は 引出角 */
+    {
+        static const double tab[1] = { 30.0 };
+        double t30 = tan(30.0 * 3.14159265358979323846 / 180.0);
+        char lab[32];
+        const jw_obj *dl = 0;
+
+        jw_cmd_set(JW_CMD_SUNPO);
+        ck(!jw_cmd_sunpo_hikikaku(lab, sizeof lab), "引出角: 段 1・2 では ＝ の釦");
+        jw_cmd_point(d, app_view(), 100.0, 120.0, 0);
+        jw_cmd_point(d, app_view(), 100.0, 110.0, 0);
+        ck(jw_cmd_sunpo_hikikaku(lab, sizeof lab) && !strcmp(lab, "\x88\xf8\x8f\x6f\x8a\x70 0"),
+           "  始点を訊く段では 名札「引出角 0」");
+        ck(jw_cmd_bar(d, 1060) && jw_cmd_sunpo_eq() == 0
+           && jw_cmd_sunpo_hikikaku(lab, sizeof lab) && !strcmp(lab, "\x88\xf8\x8f\x6f\x8a\x70 0"),
+           "  S_SET5 が無ければ 押しても 0 のまま、＝ も回らない");
+        jw_cmd_sunpo_hikikaku_tab(tab, 1);
+        ck(jw_cmd_bar(d, 1060) && jw_cmd_sunpo_hikikaku(lab, sizeof lab)
+           && !strcmp(lab, "30\xdf"), "  表 30 なら 名札「30ﾟ」");
+        b0 = d->ndrawn;
+        jw_cmd_point(d, app_view(), 100.0, 100.0, 0);
+        jw_cmd_point(d, app_view(), 200.0, 100.0, 0);
+        for (k = b0; k < d->ndrawn; k++)
+            if (d->obj[k].cls == JW_SEN) {
+                dl = &d->obj[k];
+                break;
+            }
+        ck(dl && near(dl->d[0], 100.0 - 10.0 * t30) && near(dl->d[2], 200.0 - 10.0 * t30)
+           && near(dl->d[1], 110.0), "  寸法線は -tan30·10 ずれる");
+        ok = 0;
+        for (k = b0; k < d->ndrawn; k++) {
+            const jw_obj *e = &d->obj[k];
+            if (e->cls == JW_SEN && near(e->d[2], 100.0) && near(e->d[3], 120.0)
+                && near(e->d[0], 100.0 - 10.0 * t30) && near(e->d[1], 110.0))
+                ok = 1;
+        }
+        ck(ok, "  引出線は 寸法線の端から 引出線の端 (100,120) へ 30° 傾く");
+        ck(jw_cmd_bar(d, 1060) && jw_cmd_sunpo_hikikaku(lab, sizeof lab)
+           && !strcmp(lab, "\x88\xf8\x8f\x6f\x8a\x70 0"), "  もう一度で 0 に戻る");
+        jw_cmd_bar(d, 1060);
+        jw_cmd_set(JW_CMD_SEN);
+        jw_cmd_set(JW_CMD_SUNPO);
+        jw_cmd_point(d, app_view(), 100.0, 120.0, 0);
+        jw_cmd_point(d, app_view(), 100.0, 110.0, 0);
+        ck(jw_cmd_sunpo_hikikaku(lab, sizeof lab) && !strcmp(lab, "\x88\xf8\x8f\x6f\x8a\x70 0"),
+           "  別の命令から入り直せば 0（バーを作り直す）");
+        jw_cmd_set(0);
+    }
+
     /* ---- 角度を次回に継続 */
     jw_cmd_set(JW_CMD_SUNPO);
     type_box(1411, "30");
