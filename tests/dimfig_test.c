@@ -369,6 +369,96 @@ static void hosei_dim(jw_drawing *d)
     jw_cmd_sunpo_chk_set(2419, 0);
 }
 
+/* 文字方向補正（2419）を 累進 の字にも。FUN_00783730 の累進（0x785f68〜）は
+   bd20 == 0 を FUN_00479550 に渡す。傾き 90° の累進は 字の向き +v が左向きなので
+   補正なら 二点を入れ替え（字の場所は同じで 読む向きだけ逆、間隔 は反対側）。
+   FUN_00786fb0（角度）は 補正に 0 を渡す（FUN_00479c40 の第 4 引数）ので そのまま */
+static void hosei2_dim(jw_drawing *d)
+{
+    jw_obj *c = jw_add(d, JW_SEN);
+    int b0, k;
+
+    printf("-- 累進 の文字方向補正\n");
+    c->d[0] = 100.0;
+    c->d[1] = 50.0;
+    c->d[2] = 100.0;
+    c->d[3] = 100.0;
+    /* 累進: 傾き 90°（寸法線が上向き）だと 字の向き +v が左向き → 入れ替え。
+       2419 無補正なら そのまま 左向き（d[0] > d[2]） */
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_box_click(1411);
+    for (k = 0; k < 24; k++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key('9');
+    jw_cmd_box_key('0');
+    jw_cmd_box_key(13);
+    jw_cmd_bar(d, 1070);                /* 累進（押すたびに入／切）*/
+    for (k = 0; k < 2; k++) {
+        jw_cmd_sunpo_chk_set(2419, k);
+        b0 = d->ndrawn;
+        jw_cmd_point(d, app_view(), 100.0, 0.0, 0);
+        jw_cmd_point(d, app_view(), 80.0, 0.0, 0);
+        jw_cmd_point(d, app_view(), 100.0, 50.0, 0);
+        jw_cmd_point(d, app_view(), 100.0, 100.0, 0);
+        if (d->ndrawn > b0 && d->obj[d->ndrawn - 1].cls == JW_MOJI) {
+            const jw_obj *t = &d->obj[d->ndrawn - 1];
+            printf("     累進 90° %s: %.4f,%.4f -> %.4f,%.4f\n",
+                   k ? "無補正" : "補正", t->d[0], t->d[1], t->d[2], t->d[3]);
+            ck(k ? t->d[0] > t->d[2] : t->d[0] < t->d[2],
+               k ? "  累進 無補正: 左向きのまま" : "  累進 補正: 右向きに読む");
+        } else
+            ck(0, "  累進 90° が描けた");
+        while (d->ndrawn > b0)
+            jw_cmd_undo(d);
+    }
+    jw_cmd_sunpo_chk_set(2419, 0);
+    jw_cmd_bar(d, 1070);
+    jw_cmd_box_click(1411);
+    for (k = 0; k < 24; k++)
+        jw_cmd_box_key(8);
+    jw_cmd_box_key('0');
+    jw_cmd_box_key(13);
+    jw_cmd_set(0);
+}
+
+/* 半径・直径: FUN_007891b0 は 補正に 定数 1（2419 に依らない）。(400,100) 半径 30 の円を
+   左（370,100）で指示 → 線は左向きなので 二点を入れ替え 字は右向きに読み、間隔 はその上へ */
+static void hosei3_dim(jw_drawing *d)
+{
+    jw_obj *c = jw_add(d, JW_ENKO);
+    int b0, bt;
+
+    c->d[0] = 400.0;
+    c->d[1] = 100.0;
+    c->d[2] = 30.0;
+    c->d[3] = 0.0;
+    c->d[4] = 6.283185307179586;
+    c->d[5] = 0.0;
+    c->d[6] = 1.0;
+    c->n = 1;
+    printf("-- 半径・直径 の文字方向補正\n");
+    for (bt = 1065; bt <= 1066; bt++) {
+        b0 = d->ndrawn;
+        jw_cmd_set(JW_CMD_SUNPO);
+        jw_cmd_bar(d, bt);
+        jw_cmd_point(d, app_view(), 370.0, 100.0, 0);
+        jw_cmd_set(0);
+        if (d->ndrawn == b0 + 4 && d->obj[b0 + 1].cls == JW_MOJI) {
+            const jw_obj *t = &d->obj[b0 + 1];
+            ck(t->d[0] < t->d[2] && near(t->d[1], t->d[3]) && t->d[1] > 100.0,
+               bt == 1065 ? "  半径 左向き: 字は右向き・線の上"
+                          : "  直径 左向き: 字は右向き・線の上");
+        } else
+            ck(0, "  半径・直径 の左向き");
+        if (d->ndrawn > b0)
+            jw_cmd_undo(d);
+    }
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_esc_key(d);                  /* 直径 を ふつうの二点に戻す */
+    jw_cmd_esc_key(d);
+    jw_cmd_set(0);
+}
+
 /* グループ化（2861、bd8c）: FUN_00783730・FUN_007891b0 の頭で 空いている
    いちばん小さい番号（FUN_00479d80）の負を +0x6348 に置き、FUN_00450860 が
    足す要素ごとに +4 へ写す。寸法図形なら 図形の頭だけ */
@@ -419,6 +509,17 @@ static void group_dim(jw_drawing *d)
     while (d->ndrawn > b0)
         jw_cmd_undo(d);
     jw_cmd_sunpo_chk_set(2424, 0);
+    /* 寸法値（1069、+0x1c4 == 0x19）も FUN_00783730 が書くので 同じ番号 */
+    b0 = d->ndrawn;
+    jw_cmd_set(JW_CMD_SUNPO);
+    jw_cmd_bar(d, 1069);
+    jw_cmd_point(d, app_view(), 100.0, 100.0, 0);
+    jw_cmd_point(d, app_view(), 100.0, 50.0, 0);
+    ck(d->ndrawn == b0 + 1 && d->obj[b0].cls == JW_MOJI && d->obj[b0].id < 0,
+       "  寸法値: 字に 負の番号");
+    while (d->ndrawn > b0)
+        jw_cmd_undo(d);
+    jw_cmd_set(0);
     jw_cmd_sunpo_chk_set(2861, 0);
 }
 
@@ -583,11 +684,13 @@ int main(void)
     jw_cmd_sunpo_chk_set(2424, 0);
     fig_pick(d);
     hosei_dim(d);
+    hosei2_dim(d);
     group_dim(d);
     radius_dim(d, 1065);
     radius_dim(d, 1066);
     angle_dim(d);
     sen_dim(d);
+    hosei3_dim(d);
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

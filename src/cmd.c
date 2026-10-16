@@ -23006,6 +23006,8 @@ static void sunpo_text(char *out, int n, double mm, double scale)
 static jw_obj *sun_dimline(jw_drawing *d, double x0, double y0, double x1,
                            double y1);
 static int sun_fig_close(jw_drawing *d, int first);
+static void sun_text_dir_h(int hosei, double ux, double uy, double ds,
+                           double *r, double *g);
 
 /* 寸法設定 グループ化（2861、DAT_00a0bd8c）: ふつうの寸法 FUN_00783730 の
  * 頭（0x783767〜、角度・円周 FUN_00786fb0 へ分かれる前）と 半径・直径
@@ -23142,8 +23144,15 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
             fig = d->ndrawn - 1;
     }
     if (cw > 0.0 && ch > 0.0 && nch) {
-        double mx = (cx + ex) / 2.0 - uy * sun_hanare;
-        double my = (cy + ey) / 2.0 + ux * sun_hanare;
+        /* 文字方向補正: FUN_007891b0 0x78a129〜 は FUN_00479c40/00479550 の
+           補正 (param_4) に 定数 1 を渡す（2419 に依らない）。線 A→B（中心→
+           押した点、直径は向こう側→押した点）が左向きなら 二点を入れ替えて
+           字を右向き（真上）に読み、間隔 は その左へ（0x4796f0〜）。
+           逆コンパイルの読み、原典では押していない */
+        double rr[2], gg[2], mx, my;
+        sun_text_dir_h(1, ux, uy, 1.0, rr, gg);
+        mx = (cx + ex) / 2.0 + gg[0] * sun_hanare;
+        my = (cy + ey) / 2.0 + gg[1] * sun_hanare;
         /* cx,cy is the line's far end by now, so this is its middle */
         o = jw_add(d, JW_MOJI);
         if (o) {
@@ -23152,10 +23161,10 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
             o->width = sun_width(sun_rmark);
             o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS
                                        | (sun_radius == 2 ? 0x0200u : 0x0100u));
-            o->d[0] = mx - tw / 2.0 * ux;
-            o->d[1] = my - tw / 2.0 * uy;
-            o->d[2] = mx + tw / 2.0 * ux;
-            o->d[3] = my + tw / 2.0 * uy;
+            o->d[0] = mx - tw / 2.0 * rr[0];
+            o->d[1] = my - tw / 2.0 * rr[1];
+            o->d[2] = mx + tw / 2.0 * rr[0];
+            o->d[3] = my + tw / 2.0 * rr[1];
             o->d[4] = cw;
             o->d[5] = ch;
             o->d[6] = sp;
@@ -23627,19 +23636,25 @@ static int sun_fig_close(jw_drawing *d, int first)
  * 向きのまま（逆に測れば 逆さで寸法線の下）。u は寸法の向き、ds は
  * 二点目 - 一点目 の u 沿いの長さ。r に読む向き、g に 間隔 を取る向き。
  * 逆コンパイルの読み、原典では押していない */
-static void sun_text_dir(double ux, double uy, double ds, double *r, double *g)
+static void sun_text_dir_h(int hosei, double ux, double uy, double ds,
+                           double *r, double *g)
 {
     double sg = ds >= 0.0 ? 1.0 : -1.0;
     double dx = ds * ux, dy = ds * uy;
 
     r[0] = sg * ux;
     r[1] = sg * uy;
-    if (!sun_nohosei && (dx < 0.0 || (dx <= 1e-7 && dy < 0.0))) {
+    if (hosei && (dx < 0.0 || (dx <= 1e-7 && dy < 0.0))) {
         r[0] = -r[0];
         r[1] = -r[1];
     }
     g[0] = -r[1];
     g[1] = r[0];
+}
+
+static void sun_text_dir(double ux, double uy, double ds, double *r, double *g)
+{
+    sun_text_dir_h(!sun_nohosei, ux, uy, ds, r, g);
 }
 
 /* 値の字の枠（o->d[0..3]）: 寸法線の u 沿い mid・v 沿い tl の点から。
@@ -23930,14 +23945,28 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                     sa = s1 + hkc + ch / 2.0;
                     t = tl + sun_hanare + tsu;
                 }
+                /* 文字方向補正（2419、FUN_00479550 0x4796f0〜）: 字の二点は
+                   先端から 寸法線に直角（読む向き +v）。左向き（dx < 0、
+                   または |dx| <= 1e-7 で dy < 0）なら 二点を入れ替え 揃えの
+                   符号を反す = 字の場所は同じまま 読む向きだけ逆（字は 180 度
+                   回る）で、間隔 はその左 = 反対側へ（基線は先端の逆側、字は
+                   +u 側へ）。文字高位置中心（2423）は 0x785f68〜 で 補正が
+                   立つ向きなら ずらし local_71c0 の符号を反す（高さ/2 を -u へ）。
+                   二点の長さは 100 以上（local_4ec 等 ±100）。
+                   逆コンパイルの読み、原典では押していない */
+                int sw = !sun_nohosei && (vx * 100.0 < 0.0
+                         || (vx * 100.0 <= 1e-7 && vy < 0.0));
+                if (sw)
+                    sa = sun_mojic ? s1 + hkc - ch / 2.0
+                                   : s1 + hkc + sun_hanare;
                 px = sa * ux + t * vx;
                 py = sa * uy + t * vy;
                 o->ltype = 1;
                 o->flags = (unsigned short)(o->flags | 0x1000u);
-                o->d[0] = px;
-                o->d[1] = py;
-                o->d[2] = px + tw * vx;
-                o->d[3] = py + tw * vy;
+                o->d[0] = sw ? px + tw * vx : px;
+                o->d[1] = sw ? py + tw * vy : py;
+                o->d[2] = sw ? px : px + tw * vx;
+                o->d[3] = sw ? py : py + tw * vy;
             } else {
                 /* 文字方向補正（2419）・負の文字種（sun_text_box） */
                 sun_text_box(o, ux, uy, vx, vy, s1 - s0, mid, tl, tw, ch);
@@ -28786,7 +28815,16 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 sun_step = 6;
                 return;
             }
-            sunpo_value(d, sun_sx, sun_sy, x, y);
+            {
+                int g0 = d->ndrawn;
+                sunpo_value(d, sun_sx, sun_sy, x, y);
+                /* グループ化 2861: 寸法値（+0x1c4 == 0x19）も FUN_00783730
+                   （param_3 = 1、0x7837a1 の頭）が書くので 同じ。字は
+                   FUN_00479c40 に 補正 0 を渡す（0x783... の 34709 行の呼び）
+                   ので 文字方向補正は無い。逆コンパイルの読み、原典では
+                   押していない */
+                sun_group_mark(d, g0);
+            }
             sun_chi_done = 1;
             sun_step = 5;
             return;
