@@ -2310,6 +2310,7 @@ static int kh_value_tab(int tab, int id)
 }
 
 static int kh_arrows;                   /* 2362: 0 切、1 入、2 入で軸角方向移動 (1325) */
+static int kh_tab_direct;               /* KEY 1325 直接属性取得（DAT_00a0c7b8） */
 static int kh_cross;                    /* 2437: 0 切、1 いつも、2 範囲指定のみ、3 範囲始点のみ */
 static int cross_have;                  /* マウスが図面の上にある（cross_x, cross_y に） */
 static double cross_x, cross_y;
@@ -2359,6 +2360,9 @@ static void kh_apply(void)
        切なら 1）。app_paint の cross_paint */
     kh_cross = !kh_value_tab(0, 2437) ? 0 : kh_value_tab(0, 2438) ? 2
                : kh_value_tab(0, 2439) ? 3 : 1;
+    /* KEY 1325「直接属性取得を行う」→ DAT_00a0c7b8（CKeyPage の OK FUN_0054dd40 が
+       +0x2f8 から、レジストリ GetType\Chkusetu）。app_key の Tab */
+    kh_tab_direct = kh_value_tab(6, 1325);
     kh3_apply();                        /* src/kihon3.h */
 }
 
@@ -6659,6 +6663,22 @@ int app_key(int c)
                     return 1;
                 }
         }
+    }
+    /* Tab = 属性取得.  CJw_winApp::PreTranslateMessage が VK_TAB を番号 9 にして
+       0x1505 でビューへ（FUN_00512920）。キーの表 app+0x44bc の 9 番は起動時に
+       79（FUN_004d34a0 の [0x1138] = 0x4f。Shift+Tab の 309 番も 79）、
+       ビューの表 [0x21a1+79]（FUN_004f7b00）は 0x80a3 = 属性取得。その枝は 基本設定 KEY 1325
+       「直接属性取得を行う」（DAT_00a0c7b8）が 切なら FUN_00515700（属性取得 の
+       釦と同じ: 命令に入る）、入なら FUN_007751e0 にマウスの点を渡して その場で
+       取る（命令はそのまま）。Shift つき（DAT_00a0cc6c）の枝は移植のキーに Shift の
+       区別が無いので入れていない。逆コンパイルの読み、原典では押していない */
+    if (c == 9 && !jw_cmd_text_mode()) {
+        if (!kh_tab_direct)
+            app_command(JW_CMD_ZOKUSEI);
+        else if (have_drawing && view_ready && cross_have)
+            jw_cmd_zokusei_at(&drawing, &view, cross_x, cross_y);
+        app_paint();
+        return 1;
     }
     if (c == 27) {              /* Esc steps the command back (see jw_cmd_esc_key) */
         jw_cmd_esc_key(have_drawing ? &drawing : 0);
