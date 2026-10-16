@@ -1524,6 +1524,7 @@ void app_zoom_all(int paper)
 /* 両ボタンドラッグの判定と枠（CZoom の作りから後始末まで）。中身は src/ryoboton.h */
 #define JW_RYOBOTON_IMPL
 #include "ryoboton.h"
+#include "clock.h"                      /* 基本設定 から clk_settings（中身は下） */
 
 int app_coord_save(unsigned char **out, long *n)
 {
@@ -2360,6 +2361,11 @@ static void kh_apply(void)
     kh_cross = !kh_value_tab(0, 2437) ? 0 : kh_value_tab(0, 2438) ? 2
                : kh_value_tab(0, 2439) ? 3 : 1;
     kh3_apply();                        /* src/kihon3.h */
+    /* クロックメニュー（src/clock.h）: 一般(1) の OK FUN_005cd940 が 1326 → DAT_00a0cacc、
+       2108・2109 の逆 → DAT_00a0caec・caf0、1054 →（|箱| が 20〜200 なら）DAT_00a0cad4、
+       2099 → DAT_00a0cadc */
+    clk_settings(kh_value_tab(0, 1326), (int)kh_num(0, 1054, 35.0), kh_value_tab(0, 2108),
+                 kh_value_tab(0, 2109), kh_value_tab(0, 2099));
 }
 
 /* 基本設定 の箱の字。原典の既定は src/gen/kihonval.h（tools/mkkihonval.py が

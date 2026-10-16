@@ -42,6 +42,47 @@ static int dir_deg(double deg)
     return clk_dir((int)lround(sin(t) * 1000), (int)lround(-cos(t) * 1000), &am, &pd, 0);
 }
 
+/* 基本設定（tests/kihon3_test.c と同じ手） */
+static int hit(int want)
+{
+    const fb_t *fb = app_fb();
+    int x, y;
+
+    for (y = 0; y < fb->h; y++)
+        for (x = 0; x < fb->w; x++)
+            if (ui_kihon_hit(fb->w, fb->h, app_kihon_tab(), x, y) == want) {
+                app_press(x, y, 0);
+                return 1;
+            }
+    return 0;
+}
+
+static int kh_press(int tab, int id)
+{
+    if (!app_kihon_open())
+        app_command(32891);
+    if (!app_kihon_open())
+        return 0;
+    if (app_kihon_tab() != tab && !hit(-tab - 1))
+        return 0;
+    return hit(id);
+}
+
+static void kh_ok(void)
+{
+    if (app_kihon_open())
+        hit(1);
+}
+
+static int kh_type(int tab, int id, const char *s)
+{
+    if (!kh_press(tab, id))
+        return 0;
+    while (*s)
+        app_key((unsigned char)*s++);
+    return 1;
+}
+
 int main(void)
 {
     rect_t r;
@@ -183,6 +224,39 @@ int main(void)
     app_clock_move(cx, cy);
     app_clock_end();
     ck(jw_cmd() == JW_CMD_SEN, "13（キャンセル）で離せば命令はそのまま");
+
+    /* ---- 基本設定 1326・1054・2108 ---- */
+    ck(kh_press(0, 1326), "1326 クロックメニューを使用しない を押す");
+    kh_ok();
+    ck(!app_kihon_open() && !app_clock_possible() && !app_clock_ready(cx, cy, cx + 200, cy),
+       "1326 が入なら 左は時計にならない（前のとおり 3 画素で渡す）");
+    kh_press(0, 1326);
+    kh_ok();
+    ck(app_clock_possible(), "切に戻せば また時計");
+    ck(kh_type(0, 1054, "50"), "1054 に 50");
+    kh_ok();
+    ck(clk_minimum() == 50 && !app_clock_ready(cx, cy, cx + 50, cy) && app_clock_ready(cx, cy, cx + 51, cy),
+       "1054 50: 距離 50 までは時計にならない");
+    ck(kh_type(0, 1054, "10"), "1054 に 10");
+    kh_ok();
+    ck(clk_minimum() == 50, "|箱| が 20 未満なら入れない（前の 50 のまま）");
+    kh_type(0, 1054, "35");
+    kh_ok();
+    ck(kh_press(0, 2108), "2108 左クロックメニュー開始の AM/PM は前操作状態");
+    kh_ok();
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 60, cy);
+    app_clock_right();
+    app_clock_cancel();
+    ck(app_clock_pm() == 1, "2108 が入なら PM が残る");
+    app_clock_begin(cx, cy);
+    app_clock_move(cx + 60, cy);
+    ck(jw_cmd_notice_id() == 5165, "次の時計は PM から（3 時 建具立面）");
+    app_clock_right();
+    app_clock_cancel();
+    kh_press(0, 2108);
+    kh_ok();
+    ck(app_clock_pm() == 0, "AM に戻した");
 
     /* ---- 分割の受け手（FUN_007637e0）---- */
     {
