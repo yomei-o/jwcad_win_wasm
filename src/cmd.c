@@ -2431,6 +2431,12 @@ static double box_angle(int id)
  * and `naga_*` below read whichever is set.
  */
 static int    get_mode;         /* the 取得 command running, or 0 */
+/* 右の時計 AM 3・9 の続き（view+0x908c = 1。src/cmd.c の jw_cmd_clock_pt の注）。
+   0 なし / 3 中心点・A点 の二点目待ち / 9 線上点・交点 の二図形目待ち */
+static int    clkpt_mode;
+static int    clkpt_cmd;        /* 待っている命令（替われば捨てる） */
+static double clkpt_x, clkpt_y; /* AM 3 の一点目（view+0x9098） */
+static jw_obj clkpt_fig;        /* AM 9 の一図形目（命令の +0x4c） */
 static int    get_step;
 static double get_ax, get_ay;   /* the first point of a two-point one */
 static int    have_kata;        /* 角度取得 has given one */
@@ -4109,6 +4115,7 @@ void jw_cmd_set(int id)
        asked of the original: 線, 線角度, then 円 and back to 線, and the
        next line came out plain (tools/probe21.sh) */
     get_mode = 0;
+    clkpt_mode = 0;
     have_kata = have_naga = 0;
     /* and so does 間隔取得's: taking one, going out to 円 and back to
        複線 left nothing behind (tools/probe94.sh) */
@@ -5483,6 +5490,10 @@ void jw_cmd_nonclock_set(int on)
 
 const char *jw_cmd_prompt(void)
 {
+    if (clkpt_mode == 3)                /* FUN_0076ea20 の 0x277b */
+        return JW_STR_10107;
+    if (clkpt_mode == 9)                /* 0x277c（逆コンパイルの読み、原典では押していない） */
+        return JW_STR_10108;
     if (current == JW_CMD_HIKAGE && hk_pv)
         return HK_PV_PROMPT;
     if (current == 0x8091)
@@ -7026,6 +7037,206 @@ static int cross_obj(const jw_obj *a, const jw_obj *b,
     *ox = cand[best][0];
     *oy = cand[best][1];
     return 1;
+}
+
+/* 右ボタンのクロックメニュー AM 3 中心点・A点 と AM 9 線上点・交点 —— 逆コンパイルの読み、
+ * 原典では押していない。
+ *
+ * 命令の仮想関数 47（FUN_0076d330）が 3・9 時を 仮想関数 18・20 の既定 FUN_0076ea20・
+ * FUN_0076fae0 へ回す。この二つは **点を命令へ渡さない**: 作った点は view+0x85d0
+ * （FUN_004988c0 の ECX、逆アセンブルで確認）に書き、1 を返すだけで、右の離し
+ * FUN_0050d3f0（左なら FUN_005081c0）が 1 を受けて 命令の仮想関数 9 を 0x231d（拾い済みの
+ * 印）と view+0x85d0 で呼ぶ。つまり 命令には その点での左クリックが届く（AM 12 と同じ
+ * 経路。jw_cmd_point(…, 0)）。FUN_00517290 は 0x8f78・0x8f88 しか書かないので、
+ * 85d0 は 押した点のまま（時計では 離しの点でなく 押した点）。
+ *
+ *  AM 3（FUN_0076ea20 の 段 2 = 離し）
+ *    1. 読取点（FUN_00451f30 = jw_read）が有れば、view+0x908c = 1、view+0x9098 にその点、
+ *       状態行 0x277b = 10107「２点間中心 ◆◆Ｂ点指示◆◆ (L)free (R)Read」、0 を返す
+ *       （命令へは何も届かない）。
+ *    2. 無ければ FUN_004497b0: 旗 +0x6324・+0x632c・+0x6338 を 1 にして FUN_0044a270(1, …)
+ *       で図形を拾い（無ければ 0）、仮想関数 11 の点（線・文字は 二端の中点 FUN_0042a1a0、
+ *       円は中心 FUN_0042a230）を 85d0 に。FUN_00451b20(…, 0)、FUN_00454cb0 の印、
+ *       FUN_0076a130（+0x905c = 0、+0x907c = +0x9084）のあと 1。
+ *    続き（段 5 = 左の離し FUN_005081c0、段 6 = 右の離し FUN_0050d3f0 が view+0x908c ≠ 0
+ *    のとき FUN_0050d8e0(…, 5・6) から）: 段 6 は読取点が無ければ 0。点は
+ *    (二点目 − 一点目) / 2 + 一点目 で、FUN_00451b20 → 印 → FUN_0076a130 → 1。
+ *    段 5 は読まず 押した点そのまま。命令へは 0x231d で 85d0。+0x908c は
+ *    FUN_0050d3f0・FUN_005081c0 が 1 を受けたときに 0 へ戻す（0 のときは残る）。
+ *  AM 9（FUN_0076fae0）
+ *    段 2: 旗を六つ立てて FUN_0044a270(3, …) で図形を拾い（無ければ 0）、命令の +0x4c に
+ *    持ち（前のは放す）、+0x908c = 1、0 を返す。
+ *    段 5・6: 一図形目が無ければ 0。段 5 は もう一度 FUN_0044a270(3, …) で図形（二図形目）を
+ *    拾い、有れば FUN_0045fa30(一, 二, 押した点, &点) が 交点を返したとき その点（二つ
+ *    あれば 押した点に近いほう）。段 6 は そのあと FUN_00451f30 で押した点を読み、
+ *    読めなければ 0、読めれば その読取点が点になる（交点は捨てる）。交点が無ければ
+ *    押した点（段 6 は読取点）。最後に FUN_0045b6c0(0, 一図形目, &点) で 一図形目の上へ
+ *    落とし（線は垂線の足、円は中心から外へ。落とせなければ 0）、FUN_00451b20 → 印 →
+ *    FUN_0076a130 → 1。
+ *
+ * 入れていないもの（訊いていない・読み切れていない）:
+ *   - FUN_00451b20 の オフセットの窓（view+0x8f20 が 2 以上のときだけ AM 3・9 でも出る。
+ *     AM 6 は 1 にして出す。窓は view+0x8674 の仮想関数 0x174 で、移植に無い）
+ *   - ブロック・ソリッド・寸法・点を 一点目に拾った AM 3（FUN_004497b0 は 仮想関数 11 の
+ *     点を使うが、ブロックは +0x18 以下、ソリッドは FUN_0042a260、寸法は FUN_0042af20 の
+ *     中点で、移植の要素の持ち方と対応を取っていない）と、寸法・ソリッドを 図形に拾った
+ *     AM 9（FUN_0076fae0 は 寸法なら +0x68 の線、ソリッドなら +0xb4 の図形を使う）
+ *   - 扁平率つきの楕円 が絡む AM 9 の交点（FUN_00460710・FUN_00462070 の歩き。
+ *     移植の cross_obj は 円だけ）。何もしない
+ *   - 段 2 のあと 状態行に 0x277c を出す番号が AM 9 の離しの枝には見えない
+ *     （-1 の枝にだけ有る）。10108 を出すのは読みの当て
+ *   - FUN_00454cb0 の 点の印（view+0x8f10 に覚えて 次に消す）
+ *   - view+0x908c == -1 の枝（どこで立つか分からない）
+ * 命令を替えると捨てる（jw_cmd_set。原典は FUN_004fdc40 のあとの 0x908c を見ていない）。 */
+static int clkpt_foot(const jw_obj *o, double *x, double *y)
+{
+    if (o->cls == JW_SEN) {
+        double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1], l, t;
+
+        if (fabs(dx) + fabs(dy) < 1e-07)
+            return 0;
+        l = sqrt(dx * dx + dy * dy);
+        dx /= l;
+        dy /= l;
+        t = dx * (*x - o->d[0]) + dy * (*y - o->d[1]);
+        *x = dx * t + o->d[0];
+        *y = dy * t + o->d[1];
+        return 1;
+    }
+    if (o->cls == JW_ENKO) {
+        double f = o->d[6], c = cos(o->d[5]), s = sin(o->d[5]);
+        double ex = *x - o->d[0], ey = *y - o->d[1], u, w, l;
+
+        if (f < 1e-07 || fabs(ex) + fabs(ey) < 1e-07)
+            return 0;
+        u = c * ex + s * ey;
+        w = (c * ey - s * ex) / f;
+        l = sqrt(u * u + w * w);
+        if (l < 1e-07)
+            return 0;
+        u *= o->d[2] / l;
+        w *= o->d[2] / l * f;
+        *x = c * u - s * w + o->d[0];
+        *y = c * w + s * u + o->d[1];
+        return 1;
+    }
+    if (o->cls == JW_TEN) {             /* FUN_0045bbf0: 点そのもの */
+        *x = o->d[0];
+        *y = o->d[1];
+        return 1;
+    }
+    return 0;
+}
+
+static int clkpt_ellipse(const jw_obj *o)
+{
+    return o->cls == JW_ENKO && o->d[6] != 0.0 && o->d[6] != 1.0;
+}
+
+/* 二つ目以降の押し（段 5・6）。1 なら この押しは 受けた */
+static int clkpt_click(jw_drawing *d, const jw_view *v, double x, double y,
+                       int button)
+{
+    double px = x, py = y;
+    int mode = clkpt_mode;
+
+    if (!d || current != clkpt_cmd) {
+        clkpt_mode = 0;
+        return 0;
+    }
+    if (mode == 3) {
+        double rx, ry;
+
+        if (button != 0 && !jw_read(d, v, x, y, &rx, &ry))
+            return 1;                   /* 段 6: 読めなければ 0（+0x908c は残る） */
+        if (button != 0) {
+            px = rx;
+            py = ry;
+        }
+        px = (px - clkpt_x) / 2.0 + clkpt_x;
+        py = (py - clkpt_y) / 2.0 + clkpt_y;
+    } else {
+        int j;
+        int found = 0;
+        double cx = 0.0, cy = 0.0;
+
+        if (clkpt_fig.cls != JW_SEN && clkpt_fig.cls != JW_ENKO
+            && clkpt_fig.cls != JW_TEN)
+            return 1;                   /* FUN_0045b6c0 が 0 を返す（落とせない） */
+        j = button == 0 ? jw_pick(d, v, x, y, 3) : -1;
+        if (j >= 0) {
+            const jw_obj *b = &d->obj[j];
+
+            if (clkpt_ellipse(&clkpt_fig) || clkpt_ellipse(b))
+                return 1;               /* 楕円の交点は 入れていない */
+            if (cross_obj(&clkpt_fig, b, x, y, &cx, &cy))
+                found = 1;
+        }
+        if (found) {
+            px = cx;
+            py = cy;
+        }
+        if (button != 0) {
+            double rx, ry;
+
+            if (!jw_read(d, v, x, y, &rx, &ry))
+                return 1;
+            px = rx;
+            py = ry;
+        }
+        if (!clkpt_foot(&clkpt_fig, &px, &py))
+            return 1;
+    }
+    clkpt_mode = 0;
+    jw_cmd_point(d, v, px, py, 0);
+    return 1;
+}
+
+/* 離し（段 2）。hour は 3 か 9、(x, y) は押した点（紙の上）。1 なら 命令へ届ける点が
+   *outx・*outy に有る（届けるのは呼ぶ側。AM 12 と同じ後始末のため、左の点として
+   jw_cmd_point(…, 0)）。0 なら 何も届かない（二点目待ちに入ったか、拾えなかった） */
+int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double y,
+                    double *outx, double *outy)
+{
+    double rx, ry;
+
+    if (!d || (hour != 3 && hour != 9))
+        return 0;
+    if (hour == 3) {
+        int i;
+        const jw_obj *o;
+
+        if (jw_read(d, v, x, y, &rx, &ry)) {
+            clkpt_mode = 3;
+            clkpt_cmd = current;
+            clkpt_x = rx;
+            clkpt_y = ry;
+            return 0;
+        }
+        i = jw_pick(d, v, x, y, 1);
+        if (i < 0)
+            return 0;
+        o = &d->obj[i];
+        if (o->cls == JW_SEN || o->cls == JW_MOJI) {
+            *outx = (o->d[0] + o->d[2]) / 2.0;
+            *outy = (o->d[1] + o->d[3]) / 2.0;
+        } else if (o->cls == JW_ENKO) {
+            *outx = o->d[0];
+            *outy = o->d[1];
+        } else
+            return 0;
+        clkpt_mode = 0;
+        return 1;
+    } else {
+        int i = jw_pick(d, v, x, y, 3);
+
+        if (i < 0)
+            return 0;
+        clkpt_fig = d->obj[i];
+        clkpt_mode = 9;
+        clkpt_cmd = current;
+        return 0;
+    }
 }
 
 static void erase(jw_drawing *d, int i, op_t *o)
@@ -27805,6 +28016,8 @@ void jw_cmd_point(jw_drawing *d, const jw_view *v,
     last_dr = d;
     int depth0 = nop;
 
+    if (clkpt_mode && clkpt_click(d, v, x, y, button))
+        return;
     jw_cmd_point_(d, v, x, y, button);
     /* A step that left a number the drawing cannot hold -- a copy scaled by
        9e11, two nearly parallel lines carried on to where they meet -- is

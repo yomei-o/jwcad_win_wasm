@@ -734,6 +734,107 @@ int main(void)
         app_clock_end();
         ck(d->ndrawn == n && jw_cmd() == JW_CMD_SEN, "線 の 12 時は 何もしない（FUN_006f3490 は読んでいない）");
         app_command(JW_CMD_SEN);
+
+        /* 右 AM 3 中心点・A点 と AM 9 線上点・交点（FUN_0076ea20・FUN_0076fae0）。
+           読みを固定する試験（逆コンパイルの読み、原典では押していない）:
+           点は 命令へ 左の点として届く（view+0x85d0 → 仮想関数 9 の 0x231d） */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 10; o->d[1] = 20; o->d[2] = 200; o->d[3] = 20;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 50; o->d[1] = 0; o->d[2] = 50; o->d[3] = 200;
+        o = jw_add(d, JW_ENKO);
+        o->d[0] = 150; o->d[1] = 150; o->d[2] = 30; o->d[3] = 0; o->d[4] = 6.283185307179586;
+        o->d[5] = 0; o->d[6] = 1;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+#define AMRUN(h, X, Y) do { px = jw_sx(v, (X)); py = jw_sy(v, (Y)); \
+            app_rclock_begin(px, py); at_hour((h), 60, &dx, &dy); \
+            app_clock_move(px + dx, py + dy); app_clock_end(); } while (0)
+        /* AM 3: 線の途中（読めない所）→ 二端の中点 */
+        n = d->ndrawn;
+        AMRUN(3, 150.0, 21.0);
+        ck(d->ndrawn == n + 1 && d->obj[n].cls == JW_TEN
+           && fabs(d->obj[n].d[0] - 105.0) < 1e-6 && fabs(d->obj[n].d[1] - 20.0) < 1e-6,
+           "AM 3: 線の途中で離す → 線の中点 (105,20) に 点（FUN_004497b0 → 仮想関数 11）");
+        /* 円 → 中心 */
+        n = d->ndrawn;
+        AMRUN(3, 150.0 + 30.0 * 0.7071, 150.0 + 30.0 * 0.7071);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 150.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 150.0) < 1e-6, "AM 3: 円を押して → 中心 (150,150) に 点");
+        /* 何もない所 → 何もしない */
+        n = d->ndrawn;
+        AMRUN(3, 300.0, 250.0);
+        ck(d->ndrawn == n, "AM 3: 何も無い所は 何もしない");
+        /* 読取点（線の端 (10,20)）→ 点は出ず、二点目待ち（状態行 10107） */
+        n = d->ndrawn;
+        AMRUN(3, 10.2, 20.1);
+        ck(d->ndrawn == n && strcmp(jw_cmd_prompt(), JW_STR_10107) == 0,
+           "AM 3: 読取点（端）→ 何も置かず 状態行 10107「２点間中心 Ｂ点指示」");
+        /* 左の二点目: 読まず 押した点そのまま。中点 (10+(100-10)/2, 20+(80-20)/2) */
+        app_press(jw_sx(v, 100.0), jw_sy(v, 80.0), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 55.0) < 0.6
+           && fabs(d->obj[n].d[1] - 50.0) < 0.6
+           && strcmp(jw_cmd_prompt(), JW_STR_10107) != 0,
+           "AM 3: 続く左は 二点の中点 (55,50) に 点、待ちは終わる");
+        /* 右の二点目は 読取点が要る */
+        n = d->ndrawn;
+        AMRUN(3, 10.2, 20.1);
+        app_press(jw_sx(v, 120.0), jw_sy(v, 120.0), 1);
+        ck(d->ndrawn == n && strcmp(jw_cmd_prompt(), JW_STR_10107) == 0,
+           "AM 3: 右の二点目が読めない所なら 何もせず 待ちのまま（段 6）");
+        app_press(jw_sx(v, 200.0), jw_sy(v, 20.0), 1);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 105.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 20.0) < 1e-6,
+           "AM 3: 右で端 (200,20) を読めば 中点 (105,20) に 点");
+        /* 命令を替えれば待ちは捨てる */
+        AMRUN(3, 10.2, 20.1);
+        app_command(JW_CMD_SEN);
+        app_command(JW_CMD_TEN);
+        ck(strcmp(jw_cmd_prompt(), JW_STR_10107) != 0, "命令を替えると 二点目待ちは捨てる");
+
+        /* AM 9: 線 A（(10,20)-(200,20)）を拾い、二図形目との交点を 線 A の上に */
+        n = d->ndrawn;
+        AMRUN(9, 150.0, 21.0);
+        ck(d->ndrawn == n && strcmp(jw_cmd_prompt(), JW_STR_10108) == 0,
+           "AM 9: 一図形目は 何も置かず 状態行 10108");
+        app_press(jw_sx(v, 50.3), jw_sy(v, 100.0), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 50.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 20.0) < 1e-6,
+           "AM 9: 続く左で 縦の線を押す → 二線の交点 (50,20) に 点");
+        n = d->ndrawn;
+        AMRUN(9, 150.0, 21.0);
+        app_press(jw_sx(v, 80.0), jw_sy(v, 60.0), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 80.0) < 0.6
+           && fabs(d->obj[n].d[1] - 20.0) < 1e-6,
+           "AM 9: 二図形目が無ければ 押した点を 線 A へ落とす（線上点 (80,20)）");
+        n = d->ndrawn;
+        AMRUN(9, 150.0, 21.0);
+        app_press(jw_sx(v, 150.0 + 30.0 * 0.7071), jw_sy(v, 150.0 + 30.0 * 0.7071), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[1] - 20.0) < 1e-6
+           && fabs(d->obj[n].d[0] - (150.0 + 30.0 * 0.7071)) < 0.6,
+           "AM 9: 円と線 A は交わらない → 押した点の 線 A への足");
+        /* 円を一図形目 → 押した点から 円の上へ（中心から外へ） */
+        n = d->ndrawn;
+        AMRUN(9, 150.0 + 30.0 * 0.7071, 150.0 + 30.0 * 0.7071);
+        app_press(jw_sx(v, 150.0), jw_sy(v, 190.0), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 150.0) < 0.5
+           && fabs(d->obj[n].d[1] - 180.0) < 0.5,
+           "AM 9: 円が一図形目 → 下の (150,190) は 円の上の (150,180) へ");
+        /* 右の二つ目は 読取点が要り、交点は使わない */
+        n = d->ndrawn;
+        AMRUN(9, 150.0, 21.0);
+        app_press(jw_sx(v, 120.0), jw_sy(v, 120.0), 1);
+        ck(d->ndrawn == n && strcmp(jw_cmd_prompt(), JW_STR_10108) == 0,
+           "AM 9: 右の二つ目が読めない所なら 何もせず 待ちのまま");
+        app_press(jw_sx(v, 200.0), jw_sy(v, 20.0), 1);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 200.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 20.0) < 1e-6, "AM 9: 右で端を読めば その点を 線 A へ落とす (200,20)");
+#undef AMRUN
+        app_command(JW_CMD_SEN);
     }
 
     /* 右 PM 1〜12 の角度・長さ取得（FUN_00772770・00771030・007748b0・00770b60・

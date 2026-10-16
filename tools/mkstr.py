@@ -230,6 +230,8 @@ WANT = [
     (10102, 'right clock AM 9: point on a line / crossing (FUN_0076fae0)'),
     (10103, 'right clock AM 6: offset (FUN_0076f880)'),
     (10104, 'right clock AM 12: circle quarter point (FUN_0076efd0)'),
+    (10107, 'right clock AM 3: second point prompt (FUN_0076ea20, 0x277b)'),
+    (10108, 'right clock AM 9: second figure prompt (FUN_0076fae0, 0x277c)'),
     (10105, 'right clock AM 4: undo'),
     (10106, 'right clock AM 5: redo'),
     (10110, 'not a circle (FUN_0076efd0)'),

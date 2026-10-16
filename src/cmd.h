@@ -574,6 +574,10 @@ int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
    二点・三点のもの（2・3・9・10）は 続きの押しを待つ（src/cmd.c の注）。1 なら何か起きた */
 int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y);   /* 左 PM 6【全】属性取得の 箱への書込み（線のとき） */
 int jw_cmd_clock_get(jw_drawing *d, const jw_view *v, int hour, double x, double y);
+/* 右の時計 AM 3 中心点・A点 / AM 9 線上点・交点 の離し（src/cmd.c の clkpt の注）。
+   1 なら *outx・*outy を左の点として命令へ。続きの押しは jw_cmd_point が受ける */
+int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double y,
+                    double *outx, double *outy);
 /* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
 void jw_cmd_sen_sizekeep(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */
