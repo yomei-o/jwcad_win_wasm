@@ -15812,6 +15812,14 @@ int jw_env_read(jw_drawing *d, const unsigned char *b, long n)
                     d->print_width[idx] = w;
                 taken++;
             }
+        } else if (!strcmp(key, "FLG_1")) {
+            /* 原典は "%d %d %d %d %d %d" で読み、二つ目を 0 以上に切って 文書 +0x83d8 へ
+               （一つ目は DAT_00a0cabc、三つ目は +0x83a8。移植はまだ持たない） */
+            int f[3] = { -1, -1, -1 };
+
+            sscanf(v, "%d %d %d", &f[0], &f[1], &f[2]);
+            d->hk_flg1 = f[1] > 0 ? f[1] : 0;
+            taken++;
         } else if (env_sunpo_read(key, v)) {
             taken++;
         } else if (!strcmp(key, "MWIDE") || !strcmp(key, "MHIGH")
@@ -23636,11 +23644,13 @@ static void hk_wall_swap_line(jw_drawing *d, int k)
 }
 
 /* 壁で 辺を切る（ed → ed2）。返り値 切った辺の数、原典が札で終わるところなら 札を出して -1 */
-static int hk_wall_prep(const hk_edge *ed, int ne, hk_edge *ed2, int max, hk_wall *w, double north)
+static int hk_wall_prep(const jw_drawing *d, const hk_edge *ed, int ne, hk_edge *ed2, int max, hk_wall *w,
+                        double north)
 {
     int m;
 
     hk_wall_init(w, hk_wall_xy[0], hk_wall_xy[1], hk_wall_xy[2], hk_wall_xy[3], north);
+    w->flag = d->hk_flg1;           /* 文書 +0x83d8（.jwf の FLG_1） */
     m = hk_wall_clip(w, ed, ne, ed2, max);
     if (m == -5534)
         JW_NOTICE(5534);            /* 壁面線が建物通過 */
@@ -23944,7 +23954,7 @@ static int hk_iso_n(jw_drawing *d, double level, double label)
     if (ne < 2)
         return 0;
     if (hk_wall_on) {               /* 壁面日影（FUN_0069ac30 は 壁を FUN_00542310・FUN_0054a0b0 へ渡す） */
-        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        ne = hk_wall_prep(d, ed, ne, ed2, 2000, &wall, north);
         if (ne < 1)
             return 0;
         E = ed2;
@@ -24110,7 +24120,7 @@ static int hk_outlines(jw_drawing *d, int half)
     if (ne < 2)
         return 0;
     if (hk_wall_on) {               /* 壁面日影: 壁で切った建物の影を 壁の立面に映す */
-        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        ne = hk_wall_prep(d, ed, ne, ed2, 2000, &wall, north);
         if (ne < 0)
             return 0;
         E = ed2;
@@ -24674,7 +24684,7 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     if (ne < 2)
         return 0;
     if (hk_wall_on) {               /* 壁面日影（FUN_0069e850 は 壁を FUN_00542310・FUN_005470d0 へ渡す） */
-        ne = hk_wall_prep(ed, ne, ed2, 2000, &wall, north);
+        ne = hk_wall_prep(d, ed, ne, ed2, 2000, &wall, north);
         if (ne < 0)
             return 0;
         E = ed2;

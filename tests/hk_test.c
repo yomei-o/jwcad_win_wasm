@@ -895,6 +895,49 @@ int main(int argc, char **argv)
         } else
             puts("ok   壁面日影の計算（hk_wall_clip・lit・lift・cut）");
     }
+    /* 文書 +0x83d8（.jwf の FLG_1 の二つ目、負は 0。読み手 _unassigned.c 131836）と 壁面日影での効き:
+       2 以上で 0x159e を見ない（FUN_005415e0）、4 以上で 壁の右も残す・6 以上で 端の垂線で切らない
+       （FUN_0053f880 の this+0x4a524 < 4・< 6。0x4a524 は CZukeiKage1/2 が +0x83d8 から写す）。逆コンパイルの読み */
+    {
+        static const unsigned char j1[] = "#x\r\nFLG_1 = 1 5 3\r\n", j2[] = "FLG_1=0 -2 0\r\n";
+        static const int rc[8] = { -60, -10, -40, -10, -40, 10, -60, 10 };
+        jw_drawing b;
+        hk_wall w;
+        hk_edge e[4], o[16];
+        double x0, y0, x1, y1;
+        int ok = 1, k, m;
+
+        memset(&b, 0, sizeof b);
+        ok = ok && jw_env_read(&b, j1, (long)sizeof j1 - 1) == 1 && b.hk_flg1 == 5;
+        ok = ok && jw_env_read(&b, j2, (long)sizeof j2 - 1) == 1 && b.hk_flg1 == 0;
+        hk_wall_init(&w, 0, 0, 100, 0, 0.0);
+        for (k = 0; k < 4; k++) {           /* 壁 x 0..100 の内を横切る（上の 0x159e の形） */
+            e[k].a.x = rc[k * 2] + 100.0;
+            e[k].a.y = rc[k * 2 + 1];
+            e[k].b.x = rc[(k * 2 + 2) % 8] + 100.0;
+            e[k].b.y = rc[(k * 2 + 3) % 8];
+            e[k].za_mm = e[k].zb_mm = 5.0;
+        }
+        ok = ok && hk_wall_clip(&w, e, 4, o, 16) == -5534;
+        w.flag = 2;
+        m = hk_wall_clip(&w, e, 4, o, 16);
+        ok = ok && m > 0;
+        w.flag = 0;
+        x0 = 20; y0 = -5; x1 = 30; y1 = -5;      /* 壁の右: 0 では捨て、4 では残す */
+        ok = ok && !hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1);
+        w.flag = 4;
+        ok = ok && hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1) && x0 == 20.0 && y0 == -5.0 && x1 == 30.0;
+        x0 = -10; y0 = 5; x1 = 10; y1 = 5;       /* 端の外: 4 では 始点の垂線で切り、6 では切らない */
+        ok = ok && hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1) && fabs(x0) < 1e-12;
+        w.flag = 6;
+        x0 = -10; y0 = 5; x1 = 10; y1 = 5;
+        ok = ok && hk_wall_cut(&w, 100.0, &x0, &y0, &x1, &y1) && x0 == -10.0 && x1 == 10.0;
+        if (!ok) {
+            puts("BAD  文書 +0x83d8（FLG_1）と壁面日影");
+            fails++;
+        } else
+            puts("ok   文書 +0x83d8（FLG_1）と壁面日影");
+    }
     /* 壁面日影の 1時間毎・指定点・等時間: 建物の北 100 画素に 東西の壁を 東から西へ引く。字は壁の左（南）なので
        壁の線を入れ替える（FUN_00541130）。線は 壁の左（北）で 両端の間だけ、正午の屋根の辺は 壁の上
        h = z − 距離/|s|（地面の影 y_n + z s を 壁へ写す）に一本。指定点は 立面の低い点だけ 正午に影 */

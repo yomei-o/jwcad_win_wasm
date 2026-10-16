@@ -239,6 +239,11 @@ typedef struct {
     } lt[20];
     int lt_have;
 
+    /* 文書 +0x83d8: .jwf の FLG_1 の二つ目（負は 0）。壁面日影で 2 以上は 0x159e を見ない、
+       4 以上は 地面の影も書く、6 以上は 端で切らない（src/hikage.c の hk_wall_*）。
+       原典の読み手 FUN_00528xxx の "FLG_1" の枝（_unassigned.c 131836）。ファイルには入らない */
+    int hk_flg1;
+
     const char *error;
 } jw_drawing;
 
