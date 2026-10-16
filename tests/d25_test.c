@@ -258,6 +258,48 @@ static int views(void)
     vck(d->ndrawn == nd + 4 && jw_d25_mode() == 0, "作図 (1122) で四本、平面へ");
     jw_cmd_undo(d);
     vck(d->ndrawn == nd, "  戻る で四本とも消える");
+    /* 作図に Ctrl（FUN_006194a0 の間引き、逆コンパイルの読み）: 図面に 同じ端の線（向きは
+       逆でも）が あれば 書かない。先に 一本目の写しを 逆向きで 図面に置いておく */
+    {
+        int g, ol = -1, lyr_ok;
+        double o1[4];
+        jw_obj *pre;
+
+        for (i = 0; i < d->ndrawn; i++)
+            if (d->obj[i].cls == JW_SEN) {
+                ol = d->obj[i].layer;
+                break;
+            }
+        jw_d25_forget();
+        jw_cmd_bar(d, 1064);
+        vck(view_line(d, 0, o1, &nv), "Ctrl 作図の用意");
+        pre = jw_add(d, JW_SEN);
+        pre->d[0] = o1[2]; pre->d[1] = o1[3]; pre->d[2] = o1[0]; pre->d[3] = o1[1];
+        jw_d25_keymods(0, 1);
+        jw_cmd_bar(d, 1122);
+        vck(d->ndrawn == nd + 1 + 3, "Ctrl 作図は 同じ端の線を 書かない（四本のうち一本）");
+        d->ndrawn = d->nobj = nd;
+        jw_d25_keymods(1, 1);           /* Shift も押せば 間引かない・元のレイヤ */
+        for (g = 0; g < 16; g++)
+            if (d->group[g].state == 3)
+                d->group[g].write_layer = (unsigned char)((ol + 1) & 15);
+        jw_d25_forget();
+        jw_cmd_bar(d, 1064);
+        jw_cmd_bar(d, 1122);
+        for (i = nd, lyr_ok = 1; i < d->ndrawn; i++)
+            lyr_ok &= d->obj[i].layer == ol;
+        vck(d->ndrawn == nd + 4 && lyr_ok, "  Shift+Ctrl は 間引かず 元の線のレイヤへ");
+        d->ndrawn = d->nobj = nd;
+        jw_d25_keymods(0, 0);
+        jw_d25_forget();
+        jw_cmd_bar(d, 1064);
+        jw_cmd_bar(d, 1122);
+        for (i = nd, lyr_ok = 1; i < d->ndrawn; i++)
+            lyr_ok &= d->obj[i].layer == ((ol + 1) & 15);
+        vck(d->ndrawn == nd + 4 && lyr_ok, "  押さなければ 間引かず 書込みレイヤへ");
+    }
+    d->ndrawn = d->nobj = nd;           /* 写した線を捨てる */
+    jw_d25_keymods(0, 0);
     /* 視点を立体の向こうへ: 写らない */
     jw_cmd_bar(d, 1064);
     for (i = 0; i < 30; i++)
@@ -960,6 +1002,31 @@ static int csolids(void)
     free(one.obj);
     jw_cmd_bar(d, 1121);
     vck(ns < nd && ns > 0, "  刻みが負なら 裏の面を落とす");
+    /* 輪（線種 105、内側の半径は 8 つ目の値、FUN_0042ebf0・FUN_00437050。逆コンパイルの読み） */
+    d->nobj = d->ndrawn = 0;
+    so = add_csol(d, 105, 2000, 2000, 50, 0.0, 2.0 * 3.14159265358979323846, 20.0);
+    add_text(d, 2000, 2000, "3,0");
+    jw_d25_forget();
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 48, "輪 105 は 透視図で 帯 24 × 二段");
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3");
+    jw_d25_forget();
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nface() == 72, "  字 3 は 一段 24 帯（刻み 5）");
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0");
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nell() == 2 && jw_d25_nface() == 0, "  扁平 1 の輪は アイソメで 楕円（外側だけ）");
+    jw_cmd_bar(d, 1121);
+    so->d[3] = 0.5;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 48 && jw_d25_nell() == 0, "  扁平 0.5 の輪は アイソメでも 面");
+    jw_cmd_bar(d, 1121);
+    so->ltype = 106;
+    jw_cmd_bar(d, 1066);
+    vck(jw_d25_nface() == 48, "  106 も 面");
+    jw_cmd_bar(d, 1121);
     (void)t;
     printf("%-4s csolids\n", vfail ? "BAD" : "ok");
     return vfail != 0;

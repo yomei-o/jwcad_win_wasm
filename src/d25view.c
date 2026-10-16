@@ -1447,8 +1447,9 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
  * 始め d5・開き d6。d7 < 10 かつ |d6| ≤ 2π なら 部分: 種別 0、4 < d7 < 6 なら 1（弓形）、
  * d7 ≤ -0.5 で 線種 < 110 で 0.001744 < |d6| < π/2 なら -1（円外側）。それ以外は 全円
  * （始め 0・開き 2π、種別 2）。線種 > 109 なら 種別に 10 を足す（輪郭だけ）。
- * 線種 105・106 は 内側の半径（+0xa0）を持つ輪になるが、jw_obj は d[8] までで
- * +0xa0 を持たない ので 入れていない（101 と同じに 読む）。
+ * 線種 105・106 は 輪: 内側の半径（+0xa0）は 8 つ目の値（d[7]、FUN_0042ebf0 が +0xa0 に
+ * 移し +0x80 を 0 に）。種別 100・200。面の道（扁平が 1 でない・透視図・n>7）は
+ * 内側の A・外側の A・外側の B・内側の B の帯、扁平 1 のアイソメの楕円の道は 外側だけ。
  * 字（中心から 0.001 以内、同じレイヤの 最初の文字）を FUN_006208a0 で読み、数 n・
  * 末尾の種別。n=0 かつ #lh なら (#lh, 0) の二つ。
  *   段 L: n ≥ 8 は 1、n 4..7 は 2（二段目は 中心 += (v3,v4)・n>5 で 半径 v5・n>6 で
@@ -1501,6 +1502,7 @@ static void one_csolid(const jw_drawing *d, const jw_obj *o, double base, int lh
                        int lhf)
 {
     double v[12], cxo = o->d[0], cyo = o->d[1], r, flat, tilt, a0, sw, d7 = o->d[7];
+    double inner = 0.0, ein_r = 0.0, ein_f = 0.0;    /* 輪（線種 105・106）の内側 */
     double ec[3][2], er[3], ef[3];      /* 要素 1・2（段ごとの 中心・半径・扁平） */
     int kind, n = 0, tk = 0, j, L, mode, i, lvl, rings_neg;
     d25_rot rot;
@@ -1512,6 +1514,12 @@ static void one_csolid(const jw_drawing *d, const jw_obj *o, double base, int lh
     tilt = o->d[4];
     a0 = o->d[5];
     sw = o->d[6];
+    if (o->ltype == 105 || o->ltype == 106) {
+        /* FUN_0042ebf0（読み込み、0x42ec6f..）: 線種 i・j は +0xa0（内側の半径）= 8 つ目の値、
+           +0x80 は 0。0 は 「d7 < 10」なので 部分の円（開きが 2π 以内なら） */
+        inner = d7;
+        d7 = 0.0;
+    }
     if (d7 < 10.0 && fabs(sw) <= 6.283185207179586) {
         kind = 0;
         if (d7 > 4.0 && d7 < 6.0)
@@ -1525,6 +1533,10 @@ static void one_csolid(const jw_drawing *d, const jw_obj *o, double base, int lh
     }
     if (o->ltype > 109)
         kind += 10;
+    if (o->ltype == 105)                /* FUN_00437050 の 0x4373a3.. */
+        kind = 100;
+    if (o->ltype == 106)
+        kind = 200;
     if (r < 1e-07 || fabs(sw) < 1e-07)
         return;
     if (sw < 0.0) {
@@ -1626,7 +1638,22 @@ static void one_csolid(const jw_drawing *d, const jw_obj *o, double base, int lh
     fake.cls = JW_ENKO;
     fake.ltype = 1;
     fake.color = o->color < 10 ? o->color : 1;
-    if (mode == 2 || m_mode != 3 || n > 7) {
+    if (kind > 99) {
+        /* FUN_00437050 の 0x4373f1..: 内側の弧は 外と同じ（中心・傾き・始め・開き）で
+           半径 |+0xa0|、扁平は 105 なら 外と同じ、106 なら (R·扁平 − (R − 内側)) / 内側
+           （0 より小さければ 0） */
+        ein_r = fabs(inner);
+        ein_f = flat;
+        if (kind > 199) {
+            ein_f = (r * flat - (r - inner)) / inner;
+            if (ein_f < 0.0)
+                ein_f = 0.0;
+        }
+    }
+    /* 輪は 扁平が 1 でないと（1±1e-7）面の道（0x60efc7..）。1 の円は 楕円の道で 外側だけ
+       （内側の楕円を FUN_00619710 が どう置くかは 読んでいない） */
+    if (mode == 2 || m_mode != 3 || n > 7 ||
+        (kind > 99 && (flat >= 1.0000001 || flat <= 0.9999999))) {
         double step = fabs(v[2]), cc[2], z, da;
         int segs;
 
@@ -1684,7 +1711,16 @@ static void one_csolid(const jw_drawing *d, const jw_obj *o, double base, int lh
 
                 rot_pt(&rot, er[lvl] * cos(a), er[lvl] * sin(a) * ef[lvl], &ax, &ay);
                 rot_pt(&rot, er[lvl] * cos(b), er[lvl] * sin(b) * ef[lvl], &bx, &by);
-                if (mode == 0) {
+                if (kind > 99) {        /* 輪: 内側の A → 外側の A → 外側の B → 内側の B（高さは 段の） */
+                    double ia, ib, ja, jb;
+
+                    rot_pt(&rot, ein_r * cos(a), ein_r * sin(a) * ein_f, &ia, &ib);
+                    rot_pt(&rot, ein_r * cos(b), ein_r * sin(b) * ein_f, &ja, &jb);
+                    q[0][0] = ia; q[0][1] = ib; q[0][2] = z;
+                    q[1][0] = ax; q[1][1] = ay; q[1][2] = z;
+                    q[2][0] = bx; q[2][1] = by; q[2][2] = z;
+                    q[3][0] = ja; q[3][1] = jb; q[3][2] = z;
+                } else if (mode == 0) {
                     q[0][0] = cc[0]; q[0][1] = cc[1]; q[0][2] = z;
                     q[1][0] = ax; q[1][1] = ay; q[1][2] = z;
                     q[2][0] = bx; q[2][1] = by; q[2][2] = z;
@@ -2334,24 +2370,74 @@ int jw_d25_view(const jw_drawing *d, jw_drawing *out)
     return n;
 }
 
+/* 押した時の Shift・Ctrl（原典 DAT_00a0cc6c・DAT_00a0cc74、jw_cmd_keymods が渡す） */
+static int km_shift, km_ctrl;
+
+void jw_d25_keymods(int shift, int ctrl)
+{
+    km_shift = shift != 0;
+    km_ctrl = ctrl != 0;
+}
+
+/* FUN_006194a0（逆コンパイルの読み、原典では押していない）: 作図に Ctrl を押していた
+ * （FUN_006119c0 の +0xb4、Shift も押していれば 0）ときの 線の間引き。長さが 0
+ * （x1=x2 かつ y1=y2、差 1e-7 未満）の線は 書かず、図面の線（CDataSen、先頭から 2001
+ * 本まで）に 同じ端の線（向きは逆でも）があれば 書かない。 */
+static int sen_thin(const jw_drawing *d, double x0, double y0, double x1, double y1)
+{
+    int i, cnt = 0;
+
+    if (fabs(x1 - x0) < 1e-07 && fabs(y1 - y0) < 1e-07)
+        return 1;
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *t = &d->obj[i];
+
+        if (t->cls != JW_SEN)
+            continue;
+        if (2000 < cnt)
+            return 0;
+        cnt++;
+        if ((fabs(t->d[0] - x0) < 1e-07 && fabs(t->d[1] - y0) < 1e-07 &&
+             fabs(t->d[2] - x1) < 1e-07 && fabs(t->d[3] - y1) < 1e-07) ||
+            (fabs(t->d[0] - x1) < 1e-07 && fabs(t->d[1] - y1) < 1e-07 &&
+             fabs(t->d[2] - x0) < 1e-07 && fabs(t->d[3] - y0) < 1e-07))
+            return 1;
+    }
+    return 0;
+}
+
 /* slot 26 FUN_006119c0: 写した線を書込みレイヤへ（線種・線色は元の線、線幅は 0）。
    視点の後ろの線は書かず 5384「作図されない部分があります」 */
 static int write_out(jw_drawing *d)
 {
     d25_cam k;
     int i, made = 0, hidden = 0;
+    /* FUN_006119c0（逆コンパイルの読み、原典では押していない）: Shift と Ctrl を
+       一緒に押した作図は FUN_00615ca0 が 書く層を 元の線の層（+0x2e）にする
+       （押さなければ 書込みレイヤ、グループはいつも 書込みの）。Ctrl だけなら 線の間引き */
+    int keep = km_shift && km_ctrl, thin = km_ctrl && !km_shift;
 
     prepare(d, &k);
     for (i = 0; i < nfc; i++) {        /* 面はソリッドで（FUN_006119c0 の 0x6119xx） */
+        int first = d->ndrawn;
         int m = put_face(d, &k, &fc[i], 0);
 
         if (!m && m_mode != 3)
             hidden = 1;
         made += m;
+        if (keep)
+            for (; first < d->ndrawn; first++)
+                d->obj[first].layer = (unsigned short)fc[i].layer;
     }
-    for (i = 0; m_mode == 3 && i < nel; i++)  /* 楕円は弧で（FUN_006119c0 の +0x390） */
-        if (put_ell(d, &k, &el[i]))
+    for (i = 0; m_mode == 3 && i < nel; i++) { /* 楕円は弧で（FUN_006119c0 の +0x390） */
+        jw_obj *s = put_ell(d, &k, &el[i]);
+
+        if (s) {
+            if (keep)
+                s->layer = (unsigned short)el[i].layer;
             made++;
+        }
+    }
     for (i = 0; i < nln; i++) {
         double o[4];
         jw_obj *s;
@@ -2360,11 +2446,15 @@ static int write_out(jw_drawing *d)
             hidden = 1;
             continue;
         }
+        if (thin && sen_thin(d, o[0], o[1], o[2], o[3]))
+            continue;
         s = put(d, o[0], o[1], o[2], o[3]);
         if (!s)
             break;
         s->ltype = ln[i].ltype;
         s->color = ln[i].color;
+        if (keep)
+            s->layer = (unsigned short)ln[i].layer;
         made++;
     }
     m_mode = 0;
