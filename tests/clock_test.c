@@ -371,6 +371,45 @@ int main(void)
         ck(fabs(atof(jw_cmd_box(1412)) - 14142.13562) < 1e-3, "PM 6: 寸法の箱に 長さ × 縮尺（1/100）");
     }
 
+    /* ---- PM 6【全】属性取得: 命令が 円（FUN_006485b0）・複線（FUN_0065c360）のとき ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py, dx2, dy2;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_ENKO);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 50; o->d[3] = 0; o->d[4] = 6.283185307179586;
+        o->d[5] = 0; o->d[6] = 0.5;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_ENKO);
+        px = jw_sx(v, 50.0);
+        py = jw_sy(v, 0.0);
+        at_hour(6, 60, &dx2, &dy2);
+        app_clock_begin(px, py);
+        app_clock_right();
+        app_clock_move(px + dx2, py + dy2);
+        app_clock_end();
+        ck(jw_cmd() == JW_CMD_ENKO, "PM 6 円: 命令は円のまま");
+        ck(fabs(atof(jw_cmd_box(1413))) < 1e-6, "PM 6 円: 傾きの箱 0");
+        ck(fabs(atof(jw_cmd_box(1411)) - 5000.0) < 1e-3, "PM 6 円: 半径の箱 半径 × 縮尺");
+        ck(fabs(atof(jw_cmd_box(1412)) - 50.0) < 1e-6, "PM 6 円: 扁平率の箱 50");
+
+        jw_cmd_m_input(1);
+        app_command(JW_CMD_ENKO);
+        app_clock_begin(px, py);
+        app_clock_right();
+        app_clock_move(px + dx2, py + dy2);
+        app_clock_end();
+        ck(fabs(atof(jw_cmd_box(1411)) - 5000.0) < 1e-3, "PM 6 円 ｍ: 読みの箱は ×1000 で元の長さ");
+        ck(fabs(atof(jw_cmd_box_raw(1411)) - 5.0) < 1e-6, "PM 6 円 ｍ: 箱の字は ÷1000");
+        jw_cmd_m_input(0);
+    }
+
     /* ---- AM 5 線種変更（FUN_0076e360）---- */
     {
         jw_drawing *d;

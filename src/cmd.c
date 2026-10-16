@@ -24929,24 +24929,46 @@ static int clk_get_next(jw_drawing *d, const jw_view *v, double x, double y,
     return 1;
 }
 
+/* ｍ単位入力（DAT_00a0d62c）なら 書き戻す長さを ÷DAT_00a0d630 してから箱へ
+   （FUN_005be9e0・FUN_004b2250・FUN_004ac6e0 の書き手に共通）。表 mu_len の箱だけ */
+static void zok_put_len(int id, double len)
+{
+    char b[48];
+
+    if (mu_len_box(current, id))
+        len /= SUN_M_DIV;
+    snprintf(b, sizeof b, "%.10g", len);
+    jw_cmd_box_put(id, b);
+}
+
 /* 左 PM 6【全】属性取得（FUN_007751e0(1, 押した点)）の後半: 取った要素の 角度・長さを
  * いまの命令の仮想関数 51（*view+0xcc、引数は 角度 local_cb38・長さ local_cb0c・円弧の
- * 始角 終角・扁平率×100）へ渡す。線（CZukeiSen）の 51 は FUN_006f0450 →
- * FUN_006f0330（FUN_005be990 = 傾きの箱）と FUN_006f0390（1e-07 以上のとき
- * FUN_005be9e0 = 寸法の箱）で、命令が線のときだけ（バーの +0x1a0 が +0x861c と同じ）。
+ * 始角 終角・扁平率×100 local_cb74）へ渡す。各命令の 51 は バーの +0x1a0 が +0x85f0 と
+ * 同じ（いまの命令のバー）のときだけ働く。
+ *   線（CZukeiSen FUN_006f0450）: FUN_006f0330（FUN_005be990 = 傾き 1411）と
+ *     FUN_006f0390（1e-07 以上のとき FUN_005be9e0 = 寸法 1412）
+ *   円（CZukeiEnko FUN_006485b0）: FUN_006484e0（FUN_004ac7f0 = 傾き 1413）・
+ *     FUN_00648540（1e-07 以上のとき FUN_004ac6e0 = 半径 1411）・扁平率×100 が
+ *     5 より大きく 1000 より小さいとき FUN_004ac7a0（扁平率 1412）
+ *   複線（CZukeiFukusen FUN_0065c360 → FUN_0065c2e0）: +0x2b0 == 0 のとき 長さ ÷ 縮尺 を
+ *     FUN_004b2250（× 縮尺 のあと 1e-07 未満は 0、間隔 1411）へ。移植は +0x2b0（留線出の
+ *     旗か。FUN_0065bb40 が 1 にする）を持たないので 箱があれば（para_step 1 以上）入れる。
+ *     原典が同時に立てる +0x20c = 1（線を拾った状態）は入れていない
  *   押したのが線: 角度は FUN_007770c0（向き − 軸角を -90 より大きく 90 以下、0・90 は
  *   ぴったり）、長さは 両端の距離 × 書込みグループの縮尺
- *   押したのが円: 角度は 傾き − 軸角（そのまま）、長さは 半径 × 縮尺
- * 命令が 円・文字・複線 のときの 51（FUN_006485b0・FUN_006c4840・FUN_0065c360）、
- * 押したのが文字のときは 入れていない。ｍ単位入力（DAT_00a0d62c）の ÷DAT_00a0d630 も
- * 入れていない。逆コンパイルの読み、原典では押していない。1 なら箱に入れた */
+ *   押したのが円: 角度は 傾き − 軸角（そのまま）、長さは 半径 × 縮尺、扁平率は d[6]×100
+ *   ｍ単位入力は 書き手が ÷DAT_00a0d630 してから箱へ（zok_put_len）
+ * 命令が 文字（FUN_006c4840、状態を作り直す 888 バイト）のとき、押したのが文字・点の
+ * ときの中身の写しは 入れていない。逆コンパイルの読み、原典では押していない。
+ * 1 なら箱に入れた */
 int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
 {
-    double axis = jw_cmd_axis(), ang, len;
+    double axis = jw_cmd_axis(), ang, len, flat = 0.0;
     char b[48];
     int i;
 
-    if (!d || current != JW_CMD_SEN)
+    if (!d || (current != JW_CMD_SEN && current != JW_CMD_ENKO
+               && current != JW_CMD_FUKUSEN))
         return 0;
     i = jw_pick(d, v, x, y, 3);
     if (i < 0)
@@ -24958,15 +24980,30 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
     } else if (d->obj[i].cls == JW_ENKO) {
         ang = d->obj[i].d[5] * 180.0 / PI - axis;
         len = d->obj[i].d[2];
+        flat = d->obj[i].d[6] * 100.0;      /* local_cb74 = FUN_0040c180() × 100 */
     } else
         return 0;
     len *= write_scale(d);
+    if (current == JW_CMD_FUKUSEN) {
+        /* FUN_0065c2e0 → FUN_004b2250: (長さ ÷ 縮尺) × 縮尺、1e-07 未満は 0 */
+        zok_put_len(1411, fabs(len) < 1e-07 ? 0.0 : len);
+        return 1;
+    }
+    if (current == JW_CMD_ENKO) {
+        snprintf(b, sizeof b, "%.10g", ang);
+        jw_cmd_box_put(1413, b);            /* FUN_006484e0 → FUN_004ac7f0 */
+        if (len >= 1e-07)
+            zok_put_len(1411, len);         /* FUN_00648540 → FUN_004ac6e0 */
+        if (flat > 5.0 && flat < 1000.0) {  /* FUN_004ac7a0 */
+            snprintf(b, sizeof b, "%.10g", flat);
+            jw_cmd_box_put(1412, b);
+        }
+        return 1;
+    }
     snprintf(b, sizeof b, "%.10g", ang);
     jw_cmd_box_put(1411, b);
-    if (len >= 1e-07) {
-        snprintf(b, sizeof b, "%.10g", len);
-        jw_cmd_box_put(1412, b);
-    }
+    if (len >= 1e-07)
+        zok_put_len(1412, len);
     return 1;
 }
 
