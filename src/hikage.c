@@ -897,6 +897,89 @@ void hk_fmt_n0_line(char *out, int outsz, int no, const hk_interval *iv, int niv
     }
 }
 
+/* 指定点の グラフ。FUN_0069da00 の +0x83dc の枝を objdump で読んだ（逆コンパイルでは
+   FUN_0069cf20 の引数の並びが崩れている。積み順から: 一覧・枠・色・座標系・秒1・秒2・
+   0.6・r1・r2）。逆コンパイルの読み、原典では押していない */
+typedef struct {
+    double ox, oy, c, s;
+    hk_gline *g;
+    int n, max;
+} hk_graph_t;
+
+/* FUN_0069cf20: (a1, r1) → (a2, r2)、a は秒で x = a × 0.6 / 60 */
+static int hk_graph_line(hk_graph_t *q, int color, double a1, double a2, double r1, double r2)
+{
+    double x1 = a1 * 0.6 / 60.0, x2 = a2 * 0.6 / 60.0;
+    double X1 = q->c * x1 - q->s * r1 + q->ox, Y1 = q->c * r1 + q->s * x1 + q->oy;
+    double X2 = q->c * x2 - q->s * r2 + q->ox, Y2 = q->c * r2 + q->s * x2 + q->oy;
+
+    if (sqrt((X2 - X1) * (X2 - X1) + (Y2 - Y1) * (Y2 - Y1)) <= 1e-7)
+        return 0;
+    if (q->n < q->max) {
+        q->g[q->n].x0 = X1;
+        q->g[q->n].y0 = Y1;
+        q->g[q->n].x1 = X2;
+        q->g[q->n].y1 = Y2;
+        q->g[q->n].color = color;
+        q->n++;
+    }
+    return 1;
+}
+
+int hk_point_graph(double ox, double oy, double ang, int n15, const hk_interval *iv, int niv,
+                   int wall, int w1, int w2, hk_gline *g, int maxg)
+{
+    hk_graph_t q;
+    double a = ang * PI / 180.0, T = n15 ? 360.0 : 480.0, H = 2.0;
+    double b1 = 0.0, b2 = 0.0;
+    int i, j, nh = n15 ? 6 : 8, off;
+
+    q.c = cos(a);
+    q.s = sin(a);
+    /* 原点は 字の基点から 局所の (0, -1)（0x69dc4e〜0x69dd10） */
+    q.ox = ox + q.s * 1.0;
+    q.oy = oy - q.c * 1.0;
+    q.g = g;
+    q.n = 0;
+    q.max = maxg;
+    hk_graph_line(&q, 1, 0.0, T * 60.0, 0.0, 0.0);
+    hk_graph_line(&q, 1, 0.0, T * 60.0, -H, -H);
+    for (i = 0; i <= nh; i++)                   /* 時の目盛 */
+        hk_graph_line(&q, 1, i * 3600.0, i * 3600.0, 0.5, -H - 0.5);
+    off = nh / 2 * 3600;                        /* 正午からの秒を 初めからの秒へ */
+    if (wall) {                                 /* +0x4a468 > -30000 */
+        double h3 = H / 3.0;
+
+        b1 = (double)(w1 + off);
+        b2 = (double)(w2 + off);
+        hk_graph_line(&q, 3, b1, b1, 0.0, -H);
+        hk_graph_line(&q, 3, b2, b2, 0.0, -H);
+        hk_graph_line(&q, 3, b1, b2, -h3, -h3);
+        hk_graph_line(&q, 3, b1, b2, -h3 * 2.0, -h3 * 2.0);
+    }
+    for (j = 0; j < niv; j++) {
+        double S = (double)(iv[j].start + off), E = (double)(iv[j].end + off);
+
+        if (wall) {
+            if (b1 <= S && S <= b2)
+                S = b2;
+            if (b1 <= E && E <= b2)
+                E = b1;
+            if (!(S < E))
+                continue;
+        }
+        hk_graph_line(&q, 4, S, S, 0.0, -H);
+        hk_graph_line(&q, 4, E, E, 0.0, -H);
+        for (i = 0; i <= 10; i++) {
+            double y = (double)i * H / 10.0;
+
+            if (!hk_graph_line(&q, 4, S, E, -y, -y))
+                break;
+        }
+    }
+    return q.n;
+}
+
 /* ------------------------------------------------------------------ */
 /* 5. iso                                                              */
 /* ------------------------------------------------------------------ */

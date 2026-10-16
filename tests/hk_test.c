@@ -989,6 +989,86 @@ int main(int argc, char **argv)
         } else
             puts("ok   日影図 指定点の 初期Ｎｏ 設定 (1070)");
     }
+    /* 指定点の グラフ 無 (1071): 0x1408 → CZukeiKage3 slot 32 FUN_0069d440 が 文書 +0x83dc を替え、釦の字は
+       0x15bd「グラフ　無」／0x15bc「グラフ作図」。立っていると 書き終え FUN_0069da00 が 行ごとに 字の 1 下を原点に
+       横二本（0・-2、8 時間 = 288）・時の目盛（0.5～-2.5、36 ごと）・影の区間（色 4、縦二本と 10 刻みの横）を描き、
+       次の行は 3 だけ余分に下がる。逆コンパイルの読み、原典では押していない */
+    {
+        static const char lab_on[] = "\x83\x4f\x83\x89\x83\x74\x8d\xec\x90\x7d";
+        static const char lab_off[] = "\x83\x4f\x83\x89\x83\x74\x81\x40\x96\xb3";
+        hk_gline g[200];
+        hk_interval iv[2];
+        int ng, ok = 1, k, c1 = 0, c4 = 0, nrow = 0;
+        double ry[2] = { 0, 0 };
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const jw_drawing *dd;
+
+        /* 区間ひとつ（正午の前 1 時間）: 色 1 が 2 + 9 本、色 4 が 2 + 11 本 */
+        iv[0].start = -3600;
+        iv[0].end = 0;
+        ng = hk_point_graph(100.0, 50.0, 0.0, 0, iv, 1, 0, 0, 0, g, 200);
+        ok = ok && ng == 24;
+        ok = ok && fabs(g[0].x0 - 100.0) < 1e-9 && fabs(g[0].y0 - 49.0) < 1e-9
+                && fabs(g[0].x1 - 388.0) < 1e-9 && fabs(g[1].y0 - 47.0) < 1e-9;
+        ok = ok && fabs(g[3].x0 - 136.0) < 1e-9 && fabs(g[3].y0 - 49.5) < 1e-9 && fabs(g[3].y1 - 46.5) < 1e-9;
+        ok = ok && g[11].color == 4 && fabs(g[11].x0 - 208.0) < 1e-9 && fabs(g[12].x0 - 244.0) < 1e-9
+                && fabs(g[23].y0 - 47.0) < 1e-9 && fabs(g[23].x1 - 244.0) < 1e-9;
+        /* 9～15時: 6 時間 = 216、目盛 7 本、ずらしは 3 時間 */
+        ng = hk_point_graph(0.0, 0.0, 0.0, 1, iv, 1, 0, 0, 0, g, 200);
+        ok = ok && ng == 2 + 7 + 13 && fabs(g[0].x1 - 216.0) < 1e-9 && fabs(g[9].x0 - 72.0) < 1e-9;
+        /* 壁の帯（色 3 の四本）: 区間の端が帯の中なら 帯の外へ。空になれば書かない */
+        iv[0].start = -3600;
+        iv[0].end = 600;
+        iv[1].start = -200;             /* 両端とも帯の中: 始め 15300・終わり 14100 で空 */
+        iv[1].end = 300;
+        ng = hk_point_graph(0.0, 0.0, 0.0, 0, iv, 2, 1, -300, 900, g, 200);
+        ok = ok && ng == 11 + 4 + 13 && g[11].color == 3 && fabs(g[11].x0 - (14100 * 0.01)) < 1e-9
+                && fabs(g[13].y0 - (-1.0 - 2.0 / 3.0)) < 1e-9 && fabs(g[16].x0 - 141.0) < 1e-9;
+        /* 角 90 度: 原点は 字の基点の (1, 0)、時の向きは +y */
+        iv[0].start = -3600;
+        iv[0].end = 0;
+        ng = hk_point_graph(0.0, 0.0, 90.0, 0, iv, 1, 0, 0, 0, g, 200);
+        ok = ok && fabs(g[0].x0 - 1.0) < 1e-9 && fabs(g[0].y1 - 288.0) < 1e-9 && fabs(g[1].x0 - 3.0) < 1e-9;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,500;600,500;400,500;400,500;400,300;");
+        app_command(32943);
+        clicks(&r, "b:10;405,300;595,300;595,500;405,500;B:1066;");
+        ok = ok && jw_cmd_bar_label(1071) && !strcmp(jw_cmd_bar_label(1071), lab_off);
+        clicks(&r, "B:1071;");
+        ok = ok && jw_cmd_bar_label(1071) && !strcmp(jw_cmd_bar_label(1071), lab_on);
+        n = app_drawing()->ndrawn;
+        clicks(&r, "500,400;520,400;B:1065;750,650;");
+        dd = app_drawing();
+        for (k = (int)n; k < dd->ndrawn; k++) {
+            const jw_obj *o = &dd->obj[k];
+
+            if (o->cls == JW_SEN && o->color == 1)
+                c1++;
+            if (o->cls == JW_SEN && o->color == 4)
+                c4++;
+            if (o->cls == JW_MOJI && o->text >= 0 && !strncmp(jw_str(dd, o->text), "N0.", 3) && nrow < 2)
+                ry[nrow++] = o->d[1];
+        }
+        ok = ok && nrow == 2 && c1 == 22 && c4 >= 26 && fabs(ry[0] - ry[1] - 7.0) < 1e-9;
+        clicks(&r, "B:1071;");
+        ok = ok && !strcmp(jw_cmd_bar_label(1071), lab_off);
+        clicks(&r, "B:1064;");
+        if (!ok) {
+            printf("     色1 %d・色4 %d・行 %d (%g %g)\n", c1, c4, nrow, ry[0], ry[1]);
+            puts("BAD  日影図 指定点の グラフ 無 (1071)");
+            fails++;
+        } else
+            puts("ok   日影図 指定点の グラフ 無 (1071)");
+    }
     /* 三斜の 建物位置確認表: 押した時の Ctrl（cmd+0xe8）で 配置図の角に「(k)」と点、Shift（cmd+0xe4）で
        隠れた角の行も出す（FUN_00734920 0x7363f9〜・FUN_007400a0）。sa8 の形（建物二つ、行は (1)(2)(5)(6)）。
        逆コンパイルの読み、原典では押していない */

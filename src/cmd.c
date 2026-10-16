@@ -552,6 +552,7 @@ static int tn_cmp, tn_cdec, tn_csan;
 static double tn_cv[2], tn_cx[2], tn_cy[2];
 static double tn_px, tn_py;
 static int hk_pts;
+static int hk_graph;        /* 指定点の グラフ作図 (1071)。原典は文書 +0x83dc（命令を出ても残る） */
 static int hkp_n;
 static int hk_calc_step;
 static int hk_first_no = 1;
@@ -18913,6 +18914,13 @@ static int bar_press(jw_drawing *d, int id)
             hk_ask_time = 4;
         return 1;
     }
+    if (current == JW_CMD_HIKAGE && hk_pts && id == 1071) {
+        /* グラフ 無 ↔ グラフ作図: 1071 → FUN_00418cc0 → 0x1408 → CZukeiKage3 slot 32 FUN_0069d440 が
+           文書 +0x83dc を 0/1 に替え、FUN_0069cc30 が釦 8 の字を 0x15bd／0x15bc に。
+           逆コンパイルの読み、原典では押していない */
+        hk_graph = !hk_graph;
+        return 1;
+    }
     if (current == JW_CMD_HIKAGE && hk_pts && (id == 1065 || id == 1066)) {
         if (hkp_n > 0)
             hk_calc_step = id == 1065 ? 60 : 10;     /* 結果を書く位置を押す */
@@ -20669,6 +20677,9 @@ const char *jw_cmd_bar_label(int id)
     }
     if (id == 1069 && current == JW_CMD_MOJI && ms_text)
         return jw_moji_sjis() ? "SJIS" : "UTF8";     /* 1092 sits where 文読 was */
+    if (id == 1071 && current == JW_CMD_HIKAGE && hk_pts)   /* 0x15bc グラフ作図／0x15bd グラフ　無 */
+        return hk_graph ? "\x83\x4f\x83\x89\x83\x74\x8d\xec\x90\x7d"
+                        : "\x83\x4f\x83\x89\x83\x74\x81\x40\x96\xb3";
     static const char *const h[3] = { "\x8d\xb6\x93\xe0\x96\x40", "\x92\x86", "\x89\x45\x93\xe0\x96\x40" };
     static const char *const v[3] = { "\x89\xba\x93\xe0\x96\x40", "\x92\x86", "\x8f\xe3\x93\xe0\x96\x40" };
 
@@ -24868,9 +24879,9 @@ static void hk_point_add(jw_drawing *d, double x, double y)
 static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
 {
     static hk_edge ed[1000];
-    double plane = 4.0, lat = 36.0, north = 0.0;
+    double plane = 4.0, lat = 36.0, north = 0.0, row = 0.0;
     const char *bs;
-    int ne, k, i, made = 0, nt, t0;
+    int ne, k, i, made = 0, nt, t0, wb1, wb2;
     hk_sun sun;
     hk_cond_t cond;
     static hk_quad qd[2000];
@@ -24906,6 +24917,9 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
     }
     hk_sun_init(&sun, lat, cond.dec);
     rec = op_new();
+    /* 壁に日が当たらない帯（+0x4a468・+0x4a46c、初め -30003）: FUN_005470d0 が 初めて 11000 の時刻
+       （初めの時刻より後なら 一歩前）と 終わりの 11000 の時刻（終わりより前なら 一歩後） */
+    wb1 = wb2 = -30003;
     for (k = 0; k < hkp_n; k++) {
         char line[200];
         hk_interval iv[40];
@@ -24925,6 +24939,9 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
                 /* [D 0x0053fee0] 壁に日が当たらない時刻は 影（11000）。立面の点は 地面へ戻して見る */
                 if (!hk_wall_lit(&wall, sx, sy)) {
                     in[i] = 1;
+                    if (wb1 < -30000)
+                        wb1 = ts > t0 ? ts - step : ts;
+                    wb2 = ts < -t0 ? ts + step : ts;
                     continue;
                 }
                 hk_wall_unlift(&wall, sx, sy, qx, qy, &qx, &qy);
@@ -24938,7 +24955,7 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
             w += 1.0;
         wx[0] = cx;
         wx[1] = cx + w;
-        wy[0] = wy[1] = cy - 4.0 * k;
+        wy[0] = wy[1] = cy - row;
         memset(&to, 0, sizeof to);
         to.cls = JW_TG_TEXT_O;
         to.kind = 1;
@@ -24947,6 +24964,29 @@ static int hk_points_write(jw_drawing *d, double cx, double cy, int step)
             d->obj[d->ndrawn - 1].n = 0;
             d->obj[d->ndrawn - 1].color = 1;
             made++;
+        }
+        /* 次の行は 字の高さ + 2、グラフがあれば さらに 3（FUN_0069da00 0x69e4e9〜）。
+           移植の行は 4 刻みで角を使わない（hk_k*.jww に合わせた）ので グラフも角 0 */
+        row += 4.0;
+        if (hk_graph) {
+            static hk_gline gl[600];
+            int ng = hk_point_graph(wx[0], wy[0], 0.0, cond.n15, iv, niv, wb1 > -30000, wb1, wb2,
+                                    gl, 600);
+
+            for (i = 0; i < ng; i++) {
+                jw_obj *o = jw_add(d, JW_SEN);
+
+                if (!o)
+                    break;
+                o->color = (unsigned short)gl[i].color;
+                o->ltype = 1;
+                o->d[0] = gl[i].x0;
+                o->d[1] = gl[i].y0;
+                o->d[2] = gl[i].x1;
+                o->d[3] = gl[i].y1;
+                made++;
+            }
+            row += 3.0;
         }
     }
     if (rec)
