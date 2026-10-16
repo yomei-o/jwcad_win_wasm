@@ -191,6 +191,28 @@ int main(void)
     jw_cmd_bar(d, 2096);
     jw_cmd_box_put(1413, "");
 
+    /* ハッチ の ピッチ 1411・線間隔 1412 は 実寸 (1323) のときだけ、角度 1419 は掛けない
+       （CHachiDialog の FUN_004c8700・004c8650・004c8600）。型を替えても箱の字は字のまま */
+    app_command(JW_CMD_HATCH);
+    jw_cmd_bar(d, 1690);
+    jw_cmd_box_put(1419, "30");
+    jw_cmd_box_put(1411, "2");
+    jw_cmd_box_put(1412, "0.5");
+    if (jw_cmd_bar_check(1323) > 0)
+        jw_cmd_bar(d, 1323);
+    ck(!strcmp(bx(1411), "2") && !strcmp(bx(1412), "0.5") && !strcmp(bx(1419), "30"),
+       "  ハッチは 図寸 なら 2・0.5・角度 30 のまま");
+    jw_cmd_bar(d, 1323);
+    ck(jw_cmd_bar_check(1323) > 0 && !strcmp(bx(1411), "2000") && !strcmp(bx(1412), "500")
+       && !strcmp(bx(1419), "30"), "  実寸 なら 2000・500、角度は 30");
+    jw_cmd_bar(d, 1692);
+    ck(!strcmp(raw(1411), "3") && !strcmp(raw(1412), "6"), "  ┬┴┬ に替えると箱は 3・6（÷しない）");
+    ck(!strcmp(bx(1411), "3000"), "  命令には 3000");
+    jw_cmd_bar(d, 1690);
+    ck(!strcmp(raw(1411), "2") && !strcmp(raw(1412), "0.5"), "  戻すと 2・0.5 のまま");
+    jw_cmd_bar(d, 1323);
+    jw_cmd_bar(d, 1689);
+
     /* 複写 の 数値位置 1413（二つ目のバー、FUN_004ae4a0・004ae510） */
     {
         jw_obj *o = jw_add(d, JW_SEN);

@@ -19970,8 +19970,14 @@ void jw_cmd_m_input(int on)
  *                       ÷縮尺 のあと ×DAT_00a0d630（連続 1066 も同じ関数）
  *   分割 1412           割付 のバーの 距離。FUN_007668f0 が +0xd0（CBunkatsuDialog の
  *                       DDX 0x584）を ×DAT_00a0d630 のあと ÷縮尺 して +0x7ea8 へ
+ * real が 1323 の箱は ハッチ の 実寸 (1323) が入っているときだけ ×1000:
+ *   ハッチ 1411・1412   CHachiDialog の読み手 FUN_004c8700（+0x288 = DDX 0x583 = ピッチ）・
+ *                       FUN_004c8650（+0x140 = 0x584 = 線間隔）は +0x6ac（DDX_Check
+ *                       0x52b = 1323）が立っていれば ÷縮尺 のあと ×DAT_00a0d630、
+ *                       0 なら箱の数のまま（図寸）。角度 FUN_004c8600（+0x3d0 = 0x58b
+ *                       = 1419）は掛けない。型（1線〜図形）によらず同じ読み手
  * 逆コンパイルの読み、原典では押していない。 */
-static const struct { unsigned cmd; unsigned short id; unsigned char real; } mu_len[] = {
+static const struct { unsigned cmd; unsigned short id, real; } mu_len[] = {
     { JW_CMD_SEN, 1412, 0 },      { JW_CMD_KUKEI, 1413, 0 },
     { JW_CMD_NISEN, 1412, 0 },    { JW_CMD_NISEN, 1413, 0 },
     { JW_CMD_RENZOKU, 1411, 1 },  { JW_CMD_RENZOKU, 1412, 1 },
@@ -19986,6 +19992,7 @@ static const struct { unsigned cmd; unsigned short id; unsigned char real; } mu_
     { 100000u + JW_CMD_FUKUSHA, 1413, 0 }, { 100000u + JW_CMD_IDOU, 1413, 0 },
     { 100000u + JW_CMD_PARAM, 1413, 0 },
     { JW_CMD_KYORITEN, 1412, 0 }, { JW_CMD_BUNKATSU, 1412, 0 },
+    { JW_CMD_HATCH, 1411, 1323 }, { JW_CMD_HATCH, 1412, 1323 },
 };
 
 static int mu_len_box(unsigned cmd, int id)
@@ -19996,7 +20003,8 @@ static int mu_len_box(unsigned cmd, int id)
         return 0;
     for (i = 0; i < (int)(sizeof mu_len / sizeof mu_len[0]); i++)
         if (mu_len[i].cmd == cmd && mu_len[i].id == (unsigned short)id)
-            return !mu_len[i].real || jw_cmd_bar_check(2096) > 0;
+            return !mu_len[i].real
+                   || jw_cmd_bar_check(mu_len[i].real == 1 ? 2096 : mu_len[i].real) > 0;
     return 0;
 }
 
@@ -20085,15 +20093,16 @@ static void ht_mode_set(int id)
     static const int ID[3] = { 1419, 1411, 1412 };
     int was = ht_mode >= 1692, now = id >= 1692, i;
 
+    /* 箱の字のまま預けて戻す（ｍ単位入力 の ×1000・÷1000 を通さない） */
     if (was != now)
         for (i = 0; i < 3; i++) {
-            const char *t = jw_cmd_box(ID[i]);
+            const char *t = jw_cmd_box_raw(ID[i]);
 
             if (t) {
                 strncpy(ht_keep[was][i], t, sizeof ht_keep[0][0] - 1);
                 ht_keep[was][i][sizeof ht_keep[0][0] - 1] = 0;
             }
-            box_put(ID[i], ht_keep[now][i]);
+            box_put_raw(ID[i], ht_keep[now][i]);
         }
     ht_mode = id;
 }
