@@ -627,6 +627,117 @@ static int grads(void)
     return vfail != 0;
 }
 
+/* ---- 勾配の補助線（FUN_006129c0・FUN_006109b0）。逆コンパイルの読み、原典では押していない ---- */
+static jw_obj *add_sen(jw_drawing *d, double x1, double y1, double x2, double y2, int col, int lt)
+{
+    jw_obj *o = jw_add(d, JW_SEN);
+
+    o->d[0] = x1;
+    o->d[1] = y1;
+    o->d[2] = x2;
+    o->d[3] = y2;
+    o->color = col;
+    o->ltype = lt;
+    return o;
+}
+
+static int line_is(int i, double x1, double y1, double z1, double x2, double y2, double z2)
+{
+    double p[6];
+
+    return jw_d25_line(i, p) && veq(p[0], x1) && veq(p[1], y1) && veq(p[2], z1) && veq(p[3], x2)
+        && veq(p[4], y2) && veq(p[5], z2);
+}
+
+static void dump_lines(void)
+{
+    double p[6];
+    int i;
+
+    for (i = 0; jw_d25_line(i, p); i++)
+        printf("    3D %d: (%.4f,%.4f,%.4f)-(%.4f,%.4f,%.4f)\n", i, p[0], p[1], p[2], p[3], p[4],
+               p[5]);
+}
+
+static int gslope(void)
+{
+    long n;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    jw_drawing *d;
+    jw_obj *r, *c6;
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+
+    /* 色 5・線種 9 の線 (0,0)→(1000,0): 起点 (0,0)・角 0。左下は 線の端の最小 (1000,1000)。
+       立面の (x, y) を 横 = x − 1000、高さ = y − 1000 に起こす */
+    r = add_sen(d, 0, 0, 1000, 0, 5, 9);
+    add_sen(d, 1000, 1000, 2000, 1000, 2, 1);
+    add_sen(d, 1000, 1500, 1000, 2000, 2, 1);
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 2, "色 5 の補助線そのものは組まない（2 本）");
+    vck(line_is(0, 0, 0, 0, 1000, 0, 0), "  横の線は 地面に");
+    vck(line_is(1, 0, 0, 500, 0, 0, 1000), "  縦の線は 高さに起きる");
+    jw_cmd_bar(d, 1121);
+
+    /* 補助線を (0,0)→(0,−1000) に: x が 0 なので y 正にそろえ 起点は終点 (0,−1000)・角 90° */
+    r->d[2] = 0;
+    r->d[3] = -1000;
+    jw_cmd_bar(d, 1064);
+    vck(line_is(0, 0, -1000, 0, 0, 0, 0), "向きを y 正にそろえ 起点は終点・角 90°");
+    jw_cmd_bar(d, 1121);
+
+    /* 色 5 の点があれば 起点はその点、点に遠い端へ向ける */
+    {
+        jw_obj *t = jw_add(d, JW_TEN);
+
+        t->d[0] = 900;
+        t->d[1] = -1000;
+        t->color = 5;
+        r->d[2] = 1000;     /* (0,0)→(1000,−1000)、点は終点に近い → 向きを逆に (−1000, 1000) */
+        jw_cmd_bar(d, 1064);
+        vck(line_is(0, 900, -1000, 0, 900 - 1000.0 / sqrt(2.0), -1000 + 1000.0 / sqrt(2.0), 0),
+            "色 5 の点は起点、点に遠い端へ（135°）");
+        jw_cmd_bar(d, 1121);
+        t->color = 2;
+        r->d[2] = 1000;
+        r->d[3] = 0;
+    }
+
+    /* 色 6・線種 9 の線 (1000,1000)→(1100,1100): 45°。y6 より上は 奥へ (Y − y6)·cot 45° 寄る */
+    c6 = add_sen(d, 1000, 1000, 1100, 1100, 6, 9);
+    jw_cmd_bar(d, 1064);
+    vck(line_is(0, 0, 0, 0, 1000, 0, 0), "  y6 の高さの線は 寄らない");
+    vck(line_is(1, 0, 500, 500, 0, 1000, 1000), "色 6 の 45° の線で 高さの分だけ奥へ");
+    if (vfail)
+        dump_lines();
+    jw_cmd_bar(d, 1121);
+
+    /* グループ名 #k: どの色でも線種 9 の線が補助線、#k では 寄せず、点を補助線の向きに戻す */
+    c6->ltype = 1;          /* #k では どの色の線種 9 も補助線になるので 色 6 の線は外す */
+    c6->d[0] = c6->d[2] = 5000;
+    c6->d[1] = c6->d[3] = 5000;
+    d->group[r->lgroup].name = jw_add_str(d, "#k");
+    r->d[0] = 0;
+    r->d[1] = 0;
+    r->d[2] = 0;
+    r->d[3] = 1000;         /* 角 90°: 立面の (x,y) を 線に沿う u = y、高さ = −x */
+    r->color = 3;
+    jw_cmd_bar(d, 1064);
+    vck(line_is(0, 0, 1000, -1000, 0, 1000, -2000), "#k は 補助線の座標に戻して起こす");
+    if (vfail)
+        dump_lines();
+    jw_cmd_bar(d, 1121);
+    printf("%-4s gslope\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
 int main(void)
 {
     int bad = run(32937, "decomp/res/p197_h1.jww", "2.5D");
@@ -635,6 +746,7 @@ int main(void)
     bad += arcs();
     bad += faces();
     bad += grads();
+    bad += gslope();
 
     bad += run(32943, "decomp/res/p198_k1.jww", "hikage");
     bad += run(32971, "decomp/res/p198_t1.jww", "tenku");

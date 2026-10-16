@@ -249,15 +249,31 @@ static void take_snap(const jw_drawing *d, int *s)
 static void grad_vals(const jw_drawing *d, const jw_obj *t, double *g);
 static int grad_tube(const jw_obj *o, double base, int k1, int k2, const double *g1,
                      const double *g2);
+static void gx_pair(const jw_obj *src, double *p, unsigned fl, int has4, double p4);
+
+/* 線を一本: 勾配の補助線で起こしてから（FUN_006109b0）底上げを足す */
+static void put_line(const jw_obj *o, const double *p0, unsigned fl, double b1, double b2)
+{
+    double p[6];
+
+    memcpy(p, p0, sizeof p);
+    gx_pair(o, p, fl, 0, 0.0);
+    p[2] += b1;
+    p[5] += b2;
+    add_line(o, p);
+}
 
 /* 一本の線を立体に（FUN_00613c10。勾配の文字 t T d D は上の grad_tube、
-   勾配の補助線 FUN_006129c0 / FUN_006109b0 は入れていない） */
+   勾配の補助線 FUN_006129c0 / FUN_006109b0 は put_line → gx_pair。
+   +0x48 の旗: 端の字が v V h H（kind 1・2）なら 始点 1・終点 2、h H は さらに
+   始点 4・終点 8。縦の線は 始点なら 3（h H は 0xf）、終点も同じ（local_64dc・64e0）） */
 static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
                      double base, int lh, double lh_h)
 {
     double h1 = 0.0, d1 = 0.0, h2 = 0.0, d2 = 0.0, p[6], q[6];
     double g[2][5];                     /* 勾配の数（+0x418.. / +0x4c8..） */
     int n1 = 0, n2 = 0, k1 = 0, k2 = 0, t1 = -1, t2 = -1, ec = 0, f0 = 0, j;
+    unsigned fl = 0, vs = 0, ve = 0;
 
     memset(g, 0, sizeof g);
 
@@ -281,6 +297,20 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
             if (kind < 20) {
                 if (n > 2)
                     n = 2;
+                if (kind > 0) {         /* 0x613d.. の +0x48 */
+                    fl |= e == 0 ? 1u : 2u;
+                    if (e == 0)
+                        vs |= 3;
+                    else
+                        ve |= 3;
+                    if (kind == 2) {
+                        fl |= e == 0 ? 4u : 8u;
+                        if (e == 0)
+                            vs |= 0xf;
+                        else
+                            ve |= 0xf;
+                    }
+                }
             } else {
                 double ux = o->d[2 - 2 * e] - o->d[2 * e], uy = o->d[3 - 2 * e] - o->d[2 * e + 1];
                 double ul = sqrt(ux * ux + uy * uy);
@@ -354,28 +384,28 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
     p[4] = o->d[3];
     if ((abs(n1) == 2 && abs(n2) == 2) || (n1 == 0 && n2 == 0)) {
         /* 奥行の線（文字が無ければ 0 の高さの線） */
-        p[2] = (abs(n1) == 2 ? d1 : 0.0) + (ec ? 0.0 : base);
-        p[5] = (abs(n2) == 2 ? d2 : 0.0) + (f0 ? 0.0 : base);
-        add_line(o, p);
+        p[2] = abs(n1) == 2 ? d1 : 0.0;
+        p[5] = abs(n2) == 2 ? d2 : 0.0;
+        put_line(o, p, fl, ec ? 0.0 : base, f0 ? 0.0 : base);
     }
     if (n1 != 0 || n2 != 0) {           /* 高さの線 */
-        p[2] = h1 + base;
-        p[5] = h2 + base;
-        add_line(o, p);
+        p[2] = h1;
+        p[5] = h2;
+        put_line(o, p, fl, base, base);
     }
     if (n1 > 1 && fabs(h1 - d1) > 1e-07) {     /* 始点の縦の線 */
         q[0] = q[3] = o->d[0];
         q[1] = q[4] = o->d[1];
-        q[2] = h1 + base;
-        q[5] = d1 + (ec ? 0.0 : base);
-        add_line(o, q);
+        q[2] = h1;
+        q[5] = d1;
+        put_line(o, q, vs, base, ec ? 0.0 : base);
     }
     if (n2 > 1 && fabs(h2 - d2) > 1e-07) {     /* 終点の縦の線 */
         q[0] = q[3] = o->d[2];
         q[1] = q[4] = o->d[3];
-        q[2] = h2 + base;
-        q[5] = d2 + (f0 ? 0.0 : base);
-        add_line(o, q);
+        q[2] = h2;
+        q[5] = d2;
+        put_line(o, q, ve, base, f0 ? 0.0 : base);
     }
 }
 
@@ -392,11 +422,13 @@ static void one_line(const jw_drawing *d, const jw_obj *o, unsigned char *used,
  * 旗 +0x338 は移植に無いので 0）で 螺旋でなく 刻みが正なら 輪は 線でなく楕円
  * （FUN_00619710 → CData3DEnko、描き FUN_0043dd30 は アイソメでだけ描く）。
  * 入れていないもの: 末尾 g G（kind 10、FUN_0061af10・FUN_00620ef0 の球）と、
- * 扁平率 0.1 で 高さ ≥ 1000 m の弧（勾配の補助線を仮に作る 0x61e9xx）、勾配の
- * 補助線の写し（FUN_006109b0） */
+ * 扁平率 0.1 で 高さ ≥ 1000 m の弧（勾配の補助線を仮に作る 0x61e9xx）。勾配の
+ * 補助線の写しは gx_pair（線は字の v h で旗 3・0xf、楕円は旗 0 とした） */
 typedef struct {
     double c[3], r, flat, tilt, a0, sw;     /* 中心・半径・扁平率・傾き・始めの角・開き */
     int full;
+    int gen;                    /* 勾配の補助線で起こした: 点 = c + U cos t + V sin t */
+    double U[3], V[3];
     unsigned char ltype;
     unsigned short color, layer, lgroup;
 } d25_ell;
@@ -444,6 +476,262 @@ static void rot_pt(const d25_rot *t, double u, double v, double *x, double *y)
 {
     *x = t->c * u - t->s * v + t->x;
     *y = t->c * v + t->s * u + t->y;
+}
+
+/* ---- 勾配の補助線（FUN_006129c0 で控え、FUN_006109b0 で起こす）。
+ * 逆コンパイルの読み（落ちた置き場と ECX は objdump の命令で読んだ）、原典では押していない。
+ * FUN_006129c0（FUN_00617f70 の 0x6187e8、組む前）: グループ名が「#k」で始まれば
+ * +0x8e0[グループ] = 1（FUN_00617f70 のグループの段、名の初めの二字が 0x23 0x6b）。
+ * レイヤごとに 書ける線（FUN_0042dd10）で 線種 9 かつ 線色 5（#k なら どの色でも）の
+ * 最後の一本を +0x99e0、線色 6・線種 9 を +0x119e0、線色 5・6 の点（CDataTen）を
+ * +0xa9e0・+0x189e0 に。色 5 の線は 長さ 0 なら捨て、点が無ければ 向きを x 正（x が
+ * 0 なら y 正）にそろえて 起点 +0xb9e0 は 始点（逆にしたら終点）、点があれば 起点は
+ * その点で 点に遠い端へ向ける。角 +0xf9e0 は atan2 の度。左下 +0x199e0 は 色 6 の
+ * 点、無ければ そのレイヤの 書ける 線（線種 9 を除く、CDataSen 0x9fe024）の両端と
+ * 円弧（CDataEnko 0x9fe040）の中心の x・y の最小（無ければ 0）。色 6 の線は 長さ 0 なら
+ * 捨て、角 +0x129e0 は 既定 90、|dy| ≥ 0.001 なら 向きを y 正（y が 0 なら x 正）に
+ * そろえた atan2 の度、起点 +0x149e0 は 始点（逆なら終点）。
+ * FUN_006109b0（二点 +0x68.. と +0x80..）: #k なら 二点を 起点・角の座標に戻し
+ * （FUN_005f92e0、-0x1b0）左下を 0 に。X = x − 左下x、Y = y − 左下y、Z = −z。
+ * 色 6 の線があり #k でなく、(両端の Y ≥ y6 − 1e-7 か、弧・楕円では 中心の y − 左下y ≥
+ * y6 − 1e-7) で 角 a6 が 1..179 かつ 90 から 1e-7 より離れれば Z += (Y − y6)·cos a6 / sin a6。
+ * 旗 1（2 は終点）なら この端は 4 が無ければ a6 の回し（-0x150、原点）で
+ * (Y − y6, −Z) を写して Z = x + (色 6 の起点x − 左下x)、Y = y + (起点y − 左下y)、
+ * 4 があれば h = (90° − a6)/2 で Y −= Z·2 sin h cos h、Z −= Z·2 sin² h（Z は寄せる前）。
+ * 最後に 起点まわりに角だけ回し（-0x180）: (x, y) = 起点 + R(X, Z)、z = Y。
+ * 底上げ（+0x19e0）は 呼び手が この後に足す。 */
+typedef struct {
+    int on;                     /* +0x99e0 */
+    d25_rot r5;                 /* +0xb9e0 起点・+0xf9e0 角 */
+    double llx, lly;            /* +0x199e0 */
+    int has6;                   /* +0x119e0 */
+    double a6, sx6, sy6;        /* +0x129e0・+0x149e0 */
+} d25_gx;
+
+static d25_gx gx[16][16];
+static int gk[16];              /* +0x8e0 */
+
+static void gx_setup(const jw_drawing *d)
+{
+    static const jw_obj *r5[16][16], *r6[16][16], *t5[16][16], *t6[16][16];
+    int g, l, i;
+
+    memset(gx, 0, sizeof gx);
+    memset(r5, 0, sizeof r5);
+    memset(r6, 0, sizeof r6);
+    memset(t5, 0, sizeof t5);
+    memset(t6, 0, sizeof t6);
+    for (g = 0; g < 16; g++) {
+        const char *s = d->group[g].name >= 0 ? jw_str(d, d->group[g].name) : 0;
+
+        gk[g] = s && s[0] == '#' && s[1] == 'k';
+    }
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        if (o->sub || o->lgroup > 15 || o->layer > 15 || !editable(d, o))
+            continue;
+        if (o->cls == JW_SEN) {
+            if ((o->color == 5 || gk[o->lgroup]) && o->ltype == 9)
+                r5[o->lgroup][o->layer] = o;
+            if (o->color == 6 && o->ltype == 9)
+                r6[o->lgroup][o->layer] = o;
+        } else if (o->cls == JW_TEN) {
+            if (o->color == 5)
+                t5[o->lgroup][o->layer] = o;
+            if (o->color == 6)
+                t6[o->lgroup][o->layer] = o;
+        }
+    }
+    for (g = 0; g < 16; g++)
+        for (l = 0; l < 16; l++) {
+            d25_gx *x = &gx[g][l];
+            const jw_obj *a = r5[g][l], *b = r6[g][l];
+            double dx, dy, ox, oy, mx, my;
+
+            if (!a)
+                continue;
+            dx = a->d[2] - a->d[0];
+            dy = a->d[3] - a->d[1];
+            if (fabs(dx) < 1e-07 && fabs(dy) < 1e-07)
+                continue;
+            if (!t5[g][l]) {
+                int neg = fabs(dx) > 1e-07 ? dx < -1e-07 : dy < 0.0;
+
+                if (neg) {
+                    dx = -dx;
+                    dy = -dy;
+                }
+                ox = a->d[neg ? 2 : 0];
+                oy = a->d[neg ? 3 : 1];
+            } else {
+                const jw_obj *t = t5[g][l];
+                double e1 = hypot(a->d[0] - t->d[0], a->d[1] - t->d[1]);
+                double e2 = hypot(a->d[2] - t->d[0], a->d[3] - t->d[1]);
+
+                if (e2 < e1) {
+                    dx = -dx;
+                    dy = -dy;
+                }
+                ox = t->d[0];
+                oy = t->d[1];
+            }
+            x->on = 1;
+            rot_set(&x->r5, ox, oy, atan2(dy, dx) * 180.0 / PI * PI / 180.0);
+            if (t6[g][l]) {
+                x->llx = t6[g][l]->d[0];
+                x->lly = t6[g][l]->d[1];
+            } else {
+                mx = my = 9e21;
+                for (i = 0; i < d->ndrawn; i++) {
+                    const jw_obj *o = &d->obj[i];
+
+                    if (o->sub || o->lgroup != g || o->layer != l || !editable(d, o))
+                        continue;
+                    if (o->cls == JW_SEN && o->ltype != 9) {
+                        mx = fmin(mx, fmin(o->d[0], o->d[2]));
+                        my = fmin(my, fmin(o->d[1], o->d[3]));
+                    } else if (o->cls == JW_ENKO) {
+                        mx = fmin(mx, o->d[0]);
+                        my = fmin(my, o->d[1]);
+                    }
+                }
+                x->llx = mx > 9e20 ? 0.0 : mx;
+                x->lly = my > 9e20 ? 0.0 : my;
+            }
+            x->a6 = 90.0;
+            if (b) {
+                dx = b->d[2] - b->d[0];
+                dy = b->d[3] - b->d[1];
+                if (fabs(dx) < 1e-07 && fabs(dy) < 1e-07)
+                    continue;
+                x->has6 = 1;
+                if (fabs(dy) >= 0.001) {
+                    int neg = fabs(dy) > 1e-07 ? dy < -1e-07 : dx < 0.0;
+
+                    if (neg) {
+                        dx = -dx;
+                        dy = -dy;
+                    }
+                    x->a6 = atan2(dy, dx) * 180.0 / PI;
+                    x->sx6 = b->d[neg ? 2 : 0];
+                    x->sy6 = b->d[neg ? 3 : 1];
+                }
+            }
+        }
+}
+
+/* FUN_006109b0 の本体。lean は 寄せるか（-1 なら 両端と has4・p4 から決める） */
+static void gx_xf(const jw_obj *src, double *p, unsigned fl, int has4, double p4, int lean)
+{
+    const d25_gx *x;
+    double llx, lly, X1, Y1, Z1, X2, Y2, Z2;
+    int k;
+
+    if (src->lgroup > 15 || src->layer > 15)
+        return;
+    x = &gx[src->lgroup][src->layer];
+    if (!x->on)
+        return;
+    k = gk[src->lgroup];
+    llx = x->llx;
+    lly = x->lly;
+    if (k) {                            /* FUN_005f92e0 */
+        int e;
+
+        for (e = 0; e < 2; e++) {
+            double u = p[3 * e] - x->r5.x, v = p[3 * e + 1] - x->r5.y;
+
+            p[3 * e] = u * x->r5.c + v * x->r5.s;
+            p[3 * e + 1] = v * x->r5.c - u * x->r5.s;
+        }
+        llx = lly = 0.0;
+    }
+    X1 = p[0] - llx;
+    Y1 = p[1] - lly;
+    Z1 = -p[2];
+    X2 = p[3] - llx;
+    Y2 = p[4] - lly;
+    Z2 = -p[5];
+    if (x->has6 && !k) {
+        double y6 = x->sy6 - lly, e = y6 - 1e-07;
+
+        if (lean < 0)
+            lean = (e <= Y1 && e <= Y2) || (has4 && e <= p4 - lly);
+        if (lean && x->a6 >= 1.0 && x->a6 <= 179.0 && fabs(x->a6 - 90.0) > 1e-07) {
+            double t = x->a6 * PI / 180.0, h = (PI / 2.0 - t) / 2.0;
+            double ch = cos(h), sh = sin(h), nz1, nz2, u, v;
+            double sx = x->sx6 - llx, sy = x->sy6 - lly;
+            d25_rot r6;
+
+            nz1 = (Y1 - y6) * cos(t) / sin(t) + Z1;
+            nz2 = (Y2 - y6) * cos(t) / sin(t) + Z2;
+            rot_set(&r6, 0.0, 0.0, x->a6 * PI / 180.0);
+            if (fl & 1) {
+                if (!(fl & 4)) {
+                    rot_pt(&r6, Y1 - y6, -Z1, &u, &v);
+                    nz1 = u + sx;
+                    Y1 = v + sy;
+                } else {
+                    Y1 -= Z1 * sh * 2.0 * ch;
+                    nz1 -= Z1 * sh * 2.0 * sh;
+                }
+            }
+            if (fl & 2) {
+                if (!(fl & 8)) {
+                    rot_pt(&r6, Y2 - y6, -Z2, &u, &v);
+                    nz2 = u + sx;
+                    Y2 = v + sy;
+                } else {
+                    nz2 -= Z2 * sh * 2.0 * sh;
+                    Y2 -= Z2 * sh * 2.0 * ch;
+                }
+            }
+            Z1 = nz1;
+            Z2 = nz2;
+        }
+    }
+    rot_pt(&x->r5, X1, Z1, &p[0], &p[1]);
+    p[2] = Y1;
+    rot_pt(&x->r5, X2, Z2, &p[3], &p[4]);
+    p[5] = Y2;
+}
+
+static void gx_pair(const jw_obj *src, double *p, unsigned fl, int has4, double p4)
+{
+    gx_xf(src, p, fl, has4, p4, -1);
+}
+
+/* 楕円（FUN_00619710）: 中心と 二つの軸の端を起こし、軸を U V に。寄せるかは
+   中心で決める（原典は 軸の端の組ごと。中心が y6 より下で組が分かれる所は違いうる） */
+static void gx_ell(const jw_obj *src, double *c, double *U, double *V, int *gen)
+{
+    double a[6], b[6], e = 0.0;
+    const d25_gx *x;
+    int j, lean;
+
+    *gen = 0;
+    if (src->lgroup > 15 || src->layer > 15 || !gx[src->lgroup][src->layer].on)
+        return;
+    x = &gx[src->lgroup][src->layer];
+    if (x->has6 && !gk[src->lgroup])
+        e = x->sy6 - x->lly - 1e-07;
+    lean = src->d[1] - x->lly >= e
+        || (c[1] - x->lly >= e && c[1] + U[1] - x->lly >= e && c[1] + V[1] - x->lly >= e);
+    for (j = 0; j < 3; j++) {
+        a[j] = c[j];
+        a[3 + j] = c[j] + U[j];
+        b[j] = c[j] + V[j];
+        b[3 + j] = c[j];
+    }
+    gx_xf(src, a, 0, 1, src->d[1], lean);
+    gx_xf(src, b, 0, 1, src->d[1], lean);
+    for (j = 0; j < 3; j++) {
+        c[j] = a[j];
+        U[j] = a[3 + j] - a[j];
+        V[j] = b[j] - a[j];
+    }
+    *gen = 1;
 }
 
 static void grad_vals(const jw_drawing *d, const jw_obj *t, double *g)
@@ -608,6 +896,8 @@ static int grad_tube(const jw_obj *o, double base, int k1, int k2, const double 
 }
 
 /* FUN_00621ce0: 底上げを足して線を一本 */
+static unsigned arc_fl;          /* FUN_00621ce0 の param_8: 字 v V → 3、h H → 0xf */
+
 static void arc_seg(const jw_obj *o, double base, double x1, double y1, double z1, double x2,
                     double y2, double z2)
 {
@@ -615,10 +905,13 @@ static void arc_seg(const jw_obj *o, double base, double x1, double y1, double z
 
     p[0] = x1;
     p[1] = y1;
-    p[2] = z1 + base;
+    p[2] = z1;
     p[3] = x2;
     p[4] = y2;
-    p[5] = z2 + base;
+    p[5] = z2;
+    gx_pair(o, p, arc_fl, 1, o->d[1]);
+    p[2] += base;
+    p[5] += base;
     add_line(o, p);
 }
 
@@ -629,7 +922,15 @@ static void arc_ell(const jw_obj *o, double base, double cx0, double cy0, double
 
     e.c[0] = cx0;
     e.c[1] = cy0;
-    e.c[2] = z + base;
+    e.c[2] = z;
+    e.U[0] = cos(tilt) * r;
+    e.U[1] = sin(tilt) * r;
+    e.U[2] = 0.0;
+    e.V[0] = -sin(tilt) * r * flat;
+    e.V[1] = cos(tilt) * r * flat;
+    e.V[2] = 0.0;
+    gx_ell(o, e.c, e.U, e.V, &e.gen);
+    e.c[2] += base;
     e.r = r;
     e.flat = flat;
     e.tilt = tilt;
@@ -684,11 +985,16 @@ static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, d
             c = m ? buf[m - 1] : 0;
             if (n > 0 && m > 0 && (c == 'g' || c == 'G'))
                 kind = 10;
+            if (n > 0 && m > 0 && (c == 'v' || c == 'V'))
+                kind = 1;
+            if (n > 0 && m > 0 && (c == 'h' || c == 'H'))
+                kind = 2;
         }
         break;
     }
     if (kind == 10)
         return;                         /* 球（FUN_0061af10・FUN_00620ef0）は入れていない */
+    arc_fl = kind == 0 ? 0u : kind == 2 ? 0xfu : 3u;
     if (n < 0)
         n = 0;
     v[0] *= k_unit;
@@ -823,7 +1129,7 @@ static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, d
  * 入れていないもの: 円ソリッド（線種 100 以上、FUN_0060e6d0）、p3 p4 が p1p2 の上に
  * 乗るソリッド（FUN_00438f50 が 1、四隅を並べ替えて壁にする 0x6162xx）、
  * #lh の後ろの字で 上だけ・下だけ にする旗（+0x89e0、FUN_00457e50 の字が読めない）、
- * 面が平らでないときの 二つ割り（FUN_0061bc30・+0x5d）、勾配の補助線 */
+ * 面が平らでないときの 二つ割り（FUN_0061bc30・+0x5d）。勾配の補助線は gx_pair */
 typedef struct {
     double p[4][3];
     unsigned char ltype;
@@ -898,8 +1204,14 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
         for (c = 0; c < 4; c++) {
             f.p[c][0] = cxy[c][0];
             f.p[c][1] = cxy[c][1];
-            f.p[c][2] = (i == 1 ? hv[c] : dv[c]) + base;
+            f.p[c][2] = i == 1 ? hv[c] : dv[c];
         }
+        /* 勾配の補助線（FUN_00615f90 の 0x616dxx: 二点の組 二つを FUN_006109b0、旗 0・
+           param_3 0。組は 1-2・3-4 と読んだ） */
+        gx_pair(o, &f.p[0][0], 0, 0, 0.0);
+        gx_pair(o, &f.p[2][0], 0, 0, 0.0);
+        for (c = 0; c < 4; c++)
+            f.p[c][2] += base;
         f.ltype = o->ltype;
         f.color = o->color;
         f.layer = o->layer;
@@ -923,6 +1235,7 @@ static int build(const jw_drawing *d)
     k_unit = 1.0 / write_scale(d);
     if (!m_mm)
         k_unit *= 1000.0;
+    gx_setup(d);                        /* FUN_006129c0（0x6187e8） */
     for (g = 0; g < 16; g++) {
         double gv = name_lv(d, d->group[g].name);
 
@@ -1367,8 +1680,11 @@ static jw_obj *put_ell(jw_drawing *out, const d25_cam *k, const d25_ell *e)
     /* 楕円の点 − 中心 = R(tilt) diag(r, r·flat) (cos t, sin t) を写す */
     double m00 = k->c, m01 = k->s, m10 = -k->s * k->ps, m11 = k->c * k->ps;
     double b00 = ct * e->r, b01 = -st * e->r * e->flat, b10 = st * e->r, b11 = ct * e->r * e->flat;
-    double p = m00 * b00 + m01 * b10, q = m00 * b01 + m01 * b11;
-    double r = m10 * b00 + m11 * b10, t = m10 * b01 + m11 * b11;
+    /* 勾配の補助線で起こした楕円は 軸 U V（z も）をそのまま写す */
+    double p = e->gen ? m00 * e->U[0] + m01 * e->U[1] : m00 * b00 + m01 * b10;
+    double q = e->gen ? m00 * e->V[0] + m01 * e->V[1] : m00 * b01 + m01 * b11;
+    double r = e->gen ? m10 * e->U[0] + m11 * e->U[1] + k->pc * e->U[2] : m10 * b00 + m11 * b10;
+    double t = e->gen ? m10 * e->V[0] + m11 * e->V[1] + k->pc * e->V[2] : m10 * b01 + m11 * b11;
     double E = (p + t) / 2, F = (p - t) / 2, G = (r + q) / 2, H = (r - q) / 2;
     double Q = sqrt(E * E + H * H), R = sqrt(F * F + G * G), sx = Q + R, sy = Q - R;
     double a1 = atan2(G, F), a2 = atan2(H, E), th = (a2 - a1) / 2, ph = (a2 + a1) / 2;
