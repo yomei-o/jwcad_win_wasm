@@ -581,5 +581,9 @@
 #define JW_STR_5477 "\x8fk\x8e\xda"
 /* 5567: shadow diagram point row: the wall-band label (FUN_005470d0, 0x15bf) */
 #define JW_STR_5567 "\x95\xc7\x96\xca\x8e\xa9\x90g\x82\xcc\x93\xfa\x89" "e\x8e\x9e\x8a\xd4"
+/* 7000: the opening bracket of the status-line tails (FUN_007063b0, hatch FUN_00672100) */
+#define JW_STR_7000 "\x81z"
+/* 7006: the closing bracket of the status-line tails */
+#define JW_STR_7006 "\x81y"
 
 #endif

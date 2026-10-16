@@ -305,6 +305,8 @@ WANT = [
     (10032, 'AUTO clock table label'),
     (5477, 'AUTO clock table label'),
     (5567, 'shadow diagram point row: the wall-band label (FUN_005470d0, 0x15bf)'),
+    (7000, 'the opening bracket of the status-line tails (FUN_007063b0, hatch FUN_00672100)'),
+    (7006, 'the closing bracket of the status-line tails'),
 ]
 
 STRINGS = 'decomp/res/string.txt'

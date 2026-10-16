@@ -5228,6 +5228,7 @@ void jw_cmd_redo(jw_drawing *d)
 }
 
 static int mu_on;      /* 基本設定 2526 ｍ単位入力（jw_cmd_m_input の注） */
+static int sek_tail(const jw_drawing *d, int *cnt, int *idx);
 
 /* The prompt with the original's own readout on the end of it.  What the
    readout says, and when, is in the note by tail_set. */
@@ -5259,19 +5260,47 @@ const char *jw_cmd_status(const jw_drawing *d)
        距離は線なら直線までの垂線、円なら半径の差。逆コンパイルの読みで、原典の
        実測（18,428.571 など）は形が合うことだけ確かめてある */
     if (current == JW_CMD_FUKUSEN && !strcmp(p, JW_STR_5312) && tracking && d
-        && para_obj >= 0 && para_obj < d->ndrawn) {
-        const jw_obj *o = &d->obj[para_obj];
-        double dist = -1.0;
+        && (fk_selmode || (para_obj >= 0 && para_obj < d->ndrawn))) {
+        /* FUN_006608e0: 選んだ線・円を一つずつ FUN_0045cef0 の距離（直線への垂線、円は半径の差）
+           で見て、はじめの一つの距離を持ち、そのあと 1e-7 を超える「点数」が いまの最小より
+           小さければ その距離に替える。点数は 垂線の長さ、ただし垂線の足が線分の外にある
+           線は それに 近いほうの端点までの along の距離を足したもの（doc+0x9064 == -1 の枝）。
+           選択（fk_selmode）の中の線・円は全部がその一覧。逆コンパイルの読み、原典では押していない */
+        double dist = -1.0, best = 9.999e+43;
+        int i, cnt = 0, lo = fk_selmode ? 0 : para_obj, hi = fk_selmode ? d->ndrawn : para_obj + 1;
 
-        if (o->cls == JW_ENKO)
-            dist = fabs(sqrt((tx - o->d[0]) * (tx - o->d[0])
-                             + (ty - o->d[1]) * (ty - o->d[1])) - o->d[2]);
-        else if (o->cls == JW_SEN) {
-            double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
-            double len = sqrt(dx * dx + dy * dy);
+        for (i = lo; i < hi; i++) {
+            const jw_obj *o = &d->obj[i];
+            double di = -1.0, score;
 
-            if (len > 1e-9)
-                dist = fabs(((tx - o->d[0]) * -dy + (ty - o->d[1]) * dx) / len);
+            if (fk_selmode && (!o->sel || o->id != 0))
+                continue;
+            if (o->cls == JW_ENKO)
+                score = di = fabs(sqrt((tx - o->d[0]) * (tx - o->d[0])
+                                       + (ty - o->d[1]) * (ty - o->d[1])) - o->d[2]);
+            else if (o->cls == JW_SEN) {
+                double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+                double len = sqrt(dx * dx + dy * dy);
+
+                if (len <= 1e-9)
+                    continue;
+                di = fabs(((tx - o->d[0]) * -dy + (ty - o->d[1]) * dx) / len);
+                score = di;
+                {
+                    double t = ((tx - o->d[0]) * dx + (ty - o->d[1]) * dy) / len;
+
+                    if (t < 0.0 || t > len)
+                        score += fabs(len - t) <= fabs(t) ? fabs(len - t) : fabs(t);
+                }
+            } else
+                continue;
+            cnt++;
+            if (cnt == 1)
+                dist = di;
+            if (score > 1e-7 && score < best) {
+                best = score;
+                dist = di;
+            }
         }
         if (dist >= 0.0) {
             /* ｍ単位入力 なら ÷DAT_00a0d630 のあと単位の字（FUN_00658890 の 0x14c0。
@@ -5295,6 +5324,19 @@ const char *jw_cmd_status(const jw_drawing *d)
                 snprintf(buf, sizeof buf, "%s    [ r = %.3f%s ]", p, r / SUN_M_DIV, SUN_M_STR);
             else
                 snprintf(buf, sizeof buf, "%s    [ r = %.3f ]", p, r);
+            return buf;
+        }
+    }
+    /* 接円の三つ目の段（0x14ff、半径が箱にあって置く所を訊く）の末尾は
+       「     【 解の数 - マウスにいちばん近い候補の番号 】」（FUN_007063b0 の
+       L"     %s %d - %d %s" に 7006・+0x130・FUN_0070b570()・7000）。番号は
+       候補を数え上げる順（sek_places、原典は FUN_00707d60）の 1 から。原典で番号は
+       録っていない（順が同じかは未確認）。逆コンパイルの読み */
+    if (current == JW_CMD_SEKIEN && !sde_on && sek_step == 2 && d) {
+        int cnt, idx;
+
+        if (sek_tail(d, &cnt, &idx)) {
+            snprintf(buf, sizeof buf, "%s     %s %d - %d %s", p, JW_STR_7006, cnt, idx, JW_STR_7000);
             return buf;
         }
     }
@@ -12711,6 +12753,35 @@ static int sek_count(const jw_drawing *d, int b, int bpt, double bx,
         || !sek_get(d, b, bpt, bx, by, &q))
         return 0;
     return sek_places(&p, &q, r, px, py);
+}
+
+/* 状態行の末尾の 解の数（+0x130）と、マウスにいちばん近い候補の番号（FUN_0070b570、
+ * 1 から、x・y の差の絶対値の和で、同じなら先のもの）。置く所を訊く段（半径が箱にある）の
+ * ときだけ。0 は 出さない。 */
+static int sek_tail(const jw_drawing *d, int *cnt, int *idx)
+{
+    sek_el p, q;
+    double px[SEK_MAX], py[SEK_MAX], r = sek_radius(d), bestd = 9999999.0;
+    int i, n;
+
+    if (r <= 1e-7 || sek_a < 0 || sek_b < 0
+        || !sek_get(d, sek_a, sek_apt, sek_ax, sek_ay, &p)
+        || !sek_get(d, sek_b, sek_bpt, sek_bx, sek_by, &q))
+        return 0;
+    n = sek_places(&p, &q, r, px, py);
+    if (n <= 0)
+        return 0;
+    *cnt = n;
+    *idx = 0;
+    for (i = 0; i < n; i++) {
+        double e = fabs(px[i] - tx) + fabs(py[i] - ty);
+
+        if (e < bestd) {
+            *idx = i + 1;
+            bestd = e;
+        }
+    }
+    return 1;
 }
 
 /* The place nearest the click, by |dx| + |dy| and the first of a tie
@@ -20997,10 +21068,9 @@ int jw_cmd_box_focus(void)
    is worked out on its own.  The reader is the original's, read off the
    decompile (box_calc below): + - * / % ^ and brackets, the functions
    s c a q b i l n j, p and pp ppp, m, 0x / &, e and 度:分'秒", and with
-   基本設定 2525 a single \ as 1000.  What it
-   cannot do -- @ x y and \ without 2525, which are values the original takes from elsewhere,
-   and its "@@" / "**" way of writing degrees -- is left as typed, as is a sum
-   the original would refuse with a message.  The 日影・天空図・2.5D boxes are
+   基本設定 2525 a single \ as 1000, x y (the 目盛間隔 across and down, times the
+   scale), @ (0 here), the "@@" / "**" way of writing degrees, m^u2 and ",".  A sum
+   the original would refuse with a message is left as typed.  The 日影・天空図・2.5D boxes are
    left alone, their height box has a syntax of its own. */
 static int hk_bad;                      /* a number was wanted and not there (hk_atom) */
 static int box_calc(const char *t, double *out);
@@ -21025,14 +21095,35 @@ static int box_calc(const char *t, double *out);
       it -- s30 is sin 30°, so s30+1 is 1.5.
 
    0 when the original would have shown one of its messages (or the text
-   has something the port does not carry: @ \ x y, @@ / ** degrees). */
+   has something the port does not carry: full-width letters, the 0xa0bfa4 flag).
+   The message (FUN_004f2480's tail: " fp" 0x65, " /0" 0x66, " ^" 0x67, " fx" 0x68,
+   " E" 0x69, " 0x" 0x6a, " st" 800, then " Err", written into DAT_00a087e0+0x79c4 with a
+   copy at +0x79c0) has no reader in the decompile, and the value is 0.0; the port
+   leaves the box as typed. */
 #define BC_DEG ':'                      /* the original's +0x2f4, a ':' read as one */
 
 static int bc_yen_m;                    /* 基本設定 2525 (DAT_00a0d860) */
+/* 式の中の @・x・y の値（box_calc が入るたびに置く）。
+   x・y は DAT_00a0b410+0x7a28・+0x7a30 に 書込みグループの縮尺
+   （+0x2578[+0x256c]）を掛けたもの。この二つは 目盛間隔の横・縦（mesh_ix・mesh_iy）:
+   all_00401000.c の 57474 行の 目盛へ寄せる処理が +0x7a28 ÷ +0x7a0c を横の刻み、
+   +0x7a38・+0x7a40 を原点に使い、.jww の 目盛の並び（mesh_min・ix・iy・ox・oy =
+   +0x7a20・28・30・38・40）と合う。
+   @ は 式の読み手 FUN_004f2220 の第二引数（double）。逆アセンブルで 呼び手を全部見ると
+   0 でないのは コンボ箱の「前回の値」を引く所だけ（履歴の item 1 を %lg で読んだもの。
+   CMy0ComboBox の 0x58cd2e と CMy02ComboBox の 0x588d02〜0x58b5fc。FUN_00589790 が
+   履歴へ積む）。移植の箱には履歴の一覧が無いので 0。逆コンパイルと逆アセンブルの読み、
+   原典では押していない */
+static double bc_at_v, bc_x_v, bc_y_v;
 
 void jw_cmd_yen_m(int on)
 {
     bc_yen_m = on != 0;
+}
+
+void jw_cmd_doc(const jw_drawing *d)
+{
+    last_dr = d;
 }
 
 static int bc_class(int c)              /* FUN_004f3a30 */
@@ -21113,6 +21204,12 @@ static int bc_atom(const int *t, int *pos, double *val, int *err)    /* FUN_004f
                 *val = 1.0 / sqrt(3.0);
             else if (c == '\\')
                 *val = 1000.0;          /* 2525 YenM（box_calc の注） */
+            else if (c == '@')
+                *val = bc_at_v;         /* FUN_004f3b80 の param_4（0x40） */
+            else if (c == 'x')
+                *val = bc_x_v;          /* DAT_00a0b410+0x7a28 × 縮尺（0x78） */
+            else if (c == 'y')
+                *val = bc_y_v;          /* +0x7a30 × 縮尺（0x79） */
             else
                 break;
         }
@@ -21292,38 +21389,166 @@ static double bc_expr(const int *t, int *pos, int *err)    /* FUN_004f36e0 */
     }
 }
 
+/* FUN_004f67d0: 'm' の次が "^u2"・"^d3"・"^c2" の形か（^ のあとに u・d・c、そのあとに 2 か 3）。
+   そうなら 3、違えば 0。'm' に面積・体積の単位の字が続くとき、その三字は式から落ちる。
+   pos は 'm' の次の字の番号、len は字数（pos+2 < len が要る）。全角の ｍ＾ｕ２ の枝は持たない。
+   読みは逆コンパイルと逆アセンブル（cmp 0x5e・0x75/0x64/0x63・0x32/0x33、呼び手の
+   引数は 'm' の次の番号）。原典では押していない */
+static int bc_m2(const char *t, int len, int pos)
+{
+    if (pos + 2 >= len || t[pos] != '^')
+        return 0;
+    if (t[pos + 1] != 'u' && t[pos + 1] != 'd' && t[pos + 1] != 'c')
+        return 0;
+    return t[pos + 2] == '2' || t[pos + 2] == '3' ? 3 : 0;
+}
+
+/* FUN_004f47b0 の二つ目の回し（一つ目の字の並びを 数え直して 0 を補い、度分秒を閉じる）。
+   "@@" と "**" は 度の別の書き方: 12@@34@56@ も 12**34*56* も 12゜34'56" になる。
+     st      0 なし、±1 度の次（分を待つ）、±2 分の次（秒を待つ）。負は ** の書き方
+     prev    前の字が 数字か '.'（local_448）
+   度（と ':'）の前が数でなければ 0 を補う。数のあとで 度・'・" でない字が来たら
+   待っていた ' か " を閉じる。最後も同じ。逆コンパイルの読み、原典では押していない
+   （st が正のときの `*` は ' を足して `*` はそのまま掛け算に残る、も読んだとおり） */
+static int bc_dms(const int *a, int na, int *s)
+{
+    int k, o = 0, st = 0, prev = 0;
+
+    for (k = 0; k < na; k++) {
+        int c = a[k], nx = k + 1 < na ? a[k + 1] : 0;
+
+        if ((c < '0' || c > '9') && c != '.') {
+            if ((c == BC_DEG || c == ':') && !prev)
+                s[o++] = '0';
+            if ((c == '@' && nx == '@' && st == 0) || (c == '*' && nx == '*' && st == 0)) {
+                if (!prev)
+                    s[o++] = '0';
+                st = c == '*' ? -1 : 1;
+                c = BC_DEG;
+                k++;
+            }
+            if (abs(st) == 1 && prev) {
+                if (c == '@' && st > 0) {
+                    c = '\'';
+                    st = 2;
+                }
+                if (c == '*') {
+                    if (st < 0) {
+                        c = '\'';
+                        st = -2;
+                    } else {
+                        s[o++] = '\'';
+                        st = 0;
+                    }
+                    if (nx == '*')
+                        st = 0;
+                }
+            }
+            if (abs(st) == 2 && prev) {
+                if (c == '@' && st > 0) {
+                    c = '"';
+                    st = 0;
+                }
+                if (c == '*') {
+                    if (st < 0)
+                        c = '"';
+                    else
+                        s[o++] = '"';
+                    st = 0;
+                }
+            }
+            if (prev && c != BC_DEG && c != '\'' && c != '"') {
+                if (abs(st) == 1) {
+                    s[o++] = '\'';
+                    st = 0;
+                }
+                if (abs(st) == 2) {
+                    s[o++] = '"';
+                    st = 0;
+                }
+            }
+            prev = 0;
+        } else
+            prev = 1;
+        s[o++] = c;
+        if (o > 150)
+            return -1;
+    }
+    if (prev) {
+        if (abs(st) == 1)
+            s[o++] = '\'';
+        if (abs(st) == 2)
+            s[o++] = '"';
+    }
+    return o;
+}
+
 static int box_calc(const char *text, double *out)
 {
-    int s[80], t[300], n = 0, i, k, br = 0, err = 0, prev, depth;
+    int s[160], a1[80], t[300], n = 0, i, k, br = 0, err = 0, prev, depth;
+    int dot = 0, ucnt = 0, na;
     size_t len = strlen(text);
+    const jw_drawing *dw = last_dr;     /* 直近に命令へ渡された図面 */
 
     *out = 0.0;
+    bc_at_v = 0.0;
+    if (dw) {
+        bc_x_v = dw->mesh_ix * write_scale(dw);
+        bc_y_v = dw->mesh_iy * write_scale(dw);
+    } else
+        bc_x_v = bc_y_v = 0.0;
     if (len >= 64)
         return 0;
-    /* 1. FUN_004f47b0 */
+    /* 1. FUN_004f47b0（一つ目の回し。二つ目は bc_dms） */
     for (i = 0; text[i]; i++) {
         int c = (unsigned char)text[i], nx = (unsigned char)text[i + 1];
 
         if (c == ' ' || c == 'R')
             continue;
+        if (c == ',') {
+            /* 小数点を読んだあとの ',' はそこで打ち切り、それまでは落とす（1,000 は 1000） */
+            if (dot)
+                break;
+            continue;
+        }
+        if (c == '.')
+            dot = 1;
         if (c >= 'A' && c <= 'Z' && strchr("ABCDEFSXYILNJPQ", c))
             c += 'a' - 'A';
         if (c == 'm' || c == 'M') {
+            /* mm は何もしない、m は ×1000。そのあとに ^u2 などの単位が続けば その三字は落ち、
+               m の ×1000 も付かない（FUN_004f67d0。0xa0bfa4 の旗は 箱では立たない） */
+            int r;
+
             if (nx == 'm' || nx == 'M') {
                 i++;
+                r = bc_m2(text, (int)len, i + 1);
+                i += r;
                 continue;
             }
-            if (nx == '^')
-                return 0;               /* m^2 and the like: not carried */
-            if (n + 5 >= 72)
-                return 0;
-            s[n++] = '*'; s[n++] = '1'; s[n++] = '0'; s[n++] = '0'; s[n++] = '0';
+            r = bc_m2(text, (int)len, i + 1);
+            i += r;
+            if (r == 0) {
+                if (n + 5 >= 72)
+                    return 0;
+                a1[n++] = '*'; a1[n++] = '1'; a1[n++] = '0'; a1[n++] = '0'; a1[n++] = '0';
+            }
             continue;
+        }
+        if (c == '^' && nx == 'u') {
+            /* ^u の u は落とす。ucnt は そのあと三字のあいだ立つ数（FUN_004f47b0 の local_44c） */
+            i++;
+            if (ucnt == 0)
+                ucnt = 3;
+            if (ucnt == 1) {
+                ucnt = 2;
+                continue;
+            }
         }
         if (c == '0' && (nx == 'x' || nx == 'X'))
             c = '&';
         if (c == '&') {
-            s[n++] = '&';
+            a1[n++] = '&';
             if (text[i] == '0')
                 i++;
             while (n < 72) {
@@ -21333,37 +21558,29 @@ static int box_calc(const char *text, double *out)
                     h += 'a' - 'A';
                 if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f')))
                     break;
-                s[n++] = h;
+                a1[n++] = h;
                 i++;
             }
             continue;
         }
-        /* 基本設定 一般(2) 2525「［10\］を10,000(10m)にする」(DAT_00a0d860, YenM):
-           FUN_004f2480 は旗が立っていれば 一つの \ をそのまま残し（\\ は x、
-           x\ は y）、FUN_004f3b80 が \ を 1000 と読む。旗が無ければ \ は x。
-           x・y・@ は移植が持たない値なので 前のとおり断る */
-        if (c == '\\' && bc_yen_m && nx != '\\' && !(n > 0 && s[n - 1] == 'x')) {
-            if (n >= 72)
-                return 0;
-            s[n++] = c;
-            continue;
-        }
-        if (c == '@' || c == '\\' || c == 'x' || c == 'y')
-            return 0;                   /* values the original takes from elsewhere */
-        if (c == '*' && nx == '*')
-            return 0;                   /* its other way of writing degrees */
         if (bc_class(c) < 0)
             return 0;
-        if ((c == BC_DEG || c == ':') && (n == 0 || bc_class(s[n - 1]) != 1))
-            s[n++] = '0';
+        if (bc_class(c) > 2 && bc_class(c) < 7)
+            dot = 0;
         if (n >= 72)
             return 0;
-        s[n++] = c;
+        a1[n++] = c;
+        if (ucnt > 0)
+            ucnt--;
     }
+    na = n;
+    if (na == 0)
+        return 0;
+    n = bc_dms(a1, na, s);
+    if (n <= 0)
+        return 0;
     s[n] = 0;
     s[n + 1] = 0;
-    if (n == 0)
-        return 0;
     /* 2. FUN_004f2480 */
     k = 0;
 #define BC_PUT(ch) do { if (k + 2 >= (int)(sizeof t / sizeof t[0])) return 0; t[++k] = (ch); } while (0)
@@ -21376,6 +21593,21 @@ static int box_calc(const char *text, double *out)
             continue;
         if (c == '/' && s[i + 1] == '/') {
             c = 'a';
+            i++;
+        }
+        /* 基本設定 2525（DAT_00a0d860）: 旗が無ければ \ は x、旗が立っていれば \ は
+           そのまま（FUN_004f3b80 が 1000 と読む）で \\ だけが x。x のあとに \ が続けば y
+           （x\ も \\ から来た x\ も y）。FUN_004f2480 の先頭。逆コンパイルの読み */
+        if (c == '\\') {
+            if (!bc_yen_m)
+                c = 'x';
+            else if (s[i + 1] == '\\') {
+                c = 'x';
+                i++;
+            }
+        }
+        if (c == 'x' && s[i + 1] == '\\') {
+            c = 'y';
             i++;
         }
         if (c == 'p' && bc_map(s[i + 1]) == 'p') {
@@ -21586,8 +21818,8 @@ int jw_cmd_box_key(int ch)
         /* ２線's box holds two numbers with a comma between them, and any
            box takes a sum (box_sum) */
         if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ','
-            || (ch > ' ' && ch < 127 && strchr("+*/()^%:'\"&[]\\", ch))   /* \ は 2525 */
-            || (ch > ' ' && ch < 127 && strchr("aAbBcCeEiIjJlLmMnNpPqQsSxX", ch))) {
+            || (ch > ' ' && ch < 127 && strchr("+*/()^%:'\"&[]\\@", ch))   /* \ は 2525 */
+            || (ch > ' ' && ch < 127 && strchr("aAbBcCdDeEiIjJlLmMnNpPqQsSuxXyY", ch))) {
             if (box_fresh) {
                 t[0] = 0;
                 n = 0;

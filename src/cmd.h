@@ -582,8 +582,11 @@ void jw_cmd_moji_point_first(int on);
    いれば 複線 で元を拾い間隔を打ったあとの Enter が、マウスの側へその間隔で写し、
    写しを次の元にする（Enter を押すたびに一本）。写したら 1 */
 void jw_cmd_fukusen_enter_on(int on);
-/* 基本設定 一般(2) 2525: 箱の式の一つの \ を 1000 に（\\ は x のまま断る） */
+/* 基本設定 一般(2) 2525: 箱の式の一つの \ を 1000 に（\\ は x） */
 void jw_cmd_yen_m(int on);
+/* 箱の式の x・y（目盛間隔 × 縮尺）を読む図面。命令に図面が渡るまでの箱のために、
+   app_new が教える（app.c の drawing は 同じ番地のまま） */
+void jw_cmd_doc(const jw_drawing *d);
 /* 基本設定 一般(2) 2526 ｍ単位入力: 長さの箱を ｍ で読み書き（src/cmd.c mu_len） */
 void jw_cmd_m_input(int on);
 int  jw_cmd_fukusen_enter(jw_drawing *d, const jw_view *v);

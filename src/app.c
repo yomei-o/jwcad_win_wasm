@@ -7168,6 +7168,7 @@ void app_new(void)
 {
     jw_drawing d;
 
+    jw_cmd_doc(&drawing);               /* 箱の式の x・y が読む図面 */
     ll_pend = ll_start = 0;
     jw_umekomi_saved(0);                /* 埋め込み文字: 保存日時は無い */
     jw_pr_new_doc();                    /* 連続出力の箱を 0 に（FUN_004d20c0） */

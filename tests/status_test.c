@@ -339,6 +339,58 @@ static void fukusen_tail(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 複線の末尾: 選んだ線が複数のとき（FUN_006608e0）。選んだ全部のうち 点数（垂線の長さ、足が
+   線分の外なら 近い端点までを足す）がいちばん小さいものの距離。逆コンパイルの読み、
+   原典では押していない */
+static void fukusen_tail_multi(void)
+{
+    jw_drawing *d;
+    const jw_view *v;
+    const char *st;
+    size_t n = strlen(JW_STR_5312);
+    char num[64];
+    int i, k = 0;
+    double got, want;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    v = app_view();
+    app_command(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    click(-100.0, 50.0);
+    click(100.0, 50.0);
+    click(-100.0, 0.0);
+    click(100.0, 0.0);
+    app_command(JW_CMD_SEN);
+    for (i = 0; i < d->ndrawn; i++)
+        d->obj[i].sel = 1;
+    app_command(JW_CMD_FUKUSEN);
+    app_move(jw_sx(v, 0.0), jw_sy(v, 20.0));
+    st = jw_cmd_status(d);
+    ck(!strncmp(st, JW_STR_5312, n), "選んだ二本が元（複数）でも 5312 の末尾に数値");
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 20.0 * scale_of(d);
+    ck(fabs(got - want) <= 1.5 * v->mmpp * scale_of(d),
+       "  いちばん近い線までの距離（先に描いた遠い線のではない）");
+    app_move(jw_sx(v, 0.0), jw_sy(v, 40.0));
+    st = jw_cmd_status(d);
+    k = 0;
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 10.0 * scale_of(d);
+    ck(fabs(got - want) <= 1.5 * v->mmpp * scale_of(d),
+       "  線の間のときは近いほう（40 なら y=50 の線まで 10）");
+    app_command(JW_CMD_SEN);
+}
+
 /* 複線の残り: (R) 前回値・端点指定 (1065)・範囲選択 (1067)・移動 (1323)。
    どれも CZukeiFukusen の逆コンパイルの読み（slot 11・26・28/34・3、src/cmd.c の
    fk_* の注）で、原典では押していない */
@@ -633,6 +685,54 @@ static void sekien_tail(void)
     app_command(JW_CMD_SEN);
 }
 
+static void type_into(int id, const char *t);
+
+/* 接円の三つ目の段（0x14ff）の末尾「     【 解の数 - マウスにいちばん近い候補の番号 】」
+   （FUN_007063b0・FUN_0070b570。逆コンパイルの読み、番号の順は原典で録っていない） */
+static void sekien_third(void)
+{
+    jw_drawing *d;
+    const jw_view *v;
+    char box[32], head[256], got[4][256];
+    static const double q[4][2] = { { 30, 30 }, { -30, 30 }, { -30, -30 }, { 30, -30 } };
+    int i, k, seen = 0, ok = 1;
+
+    app_new();
+    d = (jw_drawing *)app_drawing();
+    v = app_view();
+    app_command(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    click(-100.0, 0.0);
+    click(100.0, 0.0);
+    click(0.0, -100.0);
+    click(0.0, 100.0);
+    app_command(JW_CMD_SEKIEN);
+    snprintf(box, sizeof box, "%.6g", 20.0 * scale_of(d));
+    type_into(1411, box);
+    jw_cmd_box_key(13);
+    click(60.0, 0.0);
+    click(0.0, 60.0);
+    snprintf(head, sizeof head, "%s     %s 4 - ", JW_STR_5375, JW_STR_7006);
+    for (i = 0; i < 4; i++) {
+        app_move(jw_sx(v, q[i][0]), jw_sy(v, q[i][1]));
+        snprintf(got[i], sizeof got[i], "%s", jw_cmd_status(d));
+        if (strncmp(got[i], head, strlen(head)))
+            ok = 0;
+        else {
+            k = atoi(got[i] + strlen(head));
+            if (k < 1 || k > 4 || (seen & (1 << k)))
+                ok = 0;
+            seen |= 1 << k;
+        }
+    }
+    if (!ok)
+        printf("        %s\n", got[0]);
+    ck(ok, "接円の三つ目の段: 四つの解、象限ごとに 1〜4 の別の番号");
+    ck(strstr(got[0], JW_STR_7000) != 0, "  終わりは 】");
+    jw_cmd_set(JW_CMD_SEN);
+}
+
 /* バーの箱は式を取る（原典は値を FUN_004f2220・FUN_004f47b0 の式の読み手に通す）。
    移植は四則と括弧を、Enter か 箱を離れたときに計算して 答えを箱に残す */
 static void type_into(int id, const char *t)
@@ -698,9 +798,28 @@ static void box_sums(void)
             { "q(-1)", "q(-1)", "  負の √ も（そのまま）" },
             { "(1+2", "(1+2", "  閉じない括弧も（そのまま）" },
             { "1++2", "1++2", "  演算子が二つ続くのも（そのまま）" },
-            { "2x", "2x", "  x は 原典がほかから持ってくる値（入れていない。そのまま）" },
+            { "2x", "40", "  x は 目盛間隔の横 × 縮尺（FUN_004f3b80、+0x7a28。ここは 10×2）" },
+            { "x+y", "30", "  y は 縦（+0x7a30、5×2）" },
+            { "2@+1", "1", "  @ は 式の読み手の第二引数、箱では 0" },
+            { "\\", "20", "  2525 が切のとき \\ は x" },
+            { "\\\\", "10", "  \\\\ は y（x のあとの \\ は y）" },
+            { "12@@30@36@", "12.51", "  @@ は 度、@ は 分・秒（12゜30'36\"）" },
+            { "12**30*36*", "12.51", "  ** も 度（* が 分・秒）" },
+            { "@@30@", "0.5", "  度の前が数でなければ 0 を補う（0゜30'）" },
+            { "3m^u2", "3", "  m^u2 は 単位の三字が落ち ×1000 も付かない（FUN_004f67d0）" },
+            { "3mm^c3", "3", "  mm^c3 も" },
         };
         size_t i;
+
+        {
+            jw_drawing *wd = (jw_drawing *)app_drawing();
+            int g;
+
+            wd->mesh_ix = 10.0;
+            wd->mesh_iy = 5.0;
+            for (g = 0; g < 16; g++)
+                wd->group[g].scale = 2.0;
+        }
 
         for (i = 0; i < sizeof c / sizeof c[0]; i++) {
             type_into(1413, c[i].in);
@@ -1163,10 +1282,12 @@ int main(void)
 
     prompts_of_the_commands();
     fukusen_tail();
+    fukusen_tail_multi();
     fukusen_rest();
     fukusen_chain();
     hani_figreg();
     sekien_tail();
+    sekien_third();
     box_sums();
     moji_point_first();
     moji_pick_move();

@@ -146,17 +146,25 @@ int main(void)
 
     /* ---- 2525 ---- */
     app_command(JW_CMD_SEN);
-    ck(!strcmp(bar_sum(1412, "10\\"), "10\\"), "既定は 10\\ を式にしない（打ったまま）");
+    {
+        int g;
+
+        d->mesh_ix = 7.0;               /* x・y は 目盛間隔 × 縮尺（FUN_004f3b80、+0x7a28・+0x7a30） */
+        d->mesh_iy = 3.0;
+        for (g = 0; g < 16; g++)
+            d->group[g].scale = 1.0;
+    }
+    ck(!strcmp(bar_sum(1412, "10\\"), "70"), "既定は \\ が x（10\\ は 10×x = 70）");
     ck(kh_press(1, 2525), "一般(2) の ［10\\］を10,000(10m)にする を押す");
     kh_ok();
     app_command(JW_CMD_SEN);
     ck(!strcmp(bar_sum(1412, "10\\"), "10000"), "  OK のあと 10\\ は 10000");
     ck(!strcmp(bar_sum(1412, "2.5\\+50"), "2550"), "  2.5\\+50 は 2550");
-    ck(!strcmp(bar_sum(1412, "10\\\\"), "10\\\\"), "  \\\\ は x（移植は持たない値なので打ったまま）");
+    ck(!strcmp(bar_sum(1412, "10\\\\"), "70"), "  \\\\ は x（二つ続けて x。10×7）");
     kh_press(1, 2525);
     kh_ok();
     app_command(JW_CMD_SEN);
-    ck(!strcmp(bar_sum(1412, "10\\"), "10\\"), "  切ればまた式にしない");
+    ck(!strcmp(bar_sum(1412, "10\\"), "70"), "  切ればまた x");
     bar_sum(1412, "");
 
     /* ---- 2266・2267 ﾏｳｽﾎｲｰﾙ ---- */
