@@ -244,6 +244,21 @@ static int hit(jw_drawing *d, const jw_view *v, double x, double y)
     return jw_cmd_notice_id() == 5231;
 }
 
+/* k の隣（3×3）に色 c の画素があるか。白は描いていない所 */
+static int near_ink(const unsigned int *im, int k, unsigned int c)
+{
+    int x = k % W, y = k / W, dx, dy;
+
+    if (c == 0xffffff)
+        return 1;
+    for (dy = -1; dy <= 1; dy++)
+        for (dx = -1; dx <= 1; dx++)
+            if (x + dx >= 0 && x + dx < W && y + dy >= 0 && y + dy < H &&
+                im[(y + dy) * W + x + dx] == c)
+                return 1;
+    return 0;
+}
+
 int main(void)
 {
     jw_drawing d;
@@ -290,7 +305,10 @@ int main(void)
     for (k = 0; k < W * H; k++) {
         if (img[0][k] != 0xffffff)
             ink++;
-        if (img[0][k] != img[1][k])
+        /* 同じ形を別の道で計算するので、端数の丸めで 1 画素ずれることがある
+         * （VM の ARM と手元の x86 で違った）。隣の画素までは同じとみなす */
+        if (img[0][k] != img[1][k] &&
+            (!near_ink(img[1], k, img[0][k]) || !near_ink(img[0], k, img[1][k])))
             differ++;
         if (img[2][k] != img[1][k])
             wrongdiff++;
