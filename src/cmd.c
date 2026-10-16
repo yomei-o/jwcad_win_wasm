@@ -1086,7 +1086,9 @@ static int    sun_degketa = JW_SUN_DEGKETA;
  * 次に効かせたもの（2026-10-16 夜）: ｿﾘｯﾄﾞ（sun_head）、度/度分秒（sunpo_angle）、
  * 基点円（sunpo_make の 累進）、角度を次回に継続（jw_cmd_set）。
  * 文字高位置中心（2423）は 累進 の値の字に効かせた（sunpo_make の sun_mojic）。
- * 表示と保存だけのもの: 文字方向無補正、グループ化。
+ * 文字方向無補正（2419）は ふつうの寸法・一括処理 の値の字の向き（sun_text_dir）、
+ * グループ化（2861）は 一回の寸法の要素に 空いている負の曲線属性番号
+ * （sun_group_mark）。
  * 寸法図形（2424）は ふつうの寸法（sunpo_make）だけ 寸法図形にする
  * （sun_fig_close の注）。半径・直径（sunpo_radius）・一括処理（ika_gap）も
  * 同じ形。角度（FUN_00786fb0）は原典が bda0 を見ないので ふつうの要素のまま。
@@ -6002,23 +6004,46 @@ static int sun_moji_n(void);
  * out as 38,723.74.
  *
  * Answers 1 when there is nothing to add, 2 when the text went with it. */
-static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t);
+static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t, int flip);
+
+/* 寸法図形（2424）の 線の寸法: 原典 FUN_006f46a0（CZukeiSen）の 0x6f4ec2〜
+ * で、1350（+0x13cc、FUN_006f3410）か +0x490 が立ち bda0 なら 線を図形に
+ * 足さず スタックの CDataSunpou（ctor FUN_0041f8d0）に FUN_00420110 で写し、
+ * 値の段 0x6f5472〜 で 字を その +0xd0 に FUN_00479550 で書いて
+ * FUN_00450860 で一つの図形として足す（頭 +0x44 = 0x2000、線 +0xac に
+ * 0x2000、字 +0x114 に 0x10）。●・＜（+0x13c4・+0x13c8）は そのあと
+ * 0x6f5802〜 で ふつうの要素で足されるので 図形の後ろ。値が書けない
+ * （FUN_0045a220 が 0）と 原典は線ごと足さないが、移植は線をふつうに残す
+ * （移植の守り）。+0x490 は CZukeiSen の 0x6ef7e6〜 が 1・2 を回す一押しの
+ * 寸法値で、移植には無い。線・矩形・円 の確定の輪（jw_cmd_point_）が
+ * sen_fig を見て sun_fig_close を呼ぶ。逆コンパイルの読み、原典では押していない */
+static int sen_fig;
 
 static int sen_value(const jw_drawing *d, jw_obj *o, int max)
 {
+    sen_fig = 0;
     if (jw_cmd_bar_check(1350) <= 0 || !d || max < 2)
         return 1;
     o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
-    return sen_text(d, o, &o[1]) ? 2 : 1;
+    if (!sen_text(d, o, &o[1], 1))
+        return 1;
+    sen_fig = sun_zukei != 0;
+    return 2;
 }
 
 /* 建具平面の寸法図形（&m）が使う: 線 `o` の長さの値を、`t` に */
 int jw_cmd_dim_value(const jw_drawing *d, const jw_obj *o, jw_obj *t)
 {
-    return sen_text(d, o, t);
+    return sen_text(d, o, t, 0);
 }
 
-static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t)
+/* flip: 線の寸法値（FUN_006f46a0）のときだけ、文字種（DAT_00a0bcd0）が負なら
+   字を線の向こう側へ（0x6f5290〜0x6f5443: 始点→終点の座標 FUN_005f8940 で
+   字の枠の二点の y を -(間隔×2 + 高さ b658[|文字種|]) にしてから 間隔 を
+   足すので、字の上端が線から 間隔 の所、読む向きは同じ）。文字種は |値| を
+   使い 0 は 1、10 を超えれば 10（0x6f5232〜）。逆コンパイルの読み、
+   原典では押していない */
+static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t, int flip)
 {
     double dx, dy, len, ux, uy, vx, vy, cw, ch, sp, tw = 0.0;
     char txt[64];
@@ -6033,9 +6058,13 @@ static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t)
     for (i = 0; i < 16; i++)
         if (d->group[i].state == 3)
             wg = i;
-    i = sun_mojino - 1;
-    if (i < 0 || i >= 10)
-        i = 0;
+    i = sun_mojino < 0 ? -sun_mojino : sun_mojino;
+    if (i < 1)
+        i = 1;
+    if (i > 10)
+        i = 10;
+    i--;
+    flip = flip && sun_mojino < 0;
     cw = d->style[i].w;
     ch = d->style[i].h;
     sp = d->style[i].sp;
@@ -6061,8 +6090,9 @@ static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t)
     t->width = 0;
     t->flags = (unsigned short)(t->flags | JW_SUN_TEXT_FLAGS);
     {
-        double mx = (o->d[0] + o->d[2]) / 2.0 + sun_hanare * vx;
-        double my = (o->d[1] + o->d[3]) / 2.0 + sun_hanare * vy;
+        double off = flip ? -(sun_hanare + ch) : sun_hanare;
+        double mx = (o->d[0] + o->d[2]) / 2.0 + off * vx;
+        double my = (o->d[1] + o->d[3]) / 2.0 + off * vy;
         t->d[0] = mx - tw / 2.0 * ux;
         t->d[1] = my - tw / 2.0 * uy;
         t->d[2] = mx + tw / 2.0 * ux;
@@ -21908,6 +21938,51 @@ static jw_obj *sun_dimline(jw_drawing *d, double x0, double y0, double x1,
                            double y1);
 static int sun_fig_close(jw_drawing *d, int first);
 
+/* 寸法設定 グループ化（2861、DAT_00a0bd8c）: ふつうの寸法 FUN_00783730 の
+ * 頭（0x783767〜、角度・円周 FUN_00786fb0 へ分かれる前）と 半径・直径
+ * FUN_007891b0 の頭（0x78920b〜）で、立っていれば FUN_00479d80（図面と
+ * ブロックの全要素の +4 の |値| に印を付け、1 から数えて最初に空いている
+ * 番号）の 負 を 足し手の +0x6348 に置く。FUN_00450860 が 足す要素ごとに
+ * +4（曲線属性）へ写すので、その一回の寸法の要素は みな 同じ負の番号に
+ * なる（終わりで +0x6348 = 0）。寸法図形（2424）なら 図形そのもの
+ * （CDataSunpou）が FUN_00450860 で足され、中の部品（FUN_00420110 の写し・
+ * FUN_00479550 の字）は 0 のまま。一括処理 FUN_0077c130 は 間ごとに
+ * FUN_00783730 を呼ぶので 間ごとに別の番号。線の寸法値（FUN_006f46a0）は
+ * 見ない。from は その一回の最初の要素。逆コンパイルの読み、原典では
+ * 押していない */
+static void sun_group_mark(jw_drawing *d, int from)
+{
+    static unsigned char used[30001];   /* FUN_00479d80 の local_753c */
+    int k, id;
+
+    if (!sun_group || from < 0 || from >= d->ndrawn)
+        return;
+    memset(used, 0, sizeof used);
+    for (k = 0; k < d->nobj; k++) {
+        const jw_obj *o = &d->obj[k];
+        /* 図形は頭の +4 だけ（部品は図形の中で 印を付けない） */
+        int a = o->sub == 1 ? o->list[1] : o->sub ? 0 : o->id;
+        if (k >= from && k < d->ndrawn)
+            continue;               /* いま足したもの（まだ 0） */
+        if (a < 0)
+            a = -a;
+        if (a > 0 && a < 0x3a981)   /* FUN_0046b570 */
+            used[a >> 3] = (unsigned char)(used[a >> 3] | (1u << (a & 7)));
+    }
+    for (id = 1; id <= 240000; id++)
+        if (!(used[id >> 3] & (1u << (id & 7))))
+            break;
+    if (id > 240000)
+        return;                     /* 原典は 0 を返し +0x6348 = 0 */
+    for (k = from; k < d->ndrawn; k++) {
+        jw_obj *o = &d->obj[k];
+        if (o->sub == 1)
+            o->list[1] = -id;       /* 図形の頭の +4 */
+        else if (!o->sub)
+            o->id = -id;
+    }
+}
+
 static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
 {
     int i = jw_pick(d, v, x, y, 6), wg = 0, k, si;
@@ -22472,6 +22547,66 @@ static int sun_fig_close(jw_drawing *d, int first)
     return made;
 }
 
+/* 寸法値の字の向き（文字方向補正、2419 文字方向無補正 = DAT_00a0bd20）。
+ * FUN_00783730 は 字の枠の二点を 寸法線の 始点（一点目の写し）と 終点
+ * （二点目の写し）にして（0x785c9c〜）、文字方向補正 local_7168 =
+ * (bd20 == 0) を FUN_00479c40 → FUN_00479550 に渡す。FUN_00479550 は
+ * 補正が立ち 二点目が左向き（dx < 0、または |dx| ≤ 1e-7 で dy < 0）なら
+ * 二点を入れ替え（FUN_00473760）、揃えの符号を反す（0x4796f0〜）。字は
+ * 一点目→二点目 の向きに読み、間隔 はその左へ取る（local_228・local_220）。
+ * だから 補正なら 字はいつも右向き（真上向き）で その左、無補正なら 測った
+ * 向きのまま（逆に測れば 逆さで寸法線の下）。u は寸法の向き、ds は
+ * 二点目 - 一点目 の u 沿いの長さ。r に読む向き、g に 間隔 を取る向き。
+ * 逆コンパイルの読み、原典では押していない */
+static void sun_text_dir(double ux, double uy, double ds, double *r, double *g)
+{
+    double sg = ds >= 0.0 ? 1.0 : -1.0;
+    double dx = ds * ux, dy = ds * uy;
+
+    r[0] = sg * ux;
+    r[1] = sg * uy;
+    if (!sun_nohosei && (dx < 0.0 || (dx <= 1e-7 && dy < 0.0))) {
+        r[0] = -r[0];
+        r[1] = -r[1];
+    }
+    g[0] = -r[1];
+    g[1] = r[0];
+}
+
+/* 値の字の枠（o->d[0..3]）: 寸法線の u 沿い mid・v 沿い tl の点から。
+   文字種が負なら 二点を 始点→終点 の座標（FUN_005f8940）で
+   y = -(間隔×2 + 高さ) に下ろしてから（0x786201〜0x78628f、累進でないとき）、
+   読む向き・間隔の向きは sun_text_dir */
+static void sun_text_box(jw_obj *o, double ux, double uy, double vx, double vy,
+                         double ds, double mid, double tl, double tw, double ch)
+{
+    double r[2], g[2], sg = ds >= 0.0 ? 1.0 : -1.0;
+    double mx = mid * ux + tl * vx, my = mid * uy + tl * vy;
+    double yo = sun_mojino < 0 ? -(sun_hanare * 2.0 + ch) : 0.0;
+
+    sun_text_dir(ux, uy, ds, r, g);
+    mx += yo * -sg * uy + sun_hanare * g[0];
+    my += yo * sg * ux + sun_hanare * g[1];
+    o->d[0] = mx - tw / 2.0 * r[0];
+    o->d[1] = my - tw / 2.0 * r[1];
+    o->d[2] = mx + tw / 2.0 * r[0];
+    o->d[3] = my + tw / 2.0 * r[1];
+}
+
+/* 値の文字種の番号（0 始まり）: |値|、10 を超えれば 10（FUN_00783730 の
+   local_7118）。0 は 先に 1 にされる（DAT_00a0bcd0 == 0 なら 1、
+   0x7838a4〜。local_7118 の 0 なら 2 の枝には来ない） */
+static int sun_moji_idx(void)
+{
+    int i = sun_mojino < 0 ? -sun_mojino : sun_mojino;
+
+    if (i == 0)
+        i = 1;
+    if (i > 10)
+        i = 10;
+    return i - 1;
+}
+
 static void sunpo_make(jw_drawing *d, double bx, double by)
 {
     double a = sun_angle() * PI / 180.0;
@@ -22663,10 +22798,10 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
         made++;
     }
 
-    /* 寸法値 -- 文字種 MOJINO, centred on the line and HANARE above it */
-    i = sun_mojino - 1;
-    if (i < 0 || i > 9)
-        i = 0;
+    /* 寸法値 -- 文字種 MOJINO, centred on the line and HANARE above it.
+       文字種は |値|（sun_moji_idx、負は 字を寸法線の向こう側へ
+       local_7164） */
+    i = sun_moji_idx();
     cw = d->style[i].w;
     ch = d->style[i].h;
     sp = d->style[i].sp;
@@ -22735,10 +22870,8 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                 o->d[2] = px + tw * vx;
                 o->d[3] = py + tw * vy;
             } else {
-            o->d[0] = (mid - tw / 2.0) * ux + t * vx;
-            o->d[1] = (mid - tw / 2.0) * uy + t * vy;
-            o->d[2] = (mid + tw / 2.0) * ux + t * vx;
-            o->d[3] = (mid + tw / 2.0) * uy + t * vy;
+                /* 文字方向補正（2419）・負の文字種（sun_text_box） */
+                sun_text_box(o, ux, uy, vx, vy, s1 - s0, mid, tl, tw, ch);
             }
             o->d[4] = cw;
             o->d[5] = ch;
@@ -22891,7 +23024,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     double x0 = s0 * ux + tl * vx, y0 = s0 * uy + tl * vy;
     double x1 = s1 * ux + tl * vx, y1 = s1 * uy + tl * vy;
     double len = s1 > s0 ? s1 - s0 : s0 - s1;
-    double cw, ch, sp, tw = 0.0, mid, t;
+    double cw, ch, sp, tw = 0.0, mid;
     char txt[64];
     const char *p;
     int nch = 0, i, wg = 0, made = 0, fig = -1;
@@ -22955,9 +23088,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
         }
     }
 
-    i = sun_mojino - 1;
-    if (i < 0 || i > 9)
-        i = 0;
+    i = sun_moji_idx();
     cw = d->style[i].w;
     ch = d->style[i].h;
     sp = d->style[i].sp;
@@ -22981,7 +23112,6 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     if (cw <= 0.0 || ch <= 0.0 || !nch)
         return made;
     mid = (s0 + s1) / 2.0;
-    t = tl + sun_hanare;
     o = jw_add(d, JW_MOJI);
     if (!o)
         return made;
@@ -22989,10 +23119,8 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     o->ltype = 2;
     o->width = sun_width(0);
     o->flags = (unsigned short)(o->flags | JW_SUN_TEXT_FLAGS);
-    o->d[0] = (mid - tw / 2.0) * ux + t * vx;
-    o->d[1] = (mid - tw / 2.0) * uy + t * vy;
-    o->d[2] = (mid + tw / 2.0) * ux + t * vx;
-    o->d[3] = (mid + tw / 2.0) * uy + t * vy;
+    /* 間ごとに FUN_00783730 なので 字の向きも同じ（sun_text_box） */
+    sun_text_box(o, ux, uy, vx, vy, s1 - s0, mid, tl, tw, ch);
     o->d[4] = cw;
     o->d[5] = ch;
     o->d[6] = sp;
@@ -23063,8 +23191,11 @@ static void ika_run(jw_drawing *d)
             s[j] = s[j - 1];
         s[j] = k;
     }
-    for (i = 0; i + 1 < n; i++)
+    for (i = 0; i + 1 < n; i++) {
+        int g0 = d->ndrawn;
         made += ika_gap(d, s[i], s[i + 1], ux, uy, vx, vy, tl, th);
+        sun_group_mark(d, g0);      /* 間ごとに FUN_00783730（グループ化 2861） */
+    }
     if (made)
         op_push(made);
 }
@@ -27247,7 +27378,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             return;
         }
         if (sun_radius) {
+            int g0 = d->ndrawn;
             sunpo_radius(d, v, x, y);
+            sun_group_mark(d, g0);  /* グループ化 2861（FUN_007891b0 の頭） */
             return;
         }
         if (sun_chi) {
@@ -27340,9 +27473,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                始点に前の終点 (+0x5a8..) を置き、読んだ点を終点にして
                FUN_00783730 で作る。移植は (R) も次の始点にしていた。
                逆コンパイルの読み、原典では押していない。tests/workflow_test.c */
+            int g0 = d->ndrawn;
             sun_sx = sun_ex;
             sun_sy = sun_ey;
             sunpo_make(d, rx, ry);
+            sun_group_mark(d, g0);  /* グループ化 2861（FUN_00783730 の頭） */
             sun_ex = rx;
             sun_ey = ry;
             return;
@@ -27354,10 +27489,16 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             sun_made = 0;
             return;
         }
-        if (sun_kaku || sun_enshu)
-            sunpo_angle(d, rx, ry);
-        else
-            sunpo_make(d, rx, ry);
+        {
+            int g0 = d->ndrawn;
+            if (sun_kaku || sun_enshu)
+                sunpo_angle(d, rx, ry);
+            else
+                sunpo_make(d, rx, ry);
+            /* グループ化 2861: FUN_00783730 の頭で 角度・円周（0x17・0x18 で
+               FUN_00786fb0 へ）にも効く */
+            sun_group_mark(d, g0);
+        }
         sun_ex = rx;
         sun_ey = ry;
         sun_step = 2;           /* ready for the next one */
@@ -29323,7 +29464,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     }
     if (d) {
         jw_obj tmp[JW_CMD_MAXFIG];
-        int n = figure(d, tmp, JW_CMD_MAXFIG, x, y), k, put = 0;
+        int n, k, put = 0, first = d->ndrawn;
+
+        sen_fig = 0;
+        n = figure(d, tmp, JW_CMD_MAXFIG, x, y);
         for (k = 0; k < n; k++) {
             jw_obj *o = jw_add(d, tmp[k].cls);
             int i;
@@ -29360,6 +29504,10 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             if (tmp[k].color == 10)
                 o->color = 10;
             put++;
+            /* 寸法図形（2424）の 線の寸法値: 線と値で一つの図形、●・＜ は
+               その後ろにふつうに（sen_fig の注、FUN_006f46a0） */
+            if (k == 1 && sen_fig && current == JW_CMD_SEN && put == 2)
+                put += sun_fig_close(d, first);
         }
         op_push(put);
     }
