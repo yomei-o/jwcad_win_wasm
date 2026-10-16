@@ -1818,6 +1818,129 @@ static void ryo_finish(HWND wnd)
     InvalidateRect(wnd, NULL, FALSE);
 }
 
+/* 指（WM_POINTER のタッチ、Windows 8 以降）。原典にタッチの扱いは無く、
+ * これは移植の都合: ブラウザ版の指の作法（index.html）と同じにする。判定は
+ * src/touchgest.h（tests/touchgest_test.c）、ここは それを app に渡すだけ。
+ * マウスとペンの WM_POINTER は DefWindowProc に返して、今のマウスの道
+ * （WM_LBUTTONDOWN など）に任せる。GetPointerType は Windows 7 に無いので
+ * user32 から引く（無ければ指は来ない）。 */
+#define TOUCHGEST_IMPL
+#include "touchgest.h"
+
+#define TG_WM_POINTERUPDATE 0x0245
+#define TG_WM_POINTERDOWN 0x0246
+#define TG_WM_POINTERUP 0x0247
+#define TG_WM_POINTERCAPTURECHANGED 0x024C
+#define TG_TIMER_ID 3
+
+static tg_t touch = { .holdable = ryo_holdable };
+
+static int is_touch(WPARAM wp)
+{
+    static BOOL (WINAPI *get_type)(UINT32, DWORD *);
+    static int looked;
+    DWORD type = 0;
+
+    if (!looked) {
+        looked = 1;
+        get_type = (BOOL (WINAPI *)(UINT32, DWORD *))(void (*)(void))
+            GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetPointerType");
+    }
+    return get_type && get_type(LOWORD(wp), &type) && type == 2;    /* PT_TOUCH */
+}
+
+static void touch_do(HWND wnd)
+{
+    int i, redraw = 0;
+
+    for (i = 0; i < touch.nev; i++) {
+        tg_ev_t *e = &touch.ev[i];
+
+        switch (e->kind) {
+        case TG_MOVE:
+            redraw |= app_move(e->x, e->y);
+            break;
+        case TG_CLICK:
+            app_ll_slop(TG_TAP_SLOP);
+            if (e->brk)
+                redraw |= app_ll_break();
+            app_keymods(0, 0);
+            redraw |= app_press(e->x, e->y, 0);
+            redraw |= do_action(wnd);
+            break;
+        case TG_RIGHT:
+            app_keymods(0, 0);
+            redraw |= app_press(e->x, e->y, 1);
+            redraw |= do_action(wnd);
+            break;
+        case TG_PAN:
+            app_pan(e->x, e->y);
+            redraw = 1;
+            break;
+        case TG_ZOOM:
+            app_zoom(e->f, e->x, e->y);
+            redraw = 1;
+            break;
+        case TG_RYO_BEGIN:
+            ryo_begin(e->x, e->y);
+            redraw = 1;
+            break;
+        case TG_RYO_MOVE:
+            ryo_move(e->x, e->y);
+            redraw = 1;
+            break;
+        case TG_RYO_END:
+            ryo_end();
+            redraw = 1;
+            break;
+        case TG_RYO_CANCEL:
+            ryo_cancel();
+            redraw = 1;
+            break;
+        case TG_TIMER:
+            SetTimer(wnd, TG_TIMER_ID, e->t, NULL);
+            break;
+        }
+    }
+    touch.nev = 0;
+    if (redraw) {
+        app_paint();
+        InvalidateRect(wnd, NULL, FALSE);
+    }
+}
+
+/* 1 なら扱った（0 は DefWindowProc へ） */
+static int touch_msg(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    POINT p;
+    long t = (long)GetMessageTime();
+
+    if (msg == TG_WM_POINTERCAPTURECHANGED) {
+        if (!touch.n)
+            return 0;
+        tg_cancel(&touch);
+        touch_do(wnd);
+        return 1;
+    }
+    if (!is_touch(wp))
+        return 0;
+    p.x = (short)LOWORD(lp);
+    p.y = (short)HIWORD(lp);
+    ScreenToClient(wnd, &p);
+    p.x /= uiscale;
+    p.y /= uiscale;
+    if (msg == TG_WM_POINTERDOWN)
+        tg_down(&touch, LOWORD(wp), p.x, p.y, t);
+    else if (msg == TG_WM_POINTERUPDATE)
+        tg_move(&touch, LOWORD(wp), p.x, p.y, t);
+    else if (HIWORD(wp) & 0x8000)       /* POINTER_FLAG_CANCELED */
+        tg_cancel(&touch);
+    else
+        tg_up(&touch, LOWORD(wp), p.x, p.y, t);
+    touch_do(wnd);
+    return 1;
+}
+
 static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     static int dragging, dragright, moved, lastx, lasty, downx, downy;
@@ -1839,8 +1962,17 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         InvalidateRect(wnd, NULL, FALSE);
         return 0;
     }
+    case TG_WM_POINTERDOWN:
+    case TG_WM_POINTERUPDATE:
+    case TG_WM_POINTERUP:
+    case TG_WM_POINTERCAPTURECHANGED:
+        if (touch_msg(wnd, msg, wp, lp))
+            return 0;
+        break;
     case WM_LBUTTONDOWN: {
         int redraw, x = MX(LOWORD(lp)), y = MX(HIWORD(lp));
+        if (tg_mouse(&touch))           /* 指からマウスに戻った: (LL) の幅を戻す */
+            app_ll_slop(2);
         if (ryo_active())
             return 0;
         if (dragging && dragright) {    /* 右を押したまま左: 両ボタン */
@@ -2086,6 +2218,11 @@ static LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             autosave_write();
         else if (wp == 2)
             autosave_arm(wnd);
+        else if (wp == TG_TIMER_ID) {   /* 二本指の長押し（src/touchgest.h） */
+            KillTimer(wnd, TG_TIMER_ID);
+            tg_tick(&touch, (long)GetTickCount());
+            touch_do(wnd);
+        }
         return 0;
     case WM_DROPFILES: {
         wchar_t dropped[MAX_PATH];
