@@ -1611,7 +1611,7 @@ static int conf_points(const l3 *a, int n, cpt *out, int max)
 
         if (z0 <= 1e-07 && z1 <= 1e-07)
             continue;
-        for (k = 0; k < 2 && m < max; k++) {
+        for (k = 0; k < 2; k++) {   /* FUN_00734920 checks the 2000 only after both ends of a line (逆コンパイルの読み、原典では押していない) */
             double x = k ? a[i].x1 : a[i].x0, y = k ? a[i].y1 : a[i].y0, z = k ? z1 : z0;
             int foot = 0;
 
@@ -1722,7 +1722,7 @@ static int conf_table(octx *c, const l3 *raw, int nraw, double scale)
         ob_text_col(c, S_ZUSUN, C[6], y, -1, 3) < 0)
         return -1;
 
-    pts = (cpt *)malloc(2000 * sizeof *pts);
+    pts = (cpt *)malloc(2002 * sizeof *pts);
     if (!pts)
         return -1;
     np = conf_points(raw, nraw, pts, 2000);
