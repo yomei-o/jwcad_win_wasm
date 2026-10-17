@@ -6560,6 +6560,40 @@ static double en_ratio(const char *s)
     return v > 1.0 ? v / 100.0 : v;
 }
 
+/* 矩形の 寸法 (1413) つき: 一つ目の点から どの側へ 寸法ぶん伸ばすか。
+ * 二つ目の押した点を 傾き (1411) で回した枠の (u, v) に直し、各軸で
+ * |成分| が 寸法の半分より小さければ その軸は 一つ目の点を中ほどにして
+ * [-寸法/2, +寸法/2]（正の向きに描く）、半分以上なら 成分の符号の側
+ * へ [0, +寸法] か [-寸法, 0]。原典で測った（2026-10-17、寸法 3000 の幅で
+ * 傾き 0・20・44・50・90 度、二つ目の点の成分 6・9.4・13.6 mm は中ほど、
+ * 15.2・16.5・19.3 mm は符号の側。3000,2000 で 高さ側は 8 mm が中ほど、
+ * 12 mm が符号の側）。ちょうど半分の境は測っていない（< で中ほど）。
+ * 逆コンパイルは未読。ソリッド（1334）は傾きを掛けない（従来どおり）。
+ * out: 角 (x0,y0)、向かい合う角 (x1,y1)、傾き 角 a と 枠の辺 (eu,ev)。 */
+static void kukei_dim_corner(const jw_drawing *d, double px, double py,
+                             int solid, double *x0, double *y0,
+                             double *x1, double *y1, double *eu, double *ev,
+                             double *ang)
+{
+    double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+    double a = solid ? 0.0 : box_angle(1411);
+    double ca = cos(a), sa = sin(a);
+    double dx = px - sx, dy = py - sy;
+    double cu = dx * ca + dy * sa, cv = -dx * sa + dy * ca;
+    double ou = fabs(cu) < wmm / 2.0 ? -wmm / 2.0 : 0.0;
+    double ov = fabs(cv) < hmm / 2.0 ? -hmm / 2.0 : 0.0;
+    double su = ou != 0.0 ? 1.0 : (cu < 0.0 ? -1.0 : 1.0);
+    double sv = ov != 0.0 ? 1.0 : (cv < 0.0 ? -1.0 : 1.0);
+
+    *ang = a;
+    *x0 = sx + ou * ca - ov * sa;
+    *y0 = sy + ou * sa + ov * ca;
+    *eu = su * wmm;
+    *ev = sv * hmm;
+    *x1 = *x0 + *eu * ca - *ev * sa;
+    *y1 = *y0 + *eu * sa + *ev * ca;
+}
+
 static int figure_(const jw_drawing *d, jw_obj *o, int max,
                    double x, double y)
 {
@@ -6684,10 +6718,13 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
          * the right of the first click when the second was down-right, and
          * up and to the left when it was up-left. */
         double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
-        double clx = x, cly = y;        /* 二つ目の押した点 */
+        double x0 = sx, y0 = sy;        /* 描き始める角 */
+        double dimu = 0.0, dimv = 0.0, dima = 0.0;
+        int dimd = 0;
         if (wmm > 0.0 && hmm > 0.0) {
-            x = sx + (x < sx ? -wmm : wmm);
-            y = sy + (y < sy ? -hmm : hmm);
+            kukei_dim_corner(d, x, y, jw_cmd_bar_check(1334) > 0,
+                             &x0, &y0, &x, &y, &dimu, &dimv, &dima);
+            dimd = 1;
         }
         /* Four lines round the corners, in the order the original writes
          * them.  Drawn one in Jw_cad itself and read the file back: starting
@@ -6702,10 +6739,10 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
              * up (read off its own drawing). */
             blank(o);
             o->cls = JW_SOLID;
-            o->d[0] = sx; o->d[1] = sy;
-            o->d[2] = sx; o->d[3] = y;
+            o->d[0] = x0; o->d[1] = y0;
+            o->d[2] = x0; o->d[3] = y;
             o->d[4] = x;  o->d[5] = y;
-            o->d[6] = x;  o->d[7] = sy;
+            o->d[6] = x;  o->d[7] = y0;
             if (jw_cmd_bar_check(1335) > 0) {
                 /* (対角線): the original wrote the two clicked corners with
                  * the second repeated -- the quadrilateral collapses onto
@@ -6722,7 +6759,7 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
                 o->color = 10;
                 o->n = (int)solid_any;
             }
-            return (sx != x && sy != y) ? 1 : 0;
+            return (x0 != x && y0 != y) ? 1 : 0;
         }
         static const int ix[4][4] = {
             {0, 1, 2, 1}, {2, 1, 2, 3}, {2, 3, 0, 3}, {0, 3, 0, 1}
@@ -6740,21 +6777,21 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
             double a = box_angle(1411);
             if (a != 0.0) {
                 double ca = cos(a), sa = sin(a);
-                double dx = x - sx, dy = y - sy;
+                double dx = x - x0, dy = y - y0;
                 double u = dx * ca + dy * sa, v = -dx * sa + dy * ca;
                 double px[4], py[4];
-                if (wmm > 0.0 && hmm > 0.0) {
+                if (dimd) {
                     /* 寸法と傾きの両方: 一つ目の点を角にして、傾いた x 軸へ 幅、傾いた
                        y 軸へ 高さ。向きは 二つ目の点が 一つ目のどちら側か（回す前の
                        紙の x・y で見る）。原典で測った（2026-10-17、傾き 20・-30・30 と
                        四つの側。3000 で 30 の正方形、3000,2000 で 30×20）。 */
-                    u = clx < sx ? -wmm : wmm;
-                    v = cly < sy ? -hmm : hmm;
+                    u = dimu;
+                    v = dimv;
                 }
-                px[0] = sx;                py[0] = sy;
-                px[1] = sx + u * ca;       py[1] = sy + u * sa;
+                px[0] = x0;                py[0] = y0;
+                px[1] = x0 + u * ca;       py[1] = y0 + u * sa;
                 px[2] = px[1] - v * sa;    py[2] = py[1] + v * ca;
-                px[3] = sx - v * sa;       py[3] = sy + v * ca;
+                px[3] = x0 - v * sa;       py[3] = y0 + v * ca;
                 for (k = 0; k < 4; k++) {
                     blank(&o[k]);
                     o[k].cls = JW_SEN;
@@ -6766,14 +6803,14 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
                 return (u != 0.0 && v != 0.0) ? 4 : 0;
             }
         }
-        c[0] = sx; c[1] = sy; c[2] = x; c[3] = y;
+        c[0] = x0; c[1] = y0; c[2] = x; c[3] = y;
         for (k = 0; k < 4; k++) {
             blank(&o[k]);
             o[k].cls = JW_SEN;
             for (j = 0; j < 4; j++)
                 o[k].d[j] = c[ix[k][j]];
         }
-        if (sx == x || sy == y)
+        if (x0 == x || y0 == y)
             return 0;
         {   /* 多重 (1417): rectangles inside the one drawn, k/n of its size
              * about the same middle, outermost first -- the same rule the
@@ -6782,7 +6819,7 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
              * third of it, all centred on (39.831, -92.650). */
             const char *t = jw_cmd_box(1417);
             int rings = box_int(t), r, made = 4;
-            double mx = (sx + x) / 2.0, my = (sy + y) / 2.0;
+            double mx = (x0 + x) / 2.0, my = (y0 + y) / 2.0;
             if (rings > 1) {
                 if (rings > max / 4)    /* rings * 4 はあふれうる */
                     rings = max / 4;
@@ -7107,13 +7144,12 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
     if (current == JW_CMD_KUKEI && n == 1 && o[0].cls == JW_SOLID) {
         double x0 = sx, y0 = sy, x1 = tx, y1 = ty;
         double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+        double eu, ev, ea;
         int k;
         static const int ix[4][4] = { {0,1,2,1}, {2,1,2,3}, {2,3,0,3}, {0,3,0,1} };
         double c[4];
-        if (wmm > 0.0 && hmm > 0.0) {
-            x1 = x0 + (x1 < x0 ? -wmm : wmm);
-            y1 = y0 + (y1 < y0 ? -hmm : hmm);
-        }
+        if (wmm > 0.0 && hmm > 0.0)
+            kukei_dim_corner(d, tx, ty, 1, &x0, &y0, &x1, &y1, &eu, &ev, &ea);
         c[0] = x0; c[1] = y0; c[2] = x1; c[3] = y1;
         n = 0;
         for (k = 0; k < 4 && n < max; k++, n++) {
@@ -13199,6 +13235,7 @@ static int hatch_at(jw_drawing *d, double o, double ux, double uy,
         ob = jw_add(d, JW_SEN);
         if (!ob)
             return made;
+        ob->flags = (unsigned short)(ob->flags | 0x20u);   /* ハッチの印（原典で測った） */
         ob->d[0] = ux * t[i] + nx * o;
         ob->d[1] = uy * t[i] + ny * o;
         ob->d[2] = ux * t[i + 1] + nx * o;
@@ -13280,6 +13317,7 @@ static int hatch_grid(jw_drawing *d, double ux, double uy, double nx, double ny,
                     ob = jw_add(d, JW_SEN);
                     if (!ob)
                         return made;
+                    ob->flags = (unsigned short)(ob->flags | 0x20u);   /* ハッチの印 */
                     ob->d[0] = ux * p + n2x * a;
                     ob->d[1] = uy * p + n2y * a;
                     ob->d[2] = ux * p + n2x * b;
@@ -22092,8 +22130,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
        kind=1 を全部落とす、1066 交点 は（Ａ）【Ｂ】の二段。 */
     if (current == JW_CMD_TEN) {
         if (id == 1064) {
+            /* 交点 (1066) の途中で押しても 交点のまま（原典で測った、
+               2026-10-18: 1066 のあと 1064 を押して 二本の線を拾うと 交点が
+               できる）。仮点消去のあとの 1323 も 消去のまま（同じ日に測った） */
+            if (ten_cross)
+                return 1;
             ten_del = 1;
-            ten_cross = 0;
             ten_a = -1;
             return 1;
         }
@@ -22118,9 +22160,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
             return 1;
         }
         if (id == 1323) {               /* 仮点: 置くものが変わるだけ */
-            ten_del = 0;                /* 印はこの下の chk_slot が動かす */
-            ten_cross = 0;
-            ten_a = -1;
+            /* 印はこの下の chk_slot が動かす。仮点消去 (1064) も 交点
+               (1066) も そのまま（ten_del・ten_cross・ten_a は触らない）。 */
+            /* 交点 (1066) の途中で 1323 を押しても 交点のまま（原典で測った、
+               2026-10-18: 1066 のあと 1323 を押して 二本の線を拾うと 仮点の
+               交点が一つ、押しなおして点を置こうとしても 何も置かれない）。
+               ten_cross と ten_a は触らない */
         }
     }
     /* 測定's bar: the four 〜測定 are one choice of four, and the two on
@@ -24588,13 +24633,22 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
         return;
     dx = x - cx;
     dy = y - cy;
-    len = sqrt(dx * dx + dy * dy);
-    if (len <= 0.0) {
-        ux = 1.0;
-        uy = 0.0;
-    } else {
-        ux = dx / len;
-        uy = dy / len;
+    /* 向きは 押した点の向きではなく 寸法の傾き（バーの 1411、既定 0）の軸
+       そのもの。押した点が 軸の正の側（内積 >= 0）なら 軸の向き、負の側なら
+       その反対。原典で測った（2026-10-17、傾き 0・30・90 度で 半径・直径、
+       押した点を円の上・右上・左下・真上・真下にして。傾き 0 で 円の真上を
+       押しても 右へ引く＝内積 0 は 正）。 */
+    {
+        double ta = sun_angle() * PI / 180.0;
+        double ax = cos(ta), ay = sin(ta);
+
+        len = sqrt(dx * dx + dy * dy);
+        if (dx * ax + dy * ay < 0.0) {
+            ax = -ax;
+            ay = -ay;
+        }
+        ux = ax;
+        uy = ay;
     }
     ex = cx + r * ux;
     ey = cy + r * uy;
@@ -30596,9 +30650,21 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                引出線を基準点の反対側へ）始点を訊く（FUN_0077fda0 の段 7。
                右も slot 11 FUN_00780a70 が左へ回す） */
             sun_eq_wait = 0;
-            sun_eq_flip = 1;
-            sun_step = 2;
-            return;
+            if (!v || (fabs(x - sun_eq_cx) + fabs(y - sun_eq_cy)) * v->scale
+                <= 2.0) {
+                /* 同じ点のクリックは 反転しない: 原典で測った（2026-10-18、
+                   基準点と同じ画素を押してから 始点・終点。＝(1)・＝(2) とも
+                   基準点が線の上でも下でも 寸法線は 押さなかったときと同じ側
+                   〔基準点から -10・-5〕。反転は実マウスの動きでだけ起きるか
+                   もしれないが、そちらは動かせず 未測定） */
+                sun_step = 2;
+                return;
+            }
+            /* 基準点の画素から |dx|+|dy| が 2 を超えて離れたクリックは
+               「マウス移動で確定」＝反転せず、そのクリックが始点になる。
+               原典で測った（2026-10-18、基準点 400,560 のあと 始点 300,600・
+               終点 700,500 の三クリックで 寸法が出る＝二つ目のクリックが始点）。
+               同じ点のクリックが反転するほうは 下の ＝ 反転の試験で測る。 */
         }
         if (sun_step == 0 && sun_eq > 0 && !sun_kaku && !sun_enshu) {
             /* ＝・－ の基準点（+0x558）。(L) free、(R) Read はふつうと同じ */
@@ -32285,7 +32351,9 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                     if (o) {
                         o->d[0] = cx;
                         o->d[1] = cy;
-                        o->n = 0;       /* 交点に落ちるのは実点 */
+                        /* 仮点 (1323) が押してあれば 交点も仮点。原典で測った
+                           （2026-10-18、1323 のあと 1066 で二本の線を拾うと n=1） */
+                        o->n = jw_cmd_bar_check(1323) > 0 ? 1 : 0;
                         op_push(1);
                     }
                 }
