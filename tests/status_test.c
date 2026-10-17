@@ -405,6 +405,61 @@ static void fukusen_tail_multi(void)
     app_command(JW_CMD_SEN);
 }
 
+/* 複線の間隔の丸め（nokori.md の「状態行の末尾の数」）。原典 FUN_006608e0
+ * （decomp/byclass/_unassigned.c 246998〜247014 行）の丸め枝: 「クロスライン刻み」
+ * が立つとき、末尾の数値（上の fukusen_tail と同じ dist）を step 刻みへ
+ * round-half-up で丸める。port に「クロスライン刻み」釦の UI が無いので、
+ * jw_cmd_set_nisen_round で直に有効にして算術だけを確かめる（試験専用。
+ * 逆コンパイルの読み、原典では押していない）。 */
+static void fukusen_tail_round(void)
+{
+    const jw_drawing *d;
+    const jw_view *v;
+    const char *st;
+    size_t n = strlen(JW_STR_5312);
+    char num[64];
+    int i, k = 0;
+    double got, want;
+
+    app_new();
+    d = app_drawing();
+    v = app_view();
+    app_command(JW_CMD_SEN);
+    if (jw_cmd_bar_check(1333) > 0)
+        app_key(32);
+    click(-100.0, 0.0);
+    click(100.0, 0.0);
+    app_command(JW_CMD_FUKUSEN);
+    click(0.0, 0.0);
+    /* 刻み 5（図寸mm、縮尺で割らない＝doc+0x1784 相当を立てない）で丸め有効化。
+       マウスは線から 23 図寸mm: 23/5+0.5 = 5.1 → 5 → 25 図寸mm に丸まる */
+    jw_cmd_set_nisen_round(1, 0, 5.0);
+    app_move(jw_sx(v, 0.0), jw_sy(v, 23.0));
+    st = jw_cmd_status(d);
+    ck(!strncmp(st, JW_STR_5312, n), "丸め有効でも 5312 の末尾に数値が付く");
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 25.0 * scale_of(d);
+    ck(fabs(got - want) <= 1e-6, "  23 図寸mm は 刻み 5 で 25 に丸まる（round-half-up）");
+
+    /* 丸めなしに戻すと 23 のまま（上の fukusen_tail と同じ形） */
+    jw_cmd_set_nisen_round(0, 0, 0.0);
+    st = jw_cmd_status(d);
+    k = 0;
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 23.0 * scale_of(d);
+    ck(fabs(got - want) <= 1.5 * v->mmpp * scale_of(d),
+       "  丸めを切れば 丸めずに戻る（既定どおり）");
+    app_command(JW_CMD_SEN);
+}
+
 /* 複線の残り: (R) 前回値・端点指定 (1065)・範囲選択 (1067)・移動 (1323)。
    どれも CZukeiFukusen の逆コンパイルの読み（slot 11・26・28/34・3、src/cmd.c の
    fk_* の注）で、原典では押していない */
@@ -1304,6 +1359,7 @@ int main(void)
     prompts_of_the_commands();
     fukusen_tail();
     fukusen_tail_multi();
+    fukusen_tail_round();
     fukusen_rest();
     fukusen_chain();
     hani_figreg();

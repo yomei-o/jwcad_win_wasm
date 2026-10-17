@@ -179,6 +179,17 @@ const char *jw_cmd_prompt(void);
    circle -- see the note by tail_set in src/cmd.c */
 const char *jw_cmd_status(const jw_drawing *d);
 
+/* 複線（CZukeiFukusen、JW_CMD_FUKUSEN）が マウスで間隔を決めるときに 状態行の
+ * 末尾へ出す数値を、クロスライン刻みへ丸めるかどうか。原典 FUN_006608e0 の
+ * 丸め枝（decomp/byclass/_unassigned.c 246998〜247014 行）と 刻みの算出
+ * FUN_0041ed00（同 17306〜17324 行）の port。port に「クロスライン刻み」釦の
+ * UI が無いため、既定は off（jw_cmd_set_nisen_round を呼ぶまで丸めない）。
+ * 試験専用。JW_CMD_NISEN（箱 1412 の a,b）はこの丸めを受けない
+ * （原典が param_1=0x231d を渡して切る枝、src/cmd.c の note 参照）。
+ * on: 丸めるか。use_scale: 刻み step_mm を書込レイヤグループの縮尺で割るか
+ * （doc+0x1784 相当）。step_mm: 刻みの生値、図面の単位（doc+0x1790 相当）。 */
+void jw_cmd_set_nisen_round(int on, int use_scale, double step_mm);
+
 /* A click in the drawing area, in paper millimetres.  `button` is 0 for the
    left and 1 for the right. */
 /* A click in the drawing area.  `button` is 0 for the left and 1 for the
