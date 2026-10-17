@@ -189,7 +189,7 @@ int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout)
                 (ix < e.a.x && ix < e.b.x) || (iy < e.a.y && iy < e.b.y)) {
                 /* 端をそのまま */
             } else {
-                double dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, num, den;
+                double dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, num, den, zl;
 
                 if (w->flag < 2 && (0.01 < da || 0.01 < db)) {
                     double al = w_along(w, ix, iy);
@@ -208,16 +208,24 @@ int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout)
                     z = (e.zb_mm - e.za_mm) * num / den + e.za_mm;
                     if (z < 0.0)
                         z = 0.0;
-                } else
+                    /* 下の高さ（+0xbde0）も 同じ比で（FUN_005415e0） */
+                    zl = (e.bb_mm - e.ba_mm) * num / den + e.ba_mm;
+                    if (zl < 0.0)
+                        zl = 0.0;
+                } else {
                     z = left_b ? e.zb_mm : e.za_mm;
+                    zl = left_b ? e.bb_mm : e.ba_mm;
+                }
                 if (left_b) {
                     e.b.x = ix;
                     e.b.y = iy;
                     e.zb_mm = z;
+                    e.bb_mm = zl;
                 } else {
                     e.a.x = ix;
                     e.a.y = iy;
                     e.za_mm = z;
+                    e.ba_mm = zl;
                 }
             }
         }
@@ -264,7 +272,7 @@ int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout)
         for (;;) {
             int pick = -1;
             hk_pt pp = { 0, 0 };
-            double pz = 0.0;
+            double pz = 0.0, pb = 0.0;
 
             best = 9999.0;
             for (k = 0; k < ng; k++) {
@@ -289,6 +297,7 @@ int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout)
                 hi = best;
             pp = cut[pick] == 1 ? out[pick].a : out[pick].b;
             pz = cut[pick] == 1 ? out[pick].za_mm : out[pick].zb_mm;
+            pb = cut[pick] == 1 ? out[pick].ba_mm : out[pick].bb_mm;
             if (prev >= 0) {
                 hk_pt qp = cut[prev] == 1 ? out[prev].a : out[prev].b;
 
@@ -297,6 +306,8 @@ int hk_wall_clip(hk_wall *w, const hk_edge *in, int n, hk_edge *out, int maxout)
                     out[m].za_mm = cut[prev] == 1 ? out[prev].za_mm : out[prev].zb_mm;
                     out[m].b = pp;
                     out[m].zb_mm = pz;
+                    out[m].ba_mm = cut[prev] == 1 ? out[prev].ba_mm : out[prev].bb_mm;
+                    out[m].bb_mm = pb;
                     m++;
                 }
             }
@@ -544,8 +555,10 @@ int hk_build_quads(const hk_edge *e, int n, double sx, double sy, hk_quad *q)
 {
     int i;
     for (i = 0; i < n; i++) {
-        q[i].p[0] = e[i].a;
-        q[i].p[1] = e[i].b;
+        q[i].p[0].x = e[i].a.x + e[i].ba_mm * sx;
+        q[i].p[0].y = e[i].a.y + e[i].ba_mm * sy;
+        q[i].p[1].x = e[i].b.x + e[i].bb_mm * sx;
+        q[i].p[1].y = e[i].b.y + e[i].bb_mm * sy;
         q[i].p[2].x = e[i].b.x + e[i].zb_mm * sx;
         q[i].p[2].y = e[i].b.y + e[i].zb_mm * sy;
         q[i].p[3].x = e[i].a.x + e[i].za_mm * sx;
@@ -671,7 +684,7 @@ int hk_outline(const hk_edge *e, int n, double sx, double sy,
         for (i = 0; i < np; i++) {
             int on = 0;
             for (j = 0; j < n; j++)
-                if (dist(e[j].a, e[j].b) > 1e-9 &&
+                if (dist(e[j].a, e[j].b) > 1e-9 && e[j].ba_mm <= 0.01 && e[j].bb_mm <= 0.01 &&
                     dist_line(pc[i].a, e[j].a, e[j].b) < 1e-5 &&
                     dist_line(pc[i].b, e[j].a, e[j].b) < 1e-5) { on = 1; break; }
             if (on) {

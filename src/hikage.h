@@ -126,7 +126,9 @@ void hk_rot(double x, double y, double deg, double *ox, double *oy);
 /* 3. shadow of a wire-frame building                                  */
 /* ------------------------------------------------------------------ */
 typedef struct { double x, y; } hk_pt;
-typedef struct { hk_pt a, b; double za_mm, zb_mm; } hk_edge;  /* heights relative to the measuring plane */
+/* heights relative to the measuring plane。za_mm・zb_mm は 両端の上の高さ（+0x7e98）、
+ * ba_mm・bb_mm は 下の高さ（+0xbde0。浮いた建物。0 は地面）。 */
+typedef struct { hk_pt a, b; double za_mm, zb_mm, ba_mm, bb_mm; } hk_edge;
 typedef struct { hk_pt p[4]; } hk_quad;
 
 /* swept quad of every edge: a, b, b + zb*s, a + za*s   (s = rotated shadow

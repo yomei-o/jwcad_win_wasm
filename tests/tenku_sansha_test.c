@@ -312,6 +312,33 @@ int main(void)
         }
     }
 
+    /* 名前なしでも 目盛 >= 1 度なら「目盛間隔 n°」の行が一行 増える（逆コンパイルの読み、原典では押していない）。
+       名前なしで 目盛 0 の図との 文字の数の差が 一つ、その文字が 目盛間隔 10 */
+    {
+        int cnt[2], found = 0, ii, kk;
+
+        for (ii = 0; ii < 2; ii++) {
+            make_doc(&d, &ref, bb, bn, 1, 1, 397, 425);
+            hk_sansha_opts_default(&o);
+            hk_sansha_opts_set_mode(&o, 0);
+            o.name[0] = 0;
+            o.t.interval = ii ? 10.0 : 0.0;
+            jw_tenku_sansha_draw_ex(&d, &o, -185.873, -84.949, 412.867, 236.341, &pct);
+            cnt[ii] = 0;
+            for (kk = 0; kk < d.ndrawn; kk++)
+                if (d.obj[kk].cls == JW_MOJI) {
+                    cnt[ii]++;
+                    if (ii && strstr(jw_str(&d, d.obj[kk].text), "\226\332\220\267\212\324\212u 10\201\213"))
+                        found = 1;
+                }
+        }
+        if (cnt[1] != cnt[0] + 1 || !found) {
+            printf("BAD  名前なしの 目盛間隔の行 (%d, %d, found %d)\n", cnt[0], cnt[1], found);
+            fails++;
+        } else
+            printf("ok   名前なしの 目盛間隔の行\n");
+    }
+
     printf("     最大の座標のずれ %.3e mm (許容 %.3f)\n", g_maxdev, g_tol);
     printf(fails ? "SOME BAD (%d)\n" : "all ok\n", fails);
     return fails != 0;

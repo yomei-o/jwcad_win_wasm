@@ -855,7 +855,7 @@ int main(int argc, char **argv)
                 e[k].a.y = rc[q][k * 2 + 1];
                 e[k].b.x = rc[q][(k * 2 + 2) % 8];
                 e[k].b.y = rc[q][(k * 2 + 3) % 8];
-                e[k].za_mm = e[k].zb_mm = 5.0;
+                e[k].za_mm = e[k].zb_mm = 5.0; e[k].ba_mm = e[k].bb_mm = 0.0;
             }
             m = hk_wall_clip(&w, e, 4, o, 16);
             if (q == 0)
@@ -882,7 +882,7 @@ int main(int argc, char **argv)
             w.flag = 2;                     /* 0x159e の検査（文書 +0x83d8 < 2）を外す */
 
             s[0].a.x = 50; s[0].a.y = -30; s[0].b.x = 50; s[0].b.y = 30;
-            s[0].za_mm = 10.0; s[0].zb_mm = 20.0;
+            s[0].za_mm = 10.0; s[0].zb_mm = 20.0; s[0].ba_mm = s[0].bb_mm = 0.0;
             mm = hk_wall_clip(&w, s, 1, t, 4);
             ok = ok && mm == 1 && fabs(t[0].b.y) < 1e-9 && fabs(t[0].zb_mm - 15.0) < 1e-9 && t[0].za_mm == 10.0;
             s[0].zb_mm = -30.0;
@@ -892,6 +892,24 @@ int main(int argc, char **argv)
             s[0].za_mm = 10.0; s[0].zb_mm = 20.0;
             mm = hk_wall_clip(&w, s, 1, t, 4);
             ok = ok && mm == 1 && t[0].zb_mm == 20.0;
+            /* 下の高さ（+0xbde0）も 同じ補間（逆コンパイルの読み、原典では押していない） */
+            s[0].a.x = 50; s[0].a.y = -30; s[0].b.x = 50; s[0].b.y = 30;
+            s[0].za_mm = 10.0; s[0].zb_mm = 20.0; s[0].ba_mm = 4.0; s[0].bb_mm = 24.0;
+            mm = hk_wall_clip(&w, s, 1, t, 4);
+            ok = ok && mm == 1 && fabs(t[0].bb_mm - 14.0) < 1e-9 && t[0].ba_mm == 4.0 && fabs(t[0].zb_mm - 15.0) < 1e-9;
+            s[0].bb_mm = -60.0;
+            mm = hk_wall_clip(&w, s, 1, t, 4);
+            ok = ok && mm == 1 && t[0].bb_mm == 0.0;
+            {   /* 浮いた壁の 影の四角: 下の端は 下の高さ ぶん、上の端は 上の高さ ぶん ずれる */
+                hk_edge fe;
+                hk_quad fq;
+
+                fe.a.x = 0; fe.a.y = 0; fe.b.x = 10; fe.b.y = 0;
+                fe.za_mm = 8.0; fe.zb_mm = 9.0; fe.ba_mm = 2.0; fe.bb_mm = 3.0;
+                hk_build_quads(&fe, 1, 0.5, 0.25, &fq);
+                ok = ok && fq.p[0].x == 1.0 && fq.p[0].y == 0.5 && fq.p[1].x == 11.5 && fq.p[1].y == 0.75 &&
+                     fq.p[2].x == 14.5 && fq.p[3].x == 4.0 && fq.p[3].y == 2.0;
+            }
             w.flag = fl0;
         }
         if (!ok)
@@ -938,7 +956,7 @@ int main(int argc, char **argv)
             e[k].a.y = rc[k * 2 + 1];
             e[k].b.x = rc[(k * 2 + 2) % 8] + 100.0;
             e[k].b.y = rc[(k * 2 + 3) % 8];
-            e[k].za_mm = e[k].zb_mm = 5.0;
+            e[k].za_mm = e[k].zb_mm = 5.0; e[k].ba_mm = e[k].bb_mm = 0.0;
         }
         ok = ok && hk_wall_clip(&w, e, 4, o, 16) == -5534;
         w.flag = 2;

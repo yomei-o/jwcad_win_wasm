@@ -1929,6 +1929,13 @@ int jw_tenku_sansha_draw_ex(jw_drawing *d, const hk_sansha_opts *o,
         else
             snprintf(tb, sizeof tb, S_SOKUTENN " %s", o->name);
         ob_cell(&c, tb, X0, Y, 2);
+    } else if (o->t.interval >= 1.0) {
+        /* 名前なしでも 目盛が 1 度以上なら 「目盛間隔 n°」の行は出る（FUN_00740440、all_00732cce.c 6214〜6290・7029: 行 local_284 は
+           名前があるときだけ 「測定点 名前」で始まり、0x177d 以降は 目盛 >= 1.0 で 名前によらず足される。
+           local_284[0] != 0 なら書く）。逆コンパイルの読み、原典では押していない */
+        Y += ch * 1.5;
+        snprintf(tb, sizeof tb, S_MEMORI "%g" S_DEG, o->t.interval);
+        ob_cell(&c, tb, X0, Y, 2);
     }
 
     /* the table */
