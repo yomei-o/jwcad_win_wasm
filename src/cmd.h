@@ -558,6 +558,7 @@ int  jw_cmd_box_focus(void);
 void jw_cmd_box_click(int id);      /* a press on one: it takes the typing */
 int  jw_cmd_box_key(int c);         /* a character; 1 if it was taken */
 int  jw_cmd_box_put(int id, const char *v);  /* replace one's text */
+void jw_cmd_box_sum(int id);               /* what leaving the box does: work a typed sum out */
 
 /* 作図属性設定's four ticks for 複写・移動: 0 書込み線種, 1 書込み線色,
    2 書込み【レイヤ】, 3 書込みレイヤグループ */
