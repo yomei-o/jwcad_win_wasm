@@ -2129,6 +2129,8 @@ static void tail_set(int kind, double a, double b)
 }
 
 /* a real-world length, three places, with a comma every three digits */
+static int num3_trunc;          /* 1: 小数 4 桁目から下を 切り捨てる（複線の間隔の末尾） */
+
 static void num3(char *out, int n, const jw_drawing *d, double mm)
 {
     char buf[64];
@@ -2144,6 +2146,8 @@ static void num3(char *out, int n, const jw_drawing *d, double mm)
     neg = v < 0.0;
     if (neg)
         v = -v;
+    if (num3_trunc)
+        v = floor(v * 1000.0 + 1e-6) / 1000.0;
     snprintf(buf, sizeof buf, "%.3f", v);
     len = (int)strlen(buf);
     whole = (int)(strchr(buf, '.') ? strchr(buf, '.') - buf : len);
@@ -5318,7 +5322,11 @@ const char *jw_cmd_status(const jw_drawing *d)
         if (dist >= 0.0) {
             /* ｍ単位入力 なら ÷DAT_00a0d630 のあと単位の字（FUN_00658890 の 0x14c0。
                逆コンパイルの読み、原典では押していない） */
+            /* 小数 3 桁は 切り捨て（原典で測った: 244.8979 → 244.897、1836.7346 → 1,836.734、
+               734.6938 → 734.693、1714.2857 → 1,714.285） */
+            num3_trunc = 1;
             num3(a, (int)sizeof a, d, mu_on ? dist / SUN_M_DIV : dist);
+            num3_trunc = 0;
             snprintf(buf, sizeof buf, "%s  %s%s", p, a, mu_on ? SUN_M_STR : "");
             return buf;
         }
@@ -5498,8 +5506,8 @@ static const char *sel_prompt_add(void)
 
     snprintf(b, sizeof b, "%s%s%s", JW_STR_5325,
              current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU
-             || current == JW_CMD_SEIRI ? JW_STR_5828 : "",
-             current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU
+             || current == JW_CMD_SEIRI || current == JW_CMD_HATCH ? JW_STR_5828 : "",
+             current == JW_CMD_FUKUSHA || current == JW_CMD_IDOU || current == JW_CMD_HATCH
              ? JW_STR_5829 : "");
     return b;
 }
@@ -5812,7 +5820,9 @@ const char *jw_cmd_prompt(void)
         if (ht_base_wait)
             return JW_STR_5314;
         if (ht_sel)
-            return ht_sel == 2 ? sel_prompt_corner() : JW_STR_5383;
+            /* 選んだあと（3）は 追加・除外の問い（Enter-範囲確定 と ShiftEnter-基点変更 つき）。
+               原典で測った */
+            return ht_sel == 2 ? sel_prompt_corner() : ht_sel == 3 ? sel_prompt_add() : JW_STR_5383;
         return ht_nchain == 0 ? JW_STR_5377 : JW_STR_5378;
     case JW_CMD_ZUKEI:
         if (fig_mouse && fig_apt && jw_cmd_figure_ready())
@@ -8907,8 +8917,8 @@ static int mt_takes(const jw_obj *o)
  * bk_total).  An empty box: FUN_0058cc80 hands the text to FUN_004f2220,
  * whose FUN_004f2480 gives 0 for nothing (wcslen 0), so FUN_007668f0 would
  * make it 1.01 and write that back (one line, at 1/1.01).  The fuzzing
- * said 2 and a clean run said nothing, so the port keeps 2 (bk_read_n)
- * until the original is asked again -- nokori.md 2-2.
+ * said 2 and a clean run said nothing; asked again (原典で測った: 二本の線を拾う)
+ * it divides in two, and the port keeps 2 (bk_read_n).
  * (This used to take the box through atoi and refuse anything outside
  * 2..1000, so 2.5 drew one line at the half and 5000 drew nothing.)
  */
@@ -21440,7 +21450,7 @@ static int hk_bad;                      /* a number was wanted and not there (hk
 static int box_calc(const char *t, double *out);
 
 /* The original's expression reader, FUN_004f2220 (read off the decompile;
-   the original was not driven for it).  Three passes over the text:
+   原典で測った: 分割数の箱に s30+1・//0.5・0.003m・3m と打って線を拾うと 1.5・26.565・3・3000 分割と同じ線が出る)  Three passes over the text:
 
    1. FUN_004f47b0 tidies it: spaces and R dropped, the letters it knows
       lowered, m (metres) is *1000 and mm is nothing, 0x is &, and a degree
@@ -22145,6 +22155,11 @@ static void box_sum(int id)
     }
     if (any)
         box_put_raw(id, out);           /* 式の答えは打った字の代わり（ｍ でも割らない） */
+}
+
+void jw_cmd_box_sum(int id)
+{
+    box_sum(id);
 }
 
 void jw_cmd_box_click(int id)
@@ -28592,8 +28607,8 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
     if ((current == JW_CMD_25D || current == JW_CMD_HIKAGE || current == JW_CMD_TENKU) && button == 0 && d) {
         /* ２．５D の (L) 設定・変更: 線の端に「高さ , 奥行」の文字（色 5・旗 0x8000）を
            置く。原典の答え p197_h1。同じ端をもう一度押すと文字を置き換える */
-        int i = -1, k, near = -1;
-        double ex, ey, dx0, dy0, best = 1e99, tol = jw_pick_tol(v);
+        int i = -1, k, near = -1, ci = -1, si = -1;
+        double sdx = 0.0, sdy = 0.0, ex = 0.0, ey = 0.0, dx0, dy0, best = 1e99, tol = jw_pick_tol(v);
         const char *val = jw_cmd_box(1491);     /* 箱が無ければ 原典の初めの値 */
 
         hk_ll_k = -1;                   /* slot 9 の頭で +0xac = 0 */
@@ -28624,11 +28639,75 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                 hk_height_text(ht, sizeof ht, val && *val ? val : "10 , 0", 1);
             val = ht;
         }
-        if (i < 0 || d->obj[i].cls != JW_SEN)
+        /* 円・円弧も押せる: 字は 中心に（原典で測った: 円の 輪を押すと 「10 , 0」が
+           中心に 色 5・旗 0x8000・向き 0 で付く。線との近いほうを取る） */
+        for (k = 0; k < d->ndrawn; k++) {
+            const jw_obj *o = &d->obj[k];
+            double e;
+
+            if (o->cls != JW_ENKO || current != JW_CMD_25D)
+                continue;
+            e = fabs(sqrt((x - o->d[0]) * (x - o->d[0]) + (y - o->d[1]) * (y - o->d[1]))
+                     - fabs(o->d[2]));
+            if (e <= tol && e < best) {
+                best = e;
+                ci = k;
+            }
+        }
+        /* ソリッドの 角: いちばん近い辺（同じ近さなら 先の辺。辺は 1→2・2→3・3→4・4→1、
+           長さ 0 は除く）の 近いほうの端に、もう一方の端へ向けて（原典で測った: 四角の
+           四隅を押すと その角に、1 は 2 のほうへ・2 は 1 へ・3 は 2 へ・4 は 3 へ）。
+           逆コンパイル FUN_00621ee0 の 読み */
+        for (k = 0; k < d->ndrawn && current == JW_CMD_25D; k++) {
+            const jw_obj *o = &d->obj[k];
+            int sd;
+
+            if (o->cls != JW_SOLID || o->ltype >= 100)
+                continue;
+            for (sd = 0; sd < 4; sd++) {
+                double ax = o->d[2 * sd], ay = o->d[2 * sd + 1];
+                double bx = o->d[2 * ((sd + 1) & 3)], by = o->d[2 * ((sd + 1) & 3) + 1];
+                double sx = bx - ax, sy = by - ay, l2 = sx * sx + sy * sy, t, e;
+
+                if (l2 < 1e-14)
+                    continue;
+                t = ((x - ax) * sx + (y - ay) * sy) / l2;
+                t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
+                e = sqrt((ax + t * sx - x) * (ax + t * sx - x) + (ay + t * sy - y) * (ay + t * sy - y));
+                if (e <= tol && e < best - 1e-9) {
+                    double da = (x - ax) * (x - ax) + (y - ay) * (y - ay);
+                    double db = (x - bx) * (x - bx) + (y - by) * (y - by);
+
+                    best = e;
+                    ci = -1;
+                    si = k;
+                    if (db < da) {
+                        ex = bx;
+                        ey = by;
+                        sdx = -sx;
+                        sdy = -sy;
+                    } else {
+                        ex = ax;
+                        ey = ay;
+                        sdx = sx;
+                        sdy = sy;
+                    }
+                }
+            }
+        }
+        if (ci >= 0)
+            si = -1;
+        if (ci >= 0 || si >= 0)
+            i = -1;
+        if (ci < 0 && si < 0 && (i < 0 || d->obj[i].cls != JW_SEN))
             return;
-        dx0 = x - d->obj[i].d[0];
-        dy0 = y - d->obj[i].d[1];
-        if (dx0 * dx0 + dy0 * dy0 <=
+        if (si >= 0) {
+            /* ex・ey は 上で決めた */
+        } else if (ci >= 0) {
+            ex = d->obj[ci].d[0];
+            ey = d->obj[ci].d[1];
+        } else if ((dx0 = x - d->obj[i].d[0]), (dy0 = y - d->obj[i].d[1]),
+            dx0 * dx0 + dy0 * dy0 <=
             (x - d->obj[i].d[2]) * (x - d->obj[i].d[2]) +
             (y - d->obj[i].d[3]) * (y - d->obj[i].d[3]) + 0.02) {
             ex = d->obj[i].d[0];
@@ -28672,7 +28751,21 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
             d->obj[near].text = jw_add_str(d, val);
             for (q = val; *q; q++)
                 w += 1.25;              /* 半角は 文字幅の半分 */
-            {
+            if (ci >= 0 || si >= 0) {
+                double l = sqrt(sdx * sdx + sdy * sdy), a0 = 0.0;
+
+                if (si >= 0 && l > 1e-7) {
+                    sdx /= l;
+                    sdy /= l;
+                    a0 = atan2(sdy, sdx) * 180.0 / PI;
+                } else {
+                    sdx = 1.0;
+                    sdy = 0.0;
+                }
+                d->obj[near].d[2] = ex + w * sdx;
+                d->obj[near].d[3] = ey + w * sdy;
+                d->obj[near].d[7] = fabs(a0) < 1e-9 ? 0.0 : a0;
+            } else {
                 /* 文字は 押した側の端から もう一方の端のほうへ 線に沿って走る（spec_hikage 1.1） */
                 const jw_obj *ln = &d->obj[i];
                 int at0 = fabs(ln->d[0] - ex) < 1e-9 && fabs(ln->d[1] - ey) < 1e-9;

@@ -97,6 +97,11 @@ static int run(const char *steps, const char *out)
         while (*s == ';') s++;
         if (!strncmp(tok, "cmd:", 4)) {
             app_command(atoi(tok + 4));
+        } else if (!strncmp(tok, "mm:", 3) && sscanf(tok + 3, "%d,%d", &x, &y) == 2) {
+            app_move(r.x + x, r.y + y);      /* 実カーソルを動かす（状態行の末尾が読む。m は何もしない） */
+        } else if (!strncmp(tok, "read:", 5)) {
+            /* 状態行を stderr へ（原典の read:59393 と見比べる用。図面には触れない） */
+            fprintf(stderr, "read: [%s]\n", jw_cmd_status(app_drawing()));
         } else if (!strncmp(tok, "pb:", 3) || !strncmp(tok, "btn:", 4)) {
             jw_cmd_bar((jw_drawing *)app_drawing(), atoi(strchr(tok, ':') + 1));
         } else if (!strncmp(tok, "off:", 4)) {
@@ -106,7 +111,7 @@ static int run(const char *steps, const char *out)
             char *p = strchr(tok, ':') + 1;
             id = atoi(p);
             p = strchr(p, ',');
-            if (p) jw_cmd_box_put(id, p + 1);
+            if (p) { jw_cmd_box_put(id, p + 1); jw_cmd_box_sum(id); }   /* 原典は箱を使う所で式を読む（原典で測った: s30+1・//0.5・3m） */
         } else if (!strncmp(tok, "type:", 5)) {
             /* tools/jwdraw.ps1 の type:<字>（文字の箱に打って Enter）と
                type::<字>（Enter なし） */

@@ -134,7 +134,7 @@
 # read:  class|id|x|y|w|h|style|checked|enabled|text
 # with the rectangle in the parent's client coordinates.
 param(
-    [string]$Exe    = 'orig\Jw_win.exe',
+    [string]$Exe    = $(if ($env:JW_EXE) { $env:JW_EXE } else { 'orig\Jw_win.exe' }),
     [string]$Open   = 'tmp\rect.jww',
     [int]$Cmd       = 0,
     [string]$Clicks = '',
