@@ -514,7 +514,8 @@ static void clk_zoku_run(void)
 
 /* PM 6【全】属性取得（FUN_007751e0(1, 押した点)）: 属性は AM 6 と同じ。そのあと 命令の
    仮想関数 51 へ 角度・長さ（jw_cmd_clock_zokuall、線・円・複線のとき 箱へ）。
-   字・点の中身の写し（DAT_00a0be48・FUN_00404860）は入れていない */
+   点（仮点の旗 DAT_00a0be48）・字の中身（FUN_00404860）の写しは jw_cmd_clock_zokuall に入れた
+   （命令が 点・文字のとき。読み、原典では押していない） */
 static void clk_zokuall_run(void)
 {
     double mx, my;

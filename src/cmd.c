@@ -7120,13 +7120,11 @@ static int cross_obj(const jw_obj *a, const jw_obj *b,
  *     +0x20 を埋めない。ブロック（FUN_0049b2c0）は +0x68〜+0x88 と +0x94 だけで、
  *     コンストラクタ FUN_004995e0 は +8〜+0x1f を 0 にするが +0x20 は触らない。
  *     どちらも +0x18・+0x20 は未初期化で、書く関数が見つからないので 値が決まらない →
- *     何もしない。ソリッドは FUN_0042a260 が 押した点に近い辺の中点（辺 +8/+0x18・
- *     +0x18/+0x68・+0x68/+0x78・+0x78/+8 を FUN_005f9950・FUN_005f8ca0 で選ぶ。
- *     未読）で、ltype 100 以上は 別の枝（FUN_0043ad70・FUN_0043af40 未読）、
- *     何もしない）
- *   - 寸法・ソリッドを 図形に拾った AM 9（FUN_0076fae0 は 寸法なら +0x68 の線
- *     〔0x76fae0 の 25071 行付近〕、ソリッドなら +0xb4 の図形を使う。FUN_0045b6c0 の
- *     寸法の枝 FUN_0045bbc0・交点 FUN_0045fa30 の寸法の扱いが未読）。何もしない
+ *     何もしない。ソリッド（ltype < 100）は 入れた〔clkpt_solid_edge〕。ltype 100 以上
+ *     は 別の枝（FUN_0043ad70・FUN_0043af40 未読）、何もしない）
+ *   - 円ソリッド（ltype 100 以上）を 図形に拾った AM 9（拾いは 弧の辺 +0x128 になる。
+ *     未読）。何もしない。寸法（部品 1）・ソリッド（ltype < 100、辺）は 入れた
+ *     〔clkpt_figure。FUN_0045fa30 の寸法の枝は +0x68 に替えるだけ〕
  *   - 扁平率つきの楕円 が絡む AM 9 の交点（FUN_00460710・FUN_00462070 の歩き。
  *     移植の cross_obj は 円だけ）。何もしない
  *   - 段 2 のあと 状態行に 0x277c を出す番号が AM 9 の離しの枝には見えない
@@ -7179,6 +7177,74 @@ static int clkpt_ellipse(const jw_obj *o)
     return o->cls == JW_ENKO && o->d[6] != 0.0 && o->d[6] != 1.0;
 }
 
+/* ソリッド（ltype < 100）の四辺のうち 押した点に 直線として いちばん近い辺。
+ * FUN_0042a260（CDataSolid 仮想関数 11）の ltype < 100 の枝（0x42ab35〜、
+ * 逆アセンブルで確認）: 辺 1〜4 = (+8,+0x10)-(+0x18,+0x20)、(+0x18)-(+0x68,+0x70)、
+ * (+0x68)-(+0x78,+0x80)、(+0x78)-(+8)（移植の d[0..1]・d[2..3]・d[4..5]・d[6..7] の
+ * 輪の順）。各辺は FUN_005f9950（FUN_005f97f0: |dx|+|dy| < 1e-7 なら 辺を捨てる、
+ * 以外は 向き (c,s) = 単位ベクトル）で直線にして、FUN_005f8ca0(1, 押した点) =
+ * (y-y0)*c - (x-x0)*s の絶対値を 9e20 から 狭義 < で比べる（線分の外でも 直線への距離）。
+ * 勝った辺が 辺の図形（CDataSen。+0xc8・+0xd8 に二端、FUN_0043c990 が +0xb4 に置く
+ * ので AM 9 の拾い〔旗 +0x633c〕はこの辺を 図形として持つ）で、AM 3 は その二端の中点。
+ * 辺が 一つも無いとき（四辺とも縮退）は 原典は 初期化していない値を返す → 0（何もしない）。
+ * ltype >= 100（円ソリッド）は 弧の辺（FUN_0043ad70・FUN_0043af40 未読）→ 0。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int clkpt_solid_edge(const jw_obj *s, double x, double y, jw_obj *e)
+{
+    double best = 9e20;
+    int k, found = 0;
+
+    if (s->cls != JW_SOLID || s->ltype >= 100)
+        return 0;
+    for (k = 0; k < 4; k++) {
+        double x0 = s->d[2 * k], y0 = s->d[2 * k + 1];
+        double dx = s->d[(2 * k + 2) & 7] - x0, dy = s->d[(2 * k + 3) & 7] - y0;
+        double l, c, sn, dist;
+
+        if (!(1e-07 <= fabs(dx) + fabs(dy)))
+            continue;
+        l = sqrt(dx * dx + dy * dy);
+        c = dx / l;
+        sn = dy / l;
+        dist = fabs((y - y0) * c - (x - x0) * sn);
+        if (dist < best) {
+            best = dist;
+            *e = *s;
+            e->cls = JW_SEN;
+            e->d[0] = x0;
+            e->d[1] = y0;
+            e->d[2] = s->d[(2 * k + 2) & 7];
+            e->d[3] = s->d[(2 * k + 3) & 7];
+            found = 1;
+        }
+    }
+    return found;
+}
+
+/* AM 9 の図形の拾い方（FUN_0076fae0 の 段 2・5。旗 +0x6324・+0x6328・+0x632c・+0x6330・
+ * +0x6338・+0x633c を立てて FUN_0044a270(3, …, 1)。asm 0x76fc86〜 で確認）。
+ *   寸法: +0x6330 が 結果を 部品 1（+0x68、寸法線の CDataSen）にする（値を押しても）。
+ *   ソリッド: +0x633c が FUN_0043c990 → FUN_0042a260 で 押した点に近い辺の図形
+ *     （+0xb4）にする。
+ * 以降は その図形だけを使う。1 なら *out に 使う図形。0 なら 落とせない。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int clkpt_figure(const jw_drawing *d, int i, double x, double y, jw_obj *out)
+{
+    const jw_obj *o = &d->obj[i];
+
+    if (o->sub) {
+        if (i >= o->sub - 1 && d->obj[i - (o->sub - 1)].sub == 1) {
+            *out = d->obj[i - (o->sub - 1)];
+            return 1;
+        }
+        return 0;
+    }
+    if (o->cls == JW_SOLID)
+        return clkpt_solid_edge(o, x, y, out);
+    *out = *o;
+    return 1;
+}
+
 /* 二つ目以降の押し（段 5・6）。1 なら この押しは 受けた */
 static int clkpt_click(jw_drawing *d, const jw_view *v, double x, double y,
                        int button)
@@ -7211,11 +7277,15 @@ static int clkpt_click(jw_drawing *d, const jw_view *v, double x, double y,
             return 1;                   /* FUN_0045b6c0 が 0 を返す（落とせない） */
         j = button == 0 ? jw_pick(d, v, x, y, 3) : -1;
         if (j >= 0) {
-            const jw_obj *b = &d->obj[j];
+            jw_obj bb;
 
-            if (clkpt_ellipse(&clkpt_fig) || clkpt_ellipse(b))
+            /* 二図形目も 寸法は 部品 1、ソリッドは 押した点に近い辺（clkpt_figure）。
+               円ソリッド（弧の辺）は 読めていない → 何もしない */
+            if (!clkpt_figure(d, j, x, y, &bb))
+                return 1;
+            if (clkpt_ellipse(&clkpt_fig) || clkpt_ellipse(&bb))
                 return 1;               /* 楕円の交点は 入れていない */
-            if (cross_obj(&clkpt_fig, b, x, y, &cx, &cy))
+            if (cross_obj(&clkpt_fig, &bb, x, y, &cx, &cy))
                 found = 1;
         }
         if (found) {
@@ -7276,6 +7346,14 @@ int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double 
         else if (o->cls == JW_SEN || o->cls == JW_MOJI) {
             *outx = (o->d[0] + o->d[2]) / 2.0;
             *outy = (o->d[1] + o->d[3]) / 2.0;
+        } else if (o->cls == JW_SOLID) {
+            /* FUN_0042a260: 押した点に近い辺の二端の中点（clkpt_solid_edge） */
+            jw_obj e;
+
+            if (!clkpt_solid_edge(o, x, y, &e))
+                return 0;
+            *outx = (e.d[0] + e.d[2]) / 2.0;
+            *outy = (e.d[1] + e.d[3]) / 2.0;
         } else if (o->cls == JW_ENKO) {
             *outx = o->d[0];
             *outy = o->d[1];
@@ -7288,7 +7366,8 @@ int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double 
 
         if (i < 0)
             return 0;
-        clkpt_fig = d->obj[i];
+        if (!clkpt_figure(d, i, x, y, &clkpt_fig))
+            clkpt_fig = d->obj[i];      /* 落とせない図形（円ソリッド）: 続く押しは 何もしない */
         clkpt_mode = 9;
         clkpt_cmd = current;
         return 0;
@@ -25398,6 +25477,44 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
         line_n = 0;
         line_lead_next = line_drop_trail = 0;
         line_gen++;
+        {
+            /* 字の中身（FUN_007751e0 が 押した字の +0xb0 を 引数の文字列に写して
+               渡す）: 空でなければ（FUN_004640c0 = wcscmp(文字列, L"") != 0、
+               0x6c4a67）、FUN_00583190（入力欄を "" にする）のあと 箱の変数
+               〔バーの +0xbc の +0x490〕に 足して（FUN_00447400 = operator+）
+               書き戻す（FUN_005835f0(0) = UpdateData(FALSE)、0x6c4a83〜0x6c4b15）。
+               箱が空のとき 箱 = 押した字の中身。箱に字が入っていたときに
+               変数が同期しているか（"" を入れた時点の通知で UpdateData(TRUE) に
+               なるか）は読み切れていない → 空の箱のときだけ読んだ形（打ちかけは 捨てる）。
+               逆コンパイルの読み、原典では押していない */
+            const char *t = jw_str(d, d->obj[i].text);
+            int n = t ? (int)strlen(t) : 0;
+
+            if (n > (int)sizeof line_buf - 2)
+                n = (int)sizeof line_buf - 2;
+            if (n > 0) {
+                memcpy(line_buf, t, (size_t)n);
+                line_n = n;
+            }
+        }
+        return 1;
+    }
+    if (d && current == JW_CMD_TEN) {
+        /* 点（CZukeiTen 仮想関数 51 = FUN_007326c0）: FUN_007751e0 は 押したのが点
+           （CDataTen）なら DAT_00a0be48 = その点の +0x68（仮点の旗。移植の n）にして
+           から 51 を呼び、51 が 仮点 (1323) の箱を DAT_00a0be48 にする（FUN_004183a0:
+           バーの +0x964 = DAT_00a0be48 のあと UpdateData(FALSE)）。押したのが点でなければ
+           DAT_00a0be48 は 箱と同期したまま（箱が変わるたび FUN_004183e0 の側が
+           書く）なので 変わらない。拾いは モード 0（点が勝つ）。DAT_00a0be48 は 命令を
+           またいで残るが、移植の箱は 命令ごとなので そこは入れていない。
+           逆コンパイルの読み、原典では押していない */
+        unsigned char *c;
+
+        i = jw_pick(d, v, x, y, 0);
+        if (i < 0 || d->obj[i].cls != JW_TEN)
+            return 0;
+        if ((c = chk_slot(bar_cmd(), 1323)) != 0)
+            *c = d->obj[i].n != 0;
         return 1;
     }
     if (!d || (current != JW_CMD_SEN && current != JW_CMD_ENKO

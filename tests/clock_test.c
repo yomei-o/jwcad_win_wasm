@@ -468,7 +468,40 @@ int main(void)
         ck(jw_cmd() == JW_CMD_MOJI, "PM 6 文字: 命令は文字のまま");
         ck(d->cur_style.w == 7.0 && d->cur_style.h == 9.0 && d->cur_style.sp == 1.5
            && d->cur_style.color == 4, "PM 6 文字: 大きさ・間隔・色を取る");
-        ck(jw_cmd_line()[0] == 0, "PM 6 文字: 字の中身は箱へ入れない");
+        ck(strcmp(jw_cmd_line(), "ABC") == 0,
+           "PM 6 文字: 字の中身が 空でなければ 箱へ（FUN_006c4840 0x6c4a67〜、読み）");
+    }
+
+    /* ---- PM 6【全】属性取得: 命令が 点（CZukeiTen 仮想関数 51）のとき 仮点 (1323) を取る ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py, dx2, dy2, k;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_TEN);
+        o->d[0] = 20; o->d[1] = 20; o->n = 1;           /* 仮点 */
+        o = jw_add(d, JW_TEN);
+        o->d[0] = 80; o->d[1] = 20; o->n = 0;           /* 実点 */
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+        at_hour(6, 60, &dx2, &dy2);
+        for (k = 0; k < 2; k++) {
+            px = jw_sx(v, k ? 80.0 : 20.0);
+            py = jw_sy(v, 20.0);
+            app_clock_begin(px, py);
+            app_clock_right();
+            app_clock_move(px + dx2, py + dy2);
+            app_clock_end();
+            ck(jw_cmd() == JW_CMD_TEN, "PM 6 点: 命令は点のまま");
+            ck(jw_cmd_bar_check(1323) == (k ? 0 : 1),
+               k ? "PM 6 点: 実点を押して 仮点 (1323) が切れる"
+                 : "PM 6 点: 仮点を押して 仮点 (1323) が入る（+0x68 → DAT_00a0be48）");
+        }
     }
 
     /* ---- AM 5 線種変更（FUN_0076e360）---- */
@@ -905,6 +938,81 @@ int main(void)
         ck(d->ndrawn == n || (d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 70.0) < 1e-6
            && fabs(d->obj[n].d[1] - 40.0) < 1e-6),
            "AM 3: 寸法の値を押しても 値の中点 (70,50) でなく 寸法線の中点 (70,40)");
+        /* AM 9: 寸法図形 → 一図形目は 部品 1（寸法線）、値を押しても 同じ
+           （FUN_0076fae0 の旗 +0x6330 → +0x68。逆コンパイルの読み、原典では押していない） */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->sub = 1;
+        o->d[0] = 20; o->d[1] = 40; o->d[2] = 120; o->d[3] = 40;
+        o = jw_add(d, JW_MOJI);
+        o->sub = 2;
+        o->d[0] = 60; o->d[1] = 50; o->d[2] = 80; o->d[3] = 50;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 70; o->d[1] = 0; o->d[2] = 70; o->d[3] = 200;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+        n = d->ndrawn;
+        AMRUN(9, 30.0, 40.5);
+        app_press(jw_sx(v, 70.3), jw_sy(v, 150.0), 0);
+        ck(d->ndrawn == n + 1 && d->obj[n].cls == JW_TEN
+           && fabs(d->obj[n].d[0] - 70.0) < 1e-6 && fabs(d->obj[n].d[1] - 40.0) < 1e-6,
+           "AM 9: 寸法の寸法線が一図形目 → 縦の線との交点 (70,40) に 点");
+        n = d->ndrawn;
+        AMRUN(9, 70.0, 150.0);          /* 縦の線が一図形目 */
+        app_press(jw_sx(v, 30.0), jw_sy(v, 40.4), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 70.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 40.0) < 1e-6,
+           "AM 9: 寸法の寸法線が二図形目 → 縦の線の上の交点 (70,40)");
+
+        /* AM 3・9: ソリッド（ltype < 100）→ 押した点に 直線として近い辺（FUN_0042a260 の
+           辺 1〜4。逆アセンブルで確認。逆コンパイルの読み、原典では押していない） */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SOLID);
+        o->ltype = 1;
+        o->d[0] = 100; o->d[1] = 100; o->d[2] = 150; o->d[3] = 100;
+        o->d[4] = 150; o->d[5] = 150; o->d[6] = 100; o->d[7] = 150;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 125; o->d[1] = 0; o->d[2] = 125; o->d[3] = 200;
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 140; o->d[1] = 0; o->d[2] = 140; o->d[3] = 200;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+        n = d->ndrawn;
+        AMRUN(3, 110.0, 100.3);
+        ck(d->ndrawn == n + 1 && d->obj[n].cls == JW_TEN
+           && fabs(d->obj[n].d[0] - 125.0) < 1e-6 && fabs(d->obj[n].d[1] - 100.0) < 1e-6,
+           "AM 3: ソリッドの辺（下の辺）を押して → その辺の中点 (125,100)");
+        n = d->ndrawn;
+        AMRUN(3, 150.3, 149.0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 150.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 125.0) < 1e-6,
+           "AM 3: 角の近くは 辺の線への距離で選ぶ（右の辺の中点 (150,125)）");
+        /* AM 9 一図形目 = ソリッド: 押した辺（下の辺 y=100）、二図形目 = 縦の線 x=125 */
+        n = d->ndrawn;
+        AMRUN(9, 110.0, 100.3);
+        app_press(jw_sx(v, 140.2), jw_sy(v, 180.0), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 140.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 100.0) < 1e-6,
+           "AM 9: ソリッドが一図形目 → 押した辺と 縦の線 x=140 の交点 (140,100)");
+        /* 二図形目 = ソリッド（縦の線が一図形目）: 右の辺は 線と平行 → 交点なし → 押した点 */
+        n = d->ndrawn;
+        AMRUN(9, 125.0, 180.0);
+        app_press(jw_sx(v, 150.2), jw_sy(v, 130.0), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 125.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 130.0) < 0.6,
+           "AM 9: 二図形目のソリッドの辺（右）は 縦の線と平行 → 押した点の足 (125,130)");
+        n = d->ndrawn;
+        AMRUN(9, 125.0, 180.0);
+        app_press(jw_sx(v, 110.0), jw_sy(v, 150.2), 0);
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 125.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 150.0) < 1e-6,
+           "AM 9: 二図形目のソリッドの辺（上）→ 縦の線との交点 (125,150)");
 #undef AMRUN
         app_command(JW_CMD_SEN);
     }
