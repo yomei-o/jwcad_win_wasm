@@ -474,6 +474,78 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 既定の基準点（確定を押すまでマウスが動いていないとき）は、選んだ
+     * 要素の外接枠の中心ではなく、要素ごとの中心（jw_obj_box を 1 個ずつ
+     * 呼んだ (a+c)/2, (b+e)/2）を個数で割った単純平均。2026-10-18、原典
+     * Jw_win.exe 10.03.6 を tools/jwdraw.ps1 で実測して直した: 複写
+     * (cmd:32804) のバーで 範囲外選択 (1334) を有効にし、範囲の外にある
+     * 矩形 4 本＋線 1 本を選んで確定、複写した先のずれ (dx,dy)=
+     * (289.206997,-233.790088) から基準点を逆算すると (-76.198251,
+     * 11.256560)。外接枠（矩形の角と線の端の外側）の中心なら
+     * (0.865895, 58.880467) のはずで合わず、5 本それぞれの中心の平均
+     * (-76.198251, 11.256560) にぴったり一致した。つまり矩形は辺 4 本の
+     * CDataSen のまま、1 本の矩形として 1 個には数えていない。
+     * 逆コンパイルの該当関数は未確認（原典の実測のみ）。 */
+    {
+        unsigned char *b2;
+        long n2;
+        const jw_drawing *d2;
+        const fb_t *fb = app_fb();
+        rect_t r;
+        double bx0 = 1e30, by0 = 1e30, bx1 = -1e30, by1 = -1e30;
+        double sx = 0.0, sy = 0.0, want_x, want_y, bbox_x, bbox_y, dx, dy;
+        int i, k = 0;
+
+        b2 = slurp("orig/Test5.jww", &n2);
+        if (b2 && app_open(b2, n2)) {
+            free(b2);
+            ui_view_rect(fb->w, fb->h, &r);
+            jw_cmd_set(JW_CMD_FUKUSHA);
+            app_press(r.x + 250, r.y + 250, 0);
+            app_press(r.x + 850, r.y + 550, 0);
+            ck(nsel() > 1,
+               "this box picks more than one element, for the test to mean anything");
+            d2 = app_drawing();
+            for (i = 0; i < d2->ndrawn; i++)
+                if (d2->obj[i].flags & 2) {
+                    double a, bb, c, e;
+
+                    jw_obj_box(&d2->obj[i], &a, &bb, &c, &e);
+                    if (a < bx0) bx0 = a;
+                    if (bb < by0) by0 = bb;
+                    if (c > bx1) bx1 = c;
+                    if (e > by1) by1 = e;
+                    sx += (a + c) / 2.0;
+                    sy += (bb + e) / 2.0;
+                    k++;
+                }
+            want_x = sx / k;
+            want_y = sy / k;
+            bbox_x = (bx0 + bx1) / 2.0;
+            bbox_y = (by0 + by1) / 2.0;
+            ck(fabs(want_x - bbox_x) > 1e-3 || fabs(want_y - bbox_y) > 1e-3,
+               "and the two formulas actually disagree for it");
+            /* 選択確定: the mouse has not moved since app_open, so this
+               takes the default branch (sel_confirm's "else", not "tracking") */
+            ck(jw_cmd_bar((jw_drawing *)d2, 1120) == 1,
+               "選択確定 with the mouse not moved since opening");
+            app_move(r.x + 500, r.y + 400);  /* only to read 基準点 back out */
+            ck(jw_cmd_sel_ghost(&dx, &dy), "the ghost preview reports an offset");
+            {
+                const jw_view *v = app_view();
+                double mx = v->ox + (r.x + 500 - v->bx) / v->scale;
+                double my = v->oy + (v->by - (r.y + 400)) / v->scale;
+
+                ck(fabs((mx - dx) - want_x) < 1e-6 && fabs((my - dy) - want_y) < 1e-6,
+                   "基準点 is the mean of each picked element's own centre, "
+                   "not the bounding box's");
+            }
+        } else {
+            printf("BAD  cannot reopen orig/Test5.jww\n");
+            fails++;
+        }
+    }
+
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
