@@ -2306,14 +2306,16 @@ static void sok_num(char *out, int n, double v, int dp)
 }
 
 /* An angle as 度分秒, the original's FUN_00459e40 (read off the decompile;
-   not asked of the original): the seconds take 小数桁's places, and if they
+   measured: 0 度は 0ﾟ00'0-0.000" -- the abs is `v <= 0 ? -v : v`, so +0 turns
+   into -0 and its seconds print as -0.000 with the 0 in front; -90 度は
+   -90ﾟ00'00.000"): the seconds take 小数桁's places, and if they
    come out as "60..." they are 0 and the minute goes up; minutes and
    seconds under ten get a 0 in front, and the marks are the half-width
    ﾟ ' " (strings 6195・6197・6199 -- the full-width ones are for when
    DAT_00a0bd24 is set, which the port does not have). */
 static void sok_dms_str(char *out, int n, double v)
 {
-    double a = fabs(v), m, sec;
+    double a = v <= 0.0 ? -v : v, m, sec;   /* 原典の「<= 0 なら 符号を反す」: +0 は -0 になり 秒が -0.000 */
     int deg = (int)a, mn;
     char s[64], ss[72], ms[24];
 
@@ -7506,6 +7508,7 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
         op_keep(rec, d, i, 0);
         d->obj[i].d[3] = turn(a0 + dir * u2);
         d->obj[i].d[4] = dir * (2 * PI - gap);
+        d->obj[i].n = 0;        /* 原典で測った: 弧になれば 全円の印 (n) は 0 */
         return;
     }
     if (u2 < u1) {
@@ -7892,8 +7895,10 @@ static void corner_arc(jw_drawing *d, int a, double ax, double ay,
  * with FUN_0056fd50 -- whose DDX ties the read edit to 0x585, box 1413, and the
  * 実寸 flag to 0x830, the 2096 on the same bar.  Read off the decompile, not
  * asked of the original. */
-static void line_cut_r(jw_drawing *d, const jw_view *v, double x, double y,
-                       int box)
+static double cut_gap_last;     /* DAT_00a0cc58: 最後に 箱から読んだ切断間隔 */
+
+static void line_cut_r2(jw_drawing *d, const jw_view *v, double x, double y,
+                        int box, int stale)
 {
     double gap = box_num(jw_cmd_box(box), 0.0), h;
     const jw_obj *o;
@@ -7902,10 +7907,17 @@ static void line_cut_r(jw_drawing *d, const jw_view *v, double x, double y,
     i = jw_pick(d, v, x, y, 3);
     if (i < 0)
         return;
-    if (gap < 0.0)
-        gap = 0.0;
-    if (jw_cmd_bar_check(2096) > 0)
-        gap /= write_scale(d);
+    /* 原典で測った: 負の幅は 絶対値（-100 は 100、-1 は 1）。コーナーで線を先に拾った段
+       （+0x204 == 2）では 箱を読まず 前に読んだ値（初めは 0 = 二つに割る）のまま */
+    if (stale) {
+        gap = cut_gap_last;
+    } else {
+        if (gap < 0.0)
+            gap = -gap;
+        if (jw_cmd_bar_check(2096) > 0)
+            gap /= write_scale(d);
+        cut_gap_last = gap;
+    }
     h = gap / 2.0;
     o = &d->obj[i];
     if (o->cls == JW_SEN) {
@@ -7928,6 +7940,12 @@ static void line_cut_r(jw_drawing *d, const jw_view *v, double x, double y,
         cut_arc(d, i, x + ey / el * h, y - ex / el * h,
                 x - ey / el * h, y + ex / el * h);
     }
+}
+
+static void line_cut_r(jw_drawing *d, const jw_view *v, double x, double y,
+                       int box)
+{
+    line_cut_r2(d, v, x, y, box, 0);
 }
 
 /* 伸縮's (R) 線切断 (FUN_00715f50 → FUN_00470200) cuts with the same width
@@ -12995,6 +13013,7 @@ typedef struct {
     int circle;
     int pt;                     /* a point read with (R): a circle of r 0 */
     double nx, ny, k;           /* a line: n.point == k */
+    double x0, y0, x1, y1;      /* a line: start and end */
     double cx, cy, r;           /* a circle */
 } sek_el;
 
@@ -13011,6 +13030,10 @@ static int sek_elem(const jw_obj *o, sek_el *e)
         e->nx = -uy / L;
         e->ny = ux / L;
         e->k = e->nx * o->d[0] + e->ny * o->d[1];
+        e->x0 = o->d[0];
+        e->y0 = o->d[1];
+        e->x1 = o->d[2];
+        e->y1 = o->d[3];
         return 1;
     }
     /* an ellipse is turned away when it is picked, 「楕円は計算できません。」
@@ -13026,83 +13049,231 @@ static int sek_elem(const jw_obj *o, sek_el *e)
 }
 
 /* Where can the centre of a circle of radius `r` be, if it touches both of
- * these?  A line puts it on one of the two lines `r` away, a circle on one of
- * the two circles `r` out or `r` in -- four pairings in all, and each pairing
- * leaves nought, one or two places.  The original counts them out loud:
- * two crossed lines said 【 4 − 1 】, a line and a circle 【 2 − 2 】 and two
- * circles 【 6 − 1 】, which is what these four pairings give.
+ * these?  FUN_00707d60 counts them out into +0x130 (the 【 n − m 】 of the
+ * status line) in a fixed order, by what was picked and not by which came
+ * first (two lines 6484 = 4, a line and a circle 1, a line and a point 2,
+ * a circle and a point 3, two circles 5, two points 6).  Each place is worked
+ * out in a frame (FUN_005f97f0: origin and unit direction; FUN_005f9a30: an
+ * origin and an angle) and carried out of it by FUN_005f8b60/FUN_005f8c20.
+ * Two crossed lines said 【 4 − 1 】, a line and a circle 【 2 − 2 】 and two
+ * circles 【 6 − 1 】 in the original.  Read from the decompilation, and the
+ * order of two lines measured: for lines 700,300-300,300 across 500,150-500,450
+ * the 1st is lower right, 2nd upper left, 3rd upper right, 4th lower left.
  */
 #define SEK_MAX 8
+
+typedef struct {
+    double ox, oy, c, s, len;
+} sek_fr;
+
+/* FUN_005f97f0: the frame that starts at (ox,oy) and looks at (tx,ty) */
+static void sek_frame(sek_fr *f, double ox, double oy, double tx, double ty)
+{
+    double dx = tx - ox, dy = ty - oy;
+
+    f->ox = ox;
+    f->oy = oy;
+    if (fabs(dx) + fabs(dy) >= 1e-7) {
+        f->len = sqrt(dx * dx + dy * dy);
+        f->c = dx / f->len;
+        f->s = dy / f->len;
+    } else {
+        f->c = 1.0;
+        f->s = 0.0;
+        f->len = 1.0;
+    }
+}
+
+static void sek_out(const sek_fr *f, double x, double y, double *px,
+                    double *py, int *n)
+{
+    px[*n] = f->c * x - f->s * y + f->ox;
+    py[*n] = f->c * y + f->s * x + f->oy;
+    (*n)++;
+}
+
+/* FUN_0070ba90: a circle (centre cx,cy, radius R) met by the line y = off in
+ * the frame -- the larger x first */
+static void sek_lc(const sek_fr *f, double cx, double cy, double R, double off,
+                   double *px, double *py, int *n)
+{
+    double a = fabs(R), x, y, dd;
+
+    if (a < 0.001)
+        return;
+    x = (cx - f->ox) * f->c + (cy - f->oy) * f->s;
+    y = (cy - f->oy) * f->c - (cx - f->ox) * f->s;
+    dd = a * a - (y - off) * (y - off);
+    if (dd <= -0.001)
+        return;
+    if (dd >= 0.001) {
+        double h = sqrt(dd);
+
+        sek_out(f, x + h, off, px, py, n);
+        sek_out(f, x - h, off, px, py, n);
+    } else {
+        sek_out(f, x, off, px, py, n);
+    }
+}
+
+/* FUN_0070bd50: two circles about the frame's origin (radius R1) and about a
+ * point `len` along it (radius R2) */
+static void sek_cc(const sek_fr *f, double R1, double R2,
+                   double *px, double *py, int *n)
+{
+    double a1 = fabs(R1), a2 = fabs(R2), x, dd;
+
+    if (a1 < 0.001 || a2 < 0.001)
+        return;
+    x = (f->len * f->len + a1 * a1 - a2 * a2) / (f->len * 2.0);
+    dd = a1 * a1 - x * x;
+    if (dd <= -1e-7)
+        return;
+    if (dd >= 1e-7) {
+        double h = sqrt(dd);
+
+        sek_out(f, x, h, px, py, n);
+        sek_out(f, x, -h, px, py, n);
+    } else {
+        sek_out(f, a1, 0.0, px, py, n);
+    }
+}
+
+/* the end of a line the angle is measured from: FUN_00707d60 takes the
+ * point further right, and for a vertical one the end (measured) */
+static double sek_ang(const sek_el *l)
+{
+    double ax = l->x1, ay = l->y1, bx = l->x0, by = l->y0;
+
+    if (ax < bx) {
+        double t;
+
+        t = ax; ax = bx; bx = t;
+        t = ay; ay = by; by = t;
+    }
+    return atan2(ay - by, ax - bx);
+}
+
+/* FUN_004619b0 for two endless lines: where they cross, 0 if they do not
+ * (parallel to 1e-7 or further than 1e10 of a side out) */
+static int sek_cross(const sek_el *p, const sek_el *q, double *ix, double *iy)
+{
+    double ex = p->x1 - p->x0, ey = p->y1 - p->y0;
+    double fx = q->x1 - q->x0, fy = q->y1 - q->y0;
+    double d4 = (q->y0 - p->y0) * ex - (q->x0 - p->x0) * ey;
+    double d5 = (q->y1 - p->y0) * ex - (q->x1 - p->x0) * ey;
+    double t;
+
+    if (!(fabs(d4 - d5) > 1e-7) || fabs(d4) > fabs(d4 - d5) * 10000000000.0)
+        return 0;
+    t = d4 / (d4 - d5);
+    *ix = fx * t + q->x0;
+    *iy = fy * t + q->y0;
+    if (fabs(*ix) + fabs(*iy) > 139778713.93879598)
+        return 0;
+    if (p->x0 == p->x1)
+        *ix = p->x0;
+    if (p->y0 == p->y1)
+        *iy = p->y0;
+    if (q->x0 == q->x1)
+        *ix = q->x0;
+    if (q->y0 == q->y1)
+        *iy = q->y0;
+    return 1;
+}
+
 static int sek_places(const sek_el *p, const sek_el *q, double r,
                       double *px, double *py)
 {
-    int s1, s2, n = 0;
+    sek_fr f;
+    int n = 0;
+    const sek_el *l, *c;
 
-    for (s1 = -1; s1 <= 1; s1 += 2)
-        for (s2 = -1; s2 <= 1; s2 += 2) {
-            /* a point is a circle of r 0, so r out and r in are the one
-               circle -- FUN_00707d60 takes it once (its cases 2, 3, 6) */
-            if ((p->pt && s1 < 0) || (q->pt && s2 < 0))
-                continue;
-            if (!p->circle && !q->circle) {
-                double a1 = p->k + s1 * r, a2 = q->k + s2 * r;
-                double den = p->nx * q->ny - p->ny * q->nx;
+    if (!p->circle && !q->circle) {                     /* 4: two lines */
+        double a1 = sek_ang(p), a2 = sek_ang(q), half, mean, ix, iy, d;
+        int k;
 
-                if (fabs(den) < 1e-12)
-                    continue;   /* parallel: nothing, unless 2r apart */
-                px[n] = (a1 * q->ny - a2 * p->ny) / den;
-                py[n] = (p->nx * a2 - q->nx * a1) / den;
-                n++;
-            } else if (p->circle && q->circle) {
-                /* two circles, centres apart by L: the usual intersection */
-                double d1 = fabs(p->r + s1 * r), d2 = fabs(q->r + s2 * r);
-                double ex = q->cx - p->cx, ey = q->cy - p->cy;
-                double L = sqrt(ex * ex + ey * ey), a, h2;
+        if (!sek_cross(p, q, &ix, &iy))
+            return 0;
+        half = fabs(a1 - a2) / 2.0;
+        mean = (a1 < a2 ? a1 : a2) + half;
+        if (half < 1e-7 || fabs(1.5707963267948966 - half) < 1e-7)
+            return 0;
+        f.ox = ix;
+        f.oy = iy;
+        f.c = cos(mean);
+        f.s = sin(mean);
+        if (fabs(f.c) < 1e-15 || fabs(f.s) == 1.0)
+            f.c = 0.0;
+        if (fabs(f.s) < 1e-15 || fabs(f.c) == 1.0)
+            f.s = 0.0;
+        f.len = 1.0;
+        for (k = 0; k < 4; k++) {
+            double x, y;
+            int m = n;
 
-                if (L < 1e-12)
-                    continue;
-                a = (L * L + d1 * d1 - d2 * d2) / (2 * L);
-                h2 = d1 * d1 - a * a;
-                if (h2 < 0.0)
-                    continue;
-                h2 = sqrt(h2);
-                ex /= L;
-                ey /= L;
-                px[n] = p->cx + a * ex - h2 * ey;
-                py[n] = p->cy + a * ey + h2 * ex;
-                n++;
-                if (h2 > 1e-9) {
-                    px[n] = p->cx + a * ex + h2 * ey;
-                    py[n] = p->cy + a * ey - h2 * ex;
-                    n++;
+            d = k < 2 ? r / sin(half) : r / sin(1.5707963267948966 - half);
+            x = k < 2 ? (k ? -d : d) : 0.0;
+            y = k < 2 ? 0.0 : (k == 2 ? d : -d);
+            sek_out(&f, x, y, px, py, &n);
+            if (fabs(px[m]) > 900000.0 || fabs(py[m]) > 900000.0)
+                n = m;
+        }
+        return n;
+    }
+    if (p->circle && q->circle) {
+        if (p->pt && q->pt) {                           /* 6: two points */
+            double a = fabs(r), D, dd;
+
+            if (fabs(q->cx - p->cx) < 1e-7 && fabs(q->cy - p->cy) < 1e-7)
+                return 0;
+            sek_frame(&f, p->cx, p->cy, q->cx, q->cy);
+            D = f.len;
+            if (a < 1e-7 || D > a * 2.0 + 1e-7)
+                return 0;
+            if (D < a * 2.0 - 1e-7) {
+                double h = D / 2.0;
+
+                dd = a * a - h * h;
+                if (dd >= 1e-7) {
+                    dd = sqrt(dd);
+                    sek_out(&f, h, dd, px, py, &n);
+                    sek_out(&f, h, -dd, px, py, &n);
                 }
             } else {
-                /* a line and a circle: drop the circle's centre on the line
-                   `r` away and come back along it */
-                const sek_el *l = p->circle ? q : p;
-                const sek_el *c = p->circle ? p : q;
-                double sl = p->circle ? s2 : s1, sc = p->circle ? s1 : s2;
-                double off = l->k + sl * r;
-                double d = fabs(c->r + sc * r);
-                double t = off - (l->nx * c->cx + l->ny * c->cy);
-                double fx = c->cx + t * l->nx, fy = c->cy + t * l->ny;
-                double h2 = d * d - t * t;
-
-                if (h2 < 0.0)
-                    continue;
-                h2 = sqrt(h2);
-                px[n] = fx - h2 * l->ny;    /* along the line */
-                py[n] = fy + h2 * l->nx;
-                n++;
-                if (h2 > 1e-9) {
-                    px[n] = fx + h2 * l->ny;
-                    py[n] = fy - h2 * l->nx;
-                    n++;
-                }
+                sek_out(&f, a, 0.0, px, py, &n);
             }
-            if (n > SEK_MAX - 2)
-                return n;
+            return n;
         }
+        if (p->pt || q->pt) {                           /* 3: circle, point */
+            c = p->pt ? q : p;
+            l = p->pt ? p : q;                          /* the point */
+            sek_frame(&f, c->cx, c->cy, l->cx, l->cy);
+            sek_cc(&f, r + c->r, r, px, py, &n);
+            sek_cc(&f, r - c->r, r, px, py, &n);
+            return n;
+        }
+        if (fabs(q->cx - p->cx) < 1e-7 && fabs(q->cy - p->cy) < 1e-7)
+            return 0;                                   /* 5: two circles */
+        sek_frame(&f, p->cx, p->cy, q->cx, q->cy);
+        sek_cc(&f, r + p->r, r + q->r, px, py, &n);
+        sek_cc(&f, r - p->r, r + q->r, px, py, &n);
+        sek_cc(&f, r + p->r, r - q->r, px, py, &n);
+        sek_cc(&f, r - p->r, r - q->r, px, py, &n);
+        return n;
+    }
+    l = p->circle ? q : p;                              /* a line and ... */
+    c = p->circle ? p : q;
+    sek_frame(&f, l->x0, l->y0, l->x1, l->y1);
+    if (c->pt) {                                        /* 2: a point */
+        sek_lc(&f, c->cx, c->cy, r, r, px, py, &n);
+        sek_lc(&f, c->cx, c->cy, r, -r, px, py, &n);
+    } else {                                            /* 1: a circle */
+        sek_lc(&f, c->cx, c->cy, r + c->r, r, px, py, &n);
+        sek_lc(&f, c->cx, c->cy, r - c->r, r, px, py, &n);
+        sek_lc(&f, c->cx, c->cy, r + c->r, -r, px, py, &n);
+        sek_lc(&f, c->cx, c->cy, r - c->r, -r, px, py, &n);
+    }
     return n;
 }
 
@@ -13204,7 +13375,7 @@ static int sek_tail(const jw_drawing *d, int *cnt, int *idx)
     double px[SEK_MAX], py[SEK_MAX], r = sek_radius(d), bestd = 9999999.0;
     int i, n;
 
-    if (r <= 1e-7 || sek_a < 0 || sek_b < 0
+    if (r <= 1e-7 || (sek_a < 0 && !sek_apt) || (sek_b < 0 && !sek_bpt)
         || !sek_get(d, sek_a, sek_apt, sek_ax, sek_ay, &p)
         || !sek_get(d, sek_b, sek_bpt, sek_bx, sek_by, &q))
         return 0;
@@ -18177,6 +18348,7 @@ static int sel_confirm(jw_drawing *d)
         if (d->obj[i].sel) {
             sel_at[sel_n] = i;
             sel_was[sel_n] = d->obj[i];
+            sel_was[sel_n].was_sel = 0;     /* 写しに 前範囲の印は 付かない（原典で測った） */
             sel_n++;
         }
     if (sel_base_set) {                 /* 基準点変更 put it somewhere */
@@ -20742,18 +20914,28 @@ static int bar_press(jw_drawing *d, int id)
         if (sel_step != 2 || jw_cmd_sel_count(d) <= 0) {
             /* 前範囲: with nothing picked, CZukeiSentaku's FUN_006fcb00
                picks again what the last selection had, of what can be
-               edited now (FUN_0042dd10) -- read off the decompile, not
-               asked of the original.  None left: its message 0x1592 */
-            int i, n = 0;
+               edited now (FUN_0042dd10).  None left: its message 0x1592.
+               原典で測った: 複写を済ませて 複写に入り直し 前範囲 を押すと、まだ選ばれたまま
+               残っている要素が選ばれる。さらに別の範囲を選んで済ませたあとは、一つ前の
+               選択（印 was_sel）だけが選ばれ、いま選ばれているものは外れる */
+            int i, n = 0, marked = 0;
 
             if (!d || (sel_step != 0 && sel_step != 2))
                 return 0;
-            for (i = 0; i < d->ndrawn; i++)
-                if (d->obj[i].was_sel && jw_pick_editable(d, &d->obj[i])) {
+            for (i = 0; i < d->ndrawn && !marked; i++)
+                marked = d->obj[i].was_sel && jw_pick_editable(d, &d->obj[i]);
+            for (i = 0; i < d->ndrawn; i++) {
+                int on = marked ? d->obj[i].was_sel : d->obj[i].sel;
+
+                if (on && jw_pick_editable(d, &d->obj[i])) {
                     d->obj[i].flags = (unsigned short)(d->obj[i].flags | 2u);
                     d->obj[i].sel = 1;
                     n++;
+                } else if (marked) {
+                    d->obj[i].flags = (unsigned short)(d->obj[i].flags & ~2u);
+                    d->obj[i].sel = 0;
                 }
+            }
             if (!n) {
                 JW_NOTICE(5522);        /* 札「データがありません」 */
                 return 1;
@@ -26362,7 +26544,7 @@ static void au_ll(jw_drawing *d, const jw_view *v, double x, double y)
    壁がある間に箱で入れた値は +0x83b8 へ、壁を消すと箱は ふつうの測定高（+0x83b0）に戻る。
    右は 壁線待ち・方向待ちでは何もしない（FUN_006900c0 は +0xbc が 0 と 5 のときだけ）。
    壁の向き: 片側のとき 字が左なら（FUN_00541130 の末尾）、方向待ちで押した点が右なら（FUN_0053eca0）
-   原典は 壁の線そのものの 始点と終点を入れ替える（文書の線が変わる。戻すの記録は無い）。
+   原典は 壁の始点と終点を入れ替えて計算する（原典で測った: 文書の線は 変わらない）。
    壁があるときの 日影図・等時間・指定点は 壁を FUN_00542310 → FUN_005415e0 で切り、
    FUN_0053fee0 → FUN_00545fc0 で立面に映す（hikage.c の hk_wall_*、hk_wall_prep） */
 static double hk_eval(const char *t);
@@ -26373,12 +26555,10 @@ static void hk_wall_swap_line(jw_drawing *d, int k)
 
     t = hk_wall_xy[0]; hk_wall_xy[0] = hk_wall_xy[2]; hk_wall_xy[2] = t;
     t = hk_wall_xy[1]; hk_wall_xy[1] = hk_wall_xy[3]; hk_wall_xy[3] = t;
-    if (k >= 0 && k < d->ndrawn && d->obj[k].cls == JW_SEN) {
-        jw_obj *o = &d->obj[k];
-
-        t = o->d[0]; o->d[0] = o->d[2]; o->d[2] = t;
-        t = o->d[1]; o->d[1] = o->d[3]; o->d[3] = t;
-    }
+    /* 原典で測った: 壁の線そのもの（文書の線）は 向きを変えない（東から西へ引いた線は 字が左でも
+       方向待ちで右を押しても そのまま）。入れ替えるのは 計算に使う壁の写しだけ */
+    (void)d;
+    (void)k;
 }
 
 /* 壁で 辺を切る（ed → ed2）。返り値 切った辺の数、原典が札で終わるところなら 札を出して -1 */
@@ -30975,7 +31155,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
                along a line, across an arc's tangent -- and with no width
                the element is split in two there.  A line picked as the
                first of the corner stays picked. */
-            line_cut_r(d, v, x, y, 1411);
+            line_cut_r2(d, v, x, y, 1411, corner_step == 2);
             return;
         }
         if (corner_step == 0) {
