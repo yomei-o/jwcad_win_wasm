@@ -707,7 +707,7 @@ int jw_pick_tie(const jw_drawing *d, const jw_view *v, double x, double y,
 {
     box_t b;
     double best = 1e99, best_ten = 1e99;
-    int hit = -1, i;
+    int hit = -1, i, seen_ten = 0;
 
     b.tol = jw_pick_tol(v);
     b.x0 = x - b.tol;
@@ -754,9 +754,15 @@ int jw_pick_tie(const jw_drawing *d, const jw_view *v, double x, double y,
                 hit = i;
             }
             taken = 1;
+            seen_ten = 1;
         }
         /* Mode 3 -- 図形消去's -- passes points over here entirely. */
         if (taken || (mode == 3 && o->cls == JW_TEN))
+            continue;
+        /* 逆コンパイルの読み、原典では押していない: FUN_0044a270 の bVar11。
+           モード 0・2 で 点を一つでも見たあとは、後ろの要素は（点より近くても）
+           最良を書き換えない。点より前の線は その点が置き換える */
+        if (seen_ten)
             continue;
         if (o->id != 0)
             e += 1e-06;         /* an element in a group comes second */

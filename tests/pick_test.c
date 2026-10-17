@@ -176,6 +176,23 @@ int main(int argc, char **argv)
         ck(a == n0 && b2 == n0 + 1, "逆順サーチ: 重なった二本の 先の線（ふだん）と 後の線（逆順）");
     }
 
-    printf("%s\n", fails ? "FAILED" : "all ok");
+    /* モード 0・2: 点を見たあとに来る線は、点より近くても 勝てない（FUN_0044a270 の bVar11。
+       逆コンパイルの読み、原典では押していない）。モード 1 は ふつうに近い方 */
+    {
+        jw_drawing *two = (jw_drawing *)d;
+        jw_obj *o;
+        int n0 = two->ndrawn;
+        double t = jw_pick_tol(v);
+
+        o = jw_add(two, JW_TEN);
+        o->d[0] = 7000; o->d[1] = 7000 + t * 0.8;
+        o = jw_add(two, JW_SEN);
+        o->d[0] = 6900; o->d[1] = 7000; o->d[2] = 7100; o->d[3] = 7000;
+        ck(jw_pick(two, v, 7000.0, 7000.0, 0) == n0, "モード 0: 点のあとの近い線は 点に勝てない");
+        ck(jw_pick(two, v, 7000.0, 7000.0, 2) == n0, "モード 2: 同じ");
+        ck(jw_pick(two, v, 7000.0, 7000.0, 1) == n0 + 1, "モード 1: 近い線が勝つ");
+    }
+
+    printf("%s\n", fails ? "FAILED": "all ok");
     return fails ? 1 : 0;
 }
