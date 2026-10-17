@@ -36,8 +36,8 @@
  * AUTO モードの時計（CZukeiAuto の仮想関数 46・47 = FUN_0062fc10・FUN_0062ff00 と
  * その表 FUN_0062a980、DAT_00a0c7c4 > 1 の FUN_00777690）は 下の「AUTO の表」。
  * 移植で入れないもの（読みだけ、または答えの無いもの）: 手書線 の間の時計、
- * AUTO の表の残り（下の「AUTO の表」の末）、PM 6【全】属性取得（FUN_007751e0(1)）は札だけ、AM 4 範囲選択の
- * 「押した点を拾う」（FUN_0040dbb0）、AM 6 の 5261 札。
+ * AUTO の表の残り（下の「AUTO の表」の末）、PM 6【全】属性取得（FUN_007751e0(1)）は札だけ、
+ * AM 6 の 5261 札。
  *
  * 右ボタンの時計（FUN_0076d330、命令の仮想関数 47）。右を押して しきいを越えて
  * 引けば 左と同じ向きの割り（FUN_004fc1d0）で 右の AM/PM（view+0x907c、
@@ -998,6 +998,13 @@ static int clk_table_run(int d, int pm)
     }
     if (c > 0) {
         app_command(c);
+        if (c == JW_CMD_HANI) {
+            /* AM 4: FUN_0040dbb0(0, 押した点) が 箱の一つ目の角を入れる */
+            double x, y;
+
+            to_paper(clk_x0, clk_y0, &x, &y);
+            jw_cmd_clock_hani(&drawing, x, y);
+        }
         return 1;
     }
     return 1;                   /* 札を下ろしたので描き直す */

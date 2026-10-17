@@ -220,6 +220,32 @@ int main(void)
     app_clock_end();
     ck(jw_cmd() == JW_CMD_PARAM, "PM 12 で ﾊﾟﾗﾒﾄﾘｯｸ変形");
 
+    /* AM 4 範囲選択: 押した点が箱の一つ目の角（原典で測った）。線を一本引き、
+       その左上で 4 時へ引いて離し、右下を押すと その線が入る。押した点が線の
+       あとなら 入らない */
+    app_command(JW_CMD_SEN);
+    app_press(cx - 100, cy - 100, 0);
+    app_press(cx - 50, cy - 60, 0);
+    app_command(JW_CMD_SEN);
+    at_hour(4, 60, &dx, &dy);
+    app_clock_begin(cx - 150, cy - 150);
+    app_clock_move(cx - 150 + dx, cy - 150 + dy);
+    ck(app_clock_now() == 4, "4 時");
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_HANI,
+       "AM 4: 範囲選択 の終点待ち（押した点が一つ目）");
+    app_press(cx + 100, cy + 100, 0);
+    ck(jw_cmd_sel_count(app_drawing()) == 1, "押した点から終点までの箱に線が入る");
+    /* 選択のあとに押し直すと 前の選択は消え 新しい一つ目 */
+    app_clock_begin(cx - 70, cy - 150);
+    app_clock_move(cx - 70 + dx, cy - 150 + dy);
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_HANI
+       && jw_cmd_sel_count(app_drawing()) == 0, "選択のあと: 前の選択は消え 新しい一つ目");
+    app_press(cx + 100, cy + 100, 0);
+    ck(jw_cmd_sel_count(app_drawing()) == 0, "押した点が線のあとなら 入らない");
+    app_command(JW_CMD_SEN);
+
     /* やめれば何もしない */
     app_command(JW_CMD_SEN);
     app_clock_begin(cx, cy);
