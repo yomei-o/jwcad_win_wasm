@@ -833,6 +833,32 @@ int main(void)
         app_press(jw_sx(v, 200.0), jw_sy(v, 20.0), 1);
         ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 200.0) < 1e-6
            && fabs(d->obj[n].d[1] - 20.0) < 1e-6, "AM 9: 右で端を読めば その点を 線 A へ落とす (200,20)");
+        /* AM 3: 寸法図形 → 部品 1（寸法線）の二端の中点（CDataSunpou 仮想関数 11 =
+           FUN_0042af20 の +0x70・+0x78 と +0x80・+0x88）。値を拾っても 寸法線の中点 */
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->sub = 1;
+        o->d[0] = 20; o->d[1] = 40; o->d[2] = 120; o->d[3] = 40;
+        o = jw_add(d, JW_MOJI);
+        o->sub = 2;
+        o->d[0] = 60; o->d[1] = 50; o->d[2] = 80; o->d[3] = 50;
+        o = jw_add(d, JW_SEN);          /* 図形でない 線 */
+        o->d[0] = 20; o->d[1] = 150; o->d[2] = 120; o->d[3] = 190;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+        n = d->ndrawn;
+        AMRUN(3, 30.0, 40.5);
+        ck(d->ndrawn == n + 1 && d->obj[n].cls == JW_TEN
+           && fabs(d->obj[n].d[0] - 70.0) < 1e-6 && fabs(d->obj[n].d[1] - 40.0) < 1e-6,
+           "AM 3: 寸法の寸法線を押して → 寸法線の中点 (70,40) に 点");
+        n = d->ndrawn;
+        AMRUN(3, 70.0, 50.2);
+        ck(d->ndrawn == n || (d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 70.0) < 1e-6
+           && fabs(d->obj[n].d[1] - 40.0) < 1e-6),
+           "AM 3: 寸法の値を押しても 値の中点 (70,50) でなく 寸法線の中点 (70,40)");
 #undef AMRUN
         app_command(JW_CMD_SEN);
     }
