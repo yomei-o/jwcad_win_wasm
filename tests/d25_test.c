@@ -498,6 +498,18 @@ static int arcs(void)
             && veq(p[2], 30 + 25),
             "  輪 B は a=30 から: x = R cos a、始めの点は 高さ + R K sin a");
     }
+    /* 数が足りない「3g」「3,0g」: 刻みは 0 のまま球へ渡り 15°（5 ではない）= 輪 12+11 本の 24 刻み */
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3g");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 552, "「3g」の球: 刻み 15°（線 552 本）");
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0g");
+    jw_cmd_bar(d, 1064);
+    vck(jw_d25_nline() == 552, "「3,0g」の球: 刻み 15°");
+    jw_cmd_bar(d, 1121);
+    d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0,30g");
+    jw_cmd_bar(d, 1064);
     jw_cmd_bar(d, 1121);
     jw_cmd_bar(d, 1066);
     vck(jw_d25_nell() == 11 && jw_d25_nline() == 0, "  アイソメでは 楕円 11 個");

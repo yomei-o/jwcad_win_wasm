@@ -193,6 +193,31 @@ int main(void)
         ck(o->n == 1, "  こちらは種別 1");
     }
 
+    /* 連続 (1066): 読み直して確認（FUN_006baad0）— 回数を足してから < 1000 なので 置けるのは
+       999 個目まで。1000 個目は 札 5205 で 回数 0 */
+    {
+        int i, n0, ok = 1;
+
+        app_command(JW_CMD_SEN);
+        app_command(32930);
+        type_box(1412, "1000");
+        n0 = app_drawing()->ndrawn;
+        click(-150.0, 25.0, 1);
+        click(90.0, -95.0, 1);
+        ck(app_drawing()->ndrawn == n0 + 1, "連続: 一個目");
+        for (i = 2; i <= 999; i++) {
+            jw_cmd_bar((jw_drawing *)app_drawing(), 1066);
+            if (app_drawing()->ndrawn != n0 + i)
+                ok = 0;
+        }
+        ck(ok && app_drawing()->ndrawn == n0 + 999, "連続: 999 個目まで置ける");
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1066);
+        ck(app_drawing()->ndrawn == n0 + 999, "連続: 1000 個目は置かない");
+        ck(jw_cmd_notice_id() == 5205, "連続: 札 5205 計算できません");
+        jw_cmd_bar((jw_drawing *)app_drawing(), 1066);
+        ck(app_drawing()->ndrawn == n0 + 999, "連続: 回数 0 に戻ったので続けて押しても置かない");
+    }
+
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

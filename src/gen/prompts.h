@@ -273,6 +273,12 @@
 #define JW_STR_5214 "\x91\xc8\x89~\x82\xcd\x8cv\x8eZ\x82\xc5\x82\xab\x82\xdc\x82\xb9\x82\xf1\x81" "B"
 /* 5231: notice: it is a block */
 #define JW_STR_5231 "\x83u\x83\x8d\x83" "b\x83N\x90}\x8c`\x82\xc5\x82\xb7"
+/* 5245: notice: it is a curve (clock AM 5 refuses it) */
+#define JW_STR_5245 "\x8b\xc8\x90\xfc\x82\xc5\x82\xb7"
+/* 5253: notice: it is a dimension figure (clock AM 5 refuses it) */
+#define JW_STR_5253 "\x90\xa1\x96@\x90}\x8c`\x82\xc5\x82\xb7"
+/* 5277: notice: it is a solid (clock AM 5 refuses it) */
+#define JW_STR_5277 "\x83\x5c\x83\x8a\x83" "b\x83h\x90}\x8c`\x82\xc5\x82\xb7"
 /* 5262: notice: it is the layer being written */
 #define JW_STR_5262 "\x8f\x91\x8d\x9e\x83\x8c\x83" "C\x83\x84\x82\xc5\x82\xb7"
 /* 5342: notice: not a straight line */

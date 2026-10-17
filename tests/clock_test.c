@@ -576,18 +576,38 @@ int main(void)
             app_clock_move(px + dx, py + dy);
             app_clock_end();
         }
-        ok8 = f >= 0;
+        /* 読み直して確認: FUN_0044a270(2, skip 0) は 旗 +0x632c を立てないので 寸法図形を
+           断る（札 0x1485 = 5253「寸法図形です」）。何も変わらない */
+        ok8 = f >= 0 && d->ndrawn == e + 8;
         for (k = 0; ok8 && k < 8; k++)
-            if (d->obj[e + k].sub != k + 1 || d->obj[e + k].layer != wl)
+            if (d->obj[e + k].sub != k + 1 || d->obj[e + k].layer != ((wl + 2) & 15)
+                || d->obj[e + k].ltype == 4)
                 ok8 = 0;
-        ck(ok8, "寸法図形: 部品 1〜8 が一続きのまま終わりへ、レイヤは書込みレイヤ");
-        ck(ok8 && d->obj[e].ltype == 4 && d->obj[e].color == 6
-           && (d->obj[e].mark & 0xff) == 4 && ((d->obj[e].mark >> 8) & 0xffff) == 6
-           && (((unsigned)d->obj[e].list[2] >> 16) & 0xffff) == (unsigned)wl,
-           "寸法図形: 頭と寸法線が書込み線種・線色に");
-        jw_cmd_undo(d);
-        ck(f >= 0 && d->obj[f].sub == 1 && d->obj[f + 7].sub == 8 && d->obj[f].layer == ((wl + 2) & 15),
-           "寸法図形: 戻るで元に");
+        ck(ok8, "寸法図形: AM 5 は断る（寸法の部品は替わらない）");
+        ck(jw_cmd_notice_id() == 5253, "寸法図形: 札 5253「寸法図形です」");
+
+        /* 曲線属性（+0x04 > 0）の線も断る（0x147d = 5245「曲線です」） */
+        {
+            jw_obj *ln = jw_add(d, JW_SEN);
+
+            ln->d[0] = 300; ln->d[1] = 0; ln->d[2] = 400; ln->d[3] = 0;
+            ln->id = 7;
+            ln->ltype = 1;
+            ln->layer = (unsigned short)wl;
+            ln->lgroup = (unsigned short)wg;
+            app_fit();
+            app_paint();
+            v = app_view();
+            e = d->ndrawn;
+            px = jw_sx(v, 350.0);
+            py = jw_sy(v, 0.0);
+            app_clock_begin(px, py);
+            app_clock_move(px + dx, py + dy);
+            app_clock_end();
+            ck(d->ndrawn == e && d->obj[e - 1].ltype != 4 && d->obj[e - 1].id == 7,
+               "曲線属性の線: AM 5 は断る（何も変わらない）");
+            ck(jw_cmd_notice_id() == 5245, "曲線属性の線: 札 5245「曲線です」");
+        }
     }
 
     /* ---- 右ボタンの時計（FUN_0076d330、src/clock.h） ---- */

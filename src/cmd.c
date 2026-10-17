@@ -5333,7 +5333,9 @@ const char *jw_cmd_status(const jw_drawing *d)
     }
     /* 接円: 一つ目・二つ目を訊く間（0x14fc・0x14fd）、半径が箱にあれば
        「    [ r = %.3lf ]」が付く（CZukeiSetuEn。箱の値の絶対値を紙の mm に
-       して 1e-7 を超えるとき、実寸で。三桁区切りはない） */
+       して 1e-7 を超えるとき、実寸で。三桁区切りはない）。読み直して確認
+       （FUN_007063b0: 書式 "    [ r = %.3lf ]"・ｍ入力は "%.3lf%s" で ÷DAT_00a0d630、
+       値は |+0xc0| × 縮尺、状態 0・1・2 は 札 0x14fc・0x14fd、3 で r が無ければ 0x14fe） */
     if (current == JW_CMD_SEKIEN && !sde_on && (sek_step == 0 || sek_step == 1) && d) {
         const char *t = jw_cmd_box(1411);
         double r = t ? fabs(atof(t)) : 0.0;
@@ -10594,7 +10596,12 @@ static int nisen_gap(const jw_drawing *d)
  * で 0x585 = 1413）の数を書込レイヤグループの縮尺で割って返します（図面の
  * 単位 → 図寸）。箱が空のときの 0.5 図寸mm は上の注の実測のまま
  * （1/100 で 50 なので、空 = 50 なのか 0.5mm 固定なのかは分かれていません）。
- * 逆コンパイルの読み、原典では押していない。 */
+ * 逆コンパイルの読み、原典では押していない。
+ * 読み直して確認: FUN_006295e0 の 留線の値が 1 以上なら箱の値を使うのは 移植と同じ
+ * （留線ボタンが立っていれば値は 11 など）。ｍ単位入力の ×DAT_00a0d630 は jw_cmd_box の
+ * 表 mu_len（NISEN 1413）が掛ける。箱が空のとき FUN_0058cc80 は コンボの 履歴 1 番目の
+ * 項目（GetLBText(1)）を %lg で読み、無ければ 既定 1.0 を返す読みで、0.5 図寸mm
+ * （実測）がそこから出るか未確認（nokori 2-2）。 */
 static double nisen_tome_len(const jw_drawing *d)
 {
     const char *t = jw_cmd_box(1413);
@@ -12157,7 +12164,12 @@ static int hatch_cut(double o, double ax, double ay, double bx, double by,
  * ので、始点→終点の向きから取る（長さ 0 なら d[7]）。長さ L は
  * FUN_004935b0 の式: 半角の数 c（CP932 のバイト数）で 0 なら 0、1 なら W/2、
  * でなければ (W+D)/2*c から 最後の字が全角なら D、半角なら D/2 を引く
- * （縦字は W の代わりに H）。特殊文字・間隔 0.01 の比例の枝は入れていない. */
+ * （縦字は W の代わりに H）。特殊文字・間隔 0.01 の比例の枝は入れていない.
+ * 読み直して確認（FUN_0067b890 の 0x67bcb0〜0x67bf27・FUN_0067adf0・FUN_004935b0）:
+ * 古い幅・高さ（+0x1f8・+0x200）から 新しい幅・高さ（+0xb8・+0xc0）を引く符号、
+ * 横・縦の基点、終点 = 始点 + L、最後の字が半角なら 間隔の半分を引く、は一致。
+ * 未入れ: FUN_00493b00(1) が引く数（5 字以上で「^m」を末尾に持つ字）と 間隔 0.01 の
+ * FUN_00493410 の枝（nokori 2-2）。 */
 static void zoku_moji(jw_drawing *d, jw_obj *o)
 {
     double ow = o->d[4], oh = o->d[5];
@@ -12271,6 +12283,9 @@ void jw_cmd_clock_hani(jw_drawing *d, double x, double y)
     sel_step = 1;
 }
 
+static int au_locked(const jw_drawing *d, const jw_obj *o);
+static int au_block_notice(const jw_drawing *d, const jw_view *v, double x, double y);
+
 /* クロックメニュー 左 AM 5 線種変更（FUN_0076e360、命令はそのまま）。押した点の要素を
  * FUN_0044a270(2) で一つ拾い、写し（仮想関数 5）に FUN_004552a0 で書込み線を着せる:
  * +0x28 線種（FUN_0042f6b0、0x40 の旗は残す）・+0x2a 線色（FUN_0042f660）・+0x2c 線幅
@@ -12284,7 +12299,13 @@ void jw_cmd_clock_hani(jw_drawing *d, double x, double y)
  * FUN_004552a0 の残り（+0x30〜+0x3f を 0、+0x40 = 1、+0x50 = 0、+0x58 の 1 を落とす）は
  * 移植の要素に対応する欄が無い。寸法図形の部品は sub 1〜8 の一続き（src/jww.h）なので、
  * 頭の欄（部品 1 の mark・turn・list[2]）と 部品 1 の線種・線色を替え、レイヤは部品
- * すべてに入れて一続きのまま終わりへ移す。逆コンパイルの読み、原典では押していない。 */
+ * すべてに入れて一続きのまま終わりへ移す。逆コンパイルの読み、原典では押していない。
+ *
+ * 読み直して確認（FUN_0076e360 と FUN_0044a270 の mode 2・skip 0。2026-10-17）:
+ * 拾いの旗 +0x6324・+0x6328・+0x632c・+0x6338 を AM 5 は立てない（立てるのは
+ * FUN_004497b0 ほかだけ）ので、拾いが 保護レイヤ（5290 の文）・ブロックの中（5231）・
+ * 寸法図形（5253）・ソリッド（5277）・曲線属性（+0x04 > 0、5245）を断る。下の
+ * 寸法の一続きの枝（FUN_0042f6f0・FUN_0042f680 の 8・9 番）は 原典では通らない。 */
 int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
                         int keep_layer)
 {
@@ -12296,8 +12317,35 @@ int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
     if (!d || !v)
         return 0;
     i = jw_pick(d, v, x, y, 2);
-    if (i < 0 || i >= d->ndrawn)
+    if (i < 0 || i >= d->ndrawn) {
+        au_block_notice(d, v, x, y);    /* ブロックの中なら 札 5231 */
         return 0;
+    }
+    /* 読み直して確認（FUN_0044a270(2, …, skip 0) の 返す前の断り。AM 5 は旗 +0x6324・
+       +0x6328・+0x632c・+0x6338 を立てない — 立てるのは FUN_004497b0 ほか 3 か所だけ）:
+       保護されたレイヤ・グループ（FUN_0042dcb0）→ 5290 の文、寸法図形 → 5253、
+       ソリッド → 5277、曲線属性（+0x04 > 0）→ 5245。どれも何も変えず 0 を返す。
+       下の寸法の一続きの枝は 原典では通らない（読めた形を残してある） */
+    if (au_locked(d, &d->obj[i])) {
+        static char t[96];
+
+        snprintf(t, sizeof t, "%s [%X]-(%X)", JW_STR_5290,
+                 d->obj[i].lgroup & 15u, d->obj[i].layer & 15u);
+        jw_cmd_notice(5290, t);
+        return 0;
+    }
+    if (d->obj[i].sub) {
+        JW_NOTICE(5253);
+        return 0;
+    }
+    if (d->obj[i].cls == JW_SOLID) {
+        JW_NOTICE(5277);
+        return 0;
+    }
+    if (d->obj[i].id > 0) {
+        JW_NOTICE(5245);
+        return 0;
+    }
     h = i;
     nm = 1;
     if (d->obj[i].sub) {
@@ -15097,7 +15145,11 @@ static int pm_sun_head(const jw_drawing *d, int i);
    中心に落ちる点は数えない。先に 中心 ± max(r, r×扁平率) の箱が枠と重なる
    かを見る（重ならなければ 0）。移植の枠は傾かない（+0x418 は 0）ので角は
    (x0,y0)→(x1,y0)→(x1,y1)→(x0,y1) の左回り。逆コンパイルの読み、原典では
-   押していない */
+   押していない。読み直して確認（FUN_0040b360・FUN_0040b250 を 枝ごとに: 重なり検査の
+   四つの不等号・扁平率で割る y・始点の内外・接線 1e-7・中心の除外・円弧角の範囲と
+   6.283185207 の しきい・戻り -1/3/0 は一致。枠の頂点の並びは FUN_0040e490 が
+   いつも 左回りに置くのを確認。原典の 0x3c8・0x3d0（枠の原点）は 重なり検査の
+   中心だけに効き、傾きなしでは 世界の枠と同じ） */
 static int sel_arc_frame(const jw_obj *o, double x0, double y0, double x1,
                          double y1)
 {
@@ -20888,8 +20940,12 @@ int jw_cmd_bar(jw_drawing *d, int id)
         if (!d || kyo_n <= 0)
             return 0;
         mm = box_mm(d, 1412);
-        if (fabs(mm) < 1e-7 || kyo_n >= 1000) {
+        /* 読み直して確認（FUN_006baad0）: 回数を一つ足してから「< 1000」なら作図、
+           でなければ（または FUN_006b9940 が |距離| < 1e-7 で 0 を返せば）札 0x1455
+           = 5205「計算できません」で回数 0。置けるのは 999 個目まで */
+        if (fabs(mm) < 1e-7 || kyo_n + 1 >= 1000) {
             kyo_n = 0;
+            JW_NOTICE(5205);
             return 1;
         }
         kyo_sum += mm;
@@ -26077,6 +26133,23 @@ static int au_block_hit(const jw_drawing *d, const jw_view *v,
     return 0;
 }
 
+/* 押した所がブロックの中の線・円なら 札 5231「ブロック図形です」を出して 1 */
+static int au_block_notice(const jw_drawing *d, const jw_view *v, double x, double y)
+{
+    int i;
+
+    for (i = 0; i < d->ndrawn; i++) {
+        const jw_obj *r = &d->obj[i];
+
+        if (r->cls == JW_BLOCK && jw_pick_editable(d, r)
+            && au_block_hit(d, v, &r, 1, r, x, y)) {
+            JW_NOTICE(5231);            /* FUN_0044a270 の札「ブロック図形です」 */
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* 左の拾いが 断る（ブロック・保護）なら 1 */
 static int au_reject(const jw_drawing *d, const jw_view *v, double x, double y)
 {
@@ -26096,16 +26169,7 @@ static int au_reject(const jw_drawing *d, const jw_view *v, double x, double y)
         }
         return 1;
     }
-    for (i = 0; i < d->ndrawn; i++) {
-        const jw_obj *r = &d->obj[i];
-
-        if (r->cls == JW_BLOCK && jw_pick_editable(d, r)
-            && au_block_hit(d, v, &r, 1, r, x, y)) {
-            JW_NOTICE(5231);            /* FUN_0044a270 の札「ブロック図形です」 */
-            return 1;
-        }
-    }
-    return 0;
+    return au_block_notice(d, v, x, y);
 }
 
 /* 押した画素（app.c の to_paper の逆。原典が比べるのは マウスの整数の画素） */
@@ -29044,8 +29108,14 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         dy = ry - kyo_y;
         len = sqrt(dx * dx + dy * dy);
         mm = box_mm(d, 1412);
-        if (len <= 0.0 || mm <= 0.0)
+        if (len <= 0.0)
             return;
+        /* 読み直して確認（FUN_006b9940）: 距離は 絶対値が 1e-7 以上なら（負でも）置く
+           （符号つきの距離で 始点から向きへ）、未満なら 札 5205 */
+        if (fabs(mm) < 1e-7) {
+            JW_NOTICE(5205);
+            return;
+        }
         {
             jw_obj *o = jw_add(d, JW_TEN);
 

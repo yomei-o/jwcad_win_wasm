@@ -3003,7 +3003,12 @@ static double kh_num(int tab, int id, double dflt)
  * 0x25〜0x28 ←↑→↓）。受けたら 1。逆コンパイルの読み、原典では押していない。
  * ２．５D の立体の画面では 旗に関わらず 2.5D が受ける（view の PreTranslateMessage
  * 0x4e9a76.. が ← → ↑ ↓ PageUp PageDown を 0x1501..0x1504・0x1506・0x1507 にして
- * 図形の slot 37〜42 へ。src/d25view.c の jw_d25_key） */
+ * 図形の slot 37〜42 へ。src/d25view.c の jw_d25_key）。
+ * 読み直して確認（FUN_0060b110 の case 0x65〜0x68・0x6f・0x70）: 移動の向きと 軸角の回し、
+ * 幅（↑↓は高さ）× 移動率、ズームが 画面の中心のまま、は一致。移植に無い差: 倍率 +0x1728 を
+ * PageUp で 1000 超なら 1000、PageDown で 0.01 以下なら 0.01 に止める（移植の倍率との
+ * 対応が未確認）／Shift（DAT_00a0cc6c ≠ 0）が立っていれば 移動量と (率 - 1) が 0.2 倍
+ * （Shift を立てる所が読めていない。nokori 2-2）。 */
 int app_arrow_key(int vk)
 {
     double w, h, c = 1.0, s = 0.0, mx = 0.0, my = 0.0;

@@ -1099,8 +1099,11 @@ static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, d
         break;
     }
     if (kind == 10) {
-        /* 球: 高さ v0、回し v1（度、生の値）、刻み v2（n<2 は 5） */
-        arc_sphere(o, base, n == 0 && lh ? lh_h : v[0] * k_unit, v[1], n < 2 ? 5.0 : v[2]);
+        /* 球: 高さ v0、回し v1（度、生の値）、刻み v2。読み直して確認（FUN_00620ef0 の
+           呼び側 0x61e5xx）: 刻みは 数が足りなくても 5 にはならず 0 のまま渡り、
+           FUN_00620ef0 の 1 未満 → 15 になる（ふつうの弧の「n < 2 は 5」は 球の呼びより
+           後ろの枝）。v[] は 0 で始めてあるので 数が 3 未満なら v[2] = 0 */
+        arc_sphere(o, base, v[0] * k_unit, v[1], v[2]);
         return;
     }
     arc_fl = kind == 0 ? 0u : kind == 2 ? 0xfu : 3u;
