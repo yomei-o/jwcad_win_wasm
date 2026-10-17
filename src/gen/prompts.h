@@ -3,6 +3,8 @@
 #define JW_PROMPTS_H
 
 /* CP932, which is how src/text.c indexes the font. */
+/* 5206: please wait (copy, cut) */
+#define JW_STR_5206 "\x81@\x82\xa8\x91\xd2\x82\xbf\x82\xad\x82\xbe\x82\xb3\x82\xa2\x81@"
 /* 5320: the first point of a line */
 #define JW_STR_5320 "\x8en\x93_\x82\xf0\x8ew\x8e\xa6\x82\xb5\x82\xc4\x82\xad\x82\xbe\x82\xb3\x82\xa2  (L)free  (R)Read"
 /* 5321: the second point of a line */
