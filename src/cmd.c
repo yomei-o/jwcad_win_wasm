@@ -26567,7 +26567,7 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
 
     for (i = 0; i < d->ndrawn && n < max; i++) {
         const jw_obj *l = &d->obj[i];
-        double h[2];
+        double h[2], hb[2] = { 0.0, 0.0 };
         int found[2] = { 0, 0 };
 
         if (l->cls != JW_SEN || l->color == 9 || l->ltype == 9)
@@ -26575,7 +26575,7 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
         for (k = 0; k < d->ndrawn; k++) {
             const jw_obj *t = &d->obj[k];
             double h1, h2;
-            int e2;
+            int e2, cnt;
 
             if (t->cls != JW_MOJI || !(t->flags & 0x80) || t->text < 0 ||
                 t->layer != l->layer || t->lgroup != l->lgroup)
@@ -26583,9 +26583,18 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
             for (e2 = 0; e2 < 2; e2++)
                 if (!found[e2] && fabs(t->d[0] - l->d[e2 * 2]) < 0.01 &&
                     fabs(t->d[1] - l->d[e2 * 2 + 1]) < 0.01 &&
-                    hk_parse_height_text(jw_str(d, t->text), &h1, &h2) > 0) {
+                    (cnt = hk_parse_height_text(jw_str(d, t->text), &h1, &h2)) > 0) {
                     h[e2] = h1;
                     found[e2] = 1;
+                    /* 「上,下」の 下（+0xbde0）。FUN_00542310 0x542a30〜: 字が 2 値のとき
+                       (下 + 基準 - 面) * 1000 / 縮尺、正のときだけ（そうでなければ 0 = 地面）。
+                       上が 0 以下の点は 下 = 上（下の輪を作らない）で 平らになるが、
+                       針金の枠では その形を書けないので 地面のまま（逆コンパイルの読み、原典では押していない） */
+                    if (cnt == 2 && h1 > 0.0) {
+                        double zl = (h2 - plane_m) * 1000.0 / scale;
+
+                        hb[e2] = zl > 0.0 ? zl : 0.0;
+                    }
                 }
         }
         if (!found[0] || !found[1])
@@ -26596,6 +26605,8 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
         e[n].b.y = l->d[3];
         e[n].za_mm = hk_vertex_z_mm(h[0], 0.0, plane_m, scale);
         e[n].zb_mm = hk_vertex_z_mm(h[1], 0.0, plane_m, scale);
+        e[n].ba_mm = hb[0];
+        e[n].bb_mm = hb[1];
         n++;
     }
     return n;
