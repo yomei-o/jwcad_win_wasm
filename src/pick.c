@@ -287,8 +287,23 @@ static int dist_moji(box_t *b, const jw_drawing *d, const jw_obj *o,
         if (!jw_pick_pic_text)
             return 0;
     }
-    if (ch <= 0.0)
-        return 0;
+    /* decomp/byclass/CDataMoji.c の FUN_0048a1e0 本体（255-587行）には
+       「高さが 0 以下なら拾わない」という枝が無い。この関数全体で
+       `<= 0.0` の比較は 441行目の一つだけで、それは
+           if (*(double *)(local_661c + 0xc0) <= 0.0)
+               local_66c8 = -*(double *)(local_661c + 0xc0);  // 441-446行
+           else
+               local_66c8 = *(double *)(local_661c + 0xc0);
+       という「ch の絶対値を求める」処理であり、早期 return には使って
+       いない（続く 447-467行の粗い当たり矩形の余白として fabs(ch) を
+       使うだけで、ch が 0 以下でも先の 480行以降の詳しい判定まで進む）。
+       以前はここに `if (ch <= 0.0) return 0;` があり、反転したブロック
+       （高さが負になる）の中の字を一切拾えなくしていた。箱の四隅を作る
+       下の for ループは ch の符号をそのまま使っても正しく反対側に箱を
+       作れる（draw.c:3374-3397 の文字背景の塗りも同じ ch を符号付きの
+       まま使っている）ので、この早期 return を削るだけで良い。
+       ch がちょうど 0 のときも、下のループが幅 0 の箱（= 1 本の線）を
+       作り、dist_sen がそれをそのまま線として判定するので問題ない。 */
     if (len < 1e-9) {
         /* the same fall-back the drawing uses: with both ends in one place
            the run is as wide as its characters make it */

@@ -193,6 +193,30 @@ int main(int argc, char **argv)
         ck(jw_pick(two, v, 7000.0, 7000.0, 1) == n0 + 1, "モード 1: 近い線が勝つ");
     }
 
+    /* 負の高さの字（反転したブロックの中の字）も拾えること。
+       src/pick.c の dist_moji はかつて `if (ch <= 0.0) return 0;` を
+       持っていたが、decomp/byclass/CDataMoji.c の FUN_0048a1e0
+       （255-587行）には高さが 0 以下なら拾わないという枝が無いため
+       この早期 return を削った（詳しくは src/pick.c の該当コメント）。
+       ここでは ch を負にして字を作り、ベースラインから見て ch の側
+       （本来なら字が無いはずの反対側）にある、字の箱の奥の辺のど真ん中
+       を拾えることを確かめる。直す前は ch<=0 で即 return 0 だった
+       ので、どこを押しても拾えなかった。 */
+    {
+        jw_drawing *two = (jw_drawing *)d;
+        jw_obj *o;
+        int n0 = two->ndrawn;
+        double x0 = 8000, y0 = 8000, len = 100, ch = -20;
+
+        o = jw_add(two, JW_MOJI);
+        o->d[0] = x0; o->d[1] = y0;
+        o->d[2] = x0 + len; o->d[3] = y0;
+        o->d[4] = 10;   /* cw */
+        o->d[5] = ch;   /* ch: negative -- the box sits below the baseline */
+        ck(jw_pick(two, v, x0 + len / 2, y0 + ch, 0) == n0,
+           "負の高さの字: 反転したブロックで ch 側に出る箱の奥の辺を拾える");
+    }
+
     printf("%s\n", fails ? "FAILED": "all ok");
     return fails ? 1 : 0;
 }
