@@ -16,6 +16,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/jww.h"
+#include "../src/outfont.h"
 
 static int fails;
 
@@ -88,6 +89,45 @@ int main(void)
     ck(fabs(jw_cmd_moji_run("ABCDEFG^3", 3.0, 0.5) - 6.75) < 1e-9, "「ABCDEFG^3」は 4 字");
     ck(fabs(jw_cmd_moji_run("ABCD^3", 3.0, 0.5) - 6.75) < 1e-9,
        "「ABCD^3」は 4 字（長さが足りなければ 数字は引かない）");
+
+    /* 間隔 0.01: FUN_00493410（書体の幅を GDI で測る枝、decomp/decomp/
+     * all_004894cd.c:5299-5368・5374-5387、src/cmd.c jw_cmd_moji_run の
+     * 注・src/outfont.c jw_outfont_text_width の注）。GDI は呼ばず、
+     * fonts/jwsubgothic.ttf・jwsubmincho.ttf の実際の字形（stb_truetype の
+     * advance）を使うので、ブラウザ版でも同じ数になる。期待値は
+     * jw_outfont_text_width をそのまま使う probe（/tmp/probe_w.c 相当）で
+     * 読んだ、fonts/ のファイルからの実測。 */
+    {
+        double out, got;
+
+        ck(jw_outfont_text_width(0, "ABCDE", 3.0, &out)
+           && fabs(out - 10.1206054688) < 1e-6,
+           "字形の幅（既定 = IPAexGothic）: 「ABCDE」3mm 幅は 10.1206055mm");
+        got = jw_cmd_moji_run_face("ABCDE", 3.0, 0.01, 0, 0);
+        ck(fabs(got - out) < 1e-9,
+           "間隔 0.01（横字・既定書体）は jw_outfont_text_width と同じ値");
+        ck(jw_outfont_text_width("IPAexMincho", "ABCDE", 3.0, &out)
+           && fabs(out - 10.9482421875) < 1e-6,
+           "  IPAexMincho を指せばその字形で測る");
+        got = jw_cmd_moji_run_face("ABCDE", 3.0, 0.01, "IPAexMincho", 0);
+        ck(fabs(got - out) < 1e-9, "  jw_cmd_moji_run_face も同じ");
+
+        /* 固定幅の式（間隔 0.01 でも、縦字なら FUN_00493410 を呼ばない:
+           decomp/decomp/all_004894cd.c:5383-5387, +0x44 & 0x20 != 0 の枝は
+           0.01 の比較より前で return する） */
+        got = jw_cmd_moji_run_face("ABCDE", 3.0, 0.01, 0, 1);
+        ck(fabs(got - 7.52) < 1e-9,
+           "  だが縦字なら固定幅の式のまま（(3.01)*2.5 - 0.005 = 7.52）、"
+           "字形の幅 10.12... とは違う値");
+        ck(fabs(got - out) > 0.1,
+           "  （実際に違う値であることを確かめる）");
+
+        /* jw_cmd_moji_run（3 引数、既存の呼び手向け）は 書体 NULL・横字のまま
+           同じ枝を通る */
+        got = jw_cmd_moji_run("ABCDE", 3.0, 0.01);
+        ck(jw_outfont_text_width(0, "ABCDE", 3.0, &out) && fabs(got - out) < 1e-9,
+           "jw_cmd_moji_run も 間隔 0.01 で同じ枝を通る（書体は既定）");
+    }
     printf("%s\n", fails ? "FAILED" : "all ok");
     return fails != 0;
 }

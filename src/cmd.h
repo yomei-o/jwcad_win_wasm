@@ -603,6 +603,10 @@ void jw_cmd_moji_point_first(int on);
 /* 字の長さ（FUN_004935b0(1)）: 幅 cw・間隔 sp の字 t が 始点から終点まで走る長さ。末尾の
    「^m」・特殊文字（^u ^d ^o ^数字 ほか）は引く。原典で測った（src/cmd.c の注） */
 double jw_cmd_moji_run(const char *t, double cw, double sp);
+/* 同じ式だが、間隔が 0.01 ちょうどで 縦字でないときは 書体 face（NULL は既定）の
+   実際の字形の幅で測る（FUN_00493410、src/cmd.c・src/outfont.c の注） */
+double jw_cmd_moji_run_face(const char *t, double cw, double sp,
+                            const char *face, int vertical);
 /* 基本設定 2094「複線のとき、数値入力後の[Enter]キーで連続複線にする」: 立って
    いれば 複線 で元を拾い間隔を打ったあとの Enter が、マウスの側へその間隔で写し、
    写しを次の元にする（Enter を押すたびに一本）。写したら 1 */

@@ -16,6 +16,7 @@
 #include "pick.h"
 #include "ui.h"                 /* ui_bar_ctl: what is on each command's bar */
 #include "text.h"
+#include "outfont.h"            /* jw_outfont_text_width: 字の長さ、間隔 0.01 */
 #include "plot.h"               /* 印刷の命令 (JW_PRINT_CMD) */
 #include "d25view.h"            /* ２．５D の 透視図・鳥瞰図・アイソメ */
 #include "gen/prompts.h"
@@ -3414,8 +3415,31 @@ static int moji_rule(jw_drawing *d, const jw_obj *t)
  * FUN_00493b00(1): 長さ 5 以上で、末尾の「^m」を除いたあとが「^数字」（1〜9）で終わり、
  *   かつ 除いたあとの長さ - 4 >= 数字 なら その数字（それ以外 0）。
  * 逆コンパイルの読み（FUN_00493e00・FUN_00494390・FUN_00493b00）と 上の実測の一致。
- * 間隔 0.01（FUN_00493410: 書体の幅を GDI で測る）の枝は 入れていない（nokori）。
- * 特殊文字の 描画（上付き・下付きなど）は 移植に無い。幅だけ原典のとおり。 */
+ * 特殊文字の 描画（上付き・下付きなど）は 移植に無い。幅だけ原典のとおり。
+ *
+ * 間隔 0.01 の枝（FUN_00493410: 書体の幅を GDI で測る）は jw_cmd_moji_run に
+ * 入れた。decomp/decomp/all_004894cd.c:5374-5414 FUN_004935b0 の冒頭:
+ *   local_28 = +0xb8（幅）; local_20 = +200（間隔）;
+ *   if ((+0x44 & 0x20) == 0) {                     // 縦字でない
+ *       if (+200 == 0.01) { CStringT<>(); return FUN_00493410(); }
+ *   } else local_28 = +0xc0（高さ）;                 // 縦字ならここで分岐判定をしない
+ * という並びなので、縦字（flags の 0x20、moji() の 1325 と同じ）のときは
+ * 間隔がいくつでも この枝に入らない（FUN_00493410 を一切呼ばない）。
+ * FUN_00493410（decomp/decomp/all_004894cd.c:5299-5368）の読みは
+ * src/outfont.c jw_outfont_text_width の注に書いた：GDI を呼ばず、この port が
+ * 既に持つ stb_truetype の字形データで同じ量を計算する。
+ * 未確定: FUN_00493410 が測る文字列・書込みの書体を取るとおぼしき FUN_00404920()
+ * は、decomp 全体で引数 0〜複数個のまちまちな形で現れる共通のアクセサ（CString の
+ * operator LPCWSTR 相当）で、呼び出し側ごとに違うレシーバを読んでいるとみられ、
+ * Ghidra の出力だけからは「measure する文字列」と「書込みの書体」のどちらを
+ * 指しているか直接は確定できない。ここでは、関数先頭の
+ * `FUN_00447350(&DAT_00956338,&stack0x00000004,...)` →
+ * 真なら `FUN_00404860(local_7c+0xb0)`（+0xb0 は 字の文字列、cmd.c 12741 や
+ * 12756 の注と同じ並び）という既定値への落とし込みに見える形から、測る文字列は
+ * 「この字（呼び手のオブジェクト）自身の文字列」、書込みの書体は 他所と同じ
+ * 「書込みの書体」（DAT_00a0ba84、この port の moji_face／jw_cmd_moji_face()）と
+ * 読んだ。GDI を直接呼ぶとブラウザ版で結果が変わるため、意図して呼ばない
+ * （jw_outfont_text_width が stb_truetype の字形データで同じ式を計算する）。 */
 static int mp_lead_at(const char *s, int len, int pos);
 
 static int mj_code(const char *s, int idx, int len, int *flag)
@@ -3571,12 +3595,25 @@ static int mj_sub(const char *s)
     return r;
 }
 
-double jw_cmd_moji_run(const char *t, double cw, double sp)
+/* `face`: 書込みの書体（jw_cmd_moji_face() と同じ並びの文字列、NULL は
+ * 既定）。`vertical`: 縦字（flags の 0x20）。間隔 0.01 の枝は この二つを
+ * 使うが、他の枝（既存の固定幅の式）は使わない -- 上の注、
+ * decomp/decomp/all_004894cd.c:5374-5414 の読みのとおり。 */
+double jw_cmd_moji_run_face(const char *t, double cw, double sp,
+                            const char *face, int vertical)
 {
     int c, last_wide = 0, i, len;
 
     if (!t)
         return 0.0;
+    if (!vertical && sp == 0.01) {
+        double out;
+
+        if (jw_outfont_text_width(face, t, cw, &out))
+            return out;
+        /* フォント未読込み: 従来の固定幅の式へ落とす（この fallback の要否
+           自体は原典に無い。port 側の都合、上の outfont.h の注） */
+    }
     c = mj_count(t) - mj_sub(t);
     len = (int)strlen(t);
     for (i = 0; i < len; i++) {
@@ -3586,6 +3623,11 @@ double jw_cmd_moji_run(const char *t, double cw, double sp)
     }
     return c < 1 ? 0.0 : c == 1 ? cw / 2.0
          : (cw + sp) * 0.5 * c - (last_wide ? sp : sp * 0.5);
+}
+
+double jw_cmd_moji_run(const char *t, double cw, double sp)
+{
+    return jw_cmd_moji_run_face(t, cw, sp, 0, 0);
 }
 
 static int moji(jw_drawing *d, jw_obj *o, double x, double y)
@@ -3604,7 +3646,9 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     line_buf[line_n] = 0;
     (void)p;
     (void)nch;
-    len = jw_cmd_moji_run(line_buf, cw, sp);        /* 特殊文字・末尾の ^m を引く（上の注） */
+    /* 特殊文字・末尾の ^m を引く、間隔 0.01 なら書体の字形で測る（上の注） */
+    len = jw_cmd_moji_run_face(line_buf, cw, sp, JW_MOJI_FACE,
+                               jw_cmd_bar_check(1325) > 0);
     {   /* 基点: pull the click back to where the text starts */
         const char *as = jw_cmd_box(1411);
         double a = as && *as ? box_num(as, 0.0) * PI / 180.0
@@ -12757,7 +12801,9 @@ static int hatch_cut(double o, double ax, double ay, double bx, double by,
  * 古い幅・高さ（+0x1f8・+0x200）から 新しい幅・高さ（+0xb8・+0xc0）を引く符号、
  * 横・縦の基点、終点 = 始点 + L、最後の字が半角なら 間隔の半分を引く、は一致。
  * 長さの ^m・特殊文字の引き算は 原典で測って入れた（jw_cmd_moji_run の注）。
- * 未入れ: 間隔 0.01 の FUN_00493410 の枝（書体の幅を GDI で測る。nokori）。 */
+ * 間隔 0.01 の FUN_00493410 の枝（書体の幅を GDI で測る）も jw_cmd_moji_run_face
+ * へ 入れた（書体は書込みの書体 JW_MOJI_FACE、縦字は o->flags の 0x20。
+ * src/cmd.c jw_cmd_moji_run の注・src/outfont.c の注）。 */
 static void zoku_moji(jw_drawing *d, jw_obj *o)
 {
     double ow = o->d[4], oh = o->d[5];
@@ -12787,7 +12833,9 @@ static void zoku_moji(jw_drawing *d, jw_obj *o)
         o->flags = (unsigned short)(o->flags | 0x20u);
     (void)nb;
     (void)wide;
-    run = jw_cmd_moji_run(t, (o->flags & 0x20) ? h : w, sp);      /* ^m・特殊文字は引く */
+    /* ^m・特殊文字は引く、間隔 0.01 なら書体の字形で測る */
+    run = jw_cmd_moji_run_face(t, (o->flags & 0x20) ? h : w, sp, JW_MOJI_FACE,
+                               (o->flags & 0x20) != 0);
     {
         double along = (olen - run) * hb / 2.0;
         double across = ((o->flags & 0x20) ? ow - w : oh - h) * vb / 2.0;
@@ -15229,13 +15277,15 @@ static int mp_enter(jw_drawing *d)
     return 1;
 }
 
-/* FUN_004935b0(1) の長さ（zoku_moji と同じ式。特殊文字と 0.01 の枝は無し） */
+/* FUN_004935b0(1) の長さ（zoku_moji と同じ式。間隔 0.01 の枝は jw_cmd_moji_run
+   の注のとおり jw_cmd_moji_run_face に入れた） */
 static double mp_run(const jw_drawing *d, const jw_obj *o)
 {
     const char *t = o->text >= 0 ? jw_str(d, o->text) : "";
     double cw = (o->flags & 0x20) ? o->d[5] : o->d[4], sp = o->d[6];
 
-    return jw_cmd_moji_run(t, cw, sp);
+    return jw_cmd_moji_run_face(t, cw, sp, JW_MOJI_FACE,
+                                (o->flags & 0x20) != 0);
 }
 
 /* 一つを置く: FUN_00477000 の 0x477e96〜0x47814e */
@@ -17223,7 +17273,10 @@ static void blk_moji_len(const jw_drawing *d, jw_obj *o)
 {
     const char *t = o->text >= 0 ? jw_str(d, o->text) : 0;
     double w = (o->flags & 0x20) ? o->d[5] : o->d[4];
-    double L = fabs(jw_cmd_moji_run(t, w, o->d[6]));
+    /* 間隔 0.01 の枝は jw_cmd_moji_run の注のとおり jw_cmd_moji_run_face に
+       入れた（この試験の 間隔 0.3 では分岐しない） */
+    double L = fabs(jw_cmd_moji_run_face(t, w, o->d[6], JW_MOJI_FACE,
+                                         (o->flags & 0x20) != 0));
     double ex = o->d[2] - o->d[0], ey = o->d[3] - o->d[1], l0 = hypot(ex, ey), ux, uy;
 
     if (!t)

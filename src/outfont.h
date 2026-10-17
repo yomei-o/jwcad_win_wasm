@@ -87,4 +87,11 @@ int jw_outfont_enabled(void);
 /* the outline font a stored face is drawn with, or -1 for the bitmap one */
 int jw_outfont_resolve(const char *face, int *prop);
 
+/* 字の長さ、間隔 0.01 のときの FUN_00493410 の枝 (src/outfont.c の読みの
+   コメント参照; 逆コンパイルの読み、原典では押していない).  `cw` を幅
+   (mm) として、`s` を `face` の字形の実際の advance で測った長さを
+   *out に書いて 1 を返す; フォントが未読込みなら 0 (呼び手は従来の
+   固定幅の式へ戻ること)。GDI は呼ばない。 */
+int jw_outfont_text_width(const char *face, const char *s, double cw, double *out);
+
 #endif
