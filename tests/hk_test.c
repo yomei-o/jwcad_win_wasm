@@ -873,6 +873,27 @@ int main(int argc, char **argv)
             e[k].b.x += -70.0;
         }
         ok = ok && hk_wall_clip(&w, e, 4, o, 16) == -5534;
+        {   /* 切った端の高さ（逆コンパイルの読み、原典では押していない: FUN_005415e0 の +0x7e98 の補間。
+               長い成分の比で線形、負は 0、1.0 未満の短い辺は 置き換える端の高さのまま） */
+            hk_edge s[1], t[4];
+            int fl0 = w.flag;
+            int mm;
+
+            w.flag = 2;                     /* 0x159e の検査（文書 +0x83d8 < 2）を外す */
+
+            s[0].a.x = 50; s[0].a.y = -30; s[0].b.x = 50; s[0].b.y = 30;
+            s[0].za_mm = 10.0; s[0].zb_mm = 20.0;
+            mm = hk_wall_clip(&w, s, 1, t, 4);
+            ok = ok && mm == 1 && fabs(t[0].b.y) < 1e-9 && fabs(t[0].zb_mm - 15.0) < 1e-9 && t[0].za_mm == 10.0;
+            s[0].zb_mm = -30.0;
+            mm = hk_wall_clip(&w, s, 1, t, 4);
+            ok = ok && mm == 1 && t[0].zb_mm == 0.0;
+            s[0].a.x = 50; s[0].a.y = -0.3; s[0].b.x = 50; s[0].b.y = 0.005;   /* 短い辺 */
+            s[0].za_mm = 10.0; s[0].zb_mm = 20.0;
+            mm = hk_wall_clip(&w, s, 1, t, 4);
+            ok = ok && mm == 1 && t[0].zb_mm == 20.0;
+            w.flag = fl0;
+        }
         if (!ok)
             puts("     hk_wall_clip");
         ok = ok && hk_wall_lit(&w, 0.0, 1.0) && !hk_wall_lit(&w, 0.0, -1.0);
