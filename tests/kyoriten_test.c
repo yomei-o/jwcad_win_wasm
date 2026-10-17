@@ -193,8 +193,42 @@ int main(void)
         ck(o->n == 1, "  こちらは種別 1");
     }
 
-    /* 連続 (1066): 読み直して確認（FUN_006baad0）— 回数を足してから < 1000 なので 置けるのは
-       999 個目まで。1000 個目は 札 5205 で 回数 0 */
+    /* 負の距離（-1000）: 原典で測った（decomp/res/kyoriten_neg.jww）。断らず、始点の
+       反対側（向きの逆）へ 紙で 10 mm の所に置く */
+    {
+        double ox, oy, ex, ey, ox1, oy1;
+        int nn;
+
+        ck(theirs("decomp/res/kyoriten_neg.jww", &ox, &oy, &ex, &ey, &ox1, &oy1, &kind),
+           "原典の答え kyoriten_neg を読む");
+        dx = ex - ox;
+        dy = ey - oy;
+        len = sqrt(dx * dx + dy * dy);
+        cknear(((ox1 - ox) * dx + (oy1 - oy) * dy) / len, -10.0, 1e-5,
+               "原典: 負の距離は 向きの逆へ 紙で 10 mm");
+        app_command(JW_CMD_SEN);
+        app_command(32930);
+        type_box(1412, "-1000");
+        nn = app_drawing()->ndrawn;
+        click(-150.0, 25.0, 1);
+        click(90.0, -95.0, 1);
+        ck(app_drawing()->ndrawn == nn + 1, "-1000: 点が置かれる（断らない）");
+        {
+            const jw_drawing *d = app_drawing();
+            const jw_obj *o = &d->obj[d->ndrawn - 1];
+            const jw_obj *l = &d->obj[0];
+
+            dx = l->d[2] - l->d[0];
+            dy = l->d[3] - l->d[1];
+            len = sqrt(dx * dx + dy * dy);
+            cknear(((o->d[0] - l->d[0]) * dx + (o->d[1] - l->d[1]) * dy) / len, -10.0, 1e-5,
+                   "  始点から向きの逆へ 紙で 10 mm");
+        }
+    }
+
+    /* 連続 (1066): 原典で測った — 置けるのは 999 個目まで（1100 回押して 点 999）。999 個目の
+       あとの 連続 は 回数 0 で 釦が無効（バーの 1066 の enabled が 1 → 0）。札 5205 は
+       読み（FUN_006baad0）で 見えていない */
     {
         int i, n0, ok = 1;
 
@@ -213,7 +247,7 @@ int main(void)
         ck(ok && app_drawing()->ndrawn == n0 + 999, "連続: 999 個目まで置ける");
         jw_cmd_bar((jw_drawing *)app_drawing(), 1066);
         ck(app_drawing()->ndrawn == n0 + 999, "連続: 1000 個目は置かない");
-        ck(jw_cmd_notice_id() == 5205, "連続: 札 5205 計算できません");
+        ck(jw_cmd_notice_id() == 5205, "連続: 札 5205 計算できません（札は読み）");
         jw_cmd_bar((jw_drawing *)app_drawing(), 1066);
         ck(app_drawing()->ndrawn == n0 + 999, "連続: 回数 0 に戻ったので続けて押しても置かない");
     }

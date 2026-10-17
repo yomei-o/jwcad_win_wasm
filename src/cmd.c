@@ -1859,6 +1859,19 @@ static double box_mm(const jw_drawing *d, int id)
     return box_len_ok(v) ? v : 0.0;
 }
 
+/* 距離指定点の距離: 符号つきのまま（原典で測った: -1000 は 始点の反対側へ置く。0 は 5205）。
+   box_mm は 0 以下を空の箱にするので 使わない */
+static double box_mm_signed(const jw_drawing *d, int id)
+{
+    const char *t = jw_cmd_box(id);
+    double v;
+
+    if (!t || !*t || !d)
+        return 0.0;
+    v = atof(t) / write_scale(d);
+    return (v > -1e12 && v < 1e12) ? v : 0.0;
+}
+
 /* the second number of a "横,縦" box, or the first again when there is only
    one -- the original draws a square from 寸法 1000 as readily as from
    1000,1000 */
@@ -3312,6 +3325,194 @@ static int moji_rule(jw_drawing *d, const jw_obj *t)
     return made;
 }
 
+/* 字の長さ FUN_004935b0(1)。原典で測った（tools/mprobe.sh、decomp/res/moji_hat_a.jww・
+ * moji_hat_b.jww。文字種 3,4,0.5 で置いた字と、6,6,1 に 属性変更 した字の長さ）:
+ *   「ABCDE^m」は「ABCDE」と同じ長さ（末尾の ^m は数えない）、「ABCD^3」は 4 字、
+ *   「ABCDEFG^3」も 4 字、「ABCDE^3^m」は 2 字、「AB^3^3」は 4 字。
+ * FUN_004935b0 は 半角の数 c = FUN_00494390(1, S) - FUN_00493b00(1) で
+ *   c < 1 なら 0、c == 1 なら 幅/2、でなければ (幅 + 間隔)/2 * c から 最後の字が
+ *   全角なら 間隔、半角なら 間隔/2 を引く。
+ * FUN_00494390(1, S): 末尾の「^m」（その前の字が全角の一つ目でない）を引いた長さ（CP932 の
+ *   バイト数）から、頭から歩いて 全角の二つ目でない所ごとに FUN_00493e00 の 特殊文字の
+ *   符号を見て 引く（符号 != 0 なら 2、-61..-69 なら さらに 1、符号 % 10 > 3 なら 1、
+ *   > 10 なら 1、== 9 なら 1）。
+ * FUN_00493b00(1): 長さ 5 以上で、末尾の「^m」を除いたあとが「^数字」（1〜9）で終わり、
+ *   かつ 除いたあとの長さ - 4 >= 数字 なら その数字（それ以外 0）。
+ * 逆コンパイルの読み（FUN_00493e00・FUN_00494390・FUN_00493b00）と 上の実測の一致。
+ * 間隔 0.01（FUN_00493410: 書体の幅を GDI で測る）の枝は 入れていない（nokori）。
+ * 特殊文字の 描画（上付き・下付きなど）は 移植に無い。幅だけ原典のとおり。 */
+static int mp_lead_at(const char *s, int len, int pos);
+
+static int mj_code(const char *s, int idx, int len, int *flag)
+{
+    int code = 0, c, c2, c3;
+
+    if (idx > 0 && mp_lead_at(s, len, idx - 1))
+        return 0;
+    if (!(idx + 1 < len && idx > -1))
+        return 0;
+    c = (unsigned char)s[idx];
+    if (c != '^')
+        return 0;
+    if (mp_lead_at(s, len, idx))
+        return 0;
+    c2 = (unsigned char)s[idx + 1];
+    if (c2 == 0 || mp_lead_at(s, len, idx + 1))
+        return 0;
+    if (*flag == 0) {
+        if (c2 == 'u')
+            code = 1;
+        if (c2 == 'd')
+            code = 2;
+        if (c2 == 'c')
+            code = 3;
+        if (c2 == '!')
+            return -10;
+        if (c2 == '/')
+            return -20;
+        if (c2 == '_')
+            return -30;
+        if (c2 == '-')
+            return -40;
+        if (c2 == '#')
+            return -50;
+        if (c2 == '%')
+            return -55;
+        if (c2 == '$') {
+            if (len <= idx + 2 || idx < 0)
+                return 0;
+            c3 = (unsigned char)s[idx + 2];
+            if (c3 == 0)
+                return 0;
+            if (c3 > 0x30 && c3 < 0x3a)
+                return -(c3 + 12);
+        }
+        if (c2 == 0x5c)
+            return -70;
+        if (c2 == '&')
+            return -75;
+        if (c2 == '*') {
+            *flag = 1;
+            return -100;
+        }
+    } else if (c2 == '^') {
+        *flag = 0;
+        return -200;
+    }
+    if (code == 0 && idx < 1)
+        return 0;
+    if (c2 == 'm')
+        code = -1;
+    if (c2 > 0x30 && c2 < 0x3a)
+        code = -2;
+    if (code == -1 || code == -2) {
+        if (idx + 2 < len || idx < 1)
+            code = 0;
+    } else if (*flag == 0) {
+        if (c2 == 'o')
+            code = 4;
+        if (c2 == 'b' && idx > 0)
+            code = 5;
+        if (c2 == 'B' && idx > 0)
+            code = 6;
+        if (c2 == 'O' && idx > 0)
+            code = 7;
+        if (c2 == 'n' && idx > 0)
+            code = 8;
+        if (c2 == 'w' && idx > 0) {
+            if (len <= idx + 2)
+                return 0;
+            if (mp_lead_at(s, len, idx + 2))
+                return 0;
+            if (idx + 3 == len)
+                return 4;
+            if (mp_lead_at(s, len, idx + 3))
+                return 4;
+            code = 9;
+        }
+        if (code != 0) {
+            if (idx + 2 < len) {
+                c3 = (unsigned char)s[idx + 2];
+                if (mp_lead_at(s, len, idx + 2))
+                    code += 10;
+                if (c3 == ' ' || c3 == '^')
+                    code = 0;
+            } else
+                code = 0;
+        }
+    } else
+        code = 0;
+    return code;
+}
+
+static int mj_count(const char *s)
+{
+    int len = (int)strlen(s), n, w, i, flag = 0, code;
+
+    if (len < 1)
+        return 0;
+    n = len;
+    if (len >= 3 && !mp_lead_at(s, len, len - 3) && s[len - 2] == '^' && s[len - 1] == 'm')
+        n = len - 2;
+    w = n;
+    for (i = 0; i < n; i++) {
+        if (mp_lead_at(s, len, i)) {
+            i++;
+            continue;
+        }
+        code = mj_code(s, i, n, &flag);
+        if (code != 0)
+            w -= 2;
+        if (code < -60 && code > -70)
+            w -= 1;
+        if (3 < code % 10)
+            w -= 1;
+        if (10 < code)
+            w -= 1;
+        if (code == 9)
+            w -= 1;
+    }
+    return w;
+}
+
+static int mj_sub(const char *s)
+{
+    int len = (int)strlen(s), n, r = 0, d;
+
+    if (len < 5)
+        return 0;
+    n = len;
+    if (s[len - 2] == '^' && s[len - 1] == 'm')
+        n = len - 2;
+    if (n < 3 || s[n - 2] != '^')
+        return 0;
+    if (mp_lead_at(s, len, n - 3) || mp_lead_at(s, len, n - 2))
+        return 0;
+    d = (unsigned char)s[n - 1];
+    if (d > 0x30 && d < 0x3a)
+        r = d - 0x30;
+    if (n - 4 < r)
+        r = 0;
+    return r;
+}
+
+double jw_cmd_moji_run(const char *t, double cw, double sp)
+{
+    int c, last_wide = 0, i, len;
+
+    if (!t)
+        return 0.0;
+    c = mj_count(t) - mj_sub(t);
+    len = (int)strlen(t);
+    for (i = 0; i < len; i++) {
+        last_wide = mp_lead_at(t, len, i);
+        if (last_wide)
+            i++;
+    }
+    return c < 1 ? 0.0 : c == 1 ? cw / 2.0
+         : (cw + sp) * 0.5 * c - (last_wide ? sp : sp * 0.5);
+}
+
 static int moji(jw_drawing *d, jw_obj *o, double x, double y)
 {
     const char *p = line_buf;
@@ -3326,14 +3527,9 @@ static int moji(jw_drawing *d, jw_obj *o, double x, double y)
     if (cw <= 0.0 || ch <= 0.0)
         return 0;
     line_buf[line_n] = 0;
-    while (*p) {
-        int wide = jw_is_lead((unsigned char)p[0]) && p[1];
-        if (nch)
-            len += wide ? sp : sp / 2;
-        len += wide ? cw : cw / 2;
-        p += wide ? 2 : 1;
-        nch++;
-    }
+    (void)p;
+    (void)nch;
+    len = jw_cmd_moji_run(line_buf, cw, sp);        /* 特殊文字・末尾の ^m を引く（上の注） */
     {   /* 基点: pull the click back to where the text starts */
         const char *as = jw_cmd_box(1411);
         double a = as && *as ? box_num(as, 0.0) * PI / 180.0
@@ -10676,15 +10872,16 @@ static int nisen_gap(const jw_drawing *d)
  *   留線常駐 (1324)  両端が 0.5 ずつ外へ伸び、蓋が両端に
  *
  * **伸びる量は間隔によりません。**間隔を ±0.5・-1/+3・0/+20 と three
- * 通り変えても、伸びはどれも 0.5 図寸mm でした。縮尺は 1/100 でしか
- * 試していないので、これが図寸 0.5mm なのか図面の 50 単位なのかは
- * 分かれていません（間隔の既定 50 と同じ数なのは、たまたまかも
- * しれません）。
+ * 通り変えても、伸びはどれも 0.5 図寸mm でした。縮尺 1/50 で測り直すと
+ * 1.0 図寸mm（下の注）なので、**図寸 0.5mm ではなく 図面の 50 単位**です。
  *
  * 書き出す順も原典のとおり —— 蓋・一本目・二本目、常駐ならそのあとに
  * もう一つの蓋。
  */
-#define NISEN_TOME 0.5          /* 図寸mm。留線出の箱が空のとき。上の注 */
+/* 原典で測った（2026-10-17、decomp/res/nisen_tome50.jww・nisen_tome100.jww）: 留線出の箱が
+ * 空のときの伸びは 図面の 50 単位 ÷ 縮尺。1/100 で 0.5、1/50 で 1.0 図寸mm
+ * （蓋の位置を 二つ目の点の射影から 線に沿って測った）。 */
+#define NISEN_TOME 50.0         /* 図面の単位。留線出の箱が空のとき。上の注 */
 
 /* 留線出 (1413) —— 蓋の付く端が外へ伸びる量。
  *
@@ -10697,14 +10894,14 @@ static int nisen_gap(const jw_drawing *d)
  * 読み直して確認: FUN_006295e0 の 留線の値が 1 以上なら箱の値を使うのは 移植と同じ
  * （留線ボタンが立っていれば値は 11 など）。ｍ単位入力の ×DAT_00a0d630 は jw_cmd_box の
  * 表 mu_len（NISEN 1413）が掛ける。箱が空のとき FUN_0058cc80 は コンボの 履歴 1 番目の
- * 項目（GetLBText(1)）を %lg で読み、無ければ 既定 1.0 を返す読みで、0.5 図寸mm
- * （実測）がそこから出るか未確認（nokori 2-2）。 */
+ * 項目（GetLBText(1)）を %lg で読み、無ければ 既定 1.0 を返す読みだが、原典で測ると
+ * 空のとき 50 ÷ 縮尺（上の注）。履歴を持たせたあとに空にしたときは 測っていない。 */
 static double nisen_tome_len(const jw_drawing *d)
 {
     const char *t = jw_cmd_box(1413);
 
     if (!t || !*t)
-        return NISEN_TOME;
+        return NISEN_TOME / write_scale(d);
     return box_num(t, 0.0) / write_scale(d);
 }
 
@@ -12265,8 +12462,8 @@ static int hatch_cut(double o, double ax, double ay, double bx, double by,
  * 読み直して確認（FUN_0067b890 の 0x67bcb0〜0x67bf27・FUN_0067adf0・FUN_004935b0）:
  * 古い幅・高さ（+0x1f8・+0x200）から 新しい幅・高さ（+0xb8・+0xc0）を引く符号、
  * 横・縦の基点、終点 = 始点 + L、最後の字が半角なら 間隔の半分を引く、は一致。
- * 未入れ: FUN_00493b00(1) が引く数（5 字以上で「^m」を末尾に持つ字）と 間隔 0.01 の
- * FUN_00493410 の枝（nokori 2-2）。 */
+ * 長さの ^m・特殊文字の引き算は 原典で測って入れた（jw_cmd_moji_run の注）。
+ * 未入れ: 間隔 0.01 の FUN_00493410 の枝（書体の幅を GDI で測る。nokori）。 */
 static void zoku_moji(jw_drawing *d, jw_obj *o)
 {
     double ow = o->d[4], oh = o->d[5];
@@ -12294,17 +12491,9 @@ static void zoku_moji(jw_drawing *d, jw_obj *o)
     o->flags = (unsigned short)(o->flags & ~0x20u);
     if (jw_cmd_bar_check(1325) > 0)
         o->flags = (unsigned short)(o->flags | 0x20u);
-    while (t && *t) {
-        wide = jw_is_lead((unsigned char)t[0]) && t[1];
-        nb += wide ? 2 : 1;
-        t += wide ? 2 : 1;
-    }
-    {
-        double cw = (o->flags & 0x20) ? h : w;
-
-        run = nb < 1 ? 0.0 : nb == 1 ? cw / 2.0
-            : (cw + sp) * 0.5 * nb - (wide ? sp : sp * 0.5);
-    }
+    (void)nb;
+    (void)wide;
+    run = jw_cmd_moji_run(t, (o->flags & 0x20) ? h : w, sp);      /* ^m・特殊文字は引く */
     {
         double along = (olen - run) * hb / 2.0;
         double across = ((o->flags & 0x20) ? ow - w : oh - h) * vb / 2.0;
@@ -12401,8 +12590,20 @@ static int au_block_notice(const jw_drawing *d, const jw_view *v, double x, doub
  * 読み直して確認（FUN_0076e360 と FUN_0044a270 の mode 2・skip 0。2026-10-17）:
  * 拾いの旗 +0x6324・+0x6328・+0x632c・+0x6338 を AM 5 は立てない（立てるのは
  * FUN_004497b0 ほかだけ）ので、拾いが 保護レイヤ（5290 の文）・ブロックの中（5231）・
- * 寸法図形（5253）・ソリッド（5277）・曲線属性（+0x04 > 0、5245）を断る。下の
- * 寸法の一続きの枝（FUN_0042f6f0・FUN_0042f680 の 8・9 番）は 原典では通らない。 */
+ * ソリッド（5277）・曲線属性（+0x04 > 0、5245）を断る。
+ *
+ * 原典で測った（tools/mprobe.sh。新規図面に 線・曲線・ソリッド・寸法図形を置き、
+ * 書込レイヤを 1 に替えて AM 5〔左を 5 時へ引いて離す〕。対照に ふつうの線を 後から
+ * 同じ引きで押し、そちらが変わることで 引きが時計になったと確かめた）:
+ *   曲線属性の線・ソリッド（内側も辺も）・保護レイヤの線（layer.state2）は 何も変わらない。
+ *   **寸法図形（CDataSunpou。寸法図形化 32928 で作る）は 断られず**、頭の欄
+ *   （list[2] のレイヤ・mark の線種線色グループ・turn の線幅）と 部品 1（寸法線）の
+ *   線種・線色が 書込みの値になる。**部品の +0x2e・+0x2f は 替わらない**（図形自身の
+ *   レイヤだけが替わる。decomp/res/am5dim_base.jww → am5dim.jww）。以前の「5253 で断る」は
+ *   読みの誤り（理由は不明。FUN_0044a270 の 0x1485 の枝が 通らない）。
+ *   札は 保護レイヤ・曲線・ソリッドの断りとも 画面では捉えられなかった（札の窓は
+ *   時計の引きのあと 出たり出なかったりした）ので、番号は読みのまま。
+ *   ふつうの寸法（寸法図形化していないもの）は 部品が ふつうの線・字・点で、押した一つだけが替わる。 */
 int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
                         int keep_layer)
 {
@@ -12420,19 +12621,15 @@ int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
     }
     /* 読み直して確認（FUN_0044a270(2, …, skip 0) の 返す前の断り。AM 5 は旗 +0x6324・
        +0x6328・+0x632c・+0x6338 を立てない — 立てるのは FUN_004497b0 ほか 3 か所だけ）:
-       保護されたレイヤ・グループ（FUN_0042dcb0）→ 5290 の文、寸法図形 → 5253、
-       ソリッド → 5277、曲線属性（+0x04 > 0）→ 5245。どれも何も変えず 0 を返す。
-       下の寸法の一続きの枝は 原典では通らない（読めた形を残してある） */
+       保護されたレイヤ・グループ（FUN_0042dcb0）→ 5290 の文、
+       ソリッド → 5277、曲線属性（+0x04 > 0）→ 5245。どれも何も変えず 0 を返す
+       （寸法図形は 原典で測ると断られない、上の注） */
     if (au_locked(d, &d->obj[i])) {
         static char t[96];
 
         snprintf(t, sizeof t, "%s [%X]-(%X)", JW_STR_5290,
                  d->obj[i].lgroup & 15u, d->obj[i].layer & 15u);
         jw_cmd_notice(5290, t);
-        return 0;
-    }
-    if (d->obj[i].sub) {
-        JW_NOTICE(5253);
         return 0;
     }
     if (d->obj[i].cls == JW_SOLID) {
@@ -12481,7 +12678,8 @@ int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
             run[0].width = (unsigned short)wd;
         run[0].ltype = (unsigned char)((run[0].ltype & 0x40u) | lt);
         run[0].color = (unsigned short)co;
-        for (k = 0; k < nm; k++) {
+        /* 寸法図形は 部品の +0x2e・+0x2f を替えない（頭の list[2]・mark だけ。原典で測った） */
+        for (k = 0; k < nm && !(run[0].sub == 1 && nm > 1); k++) {
             run[k].layer = (unsigned short)lay;
             run[k].lgroup = (unsigned short)grp;
         }
@@ -14721,15 +14919,8 @@ static double mp_run(const jw_drawing *d, const jw_obj *o)
 {
     const char *t = o->text >= 0 ? jw_str(d, o->text) : "";
     double cw = (o->flags & 0x20) ? o->d[5] : o->d[4], sp = o->d[6];
-    int nb = 0, wide = 0;
 
-    while (t && *t) {
-        wide = jw_is_lead((unsigned char)t[0]) && t[1];
-        nb += wide ? 2 : 1;
-        t += wide ? 2 : 1;
-    }
-    return nb < 1 ? 0.0 : nb == 1 ? cw / 2.0
-         : (cw + sp) * 0.5 * nb - (wide ? sp : sp * 0.5);
+    return jw_cmd_moji_run(t, cw, sp);
 }
 
 /* 一つを置く: FUN_00477000 の 0x477e96〜0x47814e */
@@ -14809,9 +15000,7 @@ static int mp_end_m(const char *s)
 /* FUN_00494390(1, S) の特殊文字の無いとき */
 static int mp_width(const char *s)
 {
-    int len = (int)strlen(s);
-
-    return mp_end_m(s) ? len - 2 : len;
+    return mj_count(s);         /* 特殊文字の引き算も（mj_count の注） */
 }
 
 /* FUN_0047da20 の特殊文字の無いとき。切る所（0 なら切れない） */
@@ -21200,7 +21389,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
 
         if (!d || kyo_n <= 0)
             return 0;
-        mm = box_mm(d, 1412);
+        mm = box_mm_signed(d, 1412);
         /* 読み直して確認（FUN_006baad0）: 回数を一つ足してから「< 1000」なら作図、
            でなければ（または FUN_006b9940 が |距離| < 1e-7 で 0 を返せば）札 0x1455
            = 5205「計算できません」で回数 0。置けるのは 999 個目まで */
@@ -25633,7 +25822,9 @@ static void zok_put_len(int id, double len)
  *   複線（CZukeiFukusen FUN_0065c360 → FUN_0065c2e0）: +0x2b0 == 0 のとき 長さ ÷ 縮尺 を
  *     FUN_004b2250（× 縮尺 のあと 1e-07 未満は 0、間隔 1411）へ。移植は +0x2b0（留線出の
  *     旗か。FUN_0065bb40 が 1 にする）を持たないので 箱があれば（para_step 1 以上）入れる。
- *     原典が同時に立てる +0x20c = 1（線を拾った状態）は入れていない
+ *     原典で測った: 箱 1411 は 命令の段（基準の線を選ぶ前も後も）によらず 長さが入り、
+ *     段は変わらない（状態行も そのまま、続けて間隔を打って空へ押しても何も描かれない）。
+ *     +0x20c = 1 は 見える違いが無かったので 入れていない
  *   押したのが線: 角度は FUN_007770c0（向き − 軸角を -90 より大きく 90 以下、0・90 は
  *   ぴったり）、長さは 両端の距離 × 書込みグループの縮尺
  *   押したのが円: 角度は 傾き − 軸角（そのまま）、長さは 半径 × 縮尺、扁平率は d[6]×100
@@ -25722,8 +25913,10 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
         return 1;
     }
     if (current == JW_CMD_ENKO) {
+        /* 原典で測った: 傾きが 0 のとき 箱は 空になる（水平の線・傾き 0 の円。0 以外は
+           "%.10g"）。decomp/res の答えは無い（tools/jwdraw.ps1 の pmr: で押して箱を読んだ） */
         snprintf(b, sizeof b, "%.10g", ang);
-        jw_cmd_box_put(1413, b);            /* FUN_006484e0 → FUN_004ac7f0 */
+        jw_cmd_box_put(1413, ang == 0.0 ? "" : b);  /* FUN_006484e0 → FUN_004ac7f0 */
         if (len >= 1e-07)
             zok_put_len(1411, len);         /* FUN_00648540 → FUN_004ac6e0 */
         if (flat > 5.0 && flat < 1000.0) {  /* FUN_004ac7a0 */
@@ -25733,7 +25926,7 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
         return 1;
     }
     snprintf(b, sizeof b, "%.10g", ang);
-    jw_cmd_box_put(1411, b);
+    jw_cmd_box_put(1411, ang == 0.0 ? "" : b);      /* 傾き 0 は 空（円と同じ。原典で測った） */
     if (len >= 1e-07)
         zok_put_len(1412, len);
     return 1;
@@ -29404,10 +29597,11 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         dx = rx - kyo_x;
         dy = ry - kyo_y;
         len = sqrt(dx * dx + dy * dy);
-        mm = box_mm(d, 1412);
+        mm = box_mm_signed(d, 1412);
         if (len <= 0.0)
             return;
-        /* 読み直して確認（FUN_006b9940）: 距離は 絶対値が 1e-7 以上なら（負でも）置く
+        /* 原典で測った: -1000 は 始点の反対側へ置く（decomp/res/kyoriten_neg.jww）。
+           読み直して確認（FUN_006b9940）: 距離は 絶対値が 1e-7 以上なら（負でも）置く
            （符号つきの距離で 始点から向きへ）、未満なら 札 5205 */
         if (fabs(mm) < 1e-7) {
             JW_NOTICE(5205);

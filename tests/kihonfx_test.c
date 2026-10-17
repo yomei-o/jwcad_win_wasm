@@ -194,6 +194,35 @@ int main(void)
         ck(fabs(v->mmpp - mm / 1.5) < 1e-12 * mm, "  PageUp は 1.5 倍（拡大率）");
         app_arrow_key(0x22);
         ck(fabs(v->mmpp - mm) < 1e-12 * mm, "  PageDown で戻る");
+        /* 倍率の止め。原典で測った（PageDown は 12 回目で 0.01 に止まる、PageUp は
+           18 回目で 1000 に止まる。1200 mm と 0.2 mm の線の画素の長さ） */
+        {
+            int k;
+
+            for (k = 0; k < 11; k++)
+                app_arrow_key(0x22);
+            ck(fabs(v->mmpp - mm * pow(1.5, 11)) < 1e-9 * mm * pow(1.5, 11),
+               "  PageDown 11 回は まだ止まらない（倍率 1.5^-11 = 0.0116）");
+            app_arrow_key(0x22);
+            ck(fabs(v->mmpp - mm * 100.0) < 1e-9 * mm,
+               "  12 回目は 倍率 0.01 で止まる（0.0077 まで行かない）");
+            app_arrow_key(0x22);
+            ck(fabs(v->mmpp - mm * 100.0) < 1e-9 * mm, "  それ以上は動かない");
+            app_arrow_key(0x21);
+            ck(fabs(v->mmpp - mm * 100.0 / 1.5) < 1e-9 * mm, "  PageUp は止めから 1.5 倍に戻る");
+            app_fit();
+            for (k = 0; k < 17; k++)
+                app_arrow_key(0x21);
+            ck(fabs(v->mmpp - mm / pow(1.5, 17)) < 1e-9 * mm / pow(1.5, 17),
+               "  PageUp 17 回は まだ止まらない（倍率 985）");
+            app_arrow_key(0x21);
+            ck(fabs(v->mmpp - mm / 1000.0) < 1e-12 * mm, "  18 回目は 倍率 1000 で止まる");
+            app_arrow_key(0x21);
+            ck(fabs(v->mmpp - mm / 1000.0) < 1e-12 * mm, "  それ以上は動かない");
+            app_fit();
+            ox = v->ox;
+            oy = v->oy;
+        }
         jw_cmd_set_axis(90.0);
         kh_press(1, 1325);
         kh_ok();

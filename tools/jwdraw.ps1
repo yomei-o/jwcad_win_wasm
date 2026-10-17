@@ -1168,6 +1168,78 @@ try {
                 break
             }
 
+            # 基本設定 (32891) の tab を開いて 箱を押し、OK を押す。
+            #   kihon:77,2362,1325   二つ目の tab (一般(2)) で 2362 と 1325 を押す
+            # tab は 12320 の tab control を (<x>,10) で押して出す（dlgat: と同じ。
+            # 原典は 出すまで tab の部品を作らない）
+            '^kihon:(\d+),([\d,]+)$' {
+                $tx = [int]$Matches[1]
+                $ids = $Matches[2] -split ','
+                $before = [Jw]::Tops([uint32]$p.Id)
+                [void][Jw]::PostMessage($frame, $WM_COMMAND, [IntPtr]32891, [IntPtr]::Zero)
+                NewDialog $before
+                $dlg = $script:dlg
+                if ($dlg -eq [IntPtr]::Zero) { Tops2; throw 'no 基本設定' }
+                Start-Sleep -Milliseconds 700
+                $tab = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::GetDlgCtrlID($k) -eq 12320) { $tab = $k; break }
+                }
+                if ($tab -eq [IntPtr]::Zero) { throw 'no tab control 12320' }
+                Click $tab $tx 10 $false $false
+                Start-Sleep -Milliseconds 700
+                foreach ($cid in $ids) {
+                    $box = [IntPtr]::Zero
+                    foreach ($k in [Jw]::Kids($dlg)) {
+                        if ([Jw]::GetDlgCtrlID($k) -eq [int]$cid) { $box = $k; break }
+                    }
+                    if ($box -eq [IntPtr]::Zero) { throw "no control $cid in 基本設定" }
+                    [void][Jw]::PostMessage($box, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                    Start-Sleep -Milliseconds 250
+                }
+                if ($env:JW_DBG) {
+                    $b = [Jw]::Paint($dlg)
+                    $b.Save((Join-Path (Get-Location) 'tmp\kihon_dbg.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+                    $b.Dispose()
+                }
+                $okb = [IntPtr]::Zero
+                foreach ($k in [Jw]::Kids($dlg)) {
+                    if ([Jw]::GetDlgCtrlID($k) -eq 1) { $okb = $k; break }
+                }
+                if ($okb -eq [IntPtr]::Zero) { throw 'no OK in 基本設定' }
+                [void][Jw]::PostMessage($okb, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                Start-Sleep -Milliseconds 800
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            '^pop:(.+)$' {
+                # every top-level window of the process other than the frame
+                # (the clock label and the 札 are small #32770 windows):
+                # print its class, rectangle, visibility and paint it into
+                # <png>_<n>.png
+                $png = $Matches[1]
+                $n = 0
+                foreach ($t in [Jw]::Tops([uint32]$p.Id)) {
+                    if ($t -eq $frame) { continue }
+                    $r = New-Object Jw+RECT
+                    [void][Jw]::GetWindowRect($t, [ref]$r)
+                    Write-Host ('   pop {0} {1} vis={2} {3},{4} {5}x{6} "{7}"' -f `
+                        $n, [Jw]::Cls($t), [int][Jw]::IsWindowVisible($t), $r.Left, $r.Top, `
+                        ($r.Right - $r.Left), ($r.Bottom - $r.Top), [Jw]::Txt($t))
+                    if ([Jw]::IsWindowVisible($t) -and ($r.Right - $r.Left) -gt 0) {
+                        # the 札 window paints its text once, so PrintWindow
+                        # shows an empty box: take what is on the screen
+                        $b = [Jw]::Shot($r)
+                        $b.Save((Join-Path (Get-Location) ($png + '_' + $n + '.png')),
+                                [System.Drawing.Imaging.ImageFormat]::Png)
+                        $b.Dispose()
+                    }
+                    $n++
+                }
+                break
+            }
+
             '^dlg:(b?)(\d+),(.+)$' {
                 # every -match rewrites $Matches, so read the groups first
                 $byButton = $Matches[1] -eq 'b'
@@ -2266,6 +2338,82 @@ try {
                     Start-Sleep -Milliseconds 60
                 }
                 [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l1)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            # the same with one move straight out: the clock flips AM/PM when
+            # the pointer comes back inside, so fewer moves, fewer chances
+            '^qd(\d+),(\d+),(-?\d+),(-?\d+)$' {
+                $x = [int]$Matches[1]; $y = [int]$Matches[2]
+                $dx = [int]$Matches[3]; $dy = [int]$Matches[4]
+                $l0 = LParam $x $y
+                $l1 = LParam ($x + $dx) ($y + $dy)
+                $pt = [Jw]::ScreenOf($view, $x, $y)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0, $l0)
+                Start-Sleep -Milliseconds 100
+                [void][Jw]::PostMessage($view, $WM_LBUTTONDOWN, [IntPtr]1, $l0)
+                Start-Sleep -Milliseconds 150
+                $pt = [Jw]::ScreenOf($view, $x + $dx, $y + $dy)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]1, $l1)
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $l1)
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            # PM: press, out, back onto the pressed pixel (which flips AM to PM), out again
+            '^pmd(\d+),(\d+),(-?\d+),(-?\d+)$' {
+                $x = [int]$Matches[1]; $y = [int]$Matches[2]
+                $dx = [int]$Matches[3]; $dy = [int]$Matches[4]
+                $l0 = LParam $x $y
+                $pt = [Jw]::ScreenOf($view, $x, $y)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0, $l0)
+                Start-Sleep -Milliseconds 100
+                [void][Jw]::PostMessage($view, $WM_LBUTTONDOWN, [IntPtr]1, $l0)
+                Start-Sleep -Milliseconds 150
+                $stops = @(@(($dx * 2), ($dy * 2)), @(0, 0), @($dx, $dy))
+                foreach ($q in $stops) {
+                    $mx = $x + [int]$q[0]; $my = $y + [int]$q[1]
+                    $pt = [Jw]::ScreenOf($view, $mx, $my)
+                    [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                    [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]1, (LParam $mx $my))
+                    Start-Sleep -Milliseconds 150
+                }
+                [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, (LParam ($x + $dx) ($y + $dy)))
+                Start-Sleep -Milliseconds $StepMs
+                break
+            }
+
+            # PM by the other button: press, out, press and let go the right
+            # button while the left is still down (that flips the clock's AM/PM), out again
+            '^pmr(\d+),(\d+),(-?\d+),(-?\d+)$' {
+                $x = [int]$Matches[1]; $y = [int]$Matches[2]
+                $dx = [int]$Matches[3]; $dy = [int]$Matches[4]
+                $l0 = LParam $x $y
+                $pt = [Jw]::ScreenOf($view, $x, $y)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]0, $l0)
+                Start-Sleep -Milliseconds 100
+                [void][Jw]::PostMessage($view, $WM_LBUTTONDOWN, [IntPtr]1, $l0)
+                Start-Sleep -Milliseconds 150
+                $mx = $x + $dx; $my = $y + $dy
+                $lm = LParam $mx $my
+                $pt = [Jw]::ScreenOf($view, $mx, $my)
+                [void][Jw]::SetCursorPos($pt.X, $pt.Y)
+                [void][Jw]::PostMessage($view, $WM_MOUSEMOVE, [IntPtr]1, $lm)
+                Start-Sleep -Milliseconds 200
+                [void][Jw]::PostMessage($view, $WM_RBUTTONDOWN, [IntPtr]3, $lm)
+                Start-Sleep -Milliseconds 150
+                [void][Jw]::PostMessage($view, $WM_RBUTTONUP, [IntPtr]1, $lm)
+                Start-Sleep -Milliseconds 200
+                [void][Jw]::PostMessage($view, $WM_LBUTTONUP, [IntPtr]0, $lm)
                 Start-Sleep -Milliseconds $StepMs
                 break
             }

@@ -555,7 +555,7 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
     static double cell[MAXC];
     static int gl[MAXC], wide[MAXC], fo[MAXC];
     double dx = x1 - x0, dy = y1 - y0, len = sqrt(dx * dx + dy * dy);
-    double ux, uy, vx, vy, W = 0.0, units = 0.0, sp = 0.0, pen = 0.0;
+    double ux, uy, vx, vy, W = 0.0, units = 0.0, sp = 0.0, pen = 0.0, sgw, sgh;
     double hx[2], hy[2], base[2], bold = 0.0;
     const unsigned char *p;
     int n = 0, i, lat = (prop >> 8) - 1, fj = fi, passes = 1;
@@ -575,6 +575,11 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
     }
     if (!jw_outfont_ready(fi) || fj < 0)
         return 0;
+    /* 負の幅・高さは 左右・上下に裏返した字（src/text.c jw_text_run_style の注） */
+    sgw = cw < 0.0 ? -1.0 : 1.0;
+    sgh = ch < 0.0 ? -1.0 : 1.0;
+    cw = fabs(cw);
+    ch = fabs(ch);
     if (!(ch > 0.0) || !(cw > 0.0) || !s)
         return 1;
     if (!boost[255]) {
@@ -601,8 +606,10 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
         ux = dx / len;
         uy = dy / len;
     }
-    vx = -uy;
-    vy = ux;
+    vx = -uy * sgh;
+    vy = ux * sgh;
+    ux *= sgw;
+    uy *= sgw;
     for (p = (const unsigned char *)s; *p && n < MAXC; n++) {
         int w = is_lead(p[0]) && p[1], adv, lsb, k;
         unsigned short u[2];
@@ -666,8 +673,8 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
             gy = y0 + uy * (pen + xo);
             for (pass = 0; pass < passes; pass++) {
                 double bx = passes > 1 ? bold * pass / (passes - 1) : 0.0;
-                double ex = tate ? 1.0 : ux, ey2 = tate ? 0.0 : uy;
-                double fvx = tate ? 0.0 : vx, fvy = tate ? 1.0 : vy;
+                double ex = tate ? sgw : ux, ey2 = tate ? 0.0 : uy;
+                double fvx = tate ? 0.0 : vx, fvy = tate ? sgh : vy;
 
                 glyph(fb, v, fo[i], g,
                       gx + ex * bx + fvx * base[k], gy + ey2 * bx + fvy * base[k],

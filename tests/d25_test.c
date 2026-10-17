@@ -342,6 +342,25 @@ static int views(void)
     return vfail != 0;
 }
 
+/* 原典の答えの 線の数（2.5D の 作図 (1122) が図面に足した線）。原典で測った:
+   円に「3g」「3,0」「3,0,30g」を 2.5D の高さ・奥行の箱 (1491) に打って L で円を押し、
+   透視図 (1064) → 作図 (1122)（tools/mprobe.sh）。「3g」は 552、「3,0,30g」は 132 */
+static int count_sen(const char *path)
+{
+    long n;
+    unsigned char *b = slurp(path, &n);
+    jw_drawing a;
+    int i, k = 0;
+
+    if (!b || !jw_parse(&a, b, n))
+        return -1;
+    free(b);
+    for (i = 0; i < a.ndrawn; i++)
+        if (a.obj[i].cls == JW_SEN)
+            k++;
+    return k;
+}
+
 /* ---- 円弧の立体（FUN_0061e030）と 矢印キー（slot 37〜42）。逆コンパイルの読み、
    原典では押していない ---- */
 static jw_obj *add_arc(jw_drawing *d, double cx, double cy, double r, double a0, double sw,
@@ -487,7 +506,9 @@ static int arcs(void)
     jw_cmd_bar(d, 1121);
     d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0,30g");
     jw_cmd_bar(d, 1064);
-    vck(jw_d25_nline() == 132 && jw_d25_nell() == 0, "球は 輪 11 本の 12 刻み = 線 132 本");
+    vck(jw_d25_nline() == 132 && jw_d25_nell() == 0
+        && count_sen("decomp/res/d25_sphere_3_0_30g.jww") == 132,
+        "球は 輪 11 本の 12 刻み = 線 132 本（原典の答えも 132）");
     {
         const double c30 = cos(30.0 * 3.14159265358979323846 / 180.0);
 
@@ -502,7 +523,8 @@ static int arcs(void)
     jw_cmd_bar(d, 1121);
     d->obj[d->ndrawn - 1].text = jw_add_str(d, "3g");
     jw_cmd_bar(d, 1064);
-    vck(jw_d25_nline() == 552, "「3g」の球: 刻み 15°（線 552 本）");
+    vck(jw_d25_nline() == 552 && count_sen("decomp/res/d25_sphere_3g.jww") == 552,
+        "「3g」の球: 刻み 15°（線 552 本。原典の答えも 552）");
     jw_cmd_bar(d, 1121);
     d->obj[d->ndrawn - 1].text = jw_add_str(d, "3,0g");
     jw_cmd_bar(d, 1064);
