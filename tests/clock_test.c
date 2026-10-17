@@ -708,7 +708,9 @@ int main(void)
             if (d->group[k].state == 3)
                 wg = k;
         wl = d->group[wg].write_layer & 15;
-        /* 曲線属性（+0x04 > 0）の線は断る（原典で測った: 何も変わらない。札 0x147d = 5245 は読み） */
+        /* 曲線属性（+0x04 > 0）の線は断る（原典で測った: 何も変わらない。札は
+           tools/jwdraw.ps1 の pop: で画面から撮って確かめた〔2026-10-18、下の
+           保護レイヤ・ソリッドと同じ手〕: 「曲線です」= JW_STR_5245 と文字どおり一致） */
         {
             jw_obj *ln = jw_add(d, JW_SEN);
 
@@ -729,6 +731,72 @@ int main(void)
             ck(d->ndrawn == e && d->obj[e - 1].ltype != 4 && d->obj[e - 1].id == 7,
                "曲線属性の線: AM 5 は断る（何も変わらない）");
             ck(jw_cmd_notice_id() == 5245, "曲線属性の線: 札 5245「曲線です」");
+            ck(jw_cmd_notice_text() && strcmp(jw_cmd_notice_text(), JW_STR_5245) == 0,
+               "  文は 原典で撮った「曲線です」と同じ");
+        }
+
+        /* 保護レイヤの線は断る（原典で測った: 何も変わらない。札は pop: で撮って
+           確かめた〔2026-10-18〕: 「プロテクトレイヤのデータです [0]-(0)」=
+           JW_STR_5290 に " [グループ]-(レイヤ)" をつないだ文と一致。
+           tools/mkprot.c と同じ組み: 保護レイヤ 0 の線、書込みレイヤは 2 のまま） */
+        {
+            jw_obj *ln = jw_add(d, JW_SEN);
+
+            ln->d[0] = 300; ln->d[1] = 50; ln->d[2] = 400; ln->d[3] = 50;
+            ln->ltype = 1;
+            ln->layer = 0;
+            ln->lgroup = (unsigned short)wg;
+            d->group[wg].layer[0].state2 = 1;
+            app_fit();
+            app_paint();
+            v = app_view();
+            e = d->ndrawn;
+            px = jw_sx(v, 350.0);
+            py = jw_sy(v, 50.0);
+            app_clock_begin(px, py);
+            app_clock_move(px + dx, py + dy);
+            app_clock_end();
+            ck(d->ndrawn == e && d->obj[e - 1].ltype == 1,
+               "保護レイヤの線: AM 5 は断る（何も変わらない）");
+            ck(jw_cmd_notice_id() == 5290, "保護レイヤの線: 札 5290「プロテクトレイヤのデータです」");
+            {
+                char t[96];
+
+                snprintf(t, sizeof t, "%s [%X]-(%X)", JW_STR_5290,
+                         d->obj[e - 1].lgroup & 15u, d->obj[e - 1].layer & 15u);
+                ck(jw_cmd_notice_text() && strcmp(jw_cmd_notice_text(), t) == 0,
+                   "  文は 原典で撮った「… [0]-(0)」と同じ");
+            }
+            d->group[wg].layer[0].state2 = 0;
+        }
+
+        /* ソリッドは断る（原典で測った: 何も変わらない。札は pop: で撮って
+           確かめた〔2026-10-18〕: 「ソリッド図形です」= JW_STR_5277 と文字どおり一致。
+           原典で測ったとき 真ん中を押すと 何も拾わず 札 5201「図形がありません」に
+           なった — ソリッドの拾いは 辺・頂点までの距離（dist_solid、画面では 消去の
+           ような塗り当たりとは別）なので、辺の上を押す） */
+        {
+            jw_obj *so = jw_add(d, JW_SOLID);
+
+            so->ltype = 1;
+            so->layer = (unsigned short)wl;
+            so->lgroup = (unsigned short)wg;
+            so->d[0] = 300; so->d[1] = -100; so->d[2] = 400; so->d[3] = -100;
+            so->d[4] = 400; so->d[5] = -50; so->d[6] = 300; so->d[7] = -50;
+            app_fit();
+            app_paint();
+            v = app_view();
+            e = d->ndrawn;
+            px = jw_sx(v, 350.0);
+            py = jw_sy(v, -100.0);         /* 上の辺の上 */
+            app_clock_begin(px, py);
+            app_clock_move(px + dx, py + dy);
+            app_clock_end();
+            ck(d->ndrawn == e && d->obj[e - 1].cls == JW_SOLID,
+               "ソリッド: AM 5 は断る（何も変わらない）");
+            ck(jw_cmd_notice_id() == 5277, "ソリッド: 札 5277「ソリッド図形です」");
+            ck(jw_cmd_notice_text() && strcmp(jw_cmd_notice_text(), JW_STR_5277) == 0,
+               "  文は 原典で撮った「ソリッド図形です」と同じ");
         }
     }
 
