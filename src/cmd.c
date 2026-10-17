@@ -27283,12 +27283,40 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
     }
 }
 
+/* 押した点を線（延長した直線）へ寄せる。decomp/decomp/all_00401000.c:48878
+ * FUN_0045ba00(1, obj, &point) の読み（呼び出し側 FUN_00455ab0 line 46077 で
+ * obj が CDataSen、&point が 動かす座標そのもので in/out）: obj の 2 端点
+ * （local_28,local_20 と local_38,local_30）から dx・dy（line 48902-48903）。
+ * |dx|+|dy| < 1e-07 なら 退化線として 何もせず false（line 48905-48912、
+ * 1e-07 は Jw_cad の長さ 0 判定の定数と同じ桁）。それ以外は 方向を単位化し、
+ * (px,py) から 始点への 内積で 射影を取って *point に書く（line 48914-48919、
+ * 線分としての 範囲（0〜1）には 切らない、無限直線への 射影）。戻り値は
+ * 成功したか（false のときは *point を変えない）。 */
+static int au_snap_to_line(const jw_obj *o, double *px, double *py)
+{
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+    double l, t;
+
+    if (fabs(dx) + fabs(dy) < 1e-7)
+        return 0;
+    l = sqrt(dx * dx + dy * dy);
+    dx /= l;
+    dy /= l;
+    t = dx * (*px - o->d[0]) + dy * (*py - o->d[1]);
+    *px = dx * t + o->d[0];
+    *py = dy * t + o->d[1];
+    return 1;
+}
+
 /* ---- AUTO の 端点移動（時計の番号 80 = 0x158c） ----------------------------------------
  * 逆コンパイルの読み、原典では押していない。
  * 入り: FUN_0062a980 の case 0x158c（doc+0x8ebc != 0 のとき）。時計を押した点を
  *   FUN_0044a270(3, ..., 1) で拾い、拾えたら CDataSen か CDataSunpou を +0xc8 に持って
  *   FUN_00455870 で押した点（線へ寄せた足）を覚え、状態（+0xac）を 10 にする。拾えたが
  *   線でも寸法でもなければ 札 0x14de「直線ではありません。」（5342）。拾えなければ何もしない。
+ *   FUN_00455870（decomp/decomp/all_00401000.c:45983）は CDataSen なら FUN_00455ab0 経由で
+ *   FUN_0045ba00 を その同じ線に対して呼び、押した点を 線（無限直線）へ 寄せた足にする
+ *   （au_snap_to_line がその射影）。
  * 出（作図 FUN_00632950 の状態 10 → FUN_00478c70(.., 離した点, 1, 0.0)）: 線の 始点・終点の
  *   うち 覚えた点に近い方（終点までが 始点までより 近いか 等しければ 終点）を 離した点へ
  *   動かす（FUN_0040da20 = 終点・FUN_0040da70 = 始点。どちらがどちらかは ECX が追えず、
@@ -27298,12 +27326,28 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
  *   長さの足し引き（param_10）は 命令が 線伸縮（0x8017）で 値があるときだけで
  *   AUTO では 0 なので入れない。
  * 状態 10 の 左の押しは 何もせず（FUN_00631170）、離しで作図なので 移植は 次の押し一つを
- *   離した点とする。右の押しの扱い（FUN_00631cf0 の状態 10）は読んでいない（取り消し）。
- * 入れていない: 寸法（CDataSunpou）の端点移動、動かす間の ゴム紐（FUN_0062f0a0 の
- *   FUN_00478c70(.., 0, ..) の 仮の線）、押した点を線へ寄せる FUN_0045ba00 */
+ *   離した点とする。右の押し（FUN_00631cf0、decomp/decomp/all_005c7556.c:47154-47322）の
+ *   状態 10 の枝（line 47154 の条件が 偽になる else、line 47303-47321）を読んだ: 先に
+ *   FUN_00451f30 で 読める点を取り（line 47152、jw_read に当たる）、読めれば
+ *   FUN_004988c0(local_34, …) で 捨てる一時変数に詰めるだけ（004988c0 は 69 bytes・516
+ *   callers の ただの 2 つの double を 詰める下請け、line 8319-8333、文書は変えない）で
+ *   uVar2 = 1（取り込んだだけ）、+0xac はそのまま 10。読めなければ 札 0x14cc（5324、line
+ *   47312-47315）で uVar2 = 0、+0xac もそのまま。つまり 状態 10 の 右の押しは 文書も
+ *   状態も変えず、読める点が無いときだけ 札を出す（au_endmove_release の button != 0）。
+ * 入れていない: 寸法（CDataSunpou）の端点移動 ― この移植は CDataSunpou を 単一の対象
+ *   として持たず、読み込み時に ばらした ふつうの要素（jw_obj.sub、jww.h の JW_SUNPOU の
+ *   注）に分けてしまうので、原典の「寸法線・軸線・文字をまとめて動かす」対応先が どの
+ *   フィールドかを 対応する FUN_00455b30（CDataSunpou+0x68 の 内部の線だけを
+ *   FUN_0045ba00 に渡す、decomp/decomp/all_00401000.c:46090-46112）だけからは 特定できず、
+ *   創作になるため見送り。動かす間の ゴム紐 ― FUN_0062f0a0（案内、line 46902-46917）の
+ *   先頭で FUN_0044a270(3,…,0) が マウス下の 近い要素を拾い FUN_0045b6c0 で 寄せた点を
+ *   求めて FUN_00455870 で 描く処理は 状態に関わらず いつも動く カーソル下の 吸着目印で、
+ *   状態 10 専用の「固定端から 離した点までの ゴム紐」ではなく、この移植に 連続した
+ *   マウス移動の描画フックが無いため 見送り。 */
 void jw_cmd_auto_endmove(jw_drawing *d, const jw_view *v, double x, double y)
 {
     int i;
+    double px = x, py = y;
 
     if (!d || current != JW_CMD_AUTO)
         return;
@@ -27314,22 +27358,33 @@ void jw_cmd_auto_endmove(jw_drawing *d, const jw_view *v, double x, double y)
         JW_NOTICE(5342);
         return;
     }
+    au_snap_to_line(&d->obj[i], &px, &py);  /* FUN_0045ba00: 押した点を線へ寄せる */
     au_a = i;
-    au_ax = x;
-    au_ay = y;
+    au_ax = px;
+    au_ay = py;
     au_st = 3;
 }
 
-/* 状態 10 の 離し: 離した点 (x, y) へ 近い方の端点を動かす */
-static void au_endmove_release(jw_drawing *d, double x, double y, int button)
+/* 状態 10 の 離し: 離した点 (x, y) へ 近い方の端点を動かす。button != 0（右）は
+ * FUN_00631cf0 の状態 10（上のコメント）: 文書・状態を変えず、読める点が無ければ
+ * 札 5324 だけを出す */
+static void au_endmove_release(jw_drawing *d, const jw_view *v, double x,
+                               double y, int button)
 {
     jw_obj oa;
     double q[4], d0, d1;
     op_t *o;
     int a = au_a;
 
+    if (button != 0) {
+        double rx, ry;
+
+        if (!jw_read(d, v, x, y, &rx, &ry))
+            JW_NOTICE(5324);
+        return;                 /* au_st==3 のまま: 原典は +0xac を変えない */
+    }
     au_reset();
-    if (button != 0 || a < 0 || a >= d->ndrawn || d->obj[a].cls != JW_SEN)
+    if (a < 0 || a >= d->ndrawn || d->obj[a].cls != JW_SEN)
         return;
     oa = d->obj[a];
     d0 = hypot(oa.d[0] - au_ax, oa.d[1] - au_ay);
@@ -30176,7 +30231,7 @@ static void jw_cmd_point_(jw_drawing *d, const jw_view *v,
         return;
     }
     if (current == JW_CMD_AUTO && d && au_st == 3) {
-        au_endmove_release(d, x, y, button);
+        au_endmove_release(d, v, x, y, button);
         return;
     }
     if (current == JW_CMD_AUTO) {
