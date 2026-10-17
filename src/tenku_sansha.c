@@ -1349,7 +1349,8 @@ static int do_sweep(sweep *w)
                 w->runl[w->rc] = curPiece;
             }
             if (w->rc > 0xe10)
-                return -4;
+                break;  /* 逆コンパイルの読み、原典では押していない: `if (0xe10 < iStack_20018) break;` は
+                         * 掃引の for を抜けるだけで、そこまでの帯で表を書く（失敗にしない） */
             continue;
         }
         /* the run is over (id changed, or no sky behind any more) */
