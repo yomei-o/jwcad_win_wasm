@@ -279,6 +279,130 @@ static void roundtrip(const char *src)
     jw_free(&back);
 }
 
+/* The "BL" record a block reference (JW_BLOCK) goes out as -- src/coord.c's
+ * jw_write_coord(), case JW_BLOCK.  decomp/decomp/all_005c7556.c 25982
+ * (FUN_005fa070) writes literally `BL`, the insertion point, ` "`, the
+ * definition's name and CRLF, then its own `#` line -- no scale or angle,
+ * and strictly after every other kind (lines, arcs, points, texts, solids)
+ * because its loop (25850) runs last of all.  No answer file exists for
+ * this (none of the three samples the byte-for-byte tests above use carries
+ * a block), so this builds the drawing in memory and checks the literal
+ * bytes instead.
+ */
+static void block_write(void)
+{
+    jw_drawing d;
+    jw_obj *p;
+    unsigned char *txt = 0;
+    long n = 0;
+    const char want[] = "BL 20 -8 \"BLK@@SfigorgFlag@@4\r\n#\r\n";
+    const unsigned char *bl;
+
+    memset(&d, 0, sizeof d);
+    d.version = 700;
+    d.group[0].state = 3;
+    d.group[0].scale = 1.0;
+
+    p = jw_add(&d, JW_SEN);             /* an ordinary element, ahead of it */
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 10.0; p->d[3] = 0.0;
+    p->sel = 1;
+
+    p = jw_add(&d, JW_BLOCK);           /* the reference: its "drawn" slot */
+    p->d[0] = 20.0; p->d[1] = -8.0;     /* 基点 */
+    p->d[2] = 2.0; p->d[3] = 3.0;       /* 倍率 -- not written */
+    p->d[4] = 0.5;                      /* 角 -- not written either */
+    p->block = 5;
+    p->sel = 1;
+
+    p = jw_add_def(&d, JW_LIST);        /* the definition it points at */
+    p->list[0] = 5;
+    p->n = 1;
+    p->text = jw_add_str(&d, "BLK@@SfigorgFlag@@4");
+    p = jw_add_def(&d, JW_SEN);         /* its one element */
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 1.0; p->d[3] = 0.0;
+
+    ck(jw_write_coord(&d, 0.0, 0.0, &txt, &n) && txt != 0,
+       "a drawing with a block reference writes");
+    if (txt) {
+        long k;
+
+        bl = 0;
+        for (k = 0; k + 2 < n; k++)
+            if (txt[k] == 'B' && txt[k + 1] == 'L' && txt[k + 2] == ' ') {
+                bl = txt + k;
+                break;
+            }
+        ck(bl != 0, "  and carries a \"BL\" record");
+        if (bl) {
+            size_t want_n = strlen(want);
+            size_t off = (size_t)(bl - txt);
+
+            ck(off + want_n <= (size_t)n
+               && memcmp(bl, want, want_n) == 0,
+               "  spelled exactly \"BL x y \\\"name\\r\\n#\\r\\n\"");
+            ck((size_t)n == off + want_n,
+               "  and it is the very last thing in the file");
+        }
+    }
+    free(txt);
+    jw_free(&d);
+}
+
+/* The same drawing, read back.  jw_parse_coord() does not know the word
+ * "BL" -- it falls into the final `else { continue; }` of src/coord.c's
+ * reader (cn2, cc0, cz are the same kind of not-yet-read word) -- so the
+ * block itself does not come back, but the line ahead of it must still
+ * read cleanly and the reader must not choke on the "#" that follows
+ * the "BL" line (the reader's `if (t[0] == '#')` only ever resets `head`,
+ * already 0 by then).  逆コンパイルの読み、原典では押していない.
+ */
+static void block_read_skips(void)
+{
+    jw_drawing d, back;
+    unsigned char *txt = 0;
+    long n = 0;
+    jw_obj *p;
+    int i, lines = 0, blocks = 0;
+
+    memset(&d, 0, sizeof d);
+    d.version = 700;
+    d.group[0].state = 3;
+    d.group[0].scale = 1.0;
+
+    p = jw_add(&d, JW_SEN);
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 10.0; p->d[3] = 0.0;
+    p->sel = 1;
+    p = jw_add(&d, JW_BLOCK);
+    p->d[0] = 20.0; p->d[1] = -8.0;
+    p->d[2] = 2.0; p->d[3] = 3.0;
+    p->d[4] = 0.5;
+    p->block = 5;
+    p->sel = 1;
+    p = jw_add_def(&d, JW_LIST);
+    p->list[0] = 5;
+    p->n = 1;
+    p->text = jw_add_str(&d, "BLK@@SfigorgFlag@@4");
+    p = jw_add_def(&d, JW_SEN);
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 1.0; p->d[3] = 0.0;
+
+    ck(jw_write_coord(&d, 0.0, 0.0, &txt, &n) && txt != 0,
+       "the same drawing writes, for reading back");
+    memset(&back, 0, sizeof back);
+    ck(txt && jw_parse_coord(&back, &d, txt, n),
+       "  and jw_parse_coord() reads it without choking on \"BL\"/\"#\"");
+    for (i = 0; i < back.ndrawn; i++) {
+        if (back.obj[i].cls == JW_SEN)
+            lines++;
+        if (back.obj[i].cls == JW_BLOCK)
+            blocks++;
+    }
+    ck(lines == 1, "  the line still comes back");
+    ck(blocks == 0, "  and the block does not -- the format cannot say it");
+    free(txt);
+    jw_free(&d);
+    jw_free(&back);
+}
+
 int main(void)
 {
     app_resize(1264, 741);
@@ -288,6 +412,8 @@ int main(void)
     reads("decomp/res/coord2.txt", "decomp/res/coordin2.jww");
     roundtrip("orig/Test6.jww");
     roundtrip("orig/Test5.jww");
+    block_write();
+    block_read_skips();
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }

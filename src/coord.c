@@ -164,6 +164,19 @@ void jw_coord_tags(const int *n, const char *kind, int cnt)
     coord_tag_cnt = cnt;
 }
 
+/* The definition a block reference (JW_BLOCK) points at: the JW_LIST whose
+   list[0] is `block`.  Same search as cmd.c's bt_def_at (ブロックツリー),
+   kept here as its own copy since that one is static to cmd.c. */
+static int coord_block_def(const jw_drawing *d, int block)
+{
+    int i;
+
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == block)
+            return i;
+    return -1;
+}
+
 int jw_write_coord(const jw_drawing *d, double ox, double oy,
                    unsigned char **out, long *n)
 {
@@ -203,21 +216,32 @@ int jw_write_coord(const jw_drawing *d, double ox, double oy,
     line(&w, "#");
     ly = wl;
 
-    /* Two passes: **everything but the texts first, then the texts**.  That
-       is the order the original's own file comes out in -- Test5's elements
-       run lines, texts, lines, texts, and its file has all 46 lines and then
-       all 43 texts. */
-    for (i = 0; i < 2 * d->ndrawn; i++) {
+    /* Three passes: **everything but the texts and blocks, then the texts,
+       then the blocks**.  The first two are the order the original's own
+       file comes out in -- Test5's elements run lines, texts, lines, texts,
+       and its file has all 46 lines and then all 43 texts.  The block
+       ("BL") record comes last of all: in the coordinate writer
+       (FUN_005fa070, decomp/decomp/all_005c7556.c) the loops run lines
+       (25200, "pl"/"ln"), arcs (25285, "ci"), points (25387), texts (25424,
+       "cc"/"ch"), 寸法 (25581, "msz"/"msg" -- not in src/coord.c, out of
+       scope here), solids (25677, "lw"/"pl") and only then blocks (25850,
+       the literal "BL" at 25982) -- so "BL" is strictly after every other
+       kind, texts included.  逆コンパイルの読み、原典では押していない. */
+    for (i = 0; i < 3 * d->ndrawn; i++) {
         const jw_obj *o = &d->obj[i % d->ndrawn];
         int col = o->color, wid, pass = i / d->ndrawn;
 
         if (!o->sel)
             continue;
-        if ((o->cls == JW_MOJI) != pass)
-            continue;
         if (o->cls != JW_SEN && o->cls != JW_ENKO && o->cls != JW_TEN
-            && o->cls != JW_SOLID && o->cls != JW_MOJI)
-            continue;                   /* blocks are not done */
+            && o->cls != JW_SOLID && o->cls != JW_MOJI && o->cls != JW_BLOCK)
+            continue;
+        if (pass == 0 && (o->cls == JW_MOJI || o->cls == JW_BLOCK))
+            continue;
+        if (pass == 1 && o->cls != JW_MOJI)
+            continue;
+        if (pass == 2 && o->cls != JW_BLOCK)
+            continue;
         wid = pen_w(d, col);
         if ((o->layer & 15) != ly) {
             ly = o->layer & 15;
@@ -257,6 +281,15 @@ int jw_write_coord(const jw_drawing *d, double ox, double oy,
                 lc = col;
                 sprintf(t, "lc%d", lc); line(&w, t);
             }
+        } else if (o->cls == JW_BLOCK) {
+            /* No lc/lt/lw/pn/cn state: FUN_006051a0 (decomp/decomp/
+               all_00599e67.c 50859), the state-line writer every other kind
+               calls with its own mode number, is called for a block with
+               mode 5 (all_005c7556.c 25974) -- and 50909's
+               `if ((param_1 != 3) && (param_1 != 4))` only ever tests
+               param_1 against 0 (line/arc), 1 (point) and 2 (text) inside,
+               so mode 5 falls through doing nothing after the shared lg/ly
+               update above.  逆コンパイルの読み、原典では押していない. */
         } else {
             if (col != lc) {
                 lc = col;
@@ -368,6 +401,32 @@ int jw_write_coord(const jw_drawing *d, double ox, double oy,
                 num(&w, my(&m, o->d[k * 2 + 1]));
             }
             put(&w, "\r\n", 2);
+            break;
+        }
+        case JW_BLOCK: {
+            /* FUN_005fa070 (decomp/decomp/all_005c7556.c 25982): the only
+               record of its kind -- `BL`, the insertion point (the same
+               (paper - origin) * scale transform every other kind gets,
+               guarded there by the same "if (+0x114)" check at 25979 that
+               guards every other record's num()s), a space, a quoted
+               name, CRLF, and then its own "#" line (25982-26020).  No
+               scale (d[2],d[3]) or angle (d[4]) goes out -- nothing past
+               the name is written before the "#".  The name is the
+               CDataList the reference's `block` points at (+0x94 on
+               CDataBlock, found by number here since the port keeps an
+               index rather than a pointer); nothing in this function
+               strips its "@@SfigorgFlag@@n" the way the ブロックツリー
+               dialog's name does (src/cmd.c's jw_bt_name), so the raw
+               name goes out.  逆コンパイルの読み、原典では押していない. */
+            int def = coord_block_def(d, o->block);
+
+            puts_(&w, "BL");
+            num(&w, mx(&m, o->d[0]));
+            num(&w, my(&m, o->d[1]));
+            puts_(&w, " \"");
+            puts_(&w, def >= 0 ? jw_str(d, d->obj[def].text) : "");
+            put(&w, "\r\n", 2);
+            line(&w, "#");
             break;
         }
         default:
