@@ -3005,10 +3005,10 @@ static double kh_num(int tab, int id, double dflt)
  * 0x4e9a76.. が ← → ↑ ↓ PageUp PageDown を 0x1501..0x1504・0x1506・0x1507 にして
  * 図形の slot 37〜42 へ。src/d25view.c の jw_d25_key）。
  * 読み直して確認（FUN_0060b110 の case 0x65〜0x68・0x6f・0x70）: 移動の向きと 軸角の回し、
- * 幅（↑↓は高さ）× 移動率、ズームが 画面の中心のまま、は一致。移植に無い差: 倍率 +0x1728 を
- * PageUp で 1000 超なら 1000、PageDown で 0.01 以下なら 0.01 に止める（移植の倍率との
- * 対応が未確認）／Shift（DAT_00a0cc6c ≠ 0）が立っていれば 移動量と (率 - 1) が 0.2 倍
- * （Shift を立てる所が読めていない。nokori 2-2）。 */
+ * 幅（↑↓は高さ）× 移動率、ズームが 画面の中心のまま、は一致。移植に無い差:
+ * Shift（DAT_00a0cc6c ≠ 0）が立っていれば 移動量と (率 - 1) が 0.2 倍
+ * （Shift を立てる所が読めていない。Shift は GetKeyState で 投げたキーでは立てられず 測れていない）。
+ * 倍率の止め（1000・0.01）は 原典で測って入れた（下の PageUp・PageDown の注）。 */
 int app_arrow_key(int vk)
 {
     double w, h, c = 1.0, s = 0.0, mx = 0.0, my = 0.0;
@@ -3023,10 +3023,20 @@ int app_arrow_key(int vk)
 
         if (!(f > 0.0))
             return 1;
-        if (vk == 0x22)
-            f = 1.0 / f;
-        /* 原典の 1000 倍・0.01 倍の止めは 移植の app_zoom が持たない（行き過ぎだけ断る） */
-        app_zoom(f, view.clip.x + view.clip.w / 2, view.clip.y + view.clip.h / 2);
+        /* 原典で測った（2362 を入れて PageUp・PageDown を 25 回まで押し、1200 mm の線と
+           0.2 mm の線の画素の長さを読んだ）: 倍率 z（用紙全体表示 = 1。vw_get の z）は
+           PageDown が /f（1/1.5 ずつ）で 0.01 以下になったら 0.01 に、PageUp が *f で
+           1000 を超えたら 1000 に止まる（PageDown は 12 回目で長さ 23 → 19 画素 =
+           1960 × 0.01、PageUp は 18 回目で 322 → 327 画素 = 322 × 1000/985）。 */
+        vw_t vc = vw_get();
+        double z0 = vc.z, z1 = vk == 0x22 ? vc.z / f : vc.z * f;
+
+        if (vk == 0x22 && z1 <= 0.01)
+            z1 = 0.01;
+        if (vk == 0x21 && z1 > 1000.0)
+            z1 = 1000.0;
+        if (z0 > 0.0 && z1 > 0.0)
+            app_zoom(z1 / z0, view.clip.x + view.clip.w / 2, view.clip.y + view.clip.h / 2);
         return 1;
     }
     if (vk < 0x25 || vk > 0x28)

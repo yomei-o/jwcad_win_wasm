@@ -19,6 +19,25 @@
 
 static int fails;
 
+static unsigned char *slurp(const char *path, long *n)
+{
+    FILE *f = fopen(path, "rb");
+    unsigned char *b;
+
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    *n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (unsigned char *)malloc((size_t)*n);
+    if (b && fread(b, 1, (size_t)*n, f) != (size_t)*n) {
+        free(b);
+        b = 0;
+    }
+    fclose(f);
+    return b;
+}
+
 static void ck(int ok, const char *what)
 {
     printf("%-4s %s\n", ok ? "ok" : "BAD", what);
@@ -397,6 +416,42 @@ int main(void)
         ck(fabs(atof(jw_cmd_box(1412)) - 14142.13562) < 1e-3, "PM 6: 寸法の箱に 長さ × 縮尺（1/100）");
     }
 
+    /* ---- PM 6【全】属性取得の箱の字。原典で測った（tools/jwdraw.ps1 の pmr: で
+       左を押したまま右を押して PM にし 6 時で離して、箱 1411・1412・1413 を読んだ。
+       新規図面 1/100 に 線と円を置いた。傾き 0 は 箱が空、ほかは %.10g） ---- */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);          /* (300,600)-(500,500) の画素の線 */
+        o->d[0] = -155.510204082; o->d[1] = -157.346938776;
+        o->d[2] = -33.061224490;  o->d[3] = -96.122448980;
+        o = jw_add(d, JW_SEN);          /* 水平 (300,500)-(700,500) */
+        o->d[0] = -155.510204082; o->d[1] = -96.122448980 + 100.0;
+        o->d[2] = 89.387755102;   o->d[3] = -96.122448980 + 100.0;
+        o = jw_add(d, JW_ENKO);         /* 中心 (500,400)・半径 100 画素 */
+        o->d[0] = -33.061224490 + 200.0; o->d[1] = -96.122448980 + 200.0; o->d[2] = 61.224489796;
+        o->d[3] = 0.0; o->d[4] = 6.283185307179586; o->d[5] = 0.0; o->d[6] = 1.0;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_SEN);
+        jw_cmd_clock_zokuall(d, v, (-155.510204082 - 33.061224490) / 2, (-157.346938776 - 96.122448980) / 2);
+        ck(strcmp(jw_cmd_box(1411), "26.56505118") == 0 && strcmp(jw_cmd_box(1412), "13690.21211") == 0,
+           "PM 6 線: 傾き 26.56505118・寸法 13690.21211（原典と同じ字）");
+        jw_cmd_clock_zokuall(d, v, -33.0, -96.122448980 + 100.0);
+        ck(jw_cmd_box(1411)[0] == 0 && strcmp(jw_cmd_box(1412), "24489.79592") == 0,
+           "PM 6 水平の線: 傾きの箱は 空、寸法 24489.79592");
+        app_command(JW_CMD_ENKO);
+        jw_cmd_clock_zokuall(d, v, -33.061224490 + 200.0 + 61.224489796, -96.122448980 + 200.0);
+        ck(strcmp(jw_cmd_box(1411), "6122.44898") == 0 && strcmp(jw_cmd_box(1412), "100") == 0
+           && jw_cmd_box(1413)[0] == 0,
+           "PM 6 円: 半径 6122.44898・扁平率 100・傾きの箱は 空（原典と同じ字）");
+    }
+
     /* ---- PM 6【全】属性取得: 命令が 円（FUN_006485b0）・複線（FUN_0065c360）のとき ---- */
     {
         jw_drawing *d;
@@ -568,58 +623,92 @@ int main(void)
         app_command(JW_CMD_SEN);
     }
 
-    /* 寸法図形（sub 1〜8 の一続き）は 一つの図形として 終わりへ */
+    /* 寸法図形（sub 1〜8 の一続き）。原典で測った（decomp/res/am5dim_base.jww を
+       書込レイヤ 1 で AM 5 → am5dim.jww）: 断られず、頭の list[2] のレイヤと
+       寸法線（部品 1）の線色が書込みの値になり、部品の +0x2e は替わらない */
     {
         jw_drawing *d;
         const jw_view *v;
-        int f = -1, k, wg = 0, wl, ok8, px, py, e;
+        unsigned char *bb, *aa;
+        long nb = 0, na = 0;
+        jw_drawing ans;
+        int f = -1, k, e;
+        double mx, my;
 
-        app_new();
+        bb = (unsigned char *)slurp("decomp/res/am5dim_base.jww", &nb);
+        aa = (unsigned char *)slurp("decomp/res/am5dim.jww", &na);
+        ck(bb && aa && jw_parse(&ans, aa, na) && app_open(bb, nb), "原典の答え am5dim を読む");
         d = (jw_drawing *)app_drawing();
-        jw_obj *o = jw_add(d, JW_SEN);
-        o->d[0] = 100; o->d[1] = 100; o->d[2] = 200; o->d[3] = 100;
-        app_fit();
-        app_paint();
-        v = app_view();
-        jw_cmd_sunpo_chk_set(2424, 1);
-        jw_cmd_set(JW_CMD_SUNPO);
-        jw_cmd_point(d, v, 100.0, 120.0, 0);
-        jw_cmd_point(d, v, 100.0, 110.0, 0);
-        jw_cmd_point(d, v, 100.0, 100.0, 0);
-        jw_cmd_point(d, v, 200.0, 100.0, 0);
-        jw_cmd_set(JW_CMD_SEN);
-        jw_cmd_sunpo_chk_set(2424, 0);
         for (k = 0; k + 7 < d->ndrawn; k++)
             if (d->obj[k].sub == 1 && d->obj[k + 7].sub == 8)
                 f = k;
-        ck(f >= 0, "寸法図形を作った");
+        ck(f >= 0, "  寸法図形がある");
+        if (f >= 0) {
+            int wg = 0;
+
+            for (k = 0; k < 16; k++)
+                if (d->group[k].state == 3)
+                    wg = k;
+            /* 原典はこの図面で 書込みレイヤ 1 に替えて押した（線種 1・線色 2） */
+            d->group[wg].layer[d->group[wg].write_layer].state = 2;
+            d->group[wg].write_layer = 1;
+            d->group[wg].layer[1].state = 3;
+            app_fit();
+            app_paint();
+            v = app_view();
+            mx = (d->obj[f].d[0] + d->obj[f].d[2]) / 2;
+            my = (d->obj[f].d[1] + d->obj[f].d[3]) / 2;
+            e = d->ndrawn;
+            jw_cmd_clock_senshu(d, v, mx, my, 0);
+            ck(d->ndrawn == e, "AM 5 は寸法図形を断らない（数は同じ）");
+            {
+                int g = d->ndrawn - 8, same = g >= 0 && d->obj[g].sub == 1;
+
+                for (k = 0; same && k < 8; k++)
+                    if (d->obj[g + k].sub != k + 1)
+                        same = 0;
+                ck(same, "  一続きのまま終わりへ");
+                if (same) {
+                    int af = -1;
+
+                    for (k = 0; k + 7 < ans.ndrawn; k++)
+                        if (ans.obj[k].sub == 1 && ans.obj[k + 7].sub == 8)
+                            af = k;
+                    ck(af >= 0, "  原典の答えにも寸法図形");
+                    for (k = 0; af >= 0 && k < 8; k++) {
+                        const jw_obj *o = &d->obj[g + k], *a = &ans.obj[af + k];
+
+                        ck(o->ltype == a->ltype && o->color == a->color && o->width == a->width
+                           && o->layer == a->layer && o->lgroup == a->lgroup,
+                           "  部品の 線種・線色・線幅・レイヤ・グループが 原典と同じ");
+                    }
+                    if (af >= 0)
+                        ck(d->obj[g].list[2] == ans.obj[af].list[2]
+                           && d->obj[g].mark == ans.obj[af].mark
+                           && d->obj[g].turn == ans.obj[af].turn,
+                           "  頭の list[2]（レイヤ）・mark・turn が 原典と同じ");
+                }
+            }
+        }
+        free(bb);
+        free(aa);
+    }
+
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        int wg = 0, wl, px, py, e, k;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        app_fit();
+        app_paint();
+        v = app_view();
         for (k = 0; k < 16; k++)
             if (d->group[k].state == 3)
                 wg = k;
         wl = d->group[wg].write_layer & 15;
-        for (k = 0; f >= 0 && k < 8; k++)
-            d->obj[f + k].layer = (unsigned short)((wl + 2) & 15);
-        d->write_ltype = 4; d->write_color = 6; d->write_width = 0;
-        e = f >= 0 ? d->ndrawn - 8 : 0;
-        if (f >= 0) {
-            px = jw_sx(v, (d->obj[f].d[0] + d->obj[f].d[2]) / 2);
-            py = jw_sy(v, (d->obj[f].d[1] + d->obj[f].d[3]) / 2);
-            at_hour(5, 60, &dx, &dy);
-            app_clock_begin(px, py);
-            app_clock_move(px + dx, py + dy);
-            app_clock_end();
-        }
-        /* 読み直して確認: FUN_0044a270(2, skip 0) は 旗 +0x632c を立てないので 寸法図形を
-           断る（札 0x1485 = 5253「寸法図形です」）。何も変わらない */
-        ok8 = f >= 0 && d->ndrawn == e + 8;
-        for (k = 0; ok8 && k < 8; k++)
-            if (d->obj[e + k].sub != k + 1 || d->obj[e + k].layer != ((wl + 2) & 15)
-                || d->obj[e + k].ltype == 4)
-                ok8 = 0;
-        ck(ok8, "寸法図形: AM 5 は断る（寸法の部品は替わらない）");
-        ck(jw_cmd_notice_id() == 5253, "寸法図形: 札 5253「寸法図形です」");
-
-        /* 曲線属性（+0x04 > 0）の線も断る（0x147d = 5245「曲線です」） */
+        /* 曲線属性（+0x04 > 0）の線は断る（原典で測った: 何も変わらない。札 0x147d = 5245 は読み） */
         {
             jw_obj *ln = jw_add(d, JW_SEN);
 

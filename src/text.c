@@ -396,13 +396,20 @@ void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
 {
     double dx = x1 - x0, dy = y1 - y0;
     double len = sqrt(dx * dx + dy * dy);
-    double ux, uy, vx, vy, step;
+    double ux, uy, vx, vy, step, sw, sh;
     double lean = (style & 1) ? JW_TEXT_ITALIC : 0.0;
     double bold = (style & 2) ? ch * JW_TEXT_BOLD : 0.0;
     int n = jw_text_count(s), i;
     const unsigned char *p = (const unsigned char *)s;
 
     want_fonts();
+    /* 負の幅・高さは 左右・上下に裏返した字（反転した参照の中の字。原典で測った:
+       src/jww.c blk_text_post の注）。幅が負なら 進む向きも字の右も 逆に、高さが負なら
+       字の上が逆 */
+    sw = cw < 0.0 ? -1.0 : 1.0;
+    sh = ch < 0.0 ? -1.0 : 1.0;
+    cw = fabs(cw);
+    ch = fabs(ch);
     if (!n || ch <= 0.0)
         return;
     if (len < 1e-9) {
@@ -413,8 +420,10 @@ void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
         ux = dx / len;
         uy = dy / len;
     }
-    vx = -uy;
-    vy = ux;
+    vx = -uy * sh;
+    vy = ux * sh;
+    ux *= sw;
+    uy *= sw;
     /* The file gives the run's two ends, so the advance follows from them:
      * the last character's left edge is len - cw away from the first.  That
      * is also how the character spacing gets in without being stored. */
@@ -429,8 +438,8 @@ void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
             p += 1;
         }
         glyph(fb, v, code, x0 + ux * step * i, y0 + uy * step * i,
-              tate ? 1.0 : ux, tate ? 0.0 : uy,
-              tate ? 0.0 : vx, tate ? 1.0 : vy, cw, ch, col, lean, bold);
+              tate ? sw : ux, tate ? 0.0 : uy,
+              tate ? 0.0 : vx, tate ? sh : vy, cw, ch, col, lean, bold);
     }
 }
 

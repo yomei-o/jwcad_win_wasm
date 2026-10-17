@@ -35,6 +35,11 @@ static int near(double a, double b)
     return fabs(a - b) < 1e-9;
 }
 
+static int near6(double a, double b)
+{
+    return fabs(a - b) < 1e-6;
+}
+
 static int same_line(const jw_obj *a, const jw_obj *b)
 {
     return (near(a->d[0], b->d[0]) && near(a->d[1], b->d[1])
@@ -355,6 +360,66 @@ static void tome_box(void)
     jw_cmd_set(JW_CMD_NISEN);
 }
 
+/* 留線出 (1413) が空のときの伸び: 原典で測った（decomp/res/nisen_tome50.jww・
+   nisen_tome100.jww。縮尺 1/50 と 1/100 の同じ 2 線）。50 ÷ 縮尺 図寸mm */
+static void tome_empty(const char *base, const char *ans, const char *what)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *cap = 0;
+    int i, k = 0, before;
+    const double r = 400.0 / 244.897959184;     /* 画素 / mm（原典のとき） */
+
+    printf("留線出が空のときの伸び（%s）:\n", what);
+    b = slurp(ans, &n);
+    if (!b || !jw_parse(&ref, b, n)) {
+        printf("BAD  cannot read %s\n", ans);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++)
+        if (ref.obj[i].cls == JW_SEN && ++k == 3)
+            cap = &ref.obj[i];
+    if (!cap) {
+        printf("BAD  %s has no cap\n", ans);
+        fails++;
+        return;
+    }
+    app_resize(1264, 741);
+    b = slurp(base, &n);
+    if (!b || !app_open(b, n)) {
+        printf("BAD  cannot open %s\n", base);
+        fails++;
+        return;
+    }
+    free(b);
+    d = (jw_drawing *)app_drawing();
+    add_line(d, -155.510204082, 26.326530612, 89.387755102, -96.122448980);
+    add_line(d, -155.510204082, -96.122448980, 89.387755102, 26.326530612);
+    app_fit();
+    before = d->ndrawn;
+    jw_cmd_set(JW_CMD_NISEN);
+    type_box(1412, "100,300");
+    jw_cmd_bar(d, 1323);
+    /* 原典の三つの押し (400,350)・(600,450)・(500,420) の紙の位置 */
+    jw_cmd_point(d, app_view(), -155.510204082 + 100.0 / r, -96.122448980 + 150.0 / r, 0);
+    jw_cmd_point(d, app_view(), -155.510204082 + 300.0 / r, -96.122448980 + 50.0 / r, 0);
+    jw_cmd_point(d, app_view(), -155.510204082 + 200.0 / r, -96.122448980 + 80.0 / r, 0);
+    ck(d->ndrawn == before + 3, "  蓋と二本");
+    if (d->ndrawn == before + 3) {
+        const jw_obj *o = &d->obj[before];
+
+        ck((near6(o->d[0], cap->d[0]) && near6(o->d[1], cap->d[1]) && near6(o->d[2], cap->d[2])
+            && near6(o->d[3], cap->d[3]))
+           || (near6(o->d[0], cap->d[2]) && near6(o->d[1], cap->d[3])
+               && near6(o->d[2], cap->d[0]) && near6(o->d[3], cap->d[1])),
+           "  蓋が 原典と同じ所");
+    }
+    jw_cmd_set(JW_CMD_NISEN);
+}
+
 /* ---- 終点のあとの続き・角の組・指示線包絡 (RR) --------------------------
  * CZukei2Sen の逆コンパイルの読み（src/cmd.c の nisen・nisen_rr・nisen_env の
  * 注）。原典では押していない。 */
@@ -556,6 +621,8 @@ int main(void)
     ll_corner(0);
     ll_corner(1);
     tome_box();
+    tome_empty("decomp/res/nisen_tome_base50.jww", "decomp/res/nisen_tome50.jww", "縮尺 1/50");
+    tome_empty("decomp/res/new.jww", "decomp/res/nisen_tome100.jww", "縮尺 1/100");
     cont_and_back();
     corner_frame(0);
     corner_frame(1);

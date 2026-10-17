@@ -589,6 +589,9 @@ void jw_cmd_get_shown_too(int on);
 void jw_cmd_get_arc_length(int on);
 /* 基本設定 2466「文字コマンドのとき文字位置指示後に文字入力を行う」 */
 void jw_cmd_moji_point_first(int on);
+/* 字の長さ（FUN_004935b0(1)）: 幅 cw・間隔 sp の字 t が 始点から終点まで走る長さ。末尾の
+   「^m」・特殊文字（^u ^d ^o ^数字 ほか）は引く。原典で測った（src/cmd.c の注） */
+double jw_cmd_moji_run(const char *t, double cw, double sp);
 /* 基本設定 2094「複線のとき、数値入力後の[Enter]キーで連続複線にする」: 立って
    いれば 複線 で元を拾い間隔を打ったあとの Enter が、マウスの側へその間隔で写し、
    写しを次の元にする（Enter を押すたびに一本）。写したら 1 */
