@@ -7788,10 +7788,17 @@ static double moji_ang(const jw_obj *o)
  * exactly the x of the clicks).  What is left is the piece before the nearer
  * cut and the piece after the further one, and either can be nothing.
  *
- * The element itself is kept and made into the first surviving piece; only a
- * second piece is added.  That is what the original does -- cutting the
- * middle out of an arc in Jw_cad left the first half where the whole one had
- * been and put the other half at the end.
+ * When only one piece survives, cut_tail says where it goes (the comment at
+ * tail_replace's own definition).  When BOTH survive, the original always
+ * removes the whole original element and appends both pieces to the tail
+ * (left, then right) -- regardless of cut_tail.  原典で測った
+ * （2026-10-18、AUTO モードの線編集 au_edit の切断・消去の 3 段の切断、
+ * どちらも cut_tail=0 のまま: 壁の前後に線を 2 本置いた図面で、切ったあと
+ * その 2 本は（間に挟まれていれば）詰まって並び、切れ端は左・右の順で
+ * 末尾に付く。tools 経由で orig/Jw_win.exe を実際に動かして確認、
+ * decomp/res/au_b9u.jww・tests/auto2_test.c の b9u）。前のここの注（「最初の
+ * 片われはそのまま、もう片われだけ足す」）は 図面に他の要素が無い実験から
+ * の誤った読みだった（他が無いと どちらの筋でも見た目が同じになる）。
  */
 static void cut_line(jw_drawing *d, int i, double px, double py,
                      double qx, double qy)
@@ -7830,35 +7837,45 @@ static void cut_line(jw_drawing *d, int i, double px, double py,
         erase(d, i, rec);
         return;
     }
-    if (cut_tail) {
+    if (keep0 && keep1) {
+        /* 両方残る: cut_tail の有無に関わらず 外して 左・右の順で末尾へ
+           （上の注） */
         jw_obj l = was, r = was;
 
         l.d[2] = ax + t0 * ux;
         l.d[3] = ay + t0 * uy;
         r.d[0] = ax + t1 * ux;
         r.d[1] = ay + t1 * uy;
-        if (keep0 && keep1) {
-            /* 2 本とも末尾へ（左・右の順）。外すのは 1 本 */
-            op_keep(rec, d, i, 1);
-            jw_remove(d, i);
-            {
-                jw_obj *o = jw_add(d, JW_SEN);
+        op_keep(rec, d, i, 1);
+        jw_remove(d, i);
+        {
+            jw_obj *o = jw_add(d, JW_SEN);
 
-                if (o) {
-                    *o = l;
-                    if (rec)
-                        rec->n++;
-                }
-                o = jw_add(d, JW_SEN);
-                if (o) {
-                    *o = r;
-                    if (rec)
-                        rec->n++;
-                }
+            if (o) {
+                *o = l;
+                if (rec)
+                    rec->n++;
             }
-        } else {
-            tail_replace(d, rec, i, keep0 ? &l : &r, -1, 0);
+            o = jw_add(d, JW_SEN);
+            if (o) {
+                *o = r;
+                if (rec)
+                    rec->n++;
+            }
         }
+        return;
+    }
+    if (cut_tail) {
+        jw_obj n = was;
+
+        if (keep0) {
+            n.d[2] = ax + t0 * ux;
+            n.d[3] = ay + t0 * uy;
+        } else {
+            n.d[0] = ax + t1 * ux;
+            n.d[1] = ay + t1 * uy;
+        }
+        tail_replace(d, rec, i, &n, -1, 0);
         return;
     }
     op_keep(rec, d, i, 0);
@@ -7868,16 +7885,6 @@ static void cut_line(jw_drawing *d, int i, double px, double py,
     } else {
         d->obj[i].d[0] = ax + t1 * ux;
         d->obj[i].d[1] = ay + t1 * uy;
-    }
-    if (keep0 && keep1) {
-        jw_obj *o = jw_add(d, JW_SEN);
-        if (o) {
-            *o = was;
-            o->d[0] = ax + t1 * ux;
-            o->d[1] = ay + t1 * uy;
-            if (rec)
-                rec->n++;
-        }
     }
 }
 
@@ -7961,33 +7968,45 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
         erase(d, i, rec);
         return;
     }
-    if (cut_tail) {
+    if (keep0 && keep1) {
+        /* 両方残る: cut_line と同じく cut_tail の有無に関わらず 外して
+           末尾へ（原典で測った、2026-10-18。弧を一度切って弓形にし、もう
+           一度 270 と 0 の間で切って 弧の両方残りを作る実験、decomp 注の
+           まま弧でも同じ形だったので 線に合わせて 直した） */
         jw_obj l = was, r = was;
 
         l.d[4] = dir * u1;
         r.d[3] = turn(a0 + dir * u2);
         r.d[4] = dir * (span - u2);
-        if (keep0 && keep1) {
-            op_keep(rec, d, i, 1);
-            jw_remove(d, i);
-            {
-                jw_obj *o = jw_add(d, JW_ENKO);
+        op_keep(rec, d, i, 1);
+        jw_remove(d, i);
+        {
+            jw_obj *o = jw_add(d, JW_ENKO);
 
-                if (o) {
-                    *o = l;
-                    if (rec)
-                        rec->n++;
-                }
-                o = jw_add(d, JW_ENKO);
-                if (o) {
-                    *o = r;
-                    if (rec)
-                        rec->n++;
-                }
+            if (o) {
+                *o = l;
+                if (rec)
+                    rec->n++;
             }
-        } else {
-            tail_replace(d, rec, i, keep0 ? &l : &r, -1, 0);
+            o = jw_add(d, JW_ENKO);
+            if (o) {
+                *o = r;
+                if (rec)
+                    rec->n++;
+            }
         }
+        return;
+    }
+    if (cut_tail) {
+        jw_obj n = was;
+
+        if (keep0) {
+            n.d[4] = dir * u1;
+        } else {
+            n.d[3] = turn(a0 + dir * u2);
+            n.d[4] = dir * (span - u2);
+        }
+        tail_replace(d, rec, i, &n, -1, 0);
         return;
     }
     op_keep(rec, d, i, 0);
@@ -7996,16 +8015,6 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
     } else {
         d->obj[i].d[3] = turn(a0 + dir * u2);
         d->obj[i].d[4] = dir * (span - u2);
-    }
-    if (keep0 && keep1) {
-        jw_obj *o = jw_add(d, JW_ENKO);
-        if (o) {
-            *o = was;
-            o->d[3] = turn(a0 + dir * u2);
-            o->d[4] = dir * (span - u2);
-            if (rec)
-                rec->n++;
-        }
     }
 }
 
@@ -27276,6 +27285,12 @@ static int au_edit(jw_drawing *d, const jw_view *v, double x, double y,
             if (t <= -1e-7 || t >= l + 1e-7)
                 au_stretch(d, au_a, au_ax, au_ay, px, py);
             else
+                /* nokori.md「AUTO 内の切断は末尾へ回すかどうか未測定」を
+                   解決: cut_tail を立てない、ほかの切断と同じ呼び方だが、
+                   両方残る場合は cut_line がいつも外して末尾へ足すので
+                   ここも末尾へ回る（原典で測った、2026-10-18、
+                   tools/autoprobe.sh b9u・decomp/res/au_b9u.jww・
+                   tests/auto2_test.c の b9u・cut_line の注） */
                 cut_line(d, au_a, au_p2x, au_p2y, px, py);
         }
         au_reset();
@@ -28994,7 +29009,13 @@ static double stretch_out(const jw_drawing *d)
    end it is past.  `out` carries it that much further on (FUN_0071a050's
    state 2: in the line's own frame P's x less 突出寸法 when it is not past
    the pick, more when it is). */
-static int stretch_inplace;     /* 一括処理の輪（番号を持ち回る）では 並びを動かさない */
+/* 一括処理の輪（番号を持ち回る）では 並びを動かさない。原典で測った
+ * （2026-10-18、tools/jwdraw.ps1 で orig/Jw_win.exe を実際に動かし、基準線
+ * まで・基準点までの両方で確認: 基準線の両脇に 無関係な線を 1 本ずつ置いた
+ * 図面で 一括処理 後も 選んだ線は元の番号のまま、無関係な線も動かない。
+ * nokori.md「伸縮の一括処理は末尾へ回すかどうか未測定」を解決 -- 原典も
+ * 元の位置のまま、直す必要は無かった）。 */
+static int stretch_inplace;
 
 static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
                         double out)
