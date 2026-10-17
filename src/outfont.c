@@ -501,14 +501,19 @@ static int has(const char *s, const char *t)
     return 0;
 }
 
-int jw_outfont_resolve(const char *face, int *prop)
+/* `force`: resolve as if the outline fonts were switched on, regardless of
+   `enabled`.  jw_outfont_text_width (below) needs this -- `enabled` is a
+   port-only display switch (bitmap font vs. outline while drawing) that the
+   original does not have, and FUN_00493410's GDI measurement happens
+   unconditionally, display switch or not. */
+static int resolve_core(const char *face, int *prop, int force)
 {
     int i;
 
     if (prop)
         *prop = 0;
     i = jw_outfont_find(face);
-    if (i >= 0 || !enabled)
+    if (i >= 0 || (!enabled && !force))
         return i;
     if (face)
         for (i = 0; i < NLATIN; i++)
@@ -528,6 +533,75 @@ int jw_outfont_resolve(const char *face, int *prop)
                  || has(face, "Serif")))
         return 1;
     return 0;
+}
+
+int jw_outfont_resolve(const char *face, int *prop)
+{
+    return resolve_core(face, prop, 0);
+}
+
+/* 字の長さ、間隔 0.01: FUN_00493410 (書体の幅を GDI で測る枝)。
+ * 逆コンパイルの読み、原典では押していない。
+ *
+ * decomp/decomp/all_004894cd.c:5299-5368 FUN_00493410 は
+ *   CreateFontIndirectW(lfHeight = -DAT_009fe124, lfWeight = 400,
+ *                        lfItalic = 0, lfFaceName = 書込みの書体)
+ *   GetTextExtentExPointW(..., 文字列, ...) → local_8c.cx (測った画素幅)
+ *   return (local_8c.cx / DAT_009fe124) * 文字の幅(mm, in_ECX+0xb8)
+ * という式 (呼び手 FUN_004935b0, 同ファイル 5374-5368 行、
+ * `*(double *)(in_ECX+200) == 0.01` の枝 -- src/cmd.c jw_cmd_moji_run の
+ * 間隔 0.01 がこれにあたる)。
+ *
+ * CreateFontIndirectW はフォントを高さ DAT_009fe124 ピクセルで作るので、
+ * stb_truetype の asc-desc (src/outfont.c の F[].asc/F[].desc、
+ * stbtt_GetFontVMetrics、jw_outfont_run の hx[0] = cw/(asc-desc) と同じ
+ * 量) に対して measured_px = Σ_i advance_i * DAT_009fe124/(asc-desc) であり、
+ * DAT_009fe124 は分子・分母で約分されるので、残る式は
+ *   幅(mm) * Σ_i advance_i / (そのグリフを持つフォントの asc - desc)
+ * になる。Windows の GDI を直接呼ぶと WASM 版で結果が変わってしまうので、
+ * ここでは呼ばず、この port が既に持つ stb_truetype の字形データと
+ * jw_outfont_run と同じ書体名の振り分け (jw_outfont_resolve, LATIN[]) を
+ * 使って同じ量を計算する。原典が lfWeight=400・lfItalic=0 で固定して
+ * いるので、太字・斜体フラグはここでは見ない。
+ *
+ * 未読込みのフォントがあれば 0 を返し、呼び手には従来の固定幅の式へ
+ * 戻してもらう -- この要否自体は原典に無い、port 側の都合。
+ * 戻り値: 1 = *out に書いた、0 = 未読込みで計算できない。 */
+int jw_outfont_text_width(const char *face, const char *s, double cw, double *out)
+{
+    int fi, fj;
+    double sum = 0.0;
+    const unsigned char *p;
+
+    *out = 0.0;
+    if (!s || !*s)
+        return 1;
+    fi = resolve_core(face, 0, 1);
+    fj = fi;
+    if (fi == JW_OF_SANS || fi == JW_OF_SERIF)
+        fj = fi == JW_OF_SERIF ? 1 : 0;
+    if (!jw_outfont_ready(fj) || (fi != fj && !jw_outfont_ready(fi)))
+        return 0;
+    for (p = (const unsigned char *)s; *p; ) {
+        int w = is_lead(p[0]) && p[1];
+        unsigned short u[2];
+        long m = jw_to_utf16((const char *)p, w ? 2 : 1, u, 2);
+        int gl = 0, fo = fj, adv = 0, lsb = 0;
+
+        if (m > 0 && u[0] != 0xfffd) {
+            if (fi != fj && (gl = stbtt_FindGlyphIndex(&F[fi].info, u[0])))
+                fo = fi;
+            else
+                gl = stbtt_FindGlyphIndex(&F[fj].info, u[0]);
+        }
+        if (gl) {
+            stbtt_GetGlyphHMetrics(&F[fo].info, gl, &adv, &lsb);
+            sum += (double)adv / (F[fo].asc - F[fo].desc);
+        }
+        p += w ? 2 : 1;
+    }
+    *out = sum * cw;
+    return 1;
 }
 
 /* How the original slants an italic text: FUN_00481d50 widens a text's box
