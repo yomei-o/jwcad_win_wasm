@@ -374,6 +374,48 @@ static void ikk_erase(void)
     ck(strcmp(jw_cmd_prompt(), JW_STR_5389) != 0, "ikk: もう一度で 一括をやめる");
 }
 
+/* 消去 (32794) の 3 段の切断（cut_step、節間消し・一括処理ではないふつうの
+   切断）。cut_line の両方残る枝は cut_tail の有無に関わらず 外して末尾へ
+   足す（上の cut_line の注、原典で測った: tools/jwdraw.ps1 で
+   cmd:32771;200,400;800,400; → cmd:32771;900,100;900,250; →
+   cmd:32771;900,500;900,650; → cmd:32794;500,400;450,400;650,400; と押し、
+   tmp\cut1.jww を見た。切る線が 0 本目、無関係な線が 1・2 本目のとき、
+   切ったあとは 無関係な線が詰まって 0・1 本目になり、切れ端が 左・右の順で
+   2・3 本目に付く）。 */
+static void shoukyo_cut(void)
+{
+    jw_drawing *d;
+    double u1x0, u1y0, u1x1, u1y1, u2x0, u2y0, u2x1, u2y1;
+    double leftx, lefty, rightx, righty;
+
+    fresh();
+    d = (jw_drawing *)app_drawing();
+    line(200, 400, 800, 400);           /* 0: 切る線 */
+    line(900, 100, 900, 250);           /* 1: 無関係 */
+    line(900, 500, 900, 650);           /* 2: 無関係 */
+    leftx = obj(0)->d[0]; lefty = obj(0)->d[1];     /* 切る線の左端 (200,400) */
+    rightx = obj(0)->d[2]; righty = obj(0)->d[3];   /* 切る線の右端 (800,400) */
+    u1x0 = obj(1)->d[0]; u1y0 = obj(1)->d[1];
+    u1x1 = obj(1)->d[2]; u1y1 = obj(1)->d[3];
+    u2x0 = obj(2)->d[0]; u2y0 = obj(2)->d[1];
+    u2x1 = obj(2)->d[2]; u2y1 = obj(2)->d[3];
+    app_command(32794);
+    press(500, 400, 0);                 /* 切る線を指す */
+    press(450, 400, 0);                 /* 切れ目の一つ目 */
+    press(650, 400, 0);                 /* 切れ目の二つ目: ここで切れる */
+    ck(d->ndrawn - n0 == 4, "shoukyo_cut: 一本が二本に増え、四本に");
+    ck(near_(obj(0)->d[0], u1x0) && near_(obj(0)->d[1], u1y0)
+       && near_(obj(0)->d[2], u1x1) && near_(obj(0)->d[3], u1y1),
+       "shoukyo_cut: 無関係な線 1 本目が詰まって 0 本目に");
+    ck(near_(obj(1)->d[0], u2x0) && near_(obj(1)->d[1], u2y0)
+       && near_(obj(1)->d[2], u2x1) && near_(obj(1)->d[3], u2y1),
+       "shoukyo_cut: 無関係な線 2 本目が詰まって 1 本目に");
+    ck(near_(obj(2)->d[0], leftx) && near_(obj(2)->d[1], lefty),
+       "shoukyo_cut: 左の切れ端が 2 本目（末尾）に");
+    ck(near_(obj(3)->d[2], rightx) && near_(obj(3)->d[3], righty),
+       "shoukyo_cut: 右の切れ端が 3 本目（末尾）に");
+}
+
 /* 円弧の伸縮（FUN_0044cfb0 → FUN_0044d190、逆コンパイルの読み、原典では
    押していない）。図面の座標で直に押す */
 static jw_drawing *arcs(void)
@@ -495,6 +537,7 @@ int main(void)
     protrude();
     ikk_stretch();
     ikk_erase();
+    shoukyo_cut();
     arc_point();
     arc_base();
     back_hist();
