@@ -13,6 +13,7 @@ whole element.  They are written out as CP932 bytes because that is how the font
 is indexed, and as escapes so this file stays plain ASCII.
 """
 WANT = [
+    (5206, 'please wait (copy, cut)'),
     (5320, 'the first point of a line'),
     (5321, 'the second point of a line'),
     (5376, 'where to put a point'),

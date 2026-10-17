@@ -35,6 +35,7 @@
 #include "../src/ui.h"
 #include "../src/jww.h"
 #include "../src/view.h"
+#include "../src/gen/prompts.h"
 
 static int fails;
 
@@ -175,6 +176,7 @@ int main(void)
         }
         ck(jw_cmd_clip_copy(d, 0) != 0, "  コピーが通る");
         ck(jw_cmd_clip_has() != 0, "  クリップボードに入る");
+        ck(jw_cmd_notice_id() == 5299 && JW_STR_5206[0], "  札は コピー（お待ちください 5206 は すぐ替わる）");
         ck(jw_cmd_clip_paste(d) != 0, "  貼り付けが 図形 を出す");
         ck(jw_cmd() == (int)JW_CMD_ZUKEI, "  出るのは 図形読込 の命令");
         /* 倍率 (1431) and 回転角 (1412) are on the 図形 bar,
