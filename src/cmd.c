@@ -2175,6 +2175,71 @@ static void num3(char *out, int n, const jw_drawing *d, double mm)
     out[k] = 0;
 }
 
+/* 複線の間隔の丸め -- クロスライン刻み。nokori.md の「状態行の末尾の数」。
+ *
+ * 原典 FUN_006608e0（decomp/byclass/_unassigned.c 246998〜247014 行、
+ * CZukeiFukusen 複線 の間隔取得。CZukeiFukusen.c 1612 行の呼び先は param_1 を
+ * そのまま渡し、1859 行の呼び先は 0x231d を渡して丸めを切る＝ port の JW_CMD_NISEN
+ * 〔箱 1412 の a,b〕に対応する側は常にこの丸めを受けない）の読み:
+ *
+ *   if (doc[0x1780] != 0 && doc[0x176c] != 0 && param_1 != 0x231d) {
+ *       step = FUN_0041ed00();
+ *       i    = (int)(fabs(v)/step + 0.5);
+ *       v    = (v < 0.0) ? -(i*step) : (i*step);
+ *   }
+ *
+ * doc+0x176c は「クロスライン刻み」釦の対・doc+0x177c（CZukeiSen.c 106〜108・1636〜1637、
+ * CZukeiEnko.c 89・1052 行でも同じ対で現れる）で、doc+0x1780 がオン、doc+0x176c が
+ * クロスラインの存在（_unassigned.c 176474〜176482・176639〜176654 行の釦ハンドラが
+ * 両方を一緒に立てる）。step は FUN_0041ed00（_unassigned.c 17306〜17324 行）:
+ *
+ *   step = doc[0x1790];
+ *   if (doc[0x1784] != 0) step /= doc[0x2578 + doc[0x256c]*8];   -- 書込縮尺で割る
+ *   if (ECX[0x38]   != 0) step *= DAT_00a0d630;                   -- m単位係数
+ *
+ * doc+0x1790 の既定値・doc+0x1798・doc+0x179c（単位種別・整数値）の使われ方、
+ * ECX+0x38 の m単位係数 DAT_00a0d630 の実値は逆コンパイルから確定できず、
+ * 「クロスライン刻み」釦自体も port に UI が無いため、既定では丸めを掛けない
+ * （nisen_round_on = 0、安全側）。試験（tests/nisen_test.c・tests/status_test.c）は
+ * jw_cmd_set_nisen_round で明示的に有効にして算術だけを確かめる。
+ * 逆コンパイルの読み、原典では押していない。 */
+static int    nisen_round_on;        /* doc+0x177c && +0x1780 相当。既定 0 */
+static int    nisen_round_scale;     /* doc+0x1784 相当（刻みを書込縮尺で割るか）。既定 0 */
+static double nisen_round_step_mm;   /* doc+0x1790 相当（刻みの生値、図面の単位）。既定 0 */
+
+void jw_cmd_set_nisen_round(int on, int use_scale, double step_mm)
+{
+    nisen_round_on = on;
+    nisen_round_scale = use_scale;
+    nisen_round_step_mm = step_mm;
+}
+
+/* FUN_0041ed00 相当。ECX+0x38 の m単位係数は読んでいないので掛けない */
+static double nisen_round_step(const jw_drawing *d)
+{
+    double step = nisen_round_step_mm;
+
+    if (nisen_round_scale) {
+        double s = write_scale(d);
+
+        if (s > 0.0)
+            step /= s;
+    }
+    return step;
+}
+
+/* FUN_006608e0 247000〜247014 行の丸め枝そのもの: round-half-up を step 刻みで */
+static double nisen_round_apply(double v, double step)
+{
+    double a = v < 0.0 ? -v : v;
+    int i;
+
+    if (step <= 0.0)
+        return v;
+    i = (int)(a / step + 0.5);
+    return v < 0.0 ? -((double)i * step) : (double)i * step;
+}
+
 /* -------------------------------------------------------- 測定 --------
  *
  * 距離測定 —— 命令の既定の歩きです。点を打つたびに、状態表示の末尾が
@@ -5532,6 +5597,11 @@ const char *jw_cmd_status(const jw_drawing *d)
             }
         }
         if (dist >= 0.0) {
+            /* クロスライン刻みの丸め（FUN_006608e0 246998〜247014 行の枝。上の
+               nisen_round_apply の注）。既定では nisen_round_on が立たないので
+               何もしない（安全側）。 */
+            if (nisen_round_on)
+                dist = nisen_round_apply(dist, nisen_round_step(d));
             /* ｍ単位入力 なら ÷DAT_00a0d630 のあと単位の字（FUN_00658890 の 0x14c0。
                逆コンパイルの読み、原典では押していない） */
             /* 小数 3 桁は 切り捨て（原典で測った: 244.8979 → 244.897、1836.7346 → 1,836.734、

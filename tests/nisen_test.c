@@ -610,6 +610,74 @@ static void rr_end(void)
     jw_cmd_set(JW_CMD_NISEN);
 }
 
+/* ---- 複線の間隔の丸め（nokori.md の「状態行の末尾の数」） --------------
+ * JW_CMD_NISEN（この箱 1412 の a,b）は 原典 CZukeiFukusen.c 1859 行の呼び先が
+ * FUN_006608e0 へ 0x231d を渡すため、丸めを受けない（CZukeiFukusen.c 1612 行の
+ * 呼び先だけが受け取った param_1 をそのまま通す＝複線の マウスで間隔を決める側）。
+ * この試験は JW_CMD_FUKUSEN の状態行末尾（dist、src/cmd.c の
+ * jw_cmd_set_nisen_round の note・FUN_006608e0 246998〜247014 行）だけを、
+ * 刻みを明示的に立てて確かめる。port に「クロスライン刻み」釦の UI が無いため
+ * 既定は無効（nisen_round_on = 0）。逆コンパイルの読み、原典では押していない。 */
+static void nisen_round_math(void)
+{
+    jw_drawing *d = empty();
+    const jw_view *v;
+    const char *st;
+    size_t n = strlen(JW_STR_5312);
+    char num[64];
+    int i, k = 0;
+    double got, want;
+
+    if (!d)
+        return;
+    add_line(d, -100.0, 0.0, 100.0, 0.0);
+    app_fit();
+    v = app_view();
+    jw_cmd_set(JW_CMD_FUKUSEN);
+    jw_cmd_point(d, v, 0.0, 0.0, 0);    /* 線を選ぶ */
+
+    /* 刻み 5（図寸mm、縮尺で割らない）。線から 23 図寸mm で 23/5+0.5=5.1 → 5 → 25 */
+    jw_cmd_set_nisen_round(1, 0, 5.0);
+    jw_cmd_track(0.0, 23.0);
+    st = jw_cmd_status(d);
+    ck(!strncmp(st, JW_STR_5312, n), "複線の間隔の丸め: 5312 の末尾に数値が付く");
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 25.0 * wscale(d);
+    ck(fabs(got - want) <= 1e-6, "  刻み 5 図寸mm で 23 → 25 に丸まる（round-half-up）");
+
+    /* 刻み 10、マウスは線の反対側 -14 図寸mm。dist は常に非負（垂線の長さ、
+       jw_cmd_status の di = fabs(...)）なので |14|/10+0.5=1.9 → 1 → 10 */
+    jw_cmd_set_nisen_round(1, 0, 10.0);
+    jw_cmd_track(0.0, -14.0);
+    st = jw_cmd_status(d);
+    k = 0;
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 10.0 * wscale(d);
+    ck(fabs(got - want) <= 1e-6, "  刻み 10 で 14 → 10 に丸まる（反対側でも同じ刻み）");
+
+    /* 丸めを切れば、常に素のまま（既定の安全側） */
+    jw_cmd_set_nisen_round(0, 0, 0.0);
+    jw_cmd_track(0.0, 23.0);
+    st = jw_cmd_status(d);
+    k = 0;
+    for (i = (int)n + 2; st[i] && k < (int)sizeof num - 1; i++)
+        if (st[i] != ',')
+            num[k++] = st[i];
+    num[k] = 0;
+    got = atof(num);
+    want = 23.0 * wscale(d);
+    ck(fabs(got - want) <= 1e-6, "  既定（丸め無効）に戻すと素の 23 のまま");
+    jw_cmd_set(JW_CMD_SEN);
+}
+
 int main(void)
 {
     run("decomp/res/nisen.jww",
@@ -629,6 +697,7 @@ int main(void)
     rr_start(0);
     rr_start(1);
     rr_end();
+    nisen_round_math();
     printf(fails ? "%d failed\n" : "all passed\n", fails);
     return fails != 0;
 }
