@@ -89,6 +89,26 @@ static int near_(double a, double b)
     return fabs(a - b) < 1e-6;
 }
 
+/* 原典は 伸縮した要素を外して末尾へ足す（FUN_0044cfb0 → FUN_0044b270。原典で
+   測った）ので、直した線はいつも図面の最後にある */
+static const jw_obj *last(void)
+{
+    const jw_drawing *d = app_drawing();
+
+    return &d->obj[d->ndrawn - 1];
+}
+
+/* 中心 (cx, cy) の円弧 */
+static jw_obj *arc_at(jw_drawing *d, double cx, double cy)
+{
+    int i;
+
+    for (i = 0; i < d->ndrawn; i++)
+        if (d->obj[i].cls == JW_ENKO && near_(d->obj[i].d[0], cx) && near_(d->obj[i].d[1], cy))
+            return &d->obj[i];
+    return &d->obj[0];
+}
+
 static double wscale(void)
 {
     const jw_drawing *d = app_drawing();
@@ -122,14 +142,14 @@ static void base_line(void)
     v = obj(0);
     vx = v->d[0];
     press(350, 300, 0);
-    h = obj(1);
+    h = last();
     ck(near_(h->d[2], vx) && near_(h->d[3], h->d[1]), "base: 届かない線の右端が基準線へ");
     ck(!strcmp(jw_cmd_prompt(), JW_STR_5337), "base: 基準線は残る");
     press(350, 350, 0);
-    h = obj(2);
+    h = last();
     ck(near_(h->d[2], vx), "base: 越えた線は基準線まで縮む（指した側が残る）");
     press(950, 250, 0);
-    h = obj(3);
+    h = last();
     ck(near_(h->d[0], vx) && h->d[2] > vx, "base: 右側の線は左端が基準線へ");
     ck(app_drawing()->ndrawn - n0 == 4, "base: 線の数は変わらない");
     app_key(27);
@@ -206,14 +226,14 @@ static void protrude(void)
     press(700, 300, 1);
     press(700, 300, 1);
     press(350, 300, 0);
-    h = obj(1);
+    h = last();
     ck(near_(h->d[2], vx + 100.0 / s), "out: 基準線を突出寸法だけ越える");
     app_key(27);
     /* 点まで: 指示点を線に落として、その先へ */
-    x0 = obj(2)->d[0];
+    x0 = obj(1)->d[0];                  /* 350 の線は 直した 300 の線の前にいる */
     press(350, 350, 0);
     press(600, 360, 0);
-    h = obj(2);
+    h = last();
     ck(h->d[2] > obj(1)->d[0] && near_(h->d[0], x0), "out: 点までは右端が動く");
     {
         double want = h->d[2];
@@ -395,17 +415,18 @@ static void arc_point(void)
     jw_cmd_point(d, app_view(), 50 * cos(pi / 3), 50 * sin(pi / 3), 0);
     ck(!strcmp(jw_cmd_prompt(), JW_STR_5338), "arc: 円弧を指すと 0x14da");
     jw_cmd_point(d, app_view(), 100 * cos(2 * pi / 3), 100 * sin(2 * pi / 3), 0);
-    a = &d->obj[0];
+    a = arc_at(d, 0, 0);
     ck(near_(a->d[3], 0.0) && near_(deg(a->d[4]), 120.0), "arc: 終わりが 120 度まで伸びる");
     /* 20 度で指して 60 度: 始まりの側を残して縮む */
     jw_cmd_point(d, app_view(), 50 * cos(pi / 9), 50 * sin(pi / 9), 0);
     jw_cmd_point(d, app_view(), 50 * cos(pi / 3), 50 * sin(pi / 3), 0);
+    a = arc_at(d, 0, 0);
     ck(near_(a->d[3], 0.0) && near_(deg(a->d[4]), 60.0), "arc: 終わりが 60 度へ縮む");
     /* 戻る で一つずつ */
     app_command(JW_CMD_UNDO);
-    ck(near_(deg(d->obj[0].d[4]), 120.0), "arc: 戻る で 120 度に");
+    ck(near_(deg(arc_at(d, 0, 0)->d[4]), 120.0), "arc: 戻る で 120 度に");
     app_command(JW_CMD_UNDO);
-    ck(near_(deg(d->obj[0].d[4]), 90.0), "arc: もう一度で元の 90 度");
+    ck(near_(deg(arc_at(d, 0, 0)->d[4]), 90.0), "arc: もう一度で元の 90 度");
     /* 全円は断る（札 0x1458「円です」） */
     jw_cmd_notice_clear();
     jw_cmd_point(d, app_view(), 230, 0, 0);
@@ -425,7 +446,7 @@ static void arc_base(void)
     jw_cmd_point(d, app_view(), 30, -390, 1);
     ck(!strcmp(jw_cmd_prompt(), JW_STR_5337), "arcbase: 基準線を持つ");
     jw_cmd_point(d, app_view(), 50 * cos(pi / 9), -300 + 50 * sin(pi / 9), 0);
-    a = &d->obj[3];
+    a = arc_at(d, 0, -300);
     ck(near_(a->d[3], -pi / 3) && near_(a->d[3] + a->d[4], atan2(40.0, 30.0)),
        "arcbase: 円弧の終わりが基準線との交点へ");
     ck(!strcmp(jw_cmd_prompt(), JW_STR_5337), "arcbase: 基準線は残る");
@@ -454,8 +475,8 @@ static void back_hist(void)
     press(350, 350, 0);
     ck(!near_(obj(1)->d[2], x1) && !near_(obj(2)->d[2], x2), "back: 二本とも伸びた");
     app_command(JW_CMD_UNDO);
-    h = obj(2);
-    ck(near_(h->d[2], x2) && !near_(obj(1)->d[2], x1)
+    h = obj(1);                         /* 戻した二本目は 外した場所（1 番目）へ戻る */
+    ck(near_(h->d[2], x2) && !near_(obj(2)->d[2], x1)
        && !strcmp(jw_cmd_prompt(), JW_STR_5337), "back: 一つ目の 戻る で二本目だけ、基準線は持ったまま");
     app_command(JW_CMD_UNDO);
     ck(near_(obj(1)->d[2], x1) && !strcmp(jw_cmd_prompt(), JW_STR_5337),

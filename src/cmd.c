@@ -1673,7 +1673,7 @@ static op_item *op_keep(op_t *o, const jw_drawing *d, int at, int removed)
     it = &o->item[o->nitem++];
     it->at = at;
     it->removed = removed;
-    it->was = d->obj[at];
+    memcpy(&it->was, &d->obj[at], sizeof it->was);     /* 余白の位置まで写す */
     return it;
 }
 
@@ -5291,12 +5291,16 @@ void jw_cmd_undo(jw_drawing *d)
             jw_obj *p = jw_add(d, it->was.cls);
             if (p) {
                 int at = it->at < d->ndrawn ? it->at : d->ndrawn - 1;
-                *p = it->was;
-                while (p > &d->obj[at]) {
-                    jw_obj t = p[-1];
-                    p[-1] = p[0];
-                    p[0] = t;
-                    p--;
+                memcpy(p, &it->was, sizeof *p);
+                if (p > &d->obj[at]) {
+                    /* 余白まで動かす（要素ごとの代入だと余白が残って、戻したものが
+                       バイトまでは同じにならない） */
+                    jw_obj t;
+
+                    memcpy(&t, p, sizeof t);
+                    memmove(&d->obj[at + 1], &d->obj[at],
+                            (size_t)(p - &d->obj[at]) * sizeof t);
+                    memcpy(&d->obj[at], &t, sizeof t);
                 }
             }
         }
@@ -6447,7 +6451,10 @@ static int sen_text(const jw_drawing *d, const jw_obj *o, jw_obj *t, int flip)
     t->d[4] = cw;
     t->d[5] = ch;
     t->d[6] = sp;
-    t->d[7] = 0.0;
+    /* 字の角度は 線の向きそのまま（左向きなら 161°、下向きなら -143° のまま
+       反さない）。原典で測った（2026-10-17、5 方向: 0・90・161.0754・15.9454・
+       -143.1301 度）。 */
+    t->d[7] = fabs(dy) < 1e-12 && dx > 0.0 ? 0.0 : atan2(dy, dx) * 180.0 / PI;
     t->n = sun_moji_n();
     t->text = jw_add_str((jw_drawing *)d, txt);
     t->face = jw_add_str((jw_drawing *)d, JW_MOJI_FACE);
@@ -6607,6 +6614,12 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
             ux = cos(a);
             uy = sin(a);
             run = l;
+            /* 丸めた向きが 0・90・180・270 度のときだけ 長さは その向きへの成分
+               （他の角度は 押した長さのまま）。原典で測った（2026-10-17、
+               dx 350 に dy 10・30・40・-30 は 0 度へ丸まり 成分 214.29〔全長なら
+               215.07〕、dy 50 以上は 15 度へ丸まり 全長、dx 10 の縦は 90 度で成分） */
+            if (((int)floor(a / step + 0.5)) % 6 == 0)
+                run = dx * ux + dy * uy;
         } else if (hv) {
             double a = axis_deg * PI / 180.0;
             double ca = cos(a), sa = sin(a);
@@ -6671,6 +6684,7 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
          * the right of the first click when the second was down-right, and
          * up and to the left when it was up-left. */
         double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+        double clx = x, cly = y;        /* 二つ目の押した点 */
         if (wmm > 0.0 && hmm > 0.0) {
             x = sx + (x < sx ? -wmm : wmm);
             y = sy + (y < sy ? -hmm : hmm);
@@ -6729,6 +6743,14 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
                 double dx = x - sx, dy = y - sy;
                 double u = dx * ca + dy * sa, v = -dx * sa + dy * ca;
                 double px[4], py[4];
+                if (wmm > 0.0 && hmm > 0.0) {
+                    /* 寸法と傾きの両方: 一つ目の点を角にして、傾いた x 軸へ 幅、傾いた
+                       y 軸へ 高さ。向きは 二つ目の点が 一つ目のどちら側か（回す前の
+                       紙の x・y で見る）。原典で測った（2026-10-17、傾き 20・-30・30 と
+                       四つの側。3000 で 30 の正方形、3000,2000 で 30×20）。 */
+                    u = clx < sx ? -wmm : wmm;
+                    v = cly < sy ? -hmm : hmm;
+                }
                 px[0] = sx;                py[0] = sy;
                 px[1] = sx + u * ca;       py[1] = sy + u * sa;
                 px[2] = px[1] - v * sa;    py[2] = py[1] + v * ca;
@@ -7588,6 +7610,69 @@ static void erase(jw_drawing *d, int i, op_t *o)
     jw_remove(d, i);
 }
 
+/* 原典は要素を直すとき、複製を直して FUN_0044b270（= FUN_0044b2c0 で古いほうを
+ * 並びから外し、FUN_00447670 で新しいほうを**末尾に**足す）に渡す。FUN_0044cfb0
+ * （コーナー・伸縮の線・円弧・基準線までの伸縮）と FUN_00471e40・FUN_004702f0
+ * （コーナーと伸縮の右の線切断・節間消しの切り口）がそう。原典で測った
+ * （2026-10-17、要素 4 本の図面で: 伸縮した線は末尾へ、コーナーの 2 本は
+ * 「先に指した線、後に指した線」の順で末尾へ、切断は左の切れ端・右の切れ端の
+ * 順で末尾へ）。消去の左の部分消しと面取は元の位置のまま（同じ図面で測った）。
+ * at1 < 0 なら 1 本。外す側は番号の大きいほうから記録する（戻すときは逆順に
+ * 入れ直すので、小さい番号が先に戻る）。 */
+static void tail_replace(jw_drawing *d, op_t *rec, int at0, const jw_obj *n0,
+                         int at1, const jw_obj *n1)
+{
+    jw_obj a, b;
+    int hi, lo;
+
+    memcpy(&a, n0, sizeof a);
+    if (at1 >= 0)
+        memcpy(&b, n1, sizeof b);
+    hi = at1 > at0 ? at1 : at0;
+    lo = at1 > at0 ? at0 : at1;
+    op_keep(rec, d, hi, 1);
+    jw_remove(d, hi);
+    if (lo >= 0) {
+        op_keep(rec, d, lo, 1);
+        jw_remove(d, lo);
+    }
+    {
+        jw_obj *o = jw_add(d, a.cls);
+
+        if (o) {
+            memcpy(o, &a, sizeof *o);
+            if (rec)
+                rec->n++;
+        }
+    }
+    if (at1 >= 0) {
+        jw_obj *o = jw_add(d, b.cls);
+
+        if (o) {
+            memcpy(o, &b, sizeof *o);
+            if (rec)
+                rec->n++;
+        }
+    }
+}
+
+static int cut_tail;            /* cut_line・cut_arc が 切れ端を末尾へ足す（上） */
+
+/* 寸法の値の字の角度（d[7]）: 字の二点（d[0..3]）の向きそのまま。原典で測った
+ * （2026-10-17、傾き 30・90・-20・135 の寸法が 30・90・-20・-45 度、累進が 90 度、
+ * 線の寸法値が 0・90・161.0754・15.9454・-143.1301 度）。読む向きの補正で
+ * 二点が入れ替わった寸法は、その向き（-45 度など）になる。 */
+static double moji_ang(const jw_obj *o)
+{
+    double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
+
+    if (fabs(dx) < 1e-12 && fabs(dy) < 1e-12)
+        return 0.0;
+    if (fabs(dy) < 1e-12)
+        return dx > 0.0 ? 0.0 : 180.0;
+    return atan2(dy, dx) * 180.0 / 3.141592653589793;
+}
+
 /* Cut the piece between two points out of a line -- FUN_00471e40, the arm of
  * FUN_00470200 that handles CDataSen.
  *
@@ -7637,6 +7722,37 @@ static void cut_line(jw_drawing *d, int i, double px, double py,
     rec = op_get();
     if (!keep0 && !keep1) {
         erase(d, i, rec);
+        return;
+    }
+    if (cut_tail) {
+        jw_obj l = was, r = was;
+
+        l.d[2] = ax + t0 * ux;
+        l.d[3] = ay + t0 * uy;
+        r.d[0] = ax + t1 * ux;
+        r.d[1] = ay + t1 * uy;
+        if (keep0 && keep1) {
+            /* 2 本とも末尾へ（左・右の順）。外すのは 1 本 */
+            op_keep(rec, d, i, 1);
+            jw_remove(d, i);
+            {
+                jw_obj *o = jw_add(d, JW_SEN);
+
+                if (o) {
+                    *o = l;
+                    if (rec)
+                        rec->n++;
+                }
+                o = jw_add(d, JW_SEN);
+                if (o) {
+                    *o = r;
+                    if (rec)
+                        rec->n++;
+                }
+            }
+        } else {
+            tail_replace(d, rec, i, keep0 ? &l : &r, -1, 0);
+        }
         return;
     }
     op_keep(rec, d, i, 0);
@@ -7711,6 +7827,15 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
         double gap = turn(u2 - u1);
         if (gap <= 0.0)
             return;
+        if (cut_tail) {
+            jw_obj w2 = was;
+
+            w2.d[3] = turn(a0 + dir * u2);
+            w2.d[4] = dir * (2 * PI - gap);
+            w2.n = 0;
+            tail_replace(d, rec, i, &w2, -1, 0);
+            return;
+        }
         op_keep(rec, d, i, 0);
         d->obj[i].d[3] = turn(a0 + dir * u2);
         d->obj[i].d[4] = dir * (2 * PI - gap);
@@ -7728,6 +7853,35 @@ static void cut_arc(jw_drawing *d, int i, double px, double py,
     keep1 = u2 < span - 1e-07;
     if (!keep0 && !keep1) {
         erase(d, i, rec);
+        return;
+    }
+    if (cut_tail) {
+        jw_obj l = was, r = was;
+
+        l.d[4] = dir * u1;
+        r.d[3] = turn(a0 + dir * u2);
+        r.d[4] = dir * (span - u2);
+        if (keep0 && keep1) {
+            op_keep(rec, d, i, 1);
+            jw_remove(d, i);
+            {
+                jw_obj *o = jw_add(d, JW_ENKO);
+
+                if (o) {
+                    *o = l;
+                    if (rec)
+                        rec->n++;
+                }
+                o = jw_add(d, JW_ENKO);
+                if (o) {
+                    *o = r;
+                    if (rec)
+                        rec->n++;
+                }
+            }
+        } else {
+            tail_replace(d, rec, i, keep0 ? &l : &r, -1, 0);
+        }
         return;
     }
     op_keep(rec, d, i, 0);
@@ -8083,13 +8237,13 @@ static void corner_arc(jw_drawing *d, int a, double ax, double ay,
     if (!cp && !cq)
         return;
     rec = op_new();
-    if (cp) {
-        op_keep(rec, d, a, 0);
-        d->obj[a] = p;
-    }
-    if (cq) {
-        op_keep(rec, d, b, 0);
-        d->obj[b] = q;
+    /* 末尾へ（先に指したほう、後に指したほうの順）。tail_replace の注 */
+    if (cp && cq) {
+        tail_replace(d, rec, a, &p, b, &q);
+    } else if (cp) {
+        tail_replace(d, rec, a, &p, -1, 0);
+    } else {
+        tail_replace(d, rec, b, &q, -1, 0);
     }
 }
 
@@ -8134,8 +8288,10 @@ static void line_cut_r2(jw_drawing *d, const jw_view *v, double x, double y,
         ux /= len;
         uy /= len;
         t = (x - o->d[0]) * ux + (y - o->d[1]) * uy;
+        cut_tail = 1;
         cut_line(d, i, o->d[0] + ux * (t - h), o->d[1] + uy * (t - h),
                  o->d[0] + ux * (t + h), o->d[1] + uy * (t + h));
+        cut_tail = 0;
     } else if (o->cls == JW_ENKO) {
         double ex = x - o->d[0], ey = y - o->d[1], el = sqrt(ex * ex + ey * ey);
 
@@ -8143,8 +8299,10 @@ static void line_cut_r2(jw_drawing *d, const jw_view *v, double x, double y,
             return;
         if (o->d[4] < 0.0)      /* the arc runs the other way round */
             h = -h;
+        cut_tail = 1;
         cut_arc(d, i, x + ey / el * h, y - ex / el * h,
                 x - ey / el * h, y + ex / el * h);
+        cut_tail = 0;
     }
 }
 
@@ -8379,7 +8537,9 @@ static void setsukan(jw_drawing *d, int i, double px, double py)
                     hi = t;
             }
         }
+        cut_tail = 1;
         cut_line(d, i, ax + ux * lo, ay + uy * lo, ax + ux * hi, ay + uy * hi);
+        cut_tail = 0;
         return;
     }
     if (p->cls == JW_ENKO) {
@@ -8456,7 +8616,9 @@ static void setsukan(jw_drawing *d, int i, double px, double py)
             erase(d, i, op_new());
             return;
         }
+        cut_tail = 1;
         cut_arc(d, i, lx, ly, hx, hy);
+        cut_tail = 0;
     }
 }
 #undef SK_EPS
@@ -8466,8 +8628,9 @@ static void setsukan(jw_drawing *d, int i, double px, double py)
  * What survives is the piece on the side the line was clicked: drawing an L
  * with a gap in Jw_cad and clicking each near the gap carries both on to the
  * corner, and clicking two lines that already cross, each on one side, cuts
- * both back to the crossing.  Either way both lines stay where they were in
- * the drawing -- the original changes them in place, it does not remake them.
+ * both back to the crossing.  Both lines are remade and go to the end of the
+ * drawing (tail_replace); they used to look as if they stayed in place only
+ * because the drawing measured had no other element after them.
  */
 static void corner(jw_drawing *d, int a, double ax, double ay,
                    int b, double bx, double by)
@@ -8515,21 +8678,27 @@ static void corner(jw_drawing *d, int a, double ax, double ay,
     cq = ((bx - q->d[0]) * qdx + (by - q->d[1]) * qdy) / (qdx * qdx + qdy * qdy);
 
     rec = op_new();
-    op_keep(rec, d, a, 0);
-    op_keep(rec, d, b, 0);
-    if (cp < tp) {
-        p->d[2] = ix;
-        p->d[3] = iy;
-    } else {
-        p->d[0] = ix;
-        p->d[1] = iy;
-    }
-    if (cq < tq) {
-        q->d[2] = ix;
-        q->d[3] = iy;
-    } else {
-        q->d[0] = ix;
-        q->d[1] = iy;
+    {
+        /* 原典で測った（2026-10-17）: 要素 4 本の図面で 2 本とも末尾へ、先に指した
+           線・後に指した線の順（tail_replace の注）。2 本だけの図面では位置が
+           変わって見えなかった */
+        jw_obj np = *p, nq = *q;
+
+        if (cp < tp) {
+            np.d[2] = ix;
+            np.d[3] = iy;
+        } else {
+            np.d[0] = ix;
+            np.d[1] = iy;
+        }
+        if (cq < tq) {
+            nq.d[2] = ix;
+            nq.d[3] = iy;
+        } else {
+            nq.d[0] = ix;
+            nq.d[1] = iy;
+        }
+        tail_replace(d, rec, a, &np, b, &nq);
     }
 }
 
@@ -14554,6 +14723,23 @@ int jw_cmd_setsudaen(void)
     return current == JW_CMD_SEKIEN && sde_on ? (sde_type ? sde_type : -1) : 0;
 }
 
+/* 接線 の 長さ (1411): 円→円 と 点→円 では、入っていれば 線は 始まりの点から
+ * 他の接点へ向かう向きに その長さ（箱の値 ÷ 書込縮尺）だけ引く。負は逆向き、
+ * 0 か空は接点まで、接点より長くても その長さ。原典で測った（2026-10-17、
+ * 円→円 の上/上・下/下・上/下・下/上、点→円 の 3000・-3000・40000・100 と
+ * 縮尺 1/100: 30・-30・400・1 mm）。角度指定・円上点指定は 始点・終点を押すので
+ * 長さは見ない（3000 を入れても同じ線が出た） */
+static void ses_len(const jw_drawing *d, double sx, double sy, double *ex, double *ey)
+{
+    double L = box_num(jw_cmd_box(1411), 0.0) / write_scale(d);
+    double dx = *ex - sx, dy = *ey - sy, l = sqrt(dx * dx + dy * dy);
+
+    if (fabs(L) < 1e-7 || l < 1e-12)
+        return;
+    *ex = sx + dx / l * L;
+    *ey = sy + dy / l * L;
+}
+
 static void tensen(jw_drawing *d, int b, double px, double py,
                    double x, double y)
 {
@@ -14587,6 +14773,7 @@ static void tensen(jw_drawing *d, int b, double px, double py,
         tx = t2x;
         ty = t2y;
     }
+    ses_len(d, px, py, &tx, &ty);
     o = jw_add(d, JW_SEN);
     if (!o)
         return;
@@ -14630,6 +14817,7 @@ static void sessen(jw_drawing *d, int a, int b, double x, double y)
         }
     if (!have)
         return;
+    ses_len(d, bp[0], bp[1], &bp[2], &bp[3]);
     o = jw_add(d, JW_SEN);
     if (!o)
         return;
@@ -24494,7 +24682,7 @@ static void sunpo_radius(jw_drawing *d, const jw_view *v, double x, double y)
             o->d[4] = cw;
             o->d[5] = ch;
             o->d[6] = sp;
-            o->d[7] = 0.0;
+            o->d[7] = moji_ang(o);
             o->n = sun_moji_n();
             o->text = jw_add_str(d, txt);
             o->face = jw_add_str(d, JW_MOJI_FACE);
@@ -24635,7 +24823,7 @@ static int sunpo_value_obj(jw_drawing *d, double x0, double y0,
     o->d[4] = cw;
     o->d[5] = ch;
     o->d[6] = sp;
-    o->d[7] = 0.0;
+    o->d[7] = moji_ang(o);
     o->n = sun_moji_n();
     o->text = jw_add_str(d, txt);
     o->face = jw_add_str(d, JW_MOJI_FACE);
@@ -24745,7 +24933,7 @@ static void sunpo_angle(jw_drawing *d, double bx, double by)
             o->d[4] = cw;
             o->d[5] = ch;
             o->d[6] = sp;
-            o->d[7] = 0.0;
+            o->d[7] = moji_ang(o);
             o->n = sun_moji_n();
             o->text = jw_add_str(d, txt);
             o->face = jw_add_str(d, JW_MOJI_FACE);
@@ -24843,6 +25031,9 @@ static int sun_head(jw_drawing *d, double tx, double ty, double wx, double wy,
         o = jw_add(d, JW_SEN);
         if (!o)
             break;
+        /* 線の矢羽根も 点・ソリッドと同じ矢印・点色（原典で測った: 点色 1 の設定で
+           2 本とも色 1。移植は色を入れず 書込色 2 になっていた） */
+        o->color = (unsigned short)sun_tencol;
         o->ltype = 1;
         o->flags = (unsigned short)(o->flags | JW_SUN_LINE_FLAGS);
         o->d[0] = tx;
@@ -25193,7 +25384,9 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
            そのときは +v のまま） */
         double tk = sun_eq == 3 ? (ehi[i] == 2 ? -fabs(sun_tsuki) : fabs(sun_tsuki))
                                 : (th - tl >= 0.0 ? -sun_tsuki : sun_tsuki);
-        if (!ehi[i] || eh[i] == tl + tk)
+        /* 原典は傾き 45 で 2 クリックの隔たりが同じ高さのとき 引出線を書かない（測った）。
+           移植は射影の丸めで 1e-14 だけ違い 長さ 0 の線を書いたので、公差を持たせた */
+        if (!ehi[i] || fabs(eh[i] - (tl + tk)) < 1e-9)
             continue;
         o = jw_add(d, JW_SEN);
         if (!o)
@@ -25300,7 +25493,7 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
             o->d[4] = cw;
             o->d[5] = ch;
             o->d[6] = sp;
-            o->d[7] = 0.0;
+            o->d[7] = moji_ang(o);
             o->n = sun_moji_n();
             o->text = jw_add_str(d, txt);
             /* the original's own dimension value carries the font name like
@@ -25548,7 +25741,7 @@ static int ika_gap(jw_drawing *d, double s0, double s1,
     o->d[4] = cw;
     o->d[5] = ch;
     o->d[6] = sp;
-    o->d[7] = 0.0;
+    o->d[7] = moji_ang(o);
     o->n = sun_moji_n();
     o->text = jw_add_str(d, txt);
     o->face = jw_add_str(d, JW_MOJI_FACE);
@@ -28610,6 +28803,8 @@ static double stretch_out(const jw_drawing *d)
    end it is past.  `out` carries it that much further on (FUN_0071a050's
    state 2: in the line's own frame P's x less 突出寸法 when it is not past
    the pick, more when it is). */
+static int stretch_inplace;     /* 一括処理の輪（番号を持ち回る）では 並びを動かさない */
+
 static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
                         double out)
 {
@@ -28626,6 +28821,20 @@ static void stretch_end(jw_drawing *d, int i, double t0, double x, double y,
         t += (t <= t0 ? -out : out) / sqrt(len2);
     nx = o->d[0] + t * dx;
     ny = o->d[1] + t * dy;
+    if (!stretch_inplace) {
+        /* 末尾へ（原典で測った。tail_replace の注） */
+        jw_obj nw = *o;
+
+        if (lo) {
+            nw.d[0] = nx;
+            nw.d[1] = ny;
+        } else {
+            nw.d[2] = nx;
+            nw.d[3] = ny;
+        }
+        tail_replace(d, op_get(), i, &nw, -1, 0);
+        return;
+    }
     op_keep(op_get(), d, i, 0);
     if (lo) {
         o->d[0] = nx;
@@ -28669,8 +28878,12 @@ static int stretch_arc_to(jw_drawing *d, int i, double ix, double iy,
 
     if (c.cls != JW_ENKO || !corner_arc_to(&c, ix, iy, kx, ky))
         return 0;
-    op_keep(op_new(), d, i, 0);
-    d->obj[i] = c;
+    if (!stretch_inplace) {
+        tail_replace(d, op_get(), i, &c, -1, 0);
+    } else {
+        op_keep(op_new(), d, i, 0);
+        d->obj[i] = c;
+    }
     if (c.n == 1)
         JW_NOTICE(5208);
     return 1;
@@ -29070,6 +29283,7 @@ static void ikk_run(jw_drawing *d)
     }
     rec = op_new();
     op_batch = rec;
+    stretch_inplace = 1;
     for (k = 0; k < ikk_n; k++) {
         int i = ikk_at[k];
 
@@ -29098,6 +29312,7 @@ static void ikk_run(jw_drawing *d)
                             ikk_px, ikk_py, stretch_out(d));
         }
     }
+    stretch_inplace = 0;
     op_batch = 0;
     if (rec && !rec->nitem && !rec->n) {
         nop--;                  /* 何も変わらなければ一手にしない */

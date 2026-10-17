@@ -598,7 +598,8 @@ static void corner_cut(void)
     app_command(32786);
     jw_cmd_box_put(1411, "");
     jw_cmd_point(d, app_view(), 40, 0, 1);
-    ck(d->ndrawn == 3 && near_(d->obj[0].d[2], 40) && near_(d->obj[2].d[0], 40)
+    /* 原典の切断は 外して末尾へ足す（左の切れ端、右の切れ端の順）ので 円が先頭に来る */
+    ck(d->ndrawn == 3 && d->obj[0].cls == JW_ENKO && near_(d->obj[1].d[2], 40) && near_(d->obj[2].d[0], 40)
        && near_(d->obj[2].d[2], 100), "コーナー (R): 間隔が空なら 線はそこで二つに");
     jw_cmd_box_put(1411, "10");
     jw_cmd_point(d, app_view(), 70, 0, 1);
@@ -610,14 +611,21 @@ static void corner_cut(void)
             n++;
     ck(n == 2, "  切断間隔 10 なら 65 から 75 が抜ける");
     jw_cmd_point(d, app_view(), 50, 200, 1);
-    o = &d->obj[1];
+    o = &d->obj[d->ndrawn - 1];     /* 円は外されて末尾に足される */
     if (!(o->cls == JW_ENKO && near_(o->d[4], 2 * 3.141592653589793 - 2 * atan(5.0 / 50.0))))
         printf("     arc %g sweep %.12f\n", o->d[3], o->d[4]);
     ck(o->cls == JW_ENKO && near_(o->d[4], 2 * 3.141592653589793 - 2 * atan(5.0 / 50.0)),
        "  円も 接線の向きに間隔のぶん抜けて弧になる");
     n = d->ndrawn;
     jw_cmd_undo(d);
-    ck(d->obj[1].d[4] == 2 * 3.141592653589793, "  戻るで 円に戻る");
+    {
+        int ci = -1;
+
+        for (i = 0; i < d->ndrawn; i++)
+            if (d->obj[i].cls == JW_ENKO)
+                ci = i;
+        ck(ci >= 0 && d->obj[ci].d[4] == 2 * 3.141592653589793, "  戻るで 円に戻る");
+    }
     jw_cmd_box_put(1411, "");
     (void)v;
     (void)n;
