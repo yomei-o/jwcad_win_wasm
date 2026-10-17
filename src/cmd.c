@@ -27016,8 +27016,8 @@ static int hk_edges(const jw_drawing *d, hk_edge *e, int max, double plane_m,
 static int hk_outlines(jw_drawing *d, int half)
 {
     static hk_edge ed[1000], ed2[2000];
-    static hk_seg seg[400], wseg[800];
-    static int cs[400], wlab[800];
+    static hk_seg seg[2000], wseg[4000];
+    static int cs[2000], wlab[4000];
     const char *bs;
     double plane = 4.0, lat = 36.0, north = 0.0, hour, h0, h1;
     hk_cond_t cond;
@@ -27064,36 +27064,22 @@ static int hk_outlines(jw_drawing *d, int half)
 
         hk_sun_shadow(&sun, ts, &x, &y);
         hk_rot(x, y, north, &sx, &sy);
-        n = hk_outline(E, ne, sx, sy, seg, cs, 400);
         {
-            /* 建物の平面の内側にある線は 影ではない（屋根は影に含まれる）。
-               辺の集まりを 偶奇で見た「中」にある線は 外す */
-            int w2 = 0;
+            /* 外形は 辺の網（上の輪・縦の辺・下の輪）の外周を 整数でたどる（hk_outline）。
+               建物の平面の内側の線は 網の外周ではないので 出ない。原典の答え hk_fl1.jww と照合 */
+            hk_trace_t tc;
+            double bx, by;
 
-            for (j = 0; j < n; j++) {
-                double mx = (seg[j].a.x + seg[j].b.x) / 2.0, my = (seg[j].a.y + seg[j].b.y) / 2.0;
-                int in = 0, q;
-
-                for (q = 0; q < ne; q++) {
-                    double ax = E[q].a.x, ay = E[q].a.y, bx = E[q].b.x, by = E[q].b.y;
-
-                    if ((ay > my) != (by > my) &&
-                        mx < ax + (my - ay) * (bx - ax) / (by - ay))
-                        in = !in;
-                }
-                if (!in) {
-                    if (cs[j] || (w2 > 0 && 0)) {
-                    }
-                    seg[w2] = seg[j];
-                    cs[w2] = cs[j];
-                    w2++;
-                } else if (cs[j] && j + 1 < n && !cs[j + 1])
-                    cs[j + 1] = 1;      /* 鎖の頭を外したら 次が頭 */
-            }
-            n = w2;
+            hk_sun_shadow(&sun, cond.n15 ? 0x2a30 : 0x3840, &bx, &by);
+            tc.north = north;
+            tc.have_origin = hk_wall_on;
+            tc.ox = hk_wall_on ? wall.ox : 0.0;
+            tc.oy = hk_wall_on ? wall.oy : 0.0;
+            tc.sunk = sqrt(bx * bx + by * by);
+            n = hk_outline(E, ne, x, y, &tc, seg, cs, 2000);
         }
         if (hk_wall_on) {           /* 日が壁に当たらない時刻は 何も書かない。文字は 数えが 1 の線に */
-            n = hk_wall_segs(&wall, sx, sy, seg, cs, n, wseg, wlab, 800);
+            n = hk_wall_segs(&wall, sx, sy, seg, cs, n, wseg, wlab, 4000);
             S = wseg;
         }
         gid++;

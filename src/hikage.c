@@ -588,206 +588,580 @@ int hk_point_in_quads(const hk_quad *q, int n, double px, double py)
     return 0;
 }
 
-#define MAXPIECE 20000
+/* ------------------------------------------------------------------ */
+/* 日影図の外形: 辺の網（上の輪・縦の辺・下の輪）の外周を整数でたどる      */
+/* [D 0x0053fee0 の主枝、FUN_005484a0（始めの辺）・FUN_00546790（次の辺）・FUN_0053f7f0（向き）・
+ *  FUN_00548950（成分の始点）、網は FUN_00542310 の 0x543a10 以降]。
+ *  逆コンパイルの読み、原典では押していない（答えは 原典の答え decomp/res/hk_fl1.jww と照合）。 */
+/* ------------------------------------------------------------------ */
 
-/* parameter of the intersection of p->q with r->s, or -1 */
-static double seg_t(hk_pt p, hk_pt q, hk_pt r, hk_pt s)
+typedef struct {
+    int *X, *Y, *D, *E1, *E2, *comp, *low, *ord;
+    short *vis;
+} trc_t;
+
+static int t_f(const trc_t *t, int a, int b, int c)       /* FUN_0053f7f0 */
 {
-    double d1x = q.x - p.x, d1y = q.y - p.y, d2x = s.x - r.x, d2y = s.y - r.y;
-    double den = d1x * d2y - d1y * d2x, t, u;
-    if (fabs(den) < 1e-12) return -1.0;
-    t = ((r.x - p.x) * d2y - (r.y - p.y) * d2x) / den;
-    u = ((r.x - p.x) * d1y - (r.y - p.y) * d1x) / den;
-    if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9)
-        return t < 0 ? 0 : t > 1 ? 1 : t;
-    return -1.0;
+    unsigned xa = (unsigned)t->X[a], ya = (unsigned)t->Y[a];
+
+    return (int)(((unsigned)t->X[b] - xa) * ((unsigned)t->Y[c] - ya) -
+                 ((unsigned)t->X[c] - xa) * ((unsigned)t->Y[b] - ya));
 }
 
-static double dist(hk_pt a, hk_pt b) { return hypot(a.x - b.x, a.y - b.y); }
-
-static int cmp_d(const void *a, const void *b)
+/* FUN_005484a0: 始点 C（直前の点 P から入る）から出る辺のうち いちばん手前に回るもの */
+static void t_first(trc_t *t, int P, int C, int *r3, int *r4, int *r5, int *r6, int nn, int ne)
 {
-    double x = *(const double *)a, y = *(const double *)b;
-    return x < y ? -1 : x > y;
+    int i, k, cx = t->X[C], cy = t->Y[C];
+    char *same = (char *)calloc((size_t)nn + 2, 1);
+
+    *r3 = C;
+    *r4 = P;
+    *r5 = ne + 1;
+    *r6 = -1;
+    for (i = 1; i <= nn; i++)
+        same[i] = t->X[i] == cx && t->Y[i] == cy;
+    for (k = 1; k <= ne; k++) {
+        int a = t->E1[k], o = t->E2[k], s = a, v;
+
+        if (!(same[a] != 0) == !(same[o] != 0))
+            continue;
+        if (same[o]) {
+            s = o;
+            o = a;
+        }
+        v = t_f(t, P, C, o);
+        if (*r6 < 0) {
+            if (v < 0) {
+                if (t_f(t, *r3, *r4, o) < 1)
+                    continue;
+            } else if (v == 0)
+                *r6 = 0;
+            else
+                *r6 = 1;
+        } else if (*r6 != 0) {
+            if (v < 1)
+                continue;
+            if (t_f(t, *r3, *r4, o) < 1)
+                continue;
+        } else {
+            if (v < 1)
+                continue;
+            *r6 = 1;
+        }
+        *r3 = s;
+        *r4 = o;
+        *r5 = k;
+    }
+    *r6 = -1;
+    free(same);
 }
 
-static double dist_line(hk_pt p, hk_pt a, hk_pt b)
+/* FUN_00546790: 今の有向辺 p4→p5 に 沿って進み、次に曲がる辺と その交点（X[T2]・Y[T2]）を決める */
+static void t_step(trc_t *t, int p1, int p2, int p4, int p5, int p6, int p7,
+                   int *o8, int *o9, int *o10, int *o11, int V, int ne1, int T2)
 {
-    double ex = b.x - a.x, ey = b.y - a.y, l = hypot(ex, ey);
-    if (l < 1e-12) return dist(p, a);
-    return fabs((p.x - a.x) * ey - (p.y - a.y) * ex) / l;
+    int dx, dy, x4, y4, i, k;
+    double l64 = 0.0;
+    int *D = t->D, *X = t->X, *Y = t->Y;
+
+    *o8 = p5;
+    *o9 = p4;
+    *o10 = p6;
+    *o11 = -1;
+    if (p7 < 0)
+        for (k = 1; k <= ne1; k++)
+            t->vis[k] = 0;
+    dx = (int)((unsigned)X[p5] - (unsigned)X[p4]);
+    dy = (int)((unsigned)Y[p5] - (unsigned)Y[p4]);
+    x4 = X[p4];
+    y4 = Y[p4];
+    for (i = 1; i <= V; i++)
+        D[i] = (int)(((unsigned)dx * (unsigned)Y[i] - (unsigned)X[i] * (unsigned)dy) +
+                     ((unsigned)x4 * (unsigned)dy - (unsigned)dx * (unsigned)y4));
+    for (k = 1; k <= ne1; k++) {
+        int a = t->E1[k], b = t->E2[k], l10 = a, lc = b, v;
+
+        if (D[a] < 0) {
+            if (-1 < D[b]) {
+                if (D[b] < 1)
+                    goto L_aac;
+            L_a07:
+                v = t_f(t, a, b, p4);
+                if (v < 0) {
+                    v = t_f(t, a, b, p5);
+                    if (-1 < v) {
+                        if (v < 1)
+                            goto L_dc5;
+                        goto L_de2;
+                    }
+                } else {
+                    if (0 < v) {
+                        v = t_f(t, a, b, p5);
+                        if (0 < v)
+                            goto cont;
+                        if (v < 0)
+                            goto L_de2;
+                    }
+                L_dc5:
+                    v = t_f(t, a, b, p4);
+                    if (v != 0) {
+                    L_de2:
+                        if (t->vis[k] == 0) {
+                            if (0 < D[a]) {
+                                l10 = b;
+                                lc = a;
+                            }
+                            goto L_e1b;
+                        }
+                    }
+                }
+            }
+        } else {
+            if (0 < D[a]) {
+                if (0 < D[b])
+                    goto cont;
+                if (D[b] < 0)
+                    goto L_a07;
+            }
+        L_aac:
+            v = t_f(t, a, b, p4);
+            if (v < 0) {
+                v = t_f(t, a, b, p5);
+                if (-1 < v) {
+                    if (v < 1)
+                        goto L_b37;
+                L_d73:
+                    if (t->vis[k] == 0) {
+                        if (D[b] == 0) {
+                            l10 = b;
+                            lc = a;
+                        }
+                        if (-1 < D[lc])
+                            goto L_e1b;
+                    }
+                }
+            } else {
+                if (0 < v) {
+                    v = t_f(t, a, b, p5);
+                    if (0 < v)
+                        goto cont;
+                    if (v < 0)
+                        goto L_d73;
+                }
+            L_b37:
+                if (D[a] == 0 && D[b] == 0) {
+                    if (p6 != k) {
+                        if (k != ne1)
+                            t->vis[k] = 1;
+                        if (*o11 < 0) {
+                            int adx = dx < 1 ? -dx : dx, ady = dy < 1 ? -dy : dy, l18, l1c;
+
+                            if (ady < adx) {
+                                l18 = (int)((unsigned)X[a] - (unsigned)X[p5]);
+                                l1c = (int)((unsigned)X[lc] - (unsigned)X[p5]);
+                                if (dx < 0) {
+                                    l18 = -l18;
+                                    l1c = -l1c;
+                                }
+                            } else {
+                                l18 = (int)((unsigned)Y[a] - (unsigned)Y[p5]);
+                                l1c = (int)((unsigned)Y[lc] - (unsigned)Y[p5]);
+                                if (dy < 0) {
+                                    l18 = -l18;
+                                    l1c = -l1c;
+                                }
+                            }
+                            if ((0 < l18 || 0 < l1c) && (l18 < 1 || l1c < 1)) {
+                                if (0 < l18)
+                                    lc = a;
+                                *o11 = 0;
+                                l10 = p5;
+                            L_ff4:
+                                *o8 = l10;
+                                *o9 = lc;
+                                *o10 = k;
+                            }
+                        }
+                    }
+                } else if (t->vis[k] == 0 && t_f(t, a, b, p4) != 0) {
+                    if (D[b] == 0) {
+                        l10 = b;
+                        lc = a;
+                    }
+                    if (D[lc] < 1) {
+                        if (*o11 < 0 && 0 < t_f(t, *o8, *o9, lc))
+                            goto L_ff4;
+                    } else {
+                    L_e1b:
+                        if (p7 < 1 ||
+                            (0 < t_f(t, p1, p2, lc) && (0 < t_f(t, l10, lc, p1) || 0 < t_f(t, l10, lc, p2))) ||
+                            (0 < t_f(t, l10, lc, p1) && 0 < t_f(t, l10, lc, p2))) {
+                            int i2, i3;
+                            double d5;
+
+                            if (*o11 < 1) {
+                            L_fab:
+                                l64 = (double)D[l10];
+                                l64 = l64 / (l64 - (double)D[lc]);
+                                *o11 = 1;
+                                goto L_ff4;
+                            }
+                            i3 = *o9;
+                            i2 = t_f(t, l10, lc, *o8);
+                            i3 = t_f(t, l10, lc, i3);
+                            d5 = (double)i2;
+                            if ((int)((unsigned)i3 - (unsigned)i2) < 0) {
+                                if (d5 / (d5 - (double)i3) <= l64)
+                                    goto L_fab;
+                            } else if (i3 == i2) {
+                                if (d5 < 0.0)
+                                    goto L_fab;
+                            } else if (l64 < d5 / (d5 - (double)i3))
+                                goto L_fab;
+                        } else
+                            t->vis[k] = 1;
+                    }
+                }
+            }
+        }
+    cont:;
+    }
+    t->vis[*o10] = 1;
+    X[T2] = (int)((double)X[*o8] + (double)(int)((unsigned)X[*o9] - (unsigned)X[*o8]) * l64);
+    Y[T2] = (int)((double)Y[*o8] + (double)(int)((unsigned)Y[*o9] - (unsigned)Y[*o8]) * l64);
 }
 
-int hk_outline(const hk_edge *e, int n, double sx, double sy,
+typedef struct { double x, y, zt, zb; } t_node;
+
+static void t_snap(double *c, double *s)               /* FUN_005f9a30 */
+{
+    double ac = fabs(*c), as = fabs(*s);
+
+    if (!(1e-15 <= ac) || as == 1.0)
+        *c = 0.0;
+    if (!(1e-15 <= as) || ac == 1.0)
+        *s = 0.0;
+}
+
+int hk_outline(const hk_edge *e, int n, double dxs, double dys, const hk_trace_t *tc,
                hk_seg *out, int *chain_start, int maxout)
 {
-    hk_quad *q = (hk_quad *)malloc(sizeof(hk_quad) * (size_t)(n > 0 ? n : 1));
-    hk_seg *pc = (hk_seg *)malloc(sizeof(hk_seg) * MAXPIECE);
-    hk_pt *drop_pt = (hk_pt *)malloc(sizeof(hk_pt) * 2 * MAXPIECE);
-    int np = 0, i, j, k, m, changed, ndrop = 0;
-    double *ts = (double *)malloc(sizeof(double) * (size_t)(4 * n + 8));
-    if (!q || !pc || !ts || !drop_pt) { free(q); free(pc); free(ts); free(drop_pt); return 0; }
-    hk_build_quads(e, n, sx, sy, q);
+    t_node *nd = (t_node *)calloc((size_t)(2 * n + 4), sizeof(t_node));
+    int *ea = (int *)calloc((size_t)n + 1, sizeof(int)), *eb = (int *)calloc((size_t)n + 1, sizeof(int));
+    int N = 0, ne0 = 0, nn, ne, V, T1, T2, i, k, ncomp = 0, cnt = 0, ucount = 0, steps = 0, e4;
+    double c, s, ox = 0.0, oy = 0.0, xmin = 0.0, xmax = 0.0, ymin = 0.0, ymax = 0.0, zmax = 0.0, S, A, f1, g;
+    double *XD = 0, *YD = 0, *ZD = 0;
+    trc_t t;
+    int result = 0;
 
-    /* 1. split every quad side at every crossing and keep the pieces with exactly
-     *    one side inside the union (= boundary of the union) */
-    for (i = 0; i < n; i++)
-        for (k = 0; k < 4; k++) {
-            hk_pt a = q[i].p[k], b = q[i].p[(k + 1) & 3];
-            int nt = 2;
-            if (dist(a, b) < 1e-9) continue;
-            ts[0] = 0.0; ts[1] = 1.0;
-            for (j = 0; j < n; j++)
-                for (m = 0; m < 4; m++) {
-                    double t = seg_t(a, b, q[j].p[m], q[j].p[(m + 1) & 3]);
-                    if (t > 1e-9 && t < 1 - 1e-9 && nt < 4 * n + 6) ts[nt++] = t;
-                }
-            qsort(ts, (size_t)nt, sizeof(double), cmp_d);
-            for (m = 0; m + 1 < nt; m++) {
-                hk_pt p, r, mid;
-                double L, nx, ny, ee = 1e-5;
-                int i1, i2;
-                p.x = a.x + (b.x - a.x) * ts[m];     p.y = a.y + (b.y - a.y) * ts[m];
-                r.x = a.x + (b.x - a.x) * ts[m + 1]; r.y = a.y + (b.y - a.y) * ts[m + 1];
-                L = dist(p, r);
-                if (L < 1e-9) continue;
-                mid.x = (p.x + r.x) / 2; mid.y = (p.y + r.y) / 2;
-                nx = -(r.y - p.y) / L; ny = (r.x - p.x) / L;
-                i1 = hk_point_in_quads(q, n, mid.x + nx * ee, mid.y + ny * ee);
-                i2 = hk_point_in_quads(q, n, mid.x - nx * ee, mid.y - ny * ee);
-                if (i1 != i2 && np < MAXPIECE) {
-                    /* orient with the union on the right hand side */
-                    if (i2) { /* inside is on the right (-n side) */
-                        pc[np].a = p; pc[np].b = r;
-                    } else {
-                        pc[np].a = r; pc[np].b = p;
-                    }
-                    np++;
-                }
+    memset(&t, 0, sizeof t);
+    if (!nd || !ea || !eb)
+        goto done;
+    /* 節: 辺の端を 0.01 以内で同じ点とする（原典は 高さの字の点）。辺は両端が別の節のものだけ */
+    for (i = 0; i < n; i++) {
+        int id[2], q;
+        const hk_pt *p[2] = { &e[i].a, &e[i].b };
+        double zt[2] = { e[i].za_mm, e[i].zb_mm }, zb[2] = { e[i].ba_mm, e[i].bb_mm };
+
+        for (q = 0; q < 2; q++) {
+            for (k = 1; k <= N; k++)
+                if (fabs(nd[k].x - p[q]->x) + fabs(nd[k].y - p[q]->y) < 0.01)
+                    break;
+            if (k > N) {
+                N++;
+                nd[N].x = p[q]->x;
+                nd[N].y = p[q]->y;
+                nd[N].zt = zt[q] <= 0.0 ? 0.0 : zt[q];
+                nd[N].zb = zb[q] <= 0.0 ? 0.0 : zb[q];
+            }
+            id[q] = k;
+        }
+        if (id[0] != id[1]) {
+            ea[ne0] = id[0];
+            eb[ne0] = id[1];
+            ne0++;
+        }
+    }
+    if (N < 1 || ne0 < 1)
+        goto done;
+    /* 下の輪の節（N+1..2N）: 上の節の写し、高さは 下の高さ */
+    for (k = 1; k <= N; k++) {
+        nd[N + k].x = nd[k].x;
+        nd[N + k].y = nd[k].y;
+        nd[N + k].zt = nd[k].zb;
+    }
+    nn = 2 * N;
+    ne = 2 * ne0 + N;
+    V = nn + 1;
+    T1 = nn + 2;
+    T2 = nn + 3;
+    /* 辺: 上の輪、縦の辺（節の順）、下の輪 */
+    t.E1 = (int *)calloc((size_t)ne + 3, sizeof(int));
+    t.E2 = (int *)calloc((size_t)ne + 3, sizeof(int));
+    t.vis = (short *)calloc((size_t)ne + 3, sizeof(short));
+    t.X = (int *)calloc((size_t)nn + 6, sizeof(int));
+    t.Y = (int *)calloc((size_t)nn + 6, sizeof(int));
+    t.D = (int *)calloc((size_t)nn + 6, sizeof(int));
+    t.comp = (int *)calloc((size_t)nn + 6, sizeof(int));
+    t.low = (int *)calloc((size_t)nn + 6, sizeof(int));
+    t.ord = (int *)calloc((size_t)nn + 6, sizeof(int));
+    XD = (double *)calloc((size_t)nn + 6, sizeof(double));
+    YD = (double *)calloc((size_t)nn + 6, sizeof(double));
+    ZD = (double *)calloc((size_t)nn + 6, sizeof(double));
+    if (!t.E1 || !t.E2 || !t.vis || !t.X || !t.Y || !t.D || !t.comp || !t.low || !t.ord || !XD || !YD || !ZD)
+        goto done;
+    for (k = 1; k <= ne0; k++) {
+        t.E1[k] = ea[k - 1];
+        t.E2[k] = eb[k - 1];
+    }
+    for (k = 1; k <= N; k++) {
+        t.E1[ne0 + k] = k;
+        t.E2[ne0 + k] = N + k;
+    }
+    for (k = 1; k <= ne0; k++) {
+        t.E1[ne0 + N + k] = N + ea[k - 1];
+        t.E2[ne0 + N + k] = N + eb[k - 1];
+    }
+    /* 模型の枠: 真北の角度の枠で いちばん下の節を原点に（FUN_005f99d0 を 2 回） */
+    c = cos(tc->north * PI / 180.0);
+    s = sin(tc->north * PI / 180.0);
+    t_snap(&c, &s);
+    if (tc->have_origin) {
+        ox = tc->ox;
+        oy = tc->oy;
+    } else {
+        double lo = 90000000000.0;
+
+        for (k = 1; k <= nn; k++) {
+            double v = nd[k].y * c - nd[k].x * s;
+
+            if (v < lo) {
+                lo = v;
+                ox = nd[k].x;
+                oy = nd[k].y;
             }
         }
-
-    /* 2. drop duplicates (coincident quad sides) */
-    {
-        int w = 0;
-        for (i = 0; i < np; i++) {
-            int dup = 0;
-            for (j = 0; j < w; j++)
-                if (dist(pc[i].a, pc[j].a) < 1e-6 && dist(pc[i].b, pc[j].b) < 1e-6) { dup = 1; break; }
-            if (!dup) pc[w++] = pc[i];
-        }
-        np = w;
     }
-    /* 3. drop pieces lying on a plan edge of the building (already drawn) */
+    for (k = 1; k <= nn; k++) {
+        double xf = (nd[k].x - ox) * c + (nd[k].y - oy) * s, yf = (nd[k].y - oy) * c - (nd[k].x - ox) * s;
+
+        XD[k] = xf;
+        YD[k] = yf;
+        ZD[k] = nd[k].zt;
+        if (xmax < xf) xmax = xf;
+        if (xf < xmin) xmin = xf;
+        if (ymax < yf) ymax = yf;
+        if (yf < ymin) ymin = yf;
+        if (zmax < nd[k].zt) zmax = nd[k].zt;
+    }
+    A = (xmax - xmin) * (xmax - xmin) + (ymax - ymin) * (ymax - ymin);
+    if (A < 0.01 || tc->sunk < 0.01)
+        goto done;
+    f1 = sqrt(A) * 1.4;
+    g = (tc->sunk * zmax + f1) * 1.4;
+    for (S = 500.0; 2000000000.0 < f1 * S * g * S; S -= 5.0)
+        ;
+    if (S < 5.0)
+        goto done;
+    for (k = 1; k <= nn; k++) {
+        XD[k] *= S;
+        YD[k] *= S;
+        ZD[k] *= S;
+    }
+    /* 成分（辺でつながる節の組） */
     {
-        int w = 0;
-        for (i = 0; i < np; i++) {
-            int on = 0;
-            for (j = 0; j < n; j++)
-                if (dist(e[j].a, e[j].b) > 1e-9 && e[j].ba_mm <= 0.01 && e[j].bb_mm <= 0.01 &&
-                    dist_line(pc[i].a, e[j].a, e[j].b) < 1e-5 &&
-                    dist_line(pc[i].b, e[j].a, e[j].b) < 1e-5) { on = 1; break; }
-            if (on) {
-                if (ndrop < 2 * MAXPIECE) { drop_pt[ndrop++] = pc[i].a; drop_pt[ndrop++] = pc[i].b; }
+        int a = 0, b = 0, st = 1;
+
+        for (;;) {
+            for (;;) {
+                for (k = st; k <= ne; k++) {
+                    int c1 = t.E1[k], c2 = t.E2[k];
+
+                    if (a == 0 && t.comp[c1] == 0) {
+                        a = 1;
+                        ncomp++;
+                        t.comp[c1] = ncomp;
+                        st = k;
+                    }
+                    if ((t.comp[c1] == 0 || t.comp[c2] == 0) && (t.comp[c1] != 0 || t.comp[c2] != 0)) {
+                        b = 1;
+                        t.comp[c1] = ncomp;
+                        t.comp[c2] = ncomp;
+                    }
+                }
+                if (b == 0)
+                    break;
+                b = 0;
+            }
+            if (a == 0)
+                break;
+            a = 0;
+        }
+    }
+    if (ncomp < 1)
+        goto done;
+    /* 時刻ごと: 上の高さ（切り捨て）に 影のずれ */
+    for (k = 1; k <= nn; k++) {
+        int iz = ZD[k] <= 0.0 ? 0 : (int)ZD[k];
+
+        t.X[k] = (int)((double)iz * dxs + XD[k]);
+        t.Y[k] = (int)((double)iz * dys + YD[k]);
+    }
+    /* FUN_00548950: 成分ごとの いちばん下の節、その順 */
+    {
+        int *mn = (int *)malloc(sizeof(int) * ((size_t)ncomp + 2));
+
+        for (i = 1; i <= ncomp; i++)
+            mn[i] = 2000000000;
+        for (k = 1; k <= nn; k++) {
+            int cc = t.comp[k];
+
+            if (0 < cc && t.Y[k] < mn[cc]) {
+                mn[cc] = t.Y[k];
+                t.low[cc] = k;
+            }
+        }
+        for (i = 1; i <= ncomp; i++) {
+            int best = 1, bv = 1000000000;
+
+            for (k = 1; k <= ncomp; k++)
+                if (mn[k] < bv) {
+                    bv = mn[k];
+                    best = k;
+                }
+            t.ord[i] = best;
+            mn[best] = 2000000000;
+        }
+        free(mn);
+    }
+    t.X[V] = t.X[t.low[t.ord[1]]];
+    t.Y[V] = t.Y[t.low[t.ord[1]]] - 100;
+    t.E1[ne + 1] = V;
+    for (e4 = 1; e4 <= ncomp; e4++) {
+        int cc = t.ord[e4], P, C, r3, r4, r5, r6;
+        double px, py;
+
+        if (!(0 < t.low[cc]))
+            continue;
+        t.E2[ne + 1] = t.low[cc];
+        P = V;
+        C = t.low[cc];
+        t_first(&t, P, C, &r3, &r4, &r5, &r6, nn, ne);
+        if (r4 == V)
+            continue;
+        t.X[T2] = t.X[C];
+        t.Y[T2] = t.Y[C];
+        px = (double)t.X[T2] / S;
+        py = (double)t.Y[T2] / S;
+        do {
+            int Po = P, Co = C;
+            double qx, qy;
+
+            if (1999 < steps) {
+                cnt = 0;
+                goto done;
+            }
+            steps++;
+            t.X[T1] = t.X[T2];
+            t.Y[T1] = t.Y[T2];
+            P = r3;
+            C = r4;
+            {
+                int o3, o4, o5, o6;
+
+                t_step(&t, Po, Co, r3, r4, r5, r6, &o3, &o4, &o5, &o6, V, ne + 1, T2);
+                r3 = o3;
+                r4 = o4;
+                r5 = o5;
+                r6 = o6;
+            }
+            qx = (double)t.X[T2] / S;
+            qy = (double)t.Y[T2] / S;
+            /* 辺の両端の高さが どちらも 0.01 以下なら 書かない（地面の輪）。長さ 0 も書かない */
+            if (0.01 < ZD[P] || 0.01 < ZD[C]) {
+                if (px == qx && py == qy)
+                    ucount = 0;
+                else {
+                    ucount++;
+                    if (cnt < maxout) {
+                        out[cnt].a.x = c * px - s * py + ox;
+                        out[cnt].a.y = s * px + c * py + oy;
+                        out[cnt].b.x = c * qx - s * qy + ox;
+                        out[cnt].b.y = s * qx + c * qy + oy;
+                        chain_start[cnt] = ucount == 1;
+                        cnt++;
+                    }
+                }
             } else
-                pc[w++] = pc[i];
-        }
-        np = w;
-    }
-    /* 4. merge head-to-tail collinear pieces */
-    do {
-        changed = 0;
-        for (i = 0; i < np && !changed; i++)
-            for (j = 0; j < np && !changed; j++) {
-                double v1x, v1y, v2x, v2y;
-                if (i == j) continue;
-                if (dist(pc[i].b, pc[j].a) >= 1e-6) continue;
-                v1x = pc[i].b.x - pc[i].a.x; v1y = pc[i].b.y - pc[i].a.y;
-                v2x = pc[j].b.x - pc[j].a.x; v2y = pc[j].b.y - pc[j].a.y;
-                if (fabs(v1x * v2y - v1y * v2x) < 1e-6 * hypot(v1x, v1y) * hypot(v2x, v2y) &&
-                    v1x * v2x + v1y * v2y > 0) {
-                    pc[i].b = pc[j].b;
-                    pc[j] = pc[np - 1];
-                    np--;
-                    changed = 1;
-                }
-            }
-    } while (changed);
+                ucount = 0;
+            px = qx;
+            py = qy;
+            /* あとの成分が この外周の内なら 外す（半直線の数え） */
+            if (e4 < ncomp) {
+                int e5;
 
-    /* 5. chain: start from pieces whose start is nobody's end */
-    {
-        int *used = (int *)calloc((size_t)(np > 0 ? np : 1), sizeof(int));
-        int cnt = 0;
-        for (i = 0; i < np && used; i++) {
-            int has_pred = 0;
-            if (used[i]) continue;
-            for (j = 0; j < np; j++)
-                if (j != i && dist(pc[j].b, pc[i].a) < 1e-6) { has_pred = 1; break; }
-            if (has_pred) continue;
-            for (k = i; k >= 0 && cnt < maxout; ) {
-                int nxt = -1;
-                used[k] = 1;
-                out[cnt] = pc[k];
-                chain_start[cnt] = (k == i);
-                cnt++;
-                for (j = 0; j < np; j++)
-                    if (!used[j] && dist(pc[k].b, pc[j].a) < 1e-6) { nxt = j; break; }
-                k = nxt;
-            }
-        }
-        /* closed loops (no start): emit the rest */
-        for (i = 0; i < np && used; i++) {
-            if (used[i]) continue;
-            for (k = i; k >= 0 && cnt < maxout; ) {
-                int nxt = -1;
-                used[k] = 1;
-                out[cnt] = pc[k];
-                chain_start[cnt] = (k == i);
-                cnt++;
-                for (j = 0; j < np; j++)
-                    if (!used[j] && dist(pc[k].b, pc[j].a) < 1e-6) { nxt = j; break; }
-                k = nxt;
-            }
-        }
-        free(used);
-        /* 原典は 鎖を「いちばん下（y 最小）、同じなら いちばん右（x 最大）」の頂点から回して書く。
-           建物の平面の辺（書かない）も そのまわりの一周には入っている。
-           その頂点が 鎖の途中なら そこから始め、前の部分を あとに回す [V c2・c8（夏）] */
-        {
-            hk_pt S;
-            int have = 0, c0, c1;
+                t.low[t.comp[P]] = 0;
+                for (e5 = e4 + 1; e5 <= ncomp; e5++) {
+                    int c2 = t.ord[e5], sn;
 
-            for (i = 0; i < 2 * np + ndrop; i++) {
-                hk_pt p = i < 2 * np ? (i & 1 ? pc[i / 2].b : pc[i / 2].a) : drop_pt[i - 2 * np];
-                if (!have || p.y < S.y - 1e-6 || (fabs(p.y - S.y) <= 1e-6 && p.x > S.x + 1e-6)) {
-                    S = p;
-                    have = 1;
-                }
-            }
-            for (c0 = 0; have && c0 < cnt; c0 = c1) {
-                hk_seg tmp[1024];
-                int len, r = -1;
+                    if (t.low[c2] == 0)
+                        continue;
+                    sn = t.low[c2] < 1 ? -t.low[c2] : t.low[c2];
+                    if (t.D[sn] == 0) {
+                        int ddx = (int)((unsigned)t.X[C] - (unsigned)t.X[P]), ddy = (int)((unsigned)t.Y[C] - (unsigned)t.Y[P]);
 
-                for (c1 = c0 + 1; c1 < cnt && !chain_start[c1]; c1++)
-                    ;
-                len = c1 - c0;
-                for (k = 1; k < len; k++)
-                    if (dist(out[c0 + k].a, S) < 1e-6) { r = k; break; }
-                if (r > 0 && len <= 1024) {
-                    memcpy(tmp, out + c0, sizeof(hk_seg) * (size_t)len);
-                    for (k = 0; k < len; k++) {
-                        out[c0 + k] = tmp[(k + r) % len];
-                        chain_start[c0 + k] = (k == 0);
+                        if (ddx != 0 || ddy != 0) {
+                            int ax = ddx < 1 ? -ddx : ddx, ay = ddy < 1 ? -ddy : ddy;
+
+                            if (ay < ax) {
+                                if (ddx < 1) {
+                                    if (t.X[sn] < t.X[C] || t.X[P] < t.X[sn])
+                                        continue;
+                                } else if (t.X[sn] < t.X[P] || t.X[C] < t.X[sn])
+                                    continue;
+                            } else if (ddy < 1) {
+                                if (t.Y[sn] < t.Y[C] || t.Y[P] < t.Y[sn])
+                                    continue;
+                            } else if (t.Y[sn] < t.Y[P] || t.Y[C] < t.Y[sn])
+                                continue;
+                            t.low[c2] = 0;
+                        }
+                    } else if ((t.Y[T1] < t.Y[sn] || t.Y[T2] < t.Y[sn]) &&
+                               (t.Y[sn] <= t.Y[T1] || t.Y[sn] <= t.Y[T2])) {
+                        if (t.Y[T1] < t.Y[T2]) {
+                            if (t.D[sn] < 1)
+                                t.low[c2] = -t.low[c2];
+                        } else if (0 < t.D[sn])
+                            t.low[c2] = -t.low[c2];
                     }
-                    /* 開いた鎖は 平面の辺を書かなかったところで 切れたまま（別の鎖）。閉じた輪なら 一本 */
-                    if (dist(tmp[len - 1].b, tmp[0].a) > 1e-6)
-                        chain_start[c0 + len - r] = 1;
                 }
             }
+        } while (r4 < V);
+        for (i = e4 + 1; i <= ncomp; i++) {
+            int c2 = t.ord[i];
+
+            if (t.low[c2] < 1)
+                t.low[c2] = 0;
         }
-        free(q); free(pc); free(ts); free(drop_pt);
-        return cnt;
     }
+    result = cnt;
+done:
+    free(nd);
+    free(ea);
+    free(eb);
+    free(t.E1);
+    free(t.E2);
+    free(t.vis);
+    free(t.X);
+    free(t.Y);
+    free(t.D);
+    free(t.comp);
+    free(t.low);
+    free(t.ord);
+    free(XD);
+    free(YD);
+    free(ZD);
+    return result;
 }
 
 int hk_wall_segs(const hk_wall *w, double sx, double sy, const hk_seg *in, const int *chain_start,

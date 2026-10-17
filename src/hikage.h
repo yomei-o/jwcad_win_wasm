@@ -136,16 +136,15 @@ typedef struct { hk_pt p[4]; } hk_quad;
 int  hk_build_quads(const hk_edge *e, int n, double sx, double sy, hk_quad *q);
 int  hk_point_in_quads(const hk_quad *q, int n, double px, double py);
 
-/* One time of 日影図 (button 日影図): the boundary of the union of the quads,
- * minus the pieces that lie on a plan edge of the building, merged into maximal
- * straight runs, oriented clockwise (shadow region on the right hand) and
- * chained.  Writes segments into out[] grouped in chains: chain_start[i]=1 for
- * the first segment of every chain.  Returns the number of segments.
- * [V sample: the 18 outlines of 日影図.jww reproduce within 0.02 mm] The chain
- * start vertex of the original is the tangent vertex where the shadow leaves
- * the footprint; ordering (not geometry) is [G] for several buildings. */
+/* 日影図の 一時刻の外形の線。辺の網の外周をたどって 書く辺を out[] へ（hk_outline 参照）。 */
 typedef struct { hk_pt a, b; } hk_seg;
-int  hk_outline(const hk_edge *e, int n, double sx, double sy,
+/* 外形の追跡の枠。north: 真北の角度（模型の枠の回転）、have_origin のとき (ox, oy) が枠の原点（壁面日影の w->ox, oy）、
+ * なければ いちばん下の節。sunk: 影の長さの比（日の出から 4 時間（9 時〜15 時の設定なら 3 時間）の 1/tan 高度。
+ * 整数の目盛 S の決定に使う）。 */
+typedef struct { double north; int have_origin; double ox, oy; double sunk; } hk_trace_t;
+/* dxs・dys: 影の 高さ 1 あたりの ずれ（真北で回す前の、枠の中の値）。辺の網の外周を 整数でたどり、
+ * 書く辺（どちらかの端の高さが 0 より上）だけを out へ。chain_start[i] = 1 は 数え 1 の線（鎖の頭）。 */
+int  hk_outline(const hk_edge *e, int n, double dxs, double dys, const hk_trace_t *tc,
                 hk_seg *out, int *chain_start, int maxout);
 /* FUN_005415e0 と 閉じる辺。out に 切った辺を書き、数を返す。原典の札で終わるときは
  * -5534（0x159e「壁面線が建物通過」）か -5532（0x159c「中庭等、建物を分割してください」）。
