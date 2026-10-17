@@ -570,6 +570,8 @@ int jw_cmd_zokusei_at(jw_drawing *d, const jw_view *v, double x, double y);
    図形の終わりへ。keep_layer は 基本設定 1523（レイヤは元のまま、札 6004）。1 なら替えた */
 int jw_cmd_clock_senshu(jw_drawing *d, const jw_view *v, double x, double y,
                         int keep_layer);
+/* クロックメニュー 左 AM 4 範囲選択: 押した点 (x, y) を箱の一つ目の角に（範囲選択 に入ったあとで） */
+void jw_cmd_clock_hani(jw_drawing *d, double x, double y);
 /* 右ボタンのクロック PM 1〜12（FUN_0076d330）の角度・長さ取得を 押した点 (x, y) で。
    二点・三点のもの（2・3・9・10）は 続きの押しを待つ（src/cmd.c の注）。1 なら何か起きた */
 int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y);   /* 左 PM 6【全】属性取得の 箱への書込み（線のとき） */
