@@ -309,6 +309,64 @@ int main(void)
         }
     }
 
+    /* ------------------------------------------------ 反転した参照の中の画像
+       （nokori.md「ブロック」の残り: 画像の文字列の角度を反転でどう変えるか）
+       FUN_0048f7f0（decomp/byclass/_unassigned.c:62975-63092、818 バイト、
+       9 callers）を読んだ: 名前のあとの数を "%lg,...,%d,%d,%d" で読み、w・h が
+       0.001 未満なら何もせず、そうでなければ "^@BM" を書き直すだけの関数
+       （名前が "d:\data\030806\" のときの作者の試しの行も入っている）。角度
+       には関わらない。これを呼ぶ 倍率の字の枝 FUN_00465f40（同 45148 行、
+       3817 バイト。blk_text_post の注にある「前は 始点と終点を入れ替えて
+       いた」の読みもここ）は、画像でも ほかの字でも +0xd0（d[7]）を 写った
+       基線（始点・終点）から取り直すだけで、"^@BM" の中の角度（六つ目の数、
+       jw_pic_angle）を書き換える枝は無い。回転の字の枝 FUN_0046e210 →
+       FUN_0046d800 → FUN_0048fb30 が その角度に足すが、それは src/imgpic.c
+       の jw_pic_xform にすでに入っていて、倍率が 1・回転が 0 のとき
+       （反転だけで 追加の回転が無いとき）は 何もしない（jw_pic_xform の
+       scaled・turned が両方 0、行 605-611）。つまり 画像の枠そのものの角度
+       （jw_pic_angle）は 反転でも変わらず、字としての向き（+0xd0）・幅・
+       高さ・間隔の符号だけが ふつうの字と同じに反転する。すでに
+       jw_obj_blkput（blkput0 → blk_text_post）が どの JW_MOJI にも同じ式を
+       使っているので、ここでは 同じ始点・終点・大きさ・角の 字と画像を
+       同じ反転参照に掛けて d[] が一致すること・画像自身の角度だけ変わらない
+       ことを確かめる。逆コンパイルの読み、原典では押していない */
+    {
+        jw_obj ref, txt_o, pic_o;
+        jw_pic p;
+        double a0 = 20.0 * 3.14159265358979323846 / 180.0, len = 8.0;
+        const char *pic_text = "^@BMnone.bmp,20,10,0,0,1,30,255,255,255";
+
+        memset(&ref, 0, sizeof ref);
+        ref.cls = JW_BLOCK;
+        ref.d[2] = -1.0;        /* sx: 反転（符号違い） */
+        ref.d[3] = 1.0;         /* sy */
+
+        memset(&txt_o, 0, sizeof txt_o);
+        txt_o.cls = JW_MOJI;
+        txt_o.d[0] = 5.0;
+        txt_o.d[1] = 3.0;
+        txt_o.d[2] = txt_o.d[0] + cos(a0) * len;
+        txt_o.d[3] = txt_o.d[1] + sin(a0) * len;
+        txt_o.d[4] = 2.0;
+        txt_o.d[5] = 2.0;
+        txt_o.d[6] = 0.3;
+        txt_o.d[7] = 20.0;
+        pic_o = txt_o;
+        pic_o.text = jw_add_str(&d, pic_text);
+
+        jw_obj_blkput(&txt_o, &ref);
+        jw_obj_blkput(&pic_o, &ref);
+
+        ck(near(pic_o.d[0], txt_o.d[0]) && near(pic_o.d[1], txt_o.d[1]) &&
+           near(pic_o.d[2], txt_o.d[2]) && near(pic_o.d[3], txt_o.d[3]) &&
+           near(pic_o.d[4], txt_o.d[4]) && near(pic_o.d[5], txt_o.d[5]) &&
+           near(pic_o.d[6], txt_o.d[6]) && near(pic_o.d[7], txt_o.d[7]),
+           "反転した参照: 画像の字としての向き（+0xd0）・幅高さ間隔の符号は ふつうの字と同じ式");
+        ck(!strcmp(jw_str(&d, pic_o.text), pic_text), "  \"^@BM\" の字はそのまま");
+        ck(jw_pic_parse(&d, &pic_o, &p) && near(p.d, 30.0),
+           "  画像自身の角度（\"^@BM\" の六つ目の数、jw_pic_angle）は 反転でも変わらない");
+    }
+
     /* ------------------------------------------------ 入れ子のブロック
        内: 基点 (10,0)・倍率 x2 y1・0°、外: 基点 (50,0)・倍率 x1 y2・90°。
        原典の FUN_0042b460 は 段ごとに内から 倍率・回転・移動 を掛けるので
