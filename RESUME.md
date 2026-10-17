@@ -8,7 +8,7 @@ Jw_cad 10.03.6 を逆コンパイルから C に書き直したものです。
 
 ## 始め方
 
-`git pull` → `sh tools/qtest.sh`（約 68 本 ok、末尾 `diff 0` が正常、手元で 4 分）。
+`git pull` → `sh tools/qtest.sh`（約 69 本 ok、末尾 `diff 0` が正常、手元で 4 分）。
 全件は `sh tools/check.sh`（25 分。たまに）。wasm は `tools/build_wasm.sh`、ブラウザ確認は `tools/web/cdp*.js`。
 
 守ること: 答えは原典（逆コンパイルの読みは可、「逆コンパイルの読み、原典では押していない」と書く）。

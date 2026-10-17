@@ -160,8 +160,16 @@ static void sizekeep_test(void)
     jw_cmd_box_put(1412, "2500");
     app_command(JW_CMD_ENKO);
     app_command(JW_CMD_SEN);
-    ck(!strcmp(bx(1411), "") && !strcmp(bx(1412), "2500"),
-       "  2493 入: 入り直すと 傾き は空、寸法 は前の値");
+    ck(!strcmp(bx(1411), "") && !strcmp(bx(1412), ""),
+       "  2493 入でも 打っただけで読まれていない寸法は戻らない（原典で測った）");
+    app_command(JW_CMD_SEN);
+    jw_cmd_box_put(1412, "12.50");
+    jw_cmd_point((jw_drawing *)app_drawing(), app_view(), 10.0, 10.0, 0);
+    jw_cmd_point((jw_drawing *)app_drawing(), app_view(), 90.0, 40.0, 0);   /* 二点目で読む */
+    app_command(JW_CMD_ENKO);
+    app_command(JW_CMD_SEN);
+    ck(!strcmp(bx(1411), "") && !strcmp(bx(1412), "12.5"),
+       "  2493 入: 読んだ値が戻る（12.50 → 12.5。傾き は空）");
     kh_press(1, 2493);
     kh_ok();
     app_command(JW_CMD_ENKO);

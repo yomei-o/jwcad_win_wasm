@@ -276,6 +276,14 @@ echo "=== 距離指定点 —— 箱の距離だけ離れた所に点を置く"
 ./tests/kyoriten_test.exe | sed 's/^/    /'
 
 echo
+echo "=== 複線 1068・1069 を範囲選択のあとに —— 原典の答え（decomp/res/fksel）と同じ線を足す"
+./tests/fksel_test.exe | sed 's/^/    /'
+
+echo
+echo "=== 回った・反転した参照の中の字・縦書き —— ブロック解除の原典の答え（decomp/res/blkrot_*）"
+./tests/blkrot_test.exe | sed 's/^/    /'
+
+echo
 echo "=== 目盛基準点 —— 目盛を刻む原点を動かす一手"
 ./tests/mesh_test.exe | sed 's/^/    /'
 

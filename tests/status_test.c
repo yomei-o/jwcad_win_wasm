@@ -995,9 +995,9 @@ static void moji_hani_clip(void)
     ck(app_command(57635) && moji_texts(d) == 0
        && jw_cmd_moji_clip(&b, &n) && n == 9, "切り取りは字を消して控える");
     ck(jw_cmd_notice_id() == 5299, "  札「コピー」（0x14b3）");
-    ck(jw_cmd_moji_ready(), "  バー（+0x5d4）は下ろさない");
+    ck(!jw_cmd_moji_ready(), "  バー（+0x5d4）は下りる（原典で測った。コピーでは残る）");
     click(50.0, -30.0);
-    ck(!jw_cmd_moji_ready(), "  図面を押すと下りる");
+    ck(!jw_cmd_moji_ready(), "  図面を押しても下りたまま");
     app_command(JW_CMD_MOJI);
     ck(!app_command(57634) && jw_cmd_notice_id() == 5201,
        "選択が空のコピーは札「図形がありません」（0x1451）");

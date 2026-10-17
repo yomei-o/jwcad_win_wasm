@@ -1108,8 +1108,9 @@ static void blkput0(jw_obj *o, const jw_obj *ref)
  *     (-1,1)・(1,-1): +0xd0 は -元の角（0, -30, -90, -150, 60）
  *     (-1,-1)       : +0xd0 は 元の角のまま（180° 回しなので）
  *   前は 始点と終点を入れ替えていた（FUN_00465f40 の読み）が 原典の答えと違った。
- *   縦書き（+0x44 & 0x20）と 参照が回っているときは 測っていない（回りは写した向き a に
- *   入る）。blkput0 で 点を写したあとに呼ぶ */
+ *   縦書き（+0x44 & 0x20）は 180° を足す条件が sx でなく sy（下の注）。参照が回っているときも
+ *   同じ式（回りは写した向き a に入る。2026-10-17 に 角 0・30・90・200・-60 × 符号 4 通り × 横・縦
+ *   で測った: tests/blkrot_test.c）。blkput0 で 点を写したあとに呼ぶ */
 static void blk_text_post(jw_obj *o, double sx, double sy)
 {
     double ex, ey, len, a;
@@ -1121,7 +1122,11 @@ static void blk_text_post(jw_obj *o, double sx, double sy)
     len = sqrt(ex * ex + ey * ey);
     if (len > 1e-12) {
         a = atan2(ey, ex);
-        if (sx < 0.0)
+        /* 縦書き（+0x44 & 0x20）は 180° を足す条件が 幅（sx）でなく 高さ（sy）の符号
+           （FUN_00466e30 の 0x468549〜: d7 を atan2(終点-始点) にしたあと、横書きは +0xb8 < 0、
+           縦書きは +0xc0 < 0 のとき atan2(始点-終点) に替える）。原典で測った:
+           decomp/res/blkrot_v_base.jww → blkrot_v_free.jww（縦書き 5 本 × 角 5 つ × 符号 4 つ） */
+        if ((o->flags & 0x20) ? sy < 0.0 : sx < 0.0)
             a += 3.141592653589793;
         o->d[2] = o->d[0] + len * cos(a);
         o->d[3] = o->d[1] + len * sin(a);

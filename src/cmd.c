@@ -2482,9 +2482,19 @@ static double kata_rad(void)
     return have_kata ? get_kata : 0.0;
 }
 
+/* 2493 入 で 線 に入り直したとき 寸法 の箱に戻る値は 「最後に読んだ値」（doc+0x83f0）。
+ * 原典で測った（2026-10-17、kihon:77,2493 で入にして 線: 寸法に 7*3 を打って二点を押す →
+ * 他の命令へ出て 線に戻ると 21、12.50 → 12.5、打っただけで読まれていない字は戻らない）。
+ * 読むのは 線の二点目（プレビューの動きを含むかは 測っていない）。 */
+static char sen_kept[40];
+
 static double naga_mm(const jw_drawing *d)
 {
     double v = box_mm(d, 1412);
+    const char *rt = jw_cmd_box_raw(1412);
+
+    if (rt && *rt)
+        snprintf(sen_kept, sizeof sen_kept, "%.15g", box_num(rt, 0.0));
 
     return v > 0.0 ? v : (have_naga ? get_naga : 0.0);
 }
@@ -3825,7 +3835,7 @@ static int fk_has_sel(void)
         return 0;
     for (i = 0; i < last_dr->ndrawn; i++)
         if (last_dr->obj[i].sel && (last_dr->obj[i].cls == JW_SEN ||
-            (last_dr->obj[i].cls == JW_ENKO && fabs(last_dr->obj[i].d[6] - 1.0) < 1e-9)))
+            last_dr->obj[i].cls == JW_ENKO))   /* 円弧・楕円も 並びに入る（原典で測った: decomp/res/fksel/CA4・CA7） */
             return 1;
     return 0;
 }
@@ -4224,12 +4234,12 @@ void jw_cmd_set(int id)
            (+0x958) は毎回 0、寸法 の箱 (+0xaa0) は 基本設定 一般(2) 2493「線
            コマンドの指定寸法値を保持する」（DAT_00a0cc38、SizeKeep）が 0 なら 0、
            立っていれば 前の値（doc+0x83f0。箱を読む FUN_005bdb30 が読むたびに書く）。
-           移植の箱は命令ごとに字を持つので、保持のときは箱の字をそのまま残す（打って
-           まだ読まれていない字も残る）。線 のまま押し直す（水平･垂直 の入れ替え）は
-           バーを作り直さないとみて触らない。逆コンパイルの読み、原典では押していない */
+           保持のとき 戻るのは 最後に読んだ値（sen_kept の注。原典で測った: 打っただけで
+           読まれていない字は戻らず、読んだ 7*3 は 21、12.50 は 12.5）。線 のまま押し直す
+           （水平･垂直 の入れ替え）はバーを作り直さないとみて触らない。傾き が毎回空なのは
+           逆コンパイルの読み */
         box_put_raw(1411, "");
-        if (!sen_sizekeep)
-            box_put_raw(1412, "");
+        box_put_raw(1412, sen_sizekeep ? sen_kept : "");
     }
     bk_rr_n = 0;                /* FUN_0075b070: +0x138 = 0 */
     bk_gyaku = bk_senchou = bk_umeji = 0;   /* 分割の補助設定（FUN_007619c0 で 0） */
@@ -16896,6 +16906,34 @@ int jw_cmd_block_attr(jw_drawing *d, int prefer_layer)
     return n;
 }
 
+/* ブロック解除で出た字の走る長さは、写したあとの幅（縦書き +0x44&0x20 なら高さ）・間隔 の
+ * 符号つきの値で 字の長さの式（FUN_004935b0(1)、jw_cmd_moji_run）にかけ直した絶対値
+ * （向きは写した始点→終点のまま）。原典で測った（decomp/res/blkrot_{h,v}3_base.jww → _free.jww:
+ * 幅 4・高さ 3・間隔 0.3 で 字数 1〜5 の字を 角 0・30・90・200・-60 × 倍率の符号 4 通りで戻し、
+ * 入れた長さ 5 と関係なく 横書きは 2・4.15・6.3・8.45・10.6、縦書きは 反転が一つのとき
+ * 1.5・2.85・4.2・5.55・6.9（幅と間隔の符号が逆になるので短い）、そうでなければ 1.5・3.15・4.8…。
+ * 回していない・反転しない (1,1) の参照でも同じ）。逆コンパイルでは 0x466e30 の続きの 0x46c0e0 などに
+ * ある字の移動の後始末とみえるが、式の出どころは 実測 */
+static void blk_moji_len(const jw_drawing *d, jw_obj *o)
+{
+    const char *t = o->text >= 0 ? jw_str(d, o->text) : 0;
+    double w = (o->flags & 0x20) ? o->d[5] : o->d[4];
+    double L = fabs(jw_cmd_moji_run(t, w, o->d[6]));
+    double ex = o->d[2] - o->d[0], ey = o->d[3] - o->d[1], l0 = hypot(ex, ey), ux, uy;
+
+    if (!t)
+        return;
+    if (l0 > 1e-12) {
+        ux = ex / l0;
+        uy = ey / l0;
+    } else {
+        ux = cos(o->d[7] * 3.141592653589793 / 180.0);
+        uy = sin(o->d[7] * 3.141592653589793 / 180.0);
+    }
+    o->d[2] = o->d[0] + L * ux;
+    o->d[3] = o->d[1] + L * uy;
+}
+
 /* ブロック解除 (32909).  Every reference picked gives its definition's
  * elements back, put where the reference is and turned and scaled the way it
  * is.  They take the reference's layer and layer group but keep their own
@@ -16959,8 +16997,29 @@ int jw_cmd_block_free(jw_drawing *d)
                 if (copy.cls == JW_BLOCK) {
                     jw_block_scale_xy(d, &copy, 0.0, 0.0, bx, by, 0.0);
                     jw_obj_xform(&copy, 0.0, 0.0, 1.0, ref.d[4], ref.d[0], ref.d[1]);
-                } else
+                } else {
                     jw_obj_blkput(&copy, &ref);
+                    if (copy.cls == JW_MOJI) {
+                        jw_pic p;
+
+                        if (!jw_pic_parse(d, &copy, &p)) {      /* 画像は jw_pic_xform が */
+                            if (bx >= 0.0 && by >= 0.0 && fabs(ref.d[4]) >= 1e-07) {
+                                /* 反転しない参照: 回転 FUN_0046d800 が +0xd0 に 角（度）を足して
+                                   (-180, 180] に折り、1e-7 以下は 0 に（原典で測った:
+                                   decomp/res/blkrot_h_base.jww → blkrot_h_free.jww）。反転した参照の
+                                   +0xd0 は jw_obj_blkput が 写った基線から決めている */
+                                double a = copy.d[7] + ref.d[4] * 180.0 / 3.141592653589793;
+
+                                while (a > 180.0)
+                                    a -= 360.0;
+                                while (a <= -180.0)
+                                    a += 360.0;
+                                copy.d[7] = fabs(a) <= 1e-07 ? 0.0 : a;
+                            }
+                            blk_moji_len(d, &copy);
+                        }
+                    }
+                }
                 jw_pic_xform(d, &copy, &was, bx > by ? bx : by, ref.d[4]);
             }
             p = jw_add(d, copy.cls);
@@ -17913,10 +17972,15 @@ int jw_cmd_clip_copy(jw_drawing *d, int cut)
     clip_n = n;
     ms_clip_take(d);            /* 選んだ文字は字の並びとしても（FUN_004fb140） */
     JW_NOTICE(5299);            /* 札「コピー」（FUN_004fb731 の 0x14b3） */
-    /* 文字の範囲選択のバー（CZukeiMoji +0x5d4 = ms_text）は切り取りで下ろさない:
-       FUN_004fb140・FUN_004fb731 は +0x5d4 に触れず、下ろすのは図面を押したとき
-       （CZukeiMoji の押下で FUN_0044c830 のあと +0x5d4 = 0）だけ。字は無くなっても
-       バー（貼付・文書）は次に押すまで残る。逆コンパイルの読み、原典では押していない */
+    /* 文字の範囲選択のバー（CZukeiMoji +0x5d4 = ms_text）: コピーでは残り（貼付・文書・SJIS）、
+       切り取りでは下りる（ふつうの文字のバー: 文読 が出て 文書 は効かなくなる）。原典で測った:
+       文字 32806 で二つ置き、範囲選択 2407 → 囲んで Enter → コピー 57634／切り取り 57635 のあと
+       `bar`（decomp/res/…の代わりに 状態行と釦の並びで見た、2026-10-17）。読み
+       （FUN_004fb140・FUN_004fb731 は +0x5d4 に触れない）は 切り取りについて外れていた */
+    if (cut && current == JW_CMD_MOJI) {
+        ms_text = 0;
+        ms_go = 0;
+    }
     if (cut) {
         /* straight out, without the 範囲選択 walk's own conditions:
            the original, given three lines and a range round them, left
@@ -21244,6 +21308,412 @@ int jw_cmd_moji_go(void)
     return g;
 }
 
+/* 複線の 両側複線 (1068)・留線付両側複線 (1069) を、選んだ図形の並びにかける
+ * （FUN_0065be40 → FUN_0065e9e0(param_1 = 1069 なら 1, 間隔, 留線出)、0x65e9e0〜0x660720）。
+ * 原典で測った（2026-10-17、decomp/res/fksel/*.jww、tools/fksel.sh・tests/fksel_test.c）:
+ * 範囲選択（cmd:32787）で囲んだ線を並びにして 1068・1069 を押した答え 19 通りの全部の本数・順・
+ * 座標を 1e-9 まで写している。読みは `objdump -d` の 0x65e9e0〜0x660720・0x6568a0 と decomp。
+ *
+ * 並びは選択（+0x174）。線と円・円弧だけが残る（他は FUN_00574f40 で外す）。並びの図形 L ごとに:
+ *   - 両側の写し A（+間隔、左）・B（-間隔）を L の複製から FUN_0046b600 で作る。線は 線の向きの左右へ
+ *     直角にずらす（FUN_0046b820、長さ |dx|+|dy| < 1e-7 は作れず L は何も出さない）。円・円弧は
+ *     半径を ±間隔（FUN_0046b6b0、短半径 r*扁平+-間隔 も 1e-7 を超え、扁平率が 0.0099999〜100.0000001）。
+ *   - 線 L は FUN_0040c140（+0x5b、始点側）・FUN_00610960（+0x5c、終点側）を 0 にして、並びの他の
+ *     M について: M の端点（線は +8/+0x18、円弧は始点・終点。全円は並びに入らない扱い、両端が 1e-7 で
+ *     重なる線も同じ）が L の端と 1e-7 以内（FUN_0065e930）なら その側の旗を 1。M が線なら 二本の
+ *     無限直線の交点（FUN_004619b0。平行 |d4-d5| <= 1e-7 は無し）が L 座標 x で -間隔〜長さ+間隔、
+ *     M の端点の x が その幅に掛かり、y が ±間隔 に掛かるとき: x <= 間隔 なら 始点旗 1・M を始点の
+ *     相手に（最後のもの）、x >= 長さ-間隔 なら 終点旗 1・M を終点の相手に、間隔 < x < 長さ-間隔 なら
+ *     表（500 本まで）に (x, M) を足す。
+ *   - 1069 は 旗が 0 の端に 蓋: A・B の端を (-留線出, ±間隔) / (長さ+留線出, ±間隔)（L 座標）へ出し、
+ *     あとで その二点を結ぶ蓋の線を足す。
+ *   - 旗が立って 相手 M がある端は A・B の端を 角へ（FUN_006568a0: L の ±間隔 の線と M の ±間隔 の線の
+ *     交点。M は L 座標の y が大きいほうが始点になるよう端を入れ替え、L の側が +間隔 なら M の y(始点) <
+ *     間隔 のとき、-間隔 なら y(終点) > -間隔 のとき M の側の符号を反す）。始点は (+,+)・(-,+)、
+ *     終点は (+,-)・(-,-)（L の側, M の側）。
+ *   - 表は x の昇順（選択整列）。M ごとに M の y(端点) のどちらかが 間隔 を超えれば A を、-間隔 を下回れば B を
+ *     M の手前で切る: 切れ端 (A の今の始点 → 角(+間隔,-間隔))、A の始点を 角(+間隔,+間隔)・B は
+ *     (-間隔,-間隔)・(-間隔,+間隔)。切れ端・蓋は FUN_00660720（両座標の差が共に 1e-7 未満なら足さない）。
+ *   - 足す順は 切れ端（表の順）、蓋（始点側・終点側）、A、B（A・B は 両座標の差が共に 1e-7 以下なら足さない）。
+ * Shift+Ctrl（iStack_14748、四角の ソリッドを足す）は 本物のキーが要るので 入れていない。
+ * 戻りは 足した本数。only >= 0 ならその一つだけの並び（選んだ一つの円）。 */
+typedef struct { double ox, oy, c, s, len; } fk_fr;
+
+static void fk_fr_set(fk_fr *f, double x1, double y1, double x2, double y2)
+{
+    double dx = x2 - x1, dy = y2 - y1;
+
+    f->ox = x1;
+    f->oy = y1;
+    if (1e-07 <= fabs(dx) + fabs(dy)) {         /* FUN_005f97f0 */
+        f->len = sqrt(dx * dx + dy * dy);
+        f->c = dx / f->len;
+        f->s = dy / f->len;
+    } else {
+        f->c = 1.0;
+        f->s = 0.0;
+        f->len = 1.0;
+    }
+}
+
+static double fk_lx(const fk_fr *f, double x, double y)      /* FUN_005f8b60 (1, x, y) */
+{
+    return (x - f->ox) * f->c + (y - f->oy) * f->s;
+}
+
+static double fk_ly(const fk_fr *f, double x, double y)      /* FUN_005f8c20 (1, x, y) */
+{
+    return (y - f->oy) * f->c - (x - f->ox) * f->s;
+}
+
+static void fk_fw(const fk_fr *f, double lx, double ly, double *x, double *y)   /* FUN_005f8ce0 */
+{
+    double t = lx;
+
+    *x = (f->c * t - f->s * ly) + f->ox;
+    *y = f->c * ly + f->s * t + f->oy;
+}
+
+/* FUN_004619b0: 二本の線（無限直線）の交点。戻り 0 は 平行など（点は 9.99e12 のまま） */
+static int fk_isect(const double *L, const double *M, double *p)
+{
+    double ex = L[2] - L[0], ey = L[3] - L[1], fx = M[2] - M[0], fy = M[3] - M[1];
+    double d4 = (M[1] - L[1]) * ex - (M[0] - L[0]) * ey;
+    double d5 = (M[3] - L[1]) * ex - (M[2] - L[0]) * ey;
+    double t;
+
+    p[0] = p[1] = 9990000000000.0;
+    if (!(1e-07 < fabs(d4 - d5)))
+        return 0;
+    if (fabs(d4) > fabs(d4 - d5) * 10000000000.0)
+        return 0;
+    t = d4 / (d4 - d5);
+    p[0] = fx * t + M[0];
+    p[1] = fy * t + M[1];
+    if (fabs(p[0]) + fabs(p[1]) > 139778713.93879598)
+        return 0;
+    if (L[0] == L[2])
+        p[0] = L[0];
+    if (L[1] == L[3])
+        p[1] = L[1];
+    if (M[0] == M[2])
+        p[0] = M[0];
+    if (M[1] == M[3])
+        p[1] = M[1];
+    return 1;
+}
+
+/* FUN_006568a0(L, M, 間隔の側 offL, M の側 offM): L の offL の線と M の offM の線の交点 */
+static void fk_corner(const double *L, const double *M0, double offL, double offM, double *out)
+{
+    fk_fr fl, fm;
+    double M[4], ys, ye, a[4], b[4], q[2];
+
+    fk_fr_set(&fl, L[0], L[1], L[2], L[3]);
+    memcpy(M, M0, sizeof M);
+    ys = fk_ly(&fl, M[0], M[1]);
+    ye = fk_ly(&fl, M[2], M[3]);
+    if (ye > ys) {                      /* 0x656abf: y の大きいほうを始点に */
+        double t;
+
+        t = M[0]; M[0] = M[2]; M[2] = t;
+        t = M[1]; M[1] = M[3]; M[3] = t;
+        t = ys; ys = ye; ye = t;
+    }
+    if (0.0 < offL && ys < fabs(offL))
+        offM = -offM;
+    if (offL < 0.0 && -fabs(offL) < ye)
+        offM = -offM;
+    fk_fw(&fl, 0.0, offL, &a[0], &a[1]);
+    fk_fw(&fl, fl.len, offL, &a[2], &a[3]);
+    fk_fr_set(&fm, M[0], M[1], M[2], M[3]);
+    fk_fw(&fm, 0.0, offM, &b[0], &b[1]);
+    fk_fw(&fm, fm.len, offM, &b[2], &b[3]);
+    fk_isect(a, b, q);
+    out[0] = q[0];
+    out[1] = q[1];
+}
+
+/* FUN_0046b820: 線を向きの左（side = 1）・右（-1）へ 直角に g だけ */
+static void fk_off_line(const double *L, double side, double g, double *o)
+{
+    fk_fr f;
+    double x1, y1, x2, y2, t;
+
+    fk_fr_set(&f, L[0], L[1], L[2], L[3]);
+    x1 = fk_lx(&f, L[0], L[1]);
+    y1 = fk_ly(&f, L[0], L[1]);
+    x2 = fk_lx(&f, L[2], L[3]);
+    y2 = fk_ly(&f, L[2], L[3]);
+    t = side * g;
+    y1 = t + y1;
+    y2 = t + y2;
+    fk_fw(&f, x1, y1, &o[0], &o[1]);
+    fk_fw(&f, x2, y2, &o[2], &o[3]);
+}
+
+/* CDataEnko の slot 13 (FUN_0043af40): 0 = 全円、1 = 始終点が重なる、2 = 円弧（点を p・q へ） */
+static int fk_arc_ends(const jw_obj *o, double *p, double *q)
+{
+    double r = o->d[2], a0 = o->d[3], sw = o->d[4], tl = o->d[5], fl = o->d[6];
+    double c = cos(tl), s = sin(tl), x, y, dd;
+
+    x = r * cos(a0);
+    y = r * sin(a0) * fl;
+    p[0] = (c * x - s * y) + o->d[0];
+    p[1] = c * y + s * x + o->d[1];
+    x = r * cos(a0 + sw);
+    y = r * sin(a0 + sw) * fl;
+    q[0] = (c * x - s * y) + o->d[0];
+    q[1] = c * y + s * x + o->d[1];
+    dd = fabs(sw);
+    if (fabs(dd - 6.283185307179586) <= 1e-07 || o->n == 1)
+        return 0;
+    if (fabs(q[0] - p[0]) <= 1e-07 && fabs(q[1] - p[1]) <= 1e-07)
+        return 1;
+    return 2;
+}
+
+static int fk_pt_eq(double ax, double ay, double bx, double by)    /* FUN_0065e930 */
+{
+    return fabs(ax - bx) <= 1e-07 && fabs(ay - by) <= 1e-07;
+}
+
+/* FUN_00660720: 差が両座標とも 1e-7 未満なら足さない */
+static int fk_add_line(jw_drawing *d, double x1, double y1, double x2, double y2)
+{
+    jw_obj *o;
+
+    if (fabs(x1 - x2) < 1e-07 && fabs(y1 - y2) < 1e-07)
+        return 0;
+    o = jw_add(d, JW_SEN);
+    if (!o)
+        return 0;
+    o->d[0] = x1;
+    o->d[1] = y1;
+    o->d[2] = x2;
+    o->d[3] = y2;
+    return 1;
+}
+
+/* FUN_0046b6b0: 円・円弧の半径を side * g だけ。作れなければ 0 */
+static int fk_off_enko(const jw_obj *L, double side, double g, double *r2, double *fl2)
+{
+    double r = L->d[2], fl = L->d[6], nr, mn;
+
+    if (side < 1.0) {
+        nr = r - g;
+        mn = r * fl - g;
+    } else {
+        nr = r + g;
+        mn = r * fl + g;
+    }
+    if (nr <= 1e-07 || mn <= 1e-07)
+        return 0;
+    if (fabs(fl - 1.0) > 1e-07)
+        fl = mn / nr;
+    if (fl < 0.0099999 || 100.0000001 < fl)
+        return 0;
+    *r2 = nr;
+    *fl2 = fl;
+    return 1;
+}
+
+static int fk_sel_both(jw_drawing *d, int cap, double g, double tome, int only)
+{
+    int n = d->ndrawn, nl = 0, i, j, made = 0;
+    jw_obj *src;
+
+    if (g < 1e-07)
+        return 0;
+    src = (jw_obj *)malloc(sizeof(jw_obj) * ((size_t)n + 1));
+    if (!src)
+        return 0;
+    for (i = 0; i < n; i++) {
+        const jw_obj *o = &d->obj[i];
+
+        if ((only >= 0 ? i == only : o->sel) && !o->sub
+            && (o->cls == JW_SEN || o->cls == JW_ENKO))
+            src[nl++] = *o;
+    }
+    for (i = 0; i < nl; i++) {
+        const jw_obj *L = &src[i];
+        double Lc[4], A[4], B[4];
+        fk_fr fl;
+        int sflag = 0, eflag = 0, ms = -1, me = -1, nc = 0, k;
+        double cx[500];
+        int cm[500];
+
+        if (L->cls == JW_ENKO) {
+            double r2, f2;
+
+            for (k = 0; k < 2; k++) {
+                if (!fk_off_enko(L, k ? -1.0 : 1.0, g, &r2, &f2))
+                    continue;
+                if (fabs(L->d[0] - r2) <= 1e-07 && fabs(L->d[1] - L->d[3]) <= 1e-07)
+                    continue;           /* 0x6603cc: +8・+0x18 と +0x10・+0x20（写しの半径と始角） */
+                {
+                    jw_obj *o = jw_add(d, JW_ENKO);
+                    int m;
+
+                    if (!o)
+                        break;
+                    for (m = 0; m < 8; m++)
+                        o->d[m] = L->d[m];
+                    o->n = L->n;
+                    o->d[2] = r2;
+                    o->d[6] = f2;
+                    made++;
+                }
+            }
+            continue;
+        }
+        memcpy(Lc, L->d, sizeof Lc);
+        fk_fr_set(&fl, Lc[0], Lc[1], Lc[2], Lc[3]);
+        if (!(1e-07 <= fabs(Lc[2] - Lc[0]) + fabs(Lc[3] - Lc[1])))
+            continue;                   /* 写しが作れない */
+        if (fabs(Lc[2] - Lc[0]) <= 1e-07 && fabs(Lc[3] - Lc[1]) <= 1e-07)
+            continue;                   /* slot 13 が 2 を返さない */
+        fk_off_line(Lc, 1.0, g, A);
+        fk_off_line(Lc, -1.0, g, B);
+        for (j = 0; j < nl; j++) {
+            const jw_obj *M = &src[j];
+            double mp[4], pt[2], xs, xe, ys, ye, xi;
+
+            if (j == i)
+                continue;
+            if (M->cls == JW_SEN) {
+                memcpy(mp, M->d, sizeof mp);
+                if (fabs(mp[2] - mp[0]) <= 1e-07 && fabs(mp[3] - mp[1]) <= 1e-07)
+                    continue;
+            } else if (fk_arc_ends(M, &mp[0], &mp[2]) != 2)
+                continue;
+            if (fk_pt_eq(Lc[0], Lc[1], mp[0], mp[1]) || fk_pt_eq(Lc[0], Lc[1], mp[2], mp[3]))
+                sflag = 1;
+            if (fk_pt_eq(Lc[2], Lc[3], mp[0], mp[1]) || fk_pt_eq(Lc[2], Lc[3], mp[2], mp[3]))
+                eflag = 1;
+            if (M->cls != JW_SEN)
+                continue;
+            if (!fk_isect(Lc, mp, pt))
+                continue;
+            xs = fk_lx(&fl, mp[0], mp[1]);
+            xe = fk_lx(&fl, mp[2], mp[3]);
+            if (xs > fl.len + g && xe > fl.len + g)
+                continue;
+            if (-g > xs && -g > xe)
+                continue;
+            ys = fk_ly(&fl, mp[0], mp[1]);
+            ye = fk_ly(&fl, mp[2], mp[3]);
+            if (ys > g && ye > g)
+                continue;
+            if (-g > ys && -g > ye)
+                continue;
+            xi = fk_lx(&fl, pt[0], pt[1]);
+            if (-g > xi || xi > fl.len + g)
+                continue;
+            if (!(g < xi)) {
+                sflag = 1;
+                ms = j;
+            }
+            if (!(xi < fl.len - g)) {
+                eflag = 1;
+                me = j;
+            }
+            if (xi > g && fl.len - g > xi && nc < 500) {
+                cx[nc] = xi;
+                cm[nc] = j;
+                nc++;
+            }
+        }
+        /* 蓋の端（旗が 0 のとき、1069）: A・B の端を (-留線出, ±間隔) へ */
+        if (!sflag && cap) {
+            fk_fw(&fl, -tome, g, &A[0], &A[1]);
+            fk_fw(&fl, -tome, -g, &B[0], &B[1]);
+        }
+        if (!eflag && cap) {
+            fk_fw(&fl, fl.len + tome, g, &A[2], &A[3]);
+            fk_fw(&fl, fl.len + tome, -g, &B[2], &B[3]);
+        }
+        if (ms >= 0) {
+            fk_corner(Lc, src[ms].d, g, g, &A[0]);
+            fk_corner(Lc, src[ms].d, -g, g, &B[0]);
+        }
+        if (me >= 0) {
+            fk_corner(Lc, src[me].d, g, -g, &A[2]);
+            fk_corner(Lc, src[me].d, -g, -g, &B[2]);
+        }
+        for (k = 0; k < nc; k++) {          /* 選択整列（先に見つけた最小が勝つ） */
+            int m, best = -1;
+            double bv = 9e+20;
+
+            for (m = k; m < nc; m++)
+                if (bv > cx[m]) {
+                    bv = cx[m];
+                    best = m;
+                }
+            if (best >= 0) {
+                double tx = cx[k];
+                int tm = cm[k];
+
+                cx[k] = cx[best];
+                cm[k] = cm[best];
+                cx[best] = tx;
+                cm[best] = tm;
+            }
+        }
+        for (k = 0; k < nc; k++) {
+            const double *M = src[cm[k]].d;
+            double ys = fk_ly(&fl, M[0], M[1]), ye = fk_ly(&fl, M[2], M[3]), p1[2], p2[2];
+
+            if (g < ys || g < ye) {
+                fk_corner(Lc, M, g, -g, p1);
+                fk_corner(Lc, M, g, g, p2);
+                made += fk_add_line(d, A[0], A[1], p1[0], p1[1]);
+                A[0] = p2[0];
+                A[1] = p2[1];
+            }
+            if (ys < -g || ye < -g) {
+                fk_corner(Lc, M, -g, -g, p1);
+                fk_corner(Lc, M, -g, g, p2);
+                made += fk_add_line(d, B[0], B[1], p1[0], p1[1]);
+                B[0] = p2[0];
+                B[1] = p2[1];
+            }
+        }
+        if (cap) {
+            double ax, ay, bx, by;
+
+            if (!sflag) {
+                fk_fw(&fl, -tome, g, &ax, &ay);
+                fk_fw(&fl, -tome, -g, &bx, &by);
+                made += fk_add_line(d, ax, ay, bx, by);
+            }
+            if (!eflag) {
+                fk_fw(&fl, fl.len + tome, g, &ax, &ay);
+                fk_fw(&fl, fl.len + tome, -g, &bx, &by);
+                made += fk_add_line(d, ax, ay, bx, by);
+            }
+        }
+        for (k = 0; k < 2; k++) {
+            const double *Q = k ? B : A;
+            jw_obj *o;
+
+            if (fabs(Q[0] - Q[2]) <= 1e-07 && fabs(Q[1] - Q[3]) <= 1e-07)
+                continue;
+            o = jw_add(d, JW_SEN);
+            if (!o)
+                break;
+            o->d[0] = Q[0];
+            o->d[1] = Q[1];
+            o->d[2] = Q[2];
+            o->d[3] = Q[3];
+            made++;
+        }
+    }
+    free(src);
+    return made;
+}
+
 /* バーの釦の右押し（原典は釦の組ごとに WM_RBUTTONUP を持つ）。受けたら 1。
  *   - 印刷の 基準点 (1066): 押すたびに回る釦の組（WM_LBUTTONUP FUN_00550280、
  *     WM_RBUTTONUP FUN_00550310）の右は 左・下 (0) に戻す
@@ -21563,6 +22033,22 @@ int jw_cmd_bar(jw_drawing *d, int id)
         int k;
         fk_ten = 0;             /* slot 25・29・30 は +0x284 を 0 に */
 
+        if (d && id != 1064 && gap > 0.0
+            && (fk_selmode || (base >= 0 && base < d->ndrawn && d->obj[base].cls == JW_ENKO))) {
+            /* 選んだ並び（範囲選択のあと）・一つの円や円弧: 上の fk_sel_both（FUN_0065e9e0）。
+               終わると 原典は「複線にする図形を選択してください」（状態 0）に戻り、元の図形は
+               選んだまま（フラグ +0x44 の選択ビットが残る。原典で測った） */
+            const char *tt = jw_cmd_box(1412);
+            double tome = id == 1069 && tt && *tt ? box_num(tt, 0.0) / write_scale(d) : 0.0;
+            int made = fk_sel_both(d, id == 1069, gap, tome, fk_selmode ? -1 : base);
+
+            if (made)
+                op_push(made);
+            fk_selmode = 0;
+            para_obj = -1;
+            para_step = 0;
+            return 1;
+        }
         if (!d || base < 0 || base >= d->ndrawn
             || d->obj[base].cls != JW_SEN)
             return 1;
