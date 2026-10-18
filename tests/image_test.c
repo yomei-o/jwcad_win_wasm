@@ -528,6 +528,70 @@ int main(void)
         shot_diff("移動の仮表示", "decomp/res/img_ghost.png", 1200);   /* the circles' sizes and the cursor's own pixel are guesses */
     }
 
+    /* ---- 複写・移動 の ﾏｳｽ倍率・角 中の仮表示（画像）。原典 CZukeiFukusha
+     * slot 6 FUN_0064d290 の 状態 3（ﾏｳｽ倍率 +0xfd18 == 3 か 角 +0xfd40 == 3）は
+     * マウスの点を三つ目にして FUN_0064f350（倍率 X・Y、decomp/decomp/all_005c7556.c
+     * 59113 行）・FUN_0064f900（回転角、同 59261〜59410 行）を通し、
+     * FUN_00653e10 で 選んだ要素ごとの写しを描く。この経路は src/cmd.c の
+     * sel_ghost_xf（20537 行）→ fk_mouse_xf（19725 行の注に二つの式をそのまま
+     * 書いた）→ jw_cmd_sel_preview（jw_pic_xform を 倍率 X・Y の大きいほうで
+     * 掛ける、20628 行）という具合に すべての図形の仮表示で共有しているが、
+     * tests/ghost_test.c の picture() は 倍率・回転角の箱（+0xfd18・+0xfd40 が
+     * 0 の、FUN_0064f350・FUN_0064f900 を通らない経路）だけを画像で試していて、
+     * ﾏｳｽ倍率・角 の三点指定（FUN_0064f350・FUN_0064f900 そのもの）は
+     * tests/ghost_test.c の mouse() で線・円弧でしか試されていなかった
+     * （nokori.md「画像編集」の「複写移動の仮表示 (FUN_0064f350・
+     * FUN_0064f900)」）。ここでは tests/ghost_test.c の mouse() の
+     * ﾏｳｽ倍率 のケースと同じ三点 (10,5)・(100,0)・(120,15)（基準点は
+     * 既定どおり原点）を 線のかわりに画像へ掛けて、仮表示が 置いたときの
+     * 画像（w・h・角）と一致することを確かめる（逆コンパイルの読みで、
+     * 原典では押していない。FUN_0064f350・FUN_0064f900 自体は 要素の型を
+     * 見ないので、線で確かめた計算結果がそのまま画像にも使われることの確認
+     * であり、答えの .jww は無い）。 */
+    {
+        jw_drawing g;
+        jw_obj *o;
+        jw_pic p0, p1;
+
+        d = fresh();
+        o = jw_add(d, JW_MOJI);
+        o->d[0] = 0.0;
+        o->d[1] = 0.0;
+        o->d[2] = 10.0;
+        o->d[3] = 0.0;
+        o->d[4] = 3.0;
+        o->d[5] = 3.0;
+        o->color = 1;
+        o->ltype = 1;
+        o->text = jw_add_str(d, "^@BMmissing.bmp,10,5,0,0,1,0,255,255,255");
+
+        jw_cmd_set(JW_CMD_FUKUSHA);
+        jw_cmd_box_put(1411, "");
+        jw_cmd_box_put(1412, "");
+        jw_cmd_box_put(1413, "");
+        jw_cmd_point(d, app_view(), -5.0, -5.0, 0);
+        /* 画像の枠は紙の mm × 縮尺（tests/ghost_test.c の pick_far と同じ理由
+           で、選択の枠を大きく取って text/pic も拾う） */
+        jw_cmd_point(d, app_view(), 100000.0, 100000.0, 1);
+        jw_cmd_track(0.0, 0.0);
+        ck(jw_cmd_bar(d, 1120) == 1, "複写: 画像を選んで選択確定が押せる");
+
+        jw_cmd_bar(d, 1069);                        /* ﾏｳｽ倍率 */
+        jw_cmd_track(10.0, 5.0);
+        ck(!jw_cmd_sel_preview(d, &g), "  ﾏｳｽ倍率 一つ目待ちは 仮表示なし");
+        jw_cmd_point(d, app_view(), 10.0, 5.0, 0);   /* 一つ目 */
+        jw_cmd_track(100.0, 0.0);
+        jw_cmd_point(d, app_view(), 100.0, 0.0, 0);  /* 二つ目 */
+        jw_cmd_track(120.0, 15.0);                   /* 三つ目待ち: X 2・Y 3 倍
+                                                          （tests/ghost_test.c の mouse() と同じ三点） */
+        ck(jw_cmd_sel_preview(d, &g) && g.ndrawn == 1 && jw_pic_parse(&g, &g.obj[0], &p0)
+           && near(p0.w, 30.0) && near(p0.h, 15.0),
+           "  三つ目待ちの仮表示は 画像の w・h が 倍率 X・Y の大きいほう（3 倍）");
+        jw_cmd_point(d, app_view(), 120.0, 15.0, 0); /* 置く */
+        ck(jw_pic_parse(d, &d->obj[d->ndrawn - 1], &p1) && near(p1.w, p0.w) && near(p1.h, p0.h)
+           && near(p1.d, p0.d), "  置いた画像が 仮表示と一致（大きさ・角）");
+    }
+
     /* ---- the pictures lie over the lines, and white lets them show ---- */
     d = fresh();
     jw_cmd_set(JW_CMD_SEN);
