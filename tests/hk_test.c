@@ -1528,6 +1528,56 @@ int main(int argc, char **argv)
         } else
             puts("ok   日影図 壁面日影 指定点の 壁面自身の日影時間 (0x15bf)");
     }
+    /* 壁面日影の 指定点を 2 点: 壁面自身の日影時間の字は wb1・wb2（壁だけで決まり 点ごとに変わらない量）
+       だから「各点ごとに付け直す」枝が要るはずに見えるが、2026-10-18 に 原典 Jw_win.exe を 実際に動かして
+       測ると（tools/wb2run.sh、建物・壁は この下の試験と同じ配置、指定点は 700,650・300,650 の 2 点
+       〔建物・壁の外、位置は左右対称〕、答え decomp/res/hk_wb2.jww）、影の区間の字
+       （[ 4:01']  (11:59')-(12:00')  (12:00')-(16:00')）は N0.1・N0.2 どちらも同じなのに 壁面自身の
+       日影時間「壁面自身の日影時間(11:59')-(16:00')」は N0.1 だけに付き N0.2 には付かない。つまり k==0
+       の条件は 読み違いではなく 原典どおり。下の試験は この下の既存の試験（1 点）と 同じ建物・壁の配置
+       で 点を一つ増やしただけだが、点の座標が違うため 原典の実測値（時刻）そのものとは比べず、N0.1 だけ
+       に字が付くことだけを確かめる */
+    {
+        unsigned char *b;
+        long n;
+        rect_t r;
+        const jw_drawing *dd;
+        int k, n0, nband = 0, nrow = 0;
+
+        b = slurp("decomp/res/new.jww", &n);
+        app_new();
+        app_resize(1264, 741);
+        app_open(b, n);
+        free(b);
+        ui_view_rect(app_fb()->w, app_fb()->h, &r);
+        app_command(32771);
+        addlines((jw_drawing *)app_drawing(), "400,300;600,300;600,300;600,200;600,200;400,200;400,200;400,300;700,400;300,400;");
+        app_command(32943);
+        clicks(&r, "b:10;405,300;595,300;595,200;405,200;B:1069;500,400;");
+        n0 = app_drawing()->ndrawn;
+        clicks(&r, "B:1064;B:1065;B:1121;B:1066;500,250;300,250;B:1065;750,650;");
+        dd = app_drawing();
+        for (k = n0; k < dd->ndrawn; k++) {
+            const jw_obj *t = &dd->obj[k];
+            const char *s;
+
+            if (t->cls != JW_MOJI || t->text < 0)
+                continue;
+            s = jw_str(dd, t->text);
+            if (!strncmp(s, "N0.", 3))
+                nrow++;
+            if (strstr(s, JW_STR_5567))
+                nband++;
+            if (getenv("HKWALL"))
+                printf("  band2 [%s]\n", s);
+        }
+        if (nrow != 2 || nband != 1) {
+            printf("     band rows %d band %d\n", nrow, nband);
+            puts("BAD  日影図 壁面日影 指定点 2 点の 壁面自身の日影時間（原典で測った）");
+            fails++;
+        } else
+            puts("ok   日影図 壁面日影 指定点 2 点の 壁面自身の日影時間（原典で測った）");
+    }
     /* 測定点が建物の内側: 窓（はい／いいえ／キャンセル）を app の紙面から出して 釦で答える（hk_s29〜s31） */
     {
         int k;
