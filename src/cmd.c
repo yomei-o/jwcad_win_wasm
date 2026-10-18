@@ -467,10 +467,30 @@ static double box_len_ok(double v)
     return v > 0.0 && v < 1e12;
 }
 
+/* defined below with box_mm, box_num の前に使うので先に宣言 */
+static void box_tidy_comma(char *out, size_t n, const char *t);
+
 /* The same bound for a box whose number goes into an element as it stands
  * -- a radius, a flattening, an angle in degrees.  `deflt` is what an empty
  * box gives, and a number the drawing could not hold gives it too. */
+/* box_tidy_comma（上の box_mm の前の注）の 千位取りを通した数。
+   箱が一つの数だけを持つところで使う */
 static double box_num(const char *t, double deflt)
+{
+    char buf[64];
+    double v;
+
+    if (!t || !*t)
+        return deflt;
+    box_tidy_comma(buf, sizeof buf, t);
+    v = atof(buf);
+    return (v > -1e12 && v < 1e12) ? v : deflt;
+}
+
+/* box_num の 千位取りをしない形。"a,b" を自分で割る箱（２線 間隔 1412・
+   数値位置 1413 など）が 先の数を読むところで使う -- atof は "," で
+   止まるので、割った片方の文字列を渡すのと同じ答えになる */
+static double box_num_first(const char *t, double deflt)
 {
     double v;
 
@@ -1846,7 +1866,60 @@ static double write_scale(const jw_drawing *d)
     return d->group[wg].scale > 0.0 ? d->group[wg].scale : 1.0;
 }
 
+/* Tidy a box's digits the way the original's own expression reader does
+   before it ever looks at the value, FUN_004f47b0 (decomp/decomp/all_004894cd.c,
+   the "004f47b0" block around line 53514): scanning the text one character
+   at a time, a ',' (0x2c) is simply dropped -- *unless* a '.' (0x2e,
+   local_438) has already gone by, in which case the ',' stops the tidy
+   there and the rest of the text is never looked at.  So a box holding one
+   number reads "1,000" as 1000 (the comma is a thousands separator that
+   just falls out), but "12.5,6" stops at the comma and reads as 12.5.
+   This is what a single-value box goes through -- the few boxes that
+   genuinely hold two numbers either side of a comma (矩形 寸法・数値位置
+   1413、２線 間隔・接円の弦 1412) have their *own* code reading the box
+   twice, splitting on the first ',' themselves before either half reaches
+   this tidy-up (box_mm2・nisen_gap などの strchr), so this function must
+   not run on their text -- box_num_first/box_mm_first below keep the old
+   plain atof() for them (which, handily, already stops at the first comma
+   on its own, giving exactly the first of the two numbers). */
+static void box_tidy_comma(char *out, size_t n, const char *t)
+{
+    size_t o = 0;
+    int dot = 0;
+
+    for (; *t && o + 1 < n; t++) {
+        if (*t == ',') {
+            if (dot)
+                break;
+            continue;
+        }
+        if (*t == '.')
+            dot = 1;
+        out[o++] = *t;
+    }
+    out[o] = 0;
+}
+
 static double box_mm(const jw_drawing *d, int id)
+{
+    const char *t = jw_cmd_box(id);
+    char buf[64];
+    double v;
+
+    if (!t || !*t || !d)
+        return 0.0;
+    box_tidy_comma(buf, sizeof buf, t);
+    v = atof(buf);
+    if (v <= 0.0)
+        return 0.0;
+    v /= write_scale(d);
+    return box_len_ok(v) ? v : 0.0;
+}
+
+/* box_mm without the "," 千位取り tidy-up, for the few places that read a
+   box which may genuinely hold two numbers (矩形 寸法・接円の弦 1412/1413)
+   as the first of the pair -- see box_tidy_comma's note above. */
+static double box_mm_first(const jw_drawing *d, int id)
 {
     const char *t = jw_cmd_box(id);
     double v;
@@ -1865,11 +1938,13 @@ static double box_mm(const jw_drawing *d, int id)
 static double box_mm_signed(const jw_drawing *d, int id)
 {
     const char *t = jw_cmd_box(id);
+    char buf[64];
     double v;
 
     if (!t || !*t || !d)
         return 0.0;
-    v = atof(t) / write_scale(d);
+    box_tidy_comma(buf, sizeof buf, t);
+    v = atof(buf) / write_scale(d);
     return (v > -1e12 && v < 1e12) ? v : 0.0;
 }
 
@@ -6714,7 +6789,7 @@ static void kukei_dim_corner(const jw_drawing *d, double px, double py,
                              double *x1, double *y1, double *eu, double *ev,
                              double *ang)
 {
-    double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+    double wmm = box_mm_first(d, 1413), hmm = box_mm2(d, 1413);
     double a = solid ? 0.0 : box_angle(1411);
     double ca = cos(a), sa = sin(a);
     double dx = px - sx, dy = py - sy;
@@ -6856,7 +6931,7 @@ static int figure_(const jw_drawing *d, jw_obj *o, int max,
          * given 1000,1000 on a 1/200 group, drew 5 mm by 5 mm down and to
          * the right of the first click when the second was down-right, and
          * up and to the left when it was up-left. */
-        double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+        double wmm = box_mm_first(d, 1413), hmm = box_mm2(d, 1413);
         double x0 = sx, y0 = sy;        /* 描き始める角 */
         double dimu = 0.0, dimv = 0.0, dima = 0.0;
         int dimd = 0;
@@ -7296,7 +7371,7 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
      * the collapsed corners only turn up in what is committed. */
     if (current == JW_CMD_KUKEI && n == 1 && o[0].cls == JW_SOLID) {
         double x0 = sx, y0 = sy, x1 = tx, y1 = ty;
-        double wmm = box_mm(d, 1413), hmm = box_mm2(d, 1413);
+        double wmm = box_mm_first(d, 1413), hmm = box_mm2(d, 1413);
         double eu, ev, ea;
         int k;
         static const int ix[4][4] = { {0,1,2,1}, {2,1,2,3}, {2,3,0,3}, {0,3,0,1} };
@@ -11300,7 +11375,7 @@ static int nisen_gap(const jw_drawing *d)
 
     if (!t || !*t)
         t = 0;
-    nisen_a = t ? box_num(t, 0.0) : NISEN_DEFAULT;
+    nisen_a = t ? box_num_first(t, 0.0) : NISEN_DEFAULT;
     p = t ? strchr(t, ',') : 0;
     nisen_b = p ? box_num(p + 1, 0.0) : nisen_a;
     for (i = 0; i < 16; i++)
@@ -19487,7 +19562,7 @@ static int sel_numpos(const jw_drawing *d, double *ox, double *oy)
 
     if (!t || !*t || !d)
         return 0;
-    x = box_num(t, 0.0);
+    x = box_num_first(t, 0.0);
     y = c ? box_num(c + 1, 0.0) : x;
     if (!(fabs(x) > 1e-7 || fabs(y) > 1e-7))
         return 0;
@@ -22525,7 +22600,7 @@ int jw_cmd_bar(jw_drawing *d, int id)
            空のまま押させると、引いた二本が ±0.25 図寸mm になりました
            （`tools/barsweep.sh`、`decomp/res/bsw_32892_1065.jww`）。 */
         if (t && *t) {
-            a = box_num(t, 0.0);
+            a = box_num_first(t, 0.0);
             p = strchr(t, ',');
             b = p ? box_num(p + 1, 0.0) : a;
         } else {
@@ -24580,7 +24655,7 @@ static void takaku2(jw_drawing *d, double x, double y)
         JW_NOTICE(5205);        /* FUN_007287b0 が 0 本: 札「計算できません」 */
         return;
     }
-    a = box_mm(d, 1412);
+    a = box_mm_first(d, 1412);     /* 1412 はここでは "a,b" の弦 -- 自分で "," を割る */
     p = t1 ? strchr(t1, ',') : 0;
     b = p && p[1] ? box_mm2(d, 1412) : a;
     if (a <= 1e-7 || b <= 1e-7) {

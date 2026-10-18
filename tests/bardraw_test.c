@@ -1733,6 +1733,43 @@ static void line_more(void)
     jw_free(&ref);
 }
 
+/* 線 の 寸法 (1412) に "1,000": 一つの値の箱は原典の式読み手
+ * FUN_004f47b0 がカンマを千位取りとして読み飛ばす
+ * （decomp/decomp/all_004894cd.c の 004f47b0、53514〜53520行:
+ * 文字 ',' (0x2c) は、その前に '.' (0x2e、local_438) を見ていなければ
+ * ただ読み飛ばされ、見ていればそこで字を切る）。この箱は ２線の間隔・
+ * 矩形の寸法のような「二つの数の箱」ではないので、box_mm（src/cmd.c の
+ * box_tidy_comma）で "1,000" は 1000 と同じに読める -- 1 ではない。 */
+static void line_sunpo_comma(void)
+{
+    jw_drawing *d = fresh();
+    int before;
+    double s = 200.0;           /* この Test5.jww の書込みグループの縮尺
+                                    (このファイルの他の寸法の試験、50000 →
+                                    250 から 1/200 と分かる) */
+
+    jw_cmd_set(JW_CMD_TEN);
+    jw_cmd_set(JW_CMD_SEN);
+    type_box(1411, "");
+    type_box(1412, "1,000");
+    if (jw_cmd_bar_check(1333) <= 0)
+        app_key(32);             /* 水平・垂直 を点ける */
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), 0.0, 0.0, 0);
+    jw_cmd_point(d, app_view(), 17.0, 216.0, 0);   /* a drag that leans up */
+    ck(d->ndrawn == before + 1, "寸法 \"1,000\": one line");
+    if (d->ndrawn == before + 1) {
+        const jw_obj *a = &d->obj[before];
+        double len = hypot(a->d[2] - a->d[0], a->d[3] - a->d[1]);
+
+        ck(near(len, 1000.0 / s), "  \"1,000\" を 1000 と同じに読む");
+        ck(!near(len, 1.0 / s), "  (1 ではない -- カンマで切れていない)");
+    }
+    jw_cmd_bar(d, 1333);          /* もとに戻す */
+    type_box(1412, "");
+    jw_cmd_set(JW_CMD_TEN);
+}
+
 /* 矩形 の仮線: the frame, and the diagonal across it with (対角線).
    Caught on the original's own screen with the second corner under the
    cursor -- ソリッド hangs four sides off the mouse and nothing inside. */
@@ -2460,6 +2497,7 @@ int main(void)
     line_marks();
     line_slope();
     line_more();
+    line_sunpo_comma();
     line_end_arrow();
     erase_part();
     line_fifteen_wins();
