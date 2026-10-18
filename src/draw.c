@@ -3128,7 +3128,48 @@ static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_o
             /* the box of what is cut out stands on the same corner and takes
                its far edges to the next pixel up -- ceil of where they fall
                (five of the six trims asked of the original; the sixth is a
-               pixel less wide) */
+               pixel less wide).
+
+               FUN_00487290 is not actually two codepaths split on the turn:
+               every picture, trimmed or not and turned or not, is drawn by
+               one and the same PlgBlt (the call at decomp/decomp/all_00401000.c:
+               69188, and its three siblings for other colour-depth paths
+               right after it) -- there is no separate StretchBlt/BitBlt for
+               the axis-aligned case anywhere in that function. Its three
+               destination points are built just above (lines 68899-68907) by
+               calling FUN_004b6d60 -- the same whole-pixel truncation as
+               jw_px_round -- once per corner, exactly the way the "turned"
+               branch below rebuilds PlgBlt's corners for a real turn. Trying
+               that here too (feeding this box's own corner -- o->d[0]+p.w,
+               jw_sx-rounded -- as "right" instead of the cl/cw/mm sum below)
+               was tried and measured: it is not a fix, it comes out worse on
+               every one of tools/imgref.sh's six known trims (img_trim.png,
+               img_tr1..5.png), including the very two this comment is about.
+
+               Comparing all six against their decomp/res/img_trim.png and
+               img_tr1..5.png pixel for pixel (tools/imgtrims.sh's own cases)
+               turned up only two mismatches, and both are a single whole
+               pixel: img_trim's right edge wants one column more than this
+               ceil gives -- here the pre-ceil value (v->bx + jw_ux(...)) is
+               506.0 bit for bit, which ceil (rightly, read as it stands) just
+               hands back as 506 -- and img_tr2's top edge wants one row
+               *less* than this ceil gives (its pre-ceil value is 420.8333...,
+               an honest fraction, and ceil rounds it up to 421 where the
+               original's own row is 420, one lower). img_tr1, img_tr3 and
+               img_tr4 land on an equally exact whole-pixel value for this
+               same edge (524.58333 is not exact, but img_tr3's 535.0 and
+               img_tr4's 477.0 are, bit for bit, the same shape of number as
+               img_trim's 506.0) and all three already come out right with
+               this formula -- so "the value is exactly on a pixel boundary"
+               is not, on its own, what marks img_trim as the one that needs
+               nudging. That rules out a one-line rounding fix living in this
+               decompile: the remaining pixel on each side is PlgBlt's own
+               (gdi32's, not this program's) fixed point, the same kind of
+               residue already measured and accepted below for turned
+               pictures (914 of rot1's 84,680). tests/image_test.c pins the
+               two counts this leaves (トリミング 924/8715, トリミング 2
+               34/345) so a real fix, if one is ever found, will show up as
+               those numbers dropping. */
             right = (int)ceil(v->bx + jw_ux(v, o->d[0] + cr.cw * cr.mm) - 1e-9);
             top = (int)ceil(v->by - jw_uy(v, o->d[1] + cr.ch * cr.mm) - 1e-9);
         }
