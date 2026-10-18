@@ -25954,6 +25954,41 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                     sa = s1 + hkc + ch / 2.0;
                     t = tl + sun_hanare + tsu;
                 }
+                /* 累進の揃え（原典実機で測った。2026-10-19、原典 10.03.6、
+                   tools/jwdraw.ps1 で cmd:32771 の水平線に cmd:32773 で
+                   点を打ち、cmd:32847;btn:1070 の累進で 寸法線の位置
+                   （二回目の読み取り）を 線の上・線上・線の下 の三通りに
+                   変え、箱 1488（文字種類、`jw_cmd_sunpo_box` 1488）に
+                   -1 を打ち込んだとき／打ち込まないときを掛け合わせて
+                   五通り試した（tmp/dbg2・case3_mojineg_fwd・
+                   case7_posabove・case8_posabove_negmoji・
+                   case9_posbelow.jww、tools/jwdump.exe で読んだ）。
+                   結果はきれいに揃え: 隔たり（tl−th、寸法線の位置と
+                   測った点の v の差、線上＝0 を含む）が 0 以下か・
+                   文字種（sun_mojino）が負か の**どちらか片方だけ**が
+                   真のとき、字は 既定（下の t=tl+間隔 のまま）の反対側
+                   （t=tl−間隔）に、文字送りの向きも反対に出た。ltype は
+                   既定の 1 でなく 3（o->flags の 0x1000 は変わらない）。
+                   どちらの場合も 字の u 位置（sa、= s1 側）は 変わらず、
+                   nokori.md が言う「字を s0 側へ・右寄せで」は 見られ
+                   なかった——揃えの符号が 選ぶのは 寸法線を挟む どちら側
+                   かだけで、どちらの先端に書くかではない、というのが
+                   この実測からの結論。nokori.md の三因子目「終点の u
+                   射影 < 始点」は、累進の継続を後ろ向きに打とうとすると
+                   原典がそもそも入力を受け付けない（ステータス行が
+                   変わらず 図形も増えない）ため今回も確かめられず
+                   （tmp/case4_dip・case5_dip2・case6_dip_negmoji.jww の
+                   三通りで再確認、バーにも向きを反すような釦は無い、
+                   `tools/jwdraw.ps1 -Clicks "...;bar;..."` でも段の途中に
+                   新しい釦は出なかった）。以下は 文字高位置中心
+                   （2423、sun_mojic）を立てない場合だけ、実測どおりに
+                   直した。sun_mojic や 文字方向補正（2419、下の sw）との
+                   組み合わせは 試していないので 揃えは掛けない（flip は
+                   sun_mojic のときつねに偽）。 */
+                int flip = !sun_mojic
+                    && ((tl - th <= 0.0) != (sun_mojino < 0));
+                if (flip)
+                    t = tl - sun_hanare;
                 /* 文字方向補正（2419、FUN_00479550 0x4796f0〜）: 字の二点は
                    先端から 寸法線に直角（読む向き +v）。左向き（dx < 0、
                    または |dx| <= 1e-7 で dy < 0）なら 二点を入れ替え 揃えの
@@ -25968,38 +26003,25 @@ static void sunpo_make(jw_drawing *d, double bx, double by)
                 if (sw)
                     sa = sun_mojic ? s1 + hkc - ch / 2.0
                                    : s1 + hkc + sun_hanare;
-                px = sa * ux + t * vx;
-                py = sa * uy + t * vy;
-                o->ltype = 1;
-                o->flags = (unsigned short)(o->flags | 0x1000u);
-                o->d[0] = sw ? px + tw * vx : px;
-                o->d[1] = sw ? py + tw * vy : py;
-                o->d[2] = sw ? px : px + tw * vx;
-                o->d[3] = sw ? py : py + tw * vy;
-                /* 累進の負の向き（揃え -1）は 未実装。2026-10-19 に深読みした
-                   結論（FUN_00783730 0x785f68〜、all_00732cce.c:35341-35476）:
-                   揃え local_70f8 = sign(隔たり local_7108)
-                     × (終点の u 射影 < 始点なら local_71b0 = -1、35063-35071)
-                     × (文字種 sun_mojino < 0 なら -1、local_7164 = 34555)。
-                   正の枝（35442-35476）は 二点を 始点=(始端, 射影+100)・
-                   終点=(終端, 射影-間隔) にして 揃え +1 を FUN_00479550 へ渡す
-                   （local_24c = 長さ・+0x28 = 1 左寄せ、61752-61755）→ 字は
-                   終端（＝移植の s1、現在打った点）に着く。負の枝（35407-35441）は
-                   二点を 始点=(始端, 射影+間隔)・終点=(終端, 射影-100) にして
-                   揃え -1（local_24c = 0・+0x28 = 3 右寄せ、61744-61751）→ 字は
-                   始端（＝移植の s0、基点）に 右寄せで着く。すなわち 揃え の符号は
-                   「値を どちらの先端に・左右どちらで 書くか」を選ぶ（s1 か s0）。
-                   移植の累進は つねに s1・左寄せ（上の sa = s1…）に固定。
-                   なぜ未実装か: 負の向きの原典出力が 一つも無い（tools/jwdump.exe で
-                   decomp/res/sun*_rui*.jww を全部見たが すべて 正の向き・deg 90）。
-                   さらに FUN_00479550 が最後に字の枠を置くのは FUN_005f92e0・
-                   FUN_005f8ce0（図面系⇔世界、all_005c7556.c:24334/24467、回転 c,s は
-                   その in_ECX の +0x10/+0x18 で、どのオブジェクトかは未特定）と
-                   FUN_0048c710（右寄せの字送り、all_004894cd.c:1498）を通る。
-                   移植の 正の枝は この連鎖を literal に真似たのではなく sun2_rui.jww を
-                   測って合わせた簡略形なので、負の枝も 鏡像で機械的に写すと s0 側の
-                   読む向き・間隔の側・sw との二重反転が確かめられない。参照出力が
-                   無い以上 推測になるため 触っていない（揃え の計算も入れていない）。 */
+                {
+                    /* flip は 間隔の向きだけでなく 字の二点の先後も
+                       反す（原典実機で測った: decomp/res/sun3_rui.jww は
+                       d0 が 寸法線に近い側、sun3_ruineg.jww は d0 が
+                       遠い側——sw の入れ替えと同じ形なので sw と flip を
+                       掛け合わせた）。sw・flip 両方立つ場合は 試していない
+                       （上のコメントのとおり）。 */
+                    int swapd = sw != flip;
+                    double twf = flip ? -tw : tw;
+
+                    px = sa * ux + t * vx;
+                    py = sa * uy + t * vy;
+                    o->ltype = (unsigned char)(flip ? 3 : 1);
+                    o->flags = (unsigned short)(o->flags | 0x1000u);
+                    o->d[0] = swapd ? px + twf * vx : px;
+                    o->d[1] = swapd ? py + twf * vy : py;
+                    o->d[2] = swapd ? px : px + twf * vx;
+                    o->d[3] = swapd ? py : py + twf * vy;
+                }
             } else {
                 /* 文字方向補正（2419）・負の文字種（sun_text_box） */
                 sun_text_box(o, ux, uy, vx, vy, s1 - s0, mid, tl, tw, ch);
