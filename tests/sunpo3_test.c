@@ -14,6 +14,10 @@
  *             円（半径がほぼ 0 なら何も置かない）
  *   継続      FUN_005da080（バーの OnInitDialog）が 傾き を 0 にし、
  *             FUN_00779bd0 が DAT_00a0bd88 なら前の 傾き を戻す
+ *
+ * 末尾の「累進の揃え」だけは例外で、**原典 10.03.6 で実機測定**した
+ * （2026-10-19、tools/jwdraw.ps1）。答えは decomp/res/sun3_rui.jww・
+ * sun3_ruineg.jww。
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +27,7 @@
 #include "../src/app.h"
 #include "../src/cmd.h"
 #include "../src/jww.h"
+#include "../src/gen/sunpo.h"
 
 static int fails;
 
@@ -345,6 +350,133 @@ int main(void)
     jw_cmd_sunpo_chk_set(2416, 0);
     type_box(1411, "0");
     jw_cmd_set(0);
+
+    /* ---- 累進の揃え（原典実機で測った。2026-10-19、原典 10.03.6）:
+       寸法線の位置を 測った線の上（隔たり tl-th = 0）に置くと、字は
+       寸法線を挟んで 既定の反対側（下）に出て ltype=3。文字種類
+       （箱 1488）に -1 を打つと 逆に 上に出て ltype=1、大きさも 文字種
+       -1 の表（2.0）に変わる——どちらも 字の u 位置（寸法線の 現在
+       打った側の端）は 同じまま。tools/jwdraw.ps1 で cmd:32771 の水平線・
+       cmd:32847;btn:1070 の累進・寸法線の位置を その線の上で読んで、
+       箱 1488 を 既定 2 のときと -1 のときで比べて測った（tmp/dbg2.jww・
+       tmp/case3_mojineg_fwd.jww、答えは decomp/res/sun3_rui.jww・
+       sun3_ruineg.jww）。隔たりを線の上・下・線上の三通りに変えても
+       同じ式で揃った（tmp/case7・case8・case9、cmd.c sunpo_make の
+       flip の式のコメント）。累進の継続を後ろ向きに打つ（終点の u 射影
+       を始点より小さくする）ことは 原典がそもそも受け付けず
+       （tmp/case4_dip・case5_dip2・case6_dip_negmoji.jww、ステータス行も
+       図形も変わらない）ため、nokori.md の三因子目は今回も確かめられ
+       ないまま。 */
+    {
+        jw_drawing rp, rn;
+        const jw_obj *rpf[6], *rnf[6], *a;
+        int mp = 0, mn = 0, mok;
+
+        b = slurp("decomp/res/sun3_rui.jww", &n);
+        ok = b && jw_parse(&rp, b, n);
+        free(b);
+        if (ok)
+            for (k = 0; k < rp.ndrawn && mp < 6; k++)
+                if (rp.obj[k].cls != JW_MOJI
+                    || (rp.obj[k].flags & JW_SUN_TEXT_FLAGS))
+                    rpf[mp++] = &rp.obj[k];
+        ck(ok && mp == 6, "decomp/res/sun3_rui.jww が開ける（六つ）");
+        b = slurp("decomp/res/sun3_ruineg.jww", &n);
+        ok = ok && b && jw_parse(&rn, b, n);
+        free(b);
+        if (ok)
+            for (k = 0; k < rn.ndrawn && mn < 6; k++)
+                if (rn.obj[k].cls != JW_MOJI
+                    || (rn.obj[k].flags & JW_SUN_TEXT_FLAGS))
+                    rnf[mn++] = &rn.obj[k];
+        ck(ok && mn == 6, "decomp/res/sun3_ruineg.jww が開ける（六つ）");
+        if (ok && mp == 6 && mn == 6) {
+            app_new();
+            d = (jw_drawing *)app_drawing();
+            /* 測った線そのもの（rpf[0]）を引いてから寸法に入る
+               （dim_progressive と同じ手順） */
+            jw_cmd_set(JW_CMD_TEN);
+            jw_cmd_set(JW_CMD_SEN);
+            if (jw_cmd_bar_check(1333) > 0)
+                app_key(32);
+            jw_cmd_point(d, app_view(), rpf[0]->d[0], rpf[0]->d[1], 0);
+            jw_cmd_point(d, app_view(), rpf[0]->d[2], rpf[0]->d[3], 0);
+            jw_cmd_set(JW_CMD_SUNPO);
+            type_box(1411, "0");
+            jw_cmd_bar(d, 1070);         /* 累進 */
+            b0 = d->ndrawn;
+            jw_cmd_point(d, app_view(), 0.0, rpf[0]->d[1], 0);  /* 引出線の端 */
+            jw_cmd_point(d, app_view(), 0.0, rpf[0]->d[1], 0);  /* 寸法線の位置（線の上） */
+            jw_cmd_point(d, app_view(), rpf[0]->d[0], rpf[0]->d[1], 1);
+            jw_cmd_point(d, app_view(), rpf[0]->d[2], rpf[0]->d[3], 1);
+            ck(d->ndrawn - b0 == 5, "文字種 既定: 寸法線・点・矢羽根二本・値");
+            mok = d->ndrawn - b0 == 5;
+            if (mok)
+                for (k = 0; k < 5; k++) {
+                    const jw_obj *want_o = rpf[1 + k];
+                    int j, same;
+
+                    a = &d->obj[b0 + k];
+                    same = a->cls == want_o->cls && a->ltype == want_o->ltype;
+                    for (j = 0; j < 4; j++)
+                        if (!near(a->d[j], want_o->d[j]))
+                            same = 0;
+                    if (!same) {
+                        mok = 0;
+                        printf("     %d ours cls=%d t=%d %.4f,%.4f -> %.4f,%.4f\n"
+                               "       sun3_rui's cls=%d t=%d %.4f,%.4f -> %.4f,%.4f\n",
+                               k, a->cls, a->ltype, a->d[0], a->d[1], a->d[2], a->d[3],
+                               want_o->cls, want_o->ltype, want_o->d[0], want_o->d[1],
+                               want_o->d[2], want_o->d[3]);
+                    }
+                }
+            ck(mok, "  sun3_rui.jww と同じ（既定は寸法線の下、ltype=3）");
+
+            jw_cmd_sunpo_box_set(1488, "-1");
+            jw_cmd_bar(d, 1070);        /* 累進 を切って 入れ直す（続きにしない） */
+            jw_cmd_set(0);
+            jw_cmd_set(JW_CMD_SUNPO);
+            type_box(1411, "0");
+            jw_cmd_bar(d, 1070);
+            b0 = d->ndrawn;
+            jw_cmd_point(d, app_view(), 0.0, rpf[0]->d[1], 0);
+            jw_cmd_point(d, app_view(), 0.0, rpf[0]->d[1], 0);
+            jw_cmd_point(d, app_view(), rpf[0]->d[0], rpf[0]->d[1], 1);
+            jw_cmd_point(d, app_view(), rpf[0]->d[2], rpf[0]->d[3], 1);
+            ck(d->ndrawn - b0 == 5, "文字種 -1: 寸法線・点・矢羽根二本・値");
+            mok = d->ndrawn - b0 == 5;
+            if (mok)
+                for (k = 0; k < 5; k++) {
+                    const jw_obj *want_o = rnf[1 + k];
+                    int j, same;
+
+                    a = &d->obj[b0 + k];
+                    same = a->cls == want_o->cls && a->ltype == want_o->ltype;
+                    for (j = 0; j < 4; j++)
+                        if (!near(a->d[j], want_o->d[j]))
+                            same = 0;
+                    if (!same) {
+                        mok = 0;
+                        printf("     %d ours cls=%d t=%d %.4f,%.4f -> %.4f,%.4f\n"
+                               "       sun3_ruineg's cls=%d t=%d %.4f,%.4f -> %.4f,%.4f\n",
+                               k, a->cls, a->ltype, a->d[0], a->d[1], a->d[2], a->d[3],
+                               want_o->cls, want_o->ltype, want_o->d[0], want_o->d[1],
+                               want_o->d[2], want_o->d[3]);
+                    }
+                }
+            ck(mok, "  sun3_ruineg.jww と同じ（文字種 -1 は寸法線の上、ltype=1）");
+            if (mok) {
+                const jw_obj *tp = rpf[5], *tn = rnf[5];
+
+                ck(near(tn->d[4], 2.0) && near(tn->d[5], 2.0)
+                   && near(tp->d[4], 2.5) && near(tp->d[5], 2.5),
+                   "  文字種 -1 は大きさも変わる（表の違う行、2.0 対 2.5）");
+            }
+            jw_cmd_sunpo_box_set(1488, "2");
+            jw_cmd_bar(d, 1070);
+            jw_cmd_set(0);
+        }
+    }
 
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
