@@ -535,9 +535,43 @@ static int resolve_core(const char *face, int *prop, int force)
                     *prop = 1 | (i + 1) << 8;
                 return LATIN[i].font;
             }
+    /* メイリオ (nokori.md「書体」, 調べた 2026-10-19): 上の「Ｐ」付きの
+     * 書体名はいずれも名前のパターンで振り分けているが、原典がプロポー
+     * ショナルかどうかを決める元の仕掛け自体は名前の表ではない --
+     * FUN_004e0fa0 (decomp/decomp/all_004894cd.c:5218-5245, 301 bytes)
+     * という関数が
+     *
+     *     CreateFontIndirectW(lfHeight=-12, lfCharSet=1(DEFAULT), 書体名)
+     *     を GetDC(NULL) の HDC に SelectObject → GetTextMetricsW
+     *     return (tmPitchAndFamily & 1) != 0;
+     *
+     * という手順そのままで、実際にその名前の書体を Windows に作らせて
+     * TEXTMETRICW を訊き、TMPF_FIXED_PITCH ビット (値 1; Win32 の名前は
+     * 逆で、このビットが立つ方が実は「固定幅でない」=プロポーショナル
+     * という GDI 側の仕様) を見ている。名前に「Ｐ」が付くかどうかでは
+     * 判定していない。呼び手は 2 箇所
+     * (decomp/byclass/_unassigned.c:165713,169095 および同じ処理の別
+     * ウィンドウ decomp/decomp/all_004e42ab.c:78701,83164・
+     * decomp/decomp/all_0051199a.c:57429,61892) で、字入力ダイアログが
+     * 書体名を確定したときに呼ばれ、結果で「間隔」欄の既定値 (0.001 =
+     * プロポーショナル／0.011 = 固定幅) を切り替えている
+     * (decomp/byclass/_unassigned.c:165680-165724 FUN_0057f040)。
+     *
+     * この port は実機の GDI を呼べない (WASM・フォント未同梱の環境を
+     * 含む) ので、この exe 全体で唯一見つかったこの判定を再現すること
+     * はできず、代わりに名前のパターンで近似している -- それは元々の
+     * 実装方針 (上の「Ｐ」表) のままで変えていない。メイリオという書体
+     * そのものが Windows Vista 以降 Microsoft から配布されている
+     * プロポーショナル書体であることはこの exe の外の事実 (フォント
+     * ファイル自体の仕様) で、実機で動かせば FUN_004e0fa0("メイリオ")
+     * は真を返すはずだが、これは逆コンパイルから読んだわけではなく
+     * 「メイリオがプロポーショナル書体である」という外部の事実からの
+     * 推論であることを明記しておく。 */
     if (face && prop && (has(face, "\x82\x6f") || has(face, "MS P")
                          || has(face, "PGothic") || has(face, "PMincho")
-                         || has(face, "UDP")))
+                         || has(face, "UDP")
+                         || has(face, "\x83\x81\x83\x43\x83\x8a\x83\x49")
+                         || has(face, "Meiryo")))
         *prop = 1;
     if (face && has(face, "BIZ UD"))
         return 2;
