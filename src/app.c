@@ -611,6 +611,19 @@ static void jk_start(void)
 
     for (i = 0; i < n && i < (int)sizeof jk_on; i++)
         jk_on[i] = (unsigned char)(jk_have_saved ? jk_saved[i] : ui_jikkaku_on(i));
+    /* 1926「オフセット常駐」・1927「オフセット１回指定」は ダイアログの他の
+       項目と違い OK を待たず即書き（press_jikkaku）なので、jk_saved の仕組みを
+       通さず 開くたび 今の offset_resident を見せ直す（FUN_004d09b0=
+       OnInitDialog、decomp/byclass/CJikukakuDialog.c:217-222：8f20==2 なら
+       1926、8f20==1 なら 1927 をチェック） */
+    for (i = 0; i < n && i < (int)sizeof jk_on; i++) {
+        int id = ui_jikkaku_id(i);
+
+        if (id == 1926)
+            jk_on[i] = jw_cmd_offset_resident() == 2;
+        else if (id == 1927)
+            jk_on[i] = jw_cmd_offset_resident() == 1;
+    }
     if (a == 0.0)
         strcpy(jk_angle, "0");
     else
@@ -633,6 +646,28 @@ static int press_jikkaku(int x, int y)
     }
     if (id == 1411)
         return 1;                       /* the box the typing goes into */
+    if (id == 1926 || id == 1927) {
+        /* FUN_004d06c0（1926）・FUN_004d0730（1927）、
+           decomp/byclass/_unassigned.c:92584-92624：押す前から 立っていれば
+           0 に戻す（トグル）。立っていなければ もう片方を外して 2（1926）か
+           1（1927）に。OK を待たず ここで 直接 offset_resident に書く
+           （2026-10-19、原典実機で確かめた。tools/jwdraw.ps1 の dlgin: で
+           1926=!・1927=! を組み合わせ、常駐→OK→開き直しで チェックが残る
+           ことと、もう片方が排他で外れることを確認した） */
+        int want = id == 1926 ? 2 : 1;
+        int was_on = jw_cmd_offset_resident() == want;
+
+        jw_cmd_offset_resident_set(was_on ? 0 : want);
+        for (i = 0; i < n && i < (int)sizeof jk_on; i++) {
+            int cid = ui_jikkaku_id(i);
+
+            if (cid == 1926)
+                jk_on[i] = (unsigned char)(!was_on && id == 1926);
+            else if (cid == 1927)
+                jk_on[i] = (unsigned char)(!was_on && id == 1927);
+        }
+        return 1;
+    }
     for (i = 0; i < n && i < (int)sizeof jk_on; i++)
         if (ui_jikkaku_id(i) == id)
             jk_on[i] = (unsigned char)!jk_on[i];
@@ -3987,10 +4022,28 @@ static void tr_close(int ok)
  * ままの固定の字（STATIC、押せない）として出す。原典は 常駐中だけ 1928 を
  * 出し分けている様子だが、その窓（view+0x8674 の仮想関数 0x174）の本体が
  * 逆コンパイルに出ないので いつ出し分けるかは読めない → いつも出す。
- * オフセット常駐（1926・1927、dialog 282 のチェック）が この窓を AM 3・9 や
- * 他のすべての読取り（jw_read の呼び先すべて）でも開かせる話（view+0x8f20 が
- * 2 以上）は 入れていない（jw_read の呼び先が cmd.c に 30 箇所余りあり、
- * どこでも窓を割り込ませる作りは この回では見送った。nokori.md に残す） */
+ * オフセット常駐（ダイアログ 282 の 1926「オフセット常駐」・1927「オフセット
+ * １回指定」、view+0x8f20。2026-10-19 追加）: press_jikkaku の 1926・1927 の
+ * クリックで jw_cmd_offset_resident_set が 直接 書く（OK を待たない。
+ * FUN_004d06c0・FUN_004d0730、decomp/byclass/_unassigned.c:92584-92624。
+ * 原典実機で トグル・排他・OK 後も セッション中は保持を確認した。
+ * nokori.md の クロックメニューの行）。AM 3・9（src/clock.h の case 3・9・
+ * src/cmd.c の clkpt_click）は この値が 0 でなければ すぐに届けず この窓を
+ * 開く（FUN_0076ea20・FUN_0076fae0 が FUN_00451b20(…, 0) を 挟む箇所、
+ * decomp/decomp/all_00732cce.c:24375・24429・24676 と 同じ場所。AM 6 自身は
+ * 常に窓を開くので 変えていない）。
+ * 残り: 他のすべての読取り（jw_read の呼び先すべて、cmd.c に 50 箇所余り）
+ * でも この窓を開かせる話は 入れていない。2026-10-19、原典実機で 調べた:
+ * 常駐を立てて 線コマンドを 2 回クリック（スナップ無しの自由点・既存の線の
+ * 中ほどの点のどちらも）しても 窓は現れなかった（tools/jwdraw.ps1 の top で
+ * 新しいトップレベル窓が無いことを確認）。CZukeiSen（線）は たしかに
+ * FUN_00451eb0 を 3 箇所呼ぶが（decomp/byclass/CZukeiSen.c:1564,1861,1873）、
+ * いずれも view+0x9068・+0x906c という旗が立っているときだけの枝（マウス
+ * 移動中のプレビュー描画らしい形）で、ふつうの二点クリックでは 通らないと
+ * 見られる——つまり「jw_read の呼び先すべて」は 文字どおりではなく、どの
+ * 条件で実際に開くかは この旗の意味を もっと読まないと分からない。常駐が
+ * 生きている具体的な場面を 原典上で まだ特定できていないため、AM 3・9・6 の
+ * 外側（ふつうの作図コマンドの読取り）への拡張は 今回も見送った */
 static double of_px, of_py;
 
 static void of_open(double px, double py)
@@ -6487,6 +6540,16 @@ int app_press(int x, int y, int button)
             int other = ll_other(button);   /* 連・曲線: (LL) の一つ目かもしれない */
 
             jw_cmd_point(have_drawing ? &drawing : 0, &view, mx, my, button);
+            {
+                /* AM 3・9 の二点目続き（clkpt_click）が 常駐・1 回指定で
+                   控えた点なら、このクリックで すぐには届かず ここで
+                   オフセットの窓（dialog 292）を開く（jw_cmd_offset_pending・
+                   of_open、src/cmd.c の注） */
+                double opx, opy;
+
+                if (jw_cmd_offset_pending(&opx, &opy))
+                    of_open(opx, opy);
+            }
             if (have_drawing && jw_cmd_block_editing()
                 && drawing.ndrawn > was)
                 jw_cmd_block_take(&drawing, was);
