@@ -2679,8 +2679,38 @@ static void fill_ring(fb_t *fb, const jw_view *v, const short *pts, int n,
  * arc's: centre, radius, how flat, the turn, where it starts and how far it
  * goes, and a 5 on the end.  The original fills it with GDI; this walks the
  * same circle table src/draw.c's arcs use and fills the ring, which is the
- * right shape but not promised to the pixel -- none of the drawings to hand
- * has one to score against.
+ * right shape (fan/chord/tangent closing all match decomp/res/rs_kinds.png,
+ * see tests/rsolid_test.c) but the rim disagrees with GDI by about a
+ * percent of the fill's own pixels on every shape but the full circle (which
+ * disagrees the other way, port bigger).
+ *
+ * 2026-10-19: found where the original actually fills one -- not a single
+ * GDI Polygon() over this function's whole rim, but a *fan of triangles*,
+ * one Polygon() call per triangle.  FUN_0042e4f0 (decomp/byclass/
+ * _unassigned.c:21688) is the Polygon() wrapper; one of its two callers is
+ * inside FUN_00433de0 (same file, 23195-, the generic clip-a-triangle-then-
+ * Polygon filler the four-corner solid() above also traces through), and
+ * that is called in a loop from FUN_004374e0 (same file, 24426-, a CDataEnko
+ * virtual -- 円ソリッド gets there by turning into a transient CDataEnko in
+ * FUN_00437050 first) from the fan/chord/tangent point this file already
+ * computes below out to each point along the rim in turn.  The angle step
+ * between rim points looked, from FUN_004374e0's own local_214 table, like
+ * the exact same mm-keyed ladder arc()'s `polyline:` label uses for 線種
+ * 111 (50/125/312/781/1953/4882/12200/24400 mm -> 0.2..0.001 rad, already
+ * pixel-exact there) -- but switching this function's point walk to that
+ * ladder (fixed step, accumulate until short of the sweep, then one final
+ * point at the exact sweep end, matching FUN_004374e0's own while loop)
+ * made every qtest score *worse* (扇形 192->266, 弓形 169->250, 全円
+ * 282->361/fail; only 円外側 improved, 138->109) rather than better, so
+ * that specific substitution was wrong somewhere and was reverted -- this
+ * function is unchanged.  The full circle's port-is-bigger-not-smaller
+ * asymmetry hints FUN_004374e0 may route it through a different, GDI
+ * Ellipse()-shaped shortcut near its top (local_2c0>=2 and sweep *strictly
+ * over* 2π, same file ~24589-24598) rather than the fan, but round_solid's
+ * own sweep is clamped to exactly 2π by FUN_00437050
+ * (FUN_0042f5a0(0x401921fb54442d18)) so that shortcut's condition should
+ * not fire either -- left unresolved.  See nokori.md「多角形」 for the
+ * fuller trail; no working fix found yet, so the rim stays as it was.
  */
 static void round_solid(fb_t *fb, const jw_view *v, const jw_drawing *d,
                         const jw_obj *o)
