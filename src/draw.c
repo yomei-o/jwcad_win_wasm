@@ -3592,6 +3592,60 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
              * -- Test1 comes out to the pixel and the fifteen together drop
              * from 1,384 to 1,169 -- but it is a rule read off the samples,
              * not one read out of the original. */
+            /* 任意点の印（o->mark、CDataTen の +0x6c）: CDataTen::Draw
+             * (FUN_004253f0, decomp/byclass/CDataTen.c:55-82) は this+0x6c が
+             * 0 か 900 を超えるときだけ下のデフォルトの印（FUN_00424200、この
+             * case 全体）を描き、1..900 のときは別の関数 FUN_00425490
+             * (decomp/byclass/_unassigned.c:20349-20950、同 all_00401000.c
+             * :23062 に同一コピー) を呼ぶ。o->mark は src/jww.c:601-610 で
+             * JW_TEN のときだけ（v==0xfc、または v>299 かつ o->ltype==100）
+             * 読んでいる同じ値（decomp/byclass/CDataTen.c:247-271 の
+             * Serialize が +0x6c と 符合）。
+             *
+             * FUN_00425490 を全文読んだ結果：
+             *   - switch(mark) の default 枝（1..11 以外、つまり 12..900 を含む
+             *     すべての非負値）は FUN_0041fb60 で中身が空の CDataTen を
+             *     もう一つ作り（+0x6c はコンストラクタで 0 のまま）、点その
+             *     ものと同じ印を描いて終わる（_unassigned.c:20893-20907）。
+             *     つまり mark が 12..900 のときは mark==0 と見た目が同じで、
+             *     下のデフォルト描画（この case）のままでよい。
+             *   - switch 内の負値の分岐（case 0xfffffff9〜0xffffffff、
+             *     _unassigned.c:20815-20935）は呼び出し元が 1..900 しか渡さ
+             *     ないので実行されない死蔵コード。
+             *   - mark が 1..11 のときの図形は、CDataSen・CDataSolid・
+             *     CDataEnko の一時オブジェクトを FUN_0041f760／FUN_0041f780／
+             *     FUN_0041f5f0 で作り、FUN_00408a30 と FUN_004988c0 で局所
+             *     座標（おおむね -7.5〜7.5 の範囲、小数は 1.25 や
+             *     1.7677669…=1.25√2 刻み）の点を計算し、最後に
+             *     FUN_00499ed0() を呼ぶ構造だと確認できた。ただし
+             *     FUN_00499ed0 の実体（_unassigned.c:67181-67188）は
+             *     FUN_004142e0 → CObList::AddTail(this, param_1)
+             *     (_unassigned.c:11836-11843) で、どのオブジェクトを
+             *     どのリストに積むかは暗黙の this 経由であり、この関数の
+             *     呼び出し箇所では Ghidra の逆コンパイルが引数を 1 個も
+             *     示さない（FUN_00499ed0()・FUN_0042de90()・FUN_0042de00()
+             *     いずれも実引数ゼロで出力される）。計算した座標を入れた
+             *     一時バッファ（local_1c4 等）がどの図形オブジェクトの
+             *     どのフィールドに渡るかを示す代入も逆コンパイルには出て
+             *     来ない。つまり 1..11 それぞれの正確な形（丸・四角・十字
+             *     など）は、この逆コンパイル出力からは読み切れない
+             *     ――this 関連の実引数を Ghidra が落としている、という
+             *     デコンパイラ側の限界であって、原典を動かして確かめれば
+             *     分かる類ではない。そのため個別の形は創作せず、1..11 も
+             *     今のところ下のデフォルトの印（12..900 と同じ扱い）の
+             *     ままにしてある。
+             *
+             *   - DAT_00a0cb60 の分岐がここだけ、という nokori.md の記述も
+             *     確認した：もう一箇所の読み（_unassigned.c:21385、
+             *     all_00401000.c:25114）は無関係な別関数（CDataDraw 系の
+             *     一覧を回す関数、_unassigned.c:21330 以降）にあり、1 件の
+             *     読みが真で以後のループを早めに切るだけの最適化フラグ
+             *     （「後続の次オブジェクトは一度だけ本処理して残りは数える
+             *     だけにする」）で、描く図形そのものには関係しない。
+             *     FUN_00425490 は自分のリストへの積み込みを
+             *     DAT_00a0cb60=1 の間に行い（_unassigned.c:20937-20939）、
+             *     その後 FUN_0049a3d0() がリストを実際に描くという作りに
+             *     見える。 */
             static const signed char RING[11][2] = {
                 { -1, -2 }, { 0, -2 },
                 { -2, -1 }, { 1, -1 },
