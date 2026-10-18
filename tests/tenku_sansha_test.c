@@ -219,6 +219,56 @@ int main(void)
             strstr(jw_str(&d, d.obj[i].text), "%"))
             printf("       [%s]\n", jw_str(&d, d.obj[i].text));
 
+    /* ---------- 測定面高さ ≠ 0 (三斜): 原典の実測 (tools/jwdraw.ps1 で 10.03.6 を 実際に動かした、
+       decomp/res/hk_sa9.jww、2026-10-18)。
+       手順: new.jww に 建物（箱 400,300-600,500 画面、高さ 10 m）を置き、天空図 (32971) →
+       三斜 (1068) → 測定高 (1492) に 1.5 → 測定点 (520,610 画面) → 三斜計算 (1329) →
+       中心 (900,300 画面)。等距離射影の釦は 三斜のバー (9010・9011、decomp/res/bars3.txt の
+       232971_9010/9011) に 無く、1064/1065 を押すと 1068 のハンドラが tn_equi を 0 に戻す
+       （src/cmd.c 21305〜21332）ので、三斜 + 等距離射影 は 原典の UI では 組めない
+       （この行の「等距離射影」は 原典で 試せない。測定面高さ ≠ 0 だけ 測った）。
+       測定点・中心の図寸座標は 画面→図寸の変換（箱の四隅 400,300→(-94.285714286,26.326530612)・
+       600,500→(28.163265306,-96.122448980)、縮尺 100）から 逆算: 測定点 (520,610) →
+       (-20.816326530612,-163.469387755102)、中心 (900,300) → (211.836734693878,26.326530612245)。
+       測定点表示 (2216) は 置いていないので o.name は 空にする（原典は 2216 が空だと
+       「No.n」を 出さない、src/cmd.c の so.name[0] = 0、hk_sansha_opts_default の "No.1" とは別）。 */
+    {
+        jw_drawing ref2, d4;
+        unsigned char *rb2;
+        long rn2;
+        double pctx = -1;
+        int got4, end2;
+
+        rb2 = slurp("decomp/res/hk_sa9.jww", &rn2);
+        if (!rb2) {
+            printf("BAD  decomp/res/hk_sa9.jww が読めません\n");
+            fails++;
+        } else {
+            memset(&ref2, 0, sizeof ref2);
+            jw_parse(&ref2, rb2, rn2);
+            /* 保存のたびに 文書の設定 (Printer_*・View_Direct2d・...) が 文字の形で 末尾に
+               付く（layer 0, d[1] = -1000固定、原典の図形ではない。tools/jwdump.c と
+               同じ見分け方）。三斜の答えは その手前で終わる */
+            for (end2 = ref2.ndrawn; end2 > 0; end2--)
+                if (!(ref2.obj[end2 - 1].cls == JW_MOJI && ref2.obj[end2 - 1].d[1] == -1000.0))
+                    break;
+            make_doc(&d4, &ref2, bb, bn, 0, 1, 0, 8);
+            hk_sansha_opts_default(&o);
+            hk_sansha_opts_set_mode(&o, 1);     /* 原典の初めの状態 《計画建物用》 */
+            o.name[0] = 0;                      /* 測定点表示の箱が空 */
+            o.t.plane_m = 1.5;
+            got4 = jw_tenku_sansha_draw_ex(&d4, &o, -20.816326530612, -163.469387755102,
+                                          211.836734693878, 26.326530612245, &pctx);
+            printf("     測定面高さ 1.5m (原典 sa9): 足した要素 %d (原典 %d)  天空率 %.3f (原典 86.855)\n",
+                   got4, end2 - 8, pctx);
+            fails += same(&ref2, 8, end2, 0, &d4, d4.ndrawn - (got4 > 0 ? got4 : 0),
+                         "sansha_plane15");
+            if (fabs(pctx - 86.855) > 1e-9)
+                fails++;
+            free(rb2);
+        }
+    }
+
     /* ---------- 視点と同じ面に ある 線の 併合 (0x741553..): 壁を二本に割っても 同じ表になる [G] ---------- */
     {
         jw_drawing d2, d3;

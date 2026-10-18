@@ -46,9 +46,17 @@
  * diagrams of orig/天空率表.jww are one of each, which is why they differ in the details.
  *
  * Verified against orig/天空率表.jww (two diagrams, object for object, to 1e-13 mm, strings,
- * colours, line types, flags): see tests/tenku_sansha_test.c.  Not covered by a sample:
- * the exe's own number format (see HK_SANSHA_EXE), the 2nd table page, rings, 等距離射影,
- * 南方向補正, 測定面高さ <> 0 and the plane merge.
+ * colours, line types, flags): see tests/tenku_sansha_test.c.  測定面高さ <> 0 (1.5 m) is also
+ * verified, object for object to 1e-13 mm, against the exe's own output (decomp/res/hk_sa9.jww,
+ * run with tools/jwdraw.ps1, 2026-10-18 -- see the test and tools/tnbatch5.sh's comment).
+ * 等距離射影 cannot be checked against the exe at all for 三斜: the exe's own 三斜 bar (dialog
+ * 232971_9010/9011, decomp/res/bars3.txt) carries no 等距離射影 toggle, and pressing 正射影 (1064)
+ * or 等距離射影 (1065) always clears tn_sansha and picking 三斜 (1068) always clears tn_equi
+ * (src/cmd.c, the id == 1064/1065/1068 handlers around line 21305) -- so the real UI can never
+ * produce 三斜 + 等距離射影 together; the `equidist` field is only reachable here through the
+ * library API, not through any button sequence of the original.  Not covered by a sample:
+ * the exe's own number format (see HK_SANSHA_EXE), the 2nd table page, rings, 南方向補正 and the
+ * plane merge.
  */
 #include <math.h>
 #include <stdio.h>
