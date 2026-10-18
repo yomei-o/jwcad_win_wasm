@@ -56,6 +56,8 @@ int  jw_d25_line(int i, double p[6]);
 int  jw_d25_nell(void);
 /* 試験用: ソリッドから作った面（CData3DSolid）の数 */
 int  jw_d25_nface(void);
+/* 試験用: i 番目の面の 四隅（3D、底上げ・勾配の面の gx_xf を 既に適用した後の値） */
+int  jw_d25_face(int i, double p[12]);
 /* 試験用: 視点などのつまみ（バー +0xe0 +0xe8 +0xf0 +0xf8 +0x100 +0x108） */
 void jw_d25_knobs(double k[6]);
 

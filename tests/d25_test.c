@@ -1074,6 +1074,73 @@ static int csolids(void)
     return vfail != 0;
 }
 
+/* ---- 円ソリッドの勾配の面（cs_face、FUN_0060e6d0 の 0x6096xx.. の FUN_006109b0 二回）。
+ * 逆コンパイルの読み（decomp/decomp/all_00599e67.c 55198-55827 行目を全文読んだ。
+ * 55696-55699 行目 `FUN_006109b0(local_49c,local_504,1,local_3d4,uStack_3d0);
+ * FUN_006109b0(local_34c,local_504,1,local_3d4,uStack_3d0);` の param_1 は 一見
+ * local_49c[46]・local_34c[46] という小さい領域に見えるが、スタック上のオフセットを
+ * 引くと local_49c−0x68=local_434、−0x70=local_42c、−0x78=local_424、−0x80=local_41c、
+ * −0x88=local_414、−0x90=local_40c に ちょうど一致し（同様に local_34c−0x68=local_2e4
+ * … −0x90=local_2bc）、FUN_006109b0（=port の gx_xf、+0x68.. +0x90 の 二点 6 個の
+ * doubleを 書き換える）が直前（55640-55655・55656-55695 行目）に組んだ 面の四隅
+ * （局所変数名の小ささは Ghidra が 隣の変数の宣言までの隙間しか見せていないだけ）を
+ * 直接 書き換えていると確定した。param_3（has4）は 常に 1 固定（リテラル）、param_4
+ * （local_3d4, uStack_3d0）は 直前の FUN_0043acd0 呼び出し（55402-55407 行目）で
+ * 円ソリッドの中心と 文字の位置を 比べるのに使われている値と同じ変数で、円ソリッド
+ * 自身の中心 Y（o->d[1]）である——これは port の `cs_face` が すでに
+ * `gx_xf(o, &f.p[0][0], fl, 1, o->d[1], -1)` と 書いている内容と 完全に一致する。
+ * fl（旗、local_4bc）は 55408-55418 行目の `local_6a8c`（中心の 文字の末尾 v/h 種別、
+ * port の tk）から、v のとき 3（1|2）・h のとき 0xf（1|2|4|8）と 組まれ、これも
+ * port の `fl = tk==0?0:tk==2?0xf:3` と 一致する。したがって「弧（CDataEnko・一本の
+ * 線）と同じ旗・has4」という これまでの読みは 推測ではなく この式の突き合わせで
+ * 確定した。ここでは 点が 補助線の y6 より下でも（lean の最初の判定が 偽でも）
+ * has4 により 円の中心 Y が y6 以上なら 傾ける、という has4 が実際に 効く場面
+ * （さもなければ Z は 動かない）を 具体的な数で 確かめる。 */
+static int cs_slope(void)
+{
+    long n;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    jw_drawing *d;
+    double p[12], cx = 1000.0, r = 50.0, a0 = -30.0 * 3.14159265358979323846 / 180.0, sw = 15.0 * 3.14159265358979323846 / 180.0;
+    double ca = cos(30.0 * 3.14159265358979323846 / 180.0), sa = sin(30.0 * 3.14159265358979323846 / 180.0);
+    double cb = cos(15.0 * 3.14159265358979323846 / 180.0), sb = sin(15.0 * 3.14159265358979323846 / 180.0);
+    double ax, ay, bx, by, z0 = -30.0;      /* z0: 高さ 30（字「3,0」）の −z（gx_xf の Z1・Z2 の初め） */
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+
+    add_sen(d, 0, 0, 1000, 0, 5, 9);       /* 色 5・線種 9: 起点 (0,0)・角 0（左下は 既定 0,0） */
+    add_sen(d, 0, 0, 1, 1, 6, 9);          /* 色 6・線種 9: 角 45°、起点 (0,0) */
+    /* 円ソリッド（線種 111 の輪郭、cy=0）の弧 −30°〜−15°: 点の Y（= −25 〜 −12.94）は
+       どちらも y6（=0）未満だが、円の中心 Y（o->d[1]=0）は y6 以上 → has4 が無ければ
+       傾かない。半径 50・字「3,0」で 高さ 30・奥行 0 */
+    add_csol(d, 111, cx, 0.0, r, a0, sw, 5.0);
+    add_text(d, cx, 0.0, "3,0");
+    jw_cmd_bar(d, 1064);
+    ax = cx + r * ca;
+    ay = -r * sa;                           /* sin(−30°) = −sin(30°) */
+    bx = cx + r * cb;
+    by = -r * sb;                           /* sin(−15°) = −sin(15°) */
+    vck(jw_d25_nface() == 1, "輪郭の円ソリッドは 弧 1 刻みで 面 1 つ");
+    vck(jw_d25_face(0, p) != 0, "  面が取れる");
+    /* gx_xf: 上段（z=30）の 点 1・2 の新しい (x,y,z) = (旧 x, (旧y−y6)·cot45°+z0, 旧y)。
+       cot45° = 1・y6 = 0 なので 新しい y 成分 = 旧y + z0（z0 = −30） */
+    vck(veq(p[0], ax) && veq(p[1], ay + z0) && veq(p[2], ay),
+        "  隅 1（上段 A）は has4 により 中心基準で 傾く");
+    vck(veq(p[3], bx) && veq(p[4], by + z0) && veq(p[5], by), "  隅 2（上段 B）も 同様に傾く");
+    vck(veq(p[6], bx) && veq(p[7], by) && veq(p[8], by), "  隅 3（下段 B、z=0）は 旧y・旧y のまま");
+    vck(veq(p[9], ax) && veq(p[10], ay) && veq(p[11], ay), "  隅 4（下段 A、z=0）も 同様");
+    jw_cmd_bar(d, 1121);
+    printf("%-4s cs_slope\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
 int main(void)
 {
     int bad = run(32937, "decomp/res/p197_h1.jww", "2.5D");
@@ -1084,6 +1151,7 @@ int main(void)
     bad += grads();
     bad += gslope();
     bad += csolids();
+    bad += cs_slope();
 
     bad += run(32943, "decomp/res/p198_k1.jww", "hikage");
     bad += run(32971, "decomp/res/p198_t1.jww", "tenku");
