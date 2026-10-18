@@ -126,6 +126,19 @@ int jw_outfont_put(int i, const unsigned char *data, long len)
     return 1;
 }
 
+/* For the tests: asc/desc/upem as read from the font file (stbtt_GetFontVMetrics,
+   i.e. the hhea table, plus head.unitsPerEm) -- see the baseline note in
+   jw_outfont_run.  0 if the font is not ready. */
+int jw_outfont_vmetrics(int i, int *asc, int *desc, int *upem)
+{
+    if (i < 0 || i >= NF || F[i].state != 2)
+        return 0;
+    if (asc) *asc = F[i].asc;
+    if (desc) *desc = F[i].desc;
+    if (upem) *upem = F[i].upem;
+    return 1;
+}
+
 void jw_outfont_fail(int i)
 {
     if (i >= 0 && i < NF && F[i].state != 2)
@@ -661,7 +674,64 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
             boost[i] = (unsigned char)(255.0 * pow(i / 255.0, 0.8) + 0.5);
     }
     /* [0]: the IPAex (or BIZ UD) way, the em the whole cell; [1]: a Latin
-       face, the em the height and its average half the width */
+       face, the em the height and its average half the width.
+     *
+     * 基線 (baseline), investigated 2026-10-18 (nokori.md「書体」):
+     * FUN_0048b130 (decomp/decomp/all_004894cd.c:927-1438) is given the
+     * height already negated by its one caller, FUN_00481d50
+     * (decomp/decomp/all_00401000.c:66276-68211): local_784 =
+     * -FUN_004b8250() at lines 67053-67054 and again 67722-67723, then
+     * local_918 = local_784 (67816) reaches FUN_0048b130's param_10
+     * unchanged (68053-68058), and is passed straight to CreateFontW's
+     * nHeight (68161, "FID_conflict_CreateFontW(param_10,...)" at 1116 of
+     * all_004894cd.c) -- no further negation inside FUN_0048b130.  A
+     * negative nHeight is always used, for every face, kanji or Latin
+     * alike; this part is read from the decompilation.
+     *
+     * What Windows does with a negative nHeight on a TrueType font --
+     * scale the font so its design em (head.unitsPerEm) maps to |nHeight|
+     * device units, the font's own ascent/descent then falling wherever
+     * that em happens to put them -- is standard, well-documented GDI
+     * behaviour, not something in this EXE to decompile (it lives in
+     * gdi32's font engine).  hy[1] = ch / upem below is that: it is the
+     * same rule FUN_0048b130 asks for, whichever Latin face is named.
+     *
+     * Whether that leaves Liberation Sans/Serif's own baseline (asc, desc
+     * read by stbtt_GetFontVMetrics, i.e. the hhea table) standing in
+     * for the real face's was checked by reading both files' head/hhea/
+     * OS2 tables directly (not by running the original):
+     *
+     *   unitsPerEm  hhea asc  hhea desc    (all in the font's own units)
+     *   Arial              2048      1854       -434   (C:\Windows\Fonts\arial.ttf)
+     *   jwsubsans.ttf      2048      1854       -434   (fonts/jwsubsans.ttf)
+     *   Times New Roman    2048      1825       -443   (C:\Windows\Fonts\times.ttf)
+     *   jwsubserif.ttf     2048      1825       -443   (fonts/jwsubserif.ttf)
+     *
+     * identical down to the unit -- Liberation was drawn metric-compatible
+     * with Arial/Times at this level too, not just xAvgCharWidth, so
+     * base[1] below already reproduces the real face's baseline for these
+     * two exactly.  The other LATIN[] entries (Arial Narrow, Century
+     * Gothic, Tahoma, Verdana, Century, Georgia, Bookman Old Style) have
+     * no vertical metric of their own in LATIN[] -- only avg/wide (width)
+     * are tracked -- so they draw with the stand-in's asc/desc instead of
+     * their own.  Measuring the three of those seven present on this
+     * machine (Tahoma, Verdana, Georgia -- Windows ships no Arial Narrow,
+     * Century Gothic or Bookman Old Style) against jwsubsans/jwsubserif's
+     * 2048-unit em: the real desc is 423/430/449 units where the stand-in
+     * answers 434/434/443 -- a few units out of 2048 (under 0.5% of the
+     * em, so under a tenth of a pixel at any text height this program
+     * draws), not worth a per-face vertical-metric table for.
+     *
+     * A real, measured effect that is NOT fixed here: a single text in a
+     * Latin-named face that mixes ASCII with a kanji IPAex must draw for
+     * it (the association above LATIN[]) sits the ASCII on base[1] (the
+     * Latin stand-in's own baseline) and the kanji on base[0] (IPAex's
+     * own) -- two different baselines in the one run, measured about
+     * ch*0.12 apart (e.g. 4 px of a 32 px cell).  Whether real Windows'
+     * font-linking keeps such a mix on one baseline or shows the same
+     * split cannot be told from this EXE -- the substitution happens
+     * inside GDI's font linking, not in any code here to decompile -- so
+     * this is left as it was rather than guessed at. */
     hx[0] = cw / (F[fj].asc - F[fj].desc);
     hy[0] = ch / (F[fj].asc - F[fj].desc);
     base[0] = -F[fj].desc * hy[0];
