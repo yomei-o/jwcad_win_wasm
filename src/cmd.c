@@ -21236,6 +21236,11 @@ static int bar_press(jw_drawing *d, int id)
         return 1;
     }
     if (current == JW_CMD_HIKAGE && id == 1066 && !hk_sub && !hk_pts) {
+        /* 原典で測った（2026-10-18）: 真北（1068）を設定していないと ここへは進めず、
+           窓「真北が設定されていません。」（OK／キャンセル）が出るだけで押しても
+           何も変わらない。この移植にはそのガードが無く、真北未設定でも 1066 が
+           そのまま通る（未実装。真北を設定済みの場合の指定点・グラフの座標は
+           hikage.c の hk_point_graph のコメントのとおり原典と一致を確認した） */
         hk_pts = 1;                 /* 指定点: 測定点を押す */
         hkp_n = 0;
         hk_first_no = 1;            /* CZukeiKage3 の作り（0x69c94e）が +0x12c = 1・+0x130 = 0 */
