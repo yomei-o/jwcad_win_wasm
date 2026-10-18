@@ -3213,12 +3213,38 @@ static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_o
         return;
     }
     {   /* turned: every pixel of the box's hull asks the picture what it is over.
-           (PlgBlt in the original, which picks nearest too; sampling at the top left
-           of each pixel is the closest to its pixels of those tried -- 1,872 of 84,680
-           pixels of tools/imgref.sh's rot1 differ) */
+           (PlgBlt in the original.)  FUN_00487290 builds the three corners it hands
+           PlgBlt by calling FUN_004b6d60 (the view's mm->pixel point, same cast as
+           jw_px_round) three separate times -- once per corner -- rather than once
+           for an angle and an origin: so the parallelogram GDI actually resamples
+           against is not quite this box's own rotation, it is the parallelogram of
+           three independently-rounded corners.  PlgBlt's own documented corner order
+           is upper-left/upper-right/lower-left of the *source* rectangle (xSrc,ySrc),
+           (xSrc+width,ySrc), (xSrc,ySrc+height): since the source bitmap's row 0 is
+           its top and this box's corner 3 (jw_pic_corners: ox - s*h, oy + c*h) is the
+           "up" one, corner 3/2/0 are those three in that order.  Solving each
+           destination pixel's own (whole-number) point against the parallelogram
+           built from those three *rounded* corners -- rather than against the exact
+           rotation used for the box itself -- took the mismatch from 1,872 of 84,680
+           pixels of tools/imgref.sh's rot1 down to 914; sampling at a pixel's centre,
+           or rounding the solved source offset to the nearest instead of flooring it,
+           both came out worse (tried and measured, not kept).  The rest of the 914 is
+           most likely gdi32's own internal fixed-point PlgBlt, which is not part of
+           this decompile. */
         int xmin = jw_px_round(px[0]), xmax = xmin, ymin = jw_px_round(py[0]), ymax = ymin;
         int x0, x1, y0, y1;
-        double pw = cr.cw * cr.mm, ph = cr.ch * cr.mm;
+        /* the three corners PlgBlt is handed: upper-left (source's xSrc,ySrc),
+           upper-right (xSrc+width,ySrc) and lower-left (xSrc,ySrc+height), each
+           rounded on its own the way FUN_004b6d60 rounds (jw_px_round) */
+        double tlx = jw_px_round(px[3]), tly = jw_px_round(py[3]);
+        double trx = jw_px_round(px[2]), try_ = jw_px_round(py[2]);
+        double blx = jw_px_round(px[0]), bly = jw_px_round(py[0]);
+        /* the source-pixel-to-device-pixel matrix the three corners above imply:
+           moving one source column is (ax,cx) device pixels, one source row is
+           (bx,dx) */
+        double ax = (trx - tlx) / cr.cw, cx = (try_ - tly) / cr.cw;
+        double bx = (blx - tlx) / cr.ch, dx = (bly - tly) / cr.ch;
+        double det = ax * dx - bx * cx;
 
         for (i = 1; i < 4; i++) {
             int a2 = jw_px_round(px[i]), b2 = jw_px_round(py[i]);
@@ -3238,17 +3264,17 @@ static void pic_draw(fb_t *fb, const jw_view *v, const jw_drawing *d, const jw_o
         for (y = y0; y < y1; y++)
             for (x = x0; x < x1; x++) {
                 double X = (x + pic_ox - v->bx), Y = (v->by - (y + pic_oy));
-                double dx = X - px[0], dy = Y - py[0], lx, ly;
+                double dXr = X - tlx, dYr = Y - tly, u, w;
                 int sc, sr;
                 const unsigned char *q;
                 unsigned int c;
 
-                lx = (cosa * dx + sina * dy) * v->mmpp;
-                ly = (-sina * dx + cosa * dy) * v->mmpp;
-                if (lx < 0.0 || lx >= pw || ly < 0.0 || ly >= ph)
+                u = (dx * dXr - bx * dYr) / det;      /* source column offset, 0..cr.cw */
+                w = (-cx * dXr + ax * dYr) / det;     /* source row offset, 0..cr.ch */
+                if (u < 0.0 || u >= cr.cw || w < 0.0 || w >= cr.ch)
                     continue;
-                sc = cr.cl + (int)floor(lx / cr.mm);
-                sr = cr.ct + cr.ch - 1 - (int)floor(ly / cr.mm);
+                sc = cr.cl + (int)floor(u);
+                sr = cr.ct + (int)floor(w);
                 if (sc < 0 || sc >= im->w || sr < 0 || sr >= im->h)
                     continue;
                 q = im->rgb + ((size_t)sr * im->w + sc) * 3;

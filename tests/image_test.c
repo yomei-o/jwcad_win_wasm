@@ -464,7 +464,10 @@ int main(void)
             snprintf(nm, sizeof nm, "画像フィット 回転する %d", k + 1);
             same_pic(nm, RO[k], 0);
             if (k == 0)
-                shot_diff(nm, "decomp/res/img_rot1.png", 2500);   /* PlgBlt takes its corners as whole pixels */
+                shot_diff(nm, "decomp/res/img_rot1.png", 1000);   /* PlgBlt's own corners are whole pixels, rounded
+                                                                      one by one (src/draw.c, the "turned" pic_draw
+                                                                      branch); the rest is likely gdi32's own PlgBlt
+                                                                      rounding, outside this decompile */
         }
     }
     d = fresh();
