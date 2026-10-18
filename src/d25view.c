@@ -1249,6 +1249,18 @@ static void one_arc(const jw_drawing *d, const jw_obj *o, double base, int lh, d
  * 勾配の補助線は gx_pair */
 typedef struct {
     double p[4][3];
+    /* 射影前の四隅（x y z、字の高さ・底上げを足した後、gx_pair/gx_xf の
+     * 前の値）。2554 の DXF出力（3DFACE、下の jw_d25_face3）のための値。
+     * 2026-10-18 確認: `one_solid`（下、gx_pair の直前の cxy・高さ）と
+     * `cs_face`（下、gx_xf の直前の q）が 既に 射影前の生の 3D 座標を
+     * 一旦 f.p に 置いてから gx_pair/gx_xf で その場で 書き換えている
+     * ことに 気付き、書き換える 前に ここへ 控える。CData3DSolid の
+     * DXF書き出し（`FUN_00441c10`, decomp/byclass/CData3DSolid.c:85-131）
+     * が 読む +0x258.. +0x2b0 の 12 個の double（四隅 x y z）はこれと
+     * 同じ「射影していない 立体そのものの 座標」のはずだが、その値を
+     * どこで 立てる（CData3DSolid を 実際に 作る 関数）かは 読み切れて
+     * いない（port は 2D の画面描画用に 作った fc[] から 流用するのみ）。 */
+    double p3[4][3];
     unsigned char ltype;
     unsigned short color, layer, lgroup;
     int n;
@@ -1416,6 +1428,11 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
             f.p[c][0] = cxy[c][0];
             f.p[c][1] = cxy[c][1];
             f.p[c][2] = i == 1 ? hv[c] : dv[c];
+            /* 射影（gx_pair）の前に控える: cxy は 平面図そのままの x y、
+               高さは base を まだ足していないので ここで足す */
+            f.p3[c][0] = cxy[c][0];
+            f.p3[c][1] = cxy[c][1];
+            f.p3[c][2] = f.p[c][2] + base;
         }
         /* 勾配の補助線（FUN_00615f90 の 0x616dxx: 二点の組 二つを FUN_006109b0、旗 0・
            param_3 0。組は 1-2・3-4 と読んだ） */
@@ -1518,6 +1535,10 @@ static void cs_face(const jw_obj *o, double base, const double q[4][3], int cull
         f.p[c][0] = q[c][0];
         f.p[c][1] = q[c][1];
         f.p[c][2] = q[c][2];
+        /* 射影（gx_xf）の前に控える。one_solid の f.p3 と同じ理由 */
+        f.p3[c][0] = q[c][0];
+        f.p3[c][1] = q[c][1];
+        f.p3[c][2] = q[c][2] + base;
     }
     gx_xf(o, &f.p[0][0], fl, 1, o->d[1], -1);
     gx_xf(o, &f.p[2][0], fl, 1, o->d[1], -1);
@@ -2642,7 +2663,14 @@ int jw_d25_bar(jw_drawing *d, int id, int *made)
         else
             write_out(d);
         return 1;
-    case 2554:                          /* DXF出力: 移植に無い */
+    case 2554:                          /* DXF出力: app.c が jw_cmd_bar を
+                                            呼ぶ前に 横取りして
+                                            JW_ACT_SAVE_DXF25D を立てる
+                                            （app_save_dxf25d・下の
+                                            jw_d25_dxf_write）。ここへ
+                                            来るのは その経路を通さない
+                                            呼び手だけなので 受けたと
+                                            返すだけにしておく */
         return 1;
     case 1123: case 1124: case 1125: case 1126: case 1127: case 1128:
         if (m_mode == 3 && (id == 1127 || id == 1128))
@@ -2784,6 +2812,27 @@ int jw_d25_face(int i, double p[12])
     if (i < 0 || i >= nfc)
         return 0;
     memcpy(p, fc[i].p, sizeof fc[i].p);
+    return 1;
+}
+
+/* 2554 の DXF出力（下の jw_d25_dxf_write, src/dxf.c）のための
+   射影前の四隅。上の d25_face.p3 のコメントを見よ */
+int jw_d25_face3(int i, double p[12])
+{
+    if (i < 0 || i >= nfc)
+        return 0;
+    memcpy(p, fc[i].p3, sizeof fc[i].p3);
+    return 1;
+}
+
+int jw_d25_face_meta(int i, int *ltype, int *color, int *layer, int *lgroup)
+{
+    if (i < 0 || i >= nfc)
+        return 0;
+    *ltype = fc[i].ltype;
+    *color = fc[i].color;
+    *layer = fc[i].layer;
+    *lgroup = fc[i].lgroup;
     return 1;
 }
 

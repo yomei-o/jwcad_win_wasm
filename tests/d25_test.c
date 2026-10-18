@@ -10,6 +10,7 @@
 #include "../src/ui.h"
 #include "../src/jww.h"
 #include "../src/d25view.h"
+#include "../src/gen/bars.h"
 
 static unsigned char *slurp(const char *path, long *n)
 {
@@ -649,6 +650,134 @@ static int faces(void)
     return vfail != 0;
 }
 
+/* ---- 2554「DXF出力」（src/dxf.c の jw_d25_dxf_write）。原典を動かして
+ * 確かめることができず（2.5D の DXF サンプルが decomp/res に一つも無い）、
+ * ここは バイト一致ではなく「jw_d25_face3・jw_d25_dxf_write が このまま
+ * 実装している式どおりに動く」ことだけを固定する――出典は src/dxf.c の
+ * jw_d25_dxf_write の長い注（CData3DSolid::WriteDxf = FUN_00441c10,
+ * decomp/byclass/CData3DSolid.c:85-131、四隅を 10/20/30.. 13/23/33 で
+ * 書くところだけ確認できた）と src/d25view.c の d25_face.p3 の注。 ---- */
+static void lines_after(const char *s, char out[][40], int maxlines)
+{
+    int i;
+
+    for (i = 0; i < maxlines; i++) {
+        const char *e = s ? strstr(s, "\r\n") : 0;
+        int len;
+
+        if (!e) {
+            out[i][0] = 0;
+            continue;
+        }
+        len = (int)(e - s);
+        if (len > 39)
+            len = 39;
+        memcpy(out[i], s, (size_t)len);
+        out[i][len] = 0;
+        s = e + 2;
+    }
+}
+
+static void press_bar25(int id)
+{
+    int i, k;
+
+    for (i = 0; i < JW_NBARS; i++) {
+        if (jw_bars[i].cmd != (unsigned)jw_cmd())
+            continue;
+        for (k = 0; k < jw_bars[i].n; k++) {
+            const jw_ctl_t *c = &jw_bars[i].c[k];
+            int x = c->x + c->w / 2, y = c->y + c->h / 2;
+
+            if (c->id != id || ui_bar_hit(x, y) != id)
+                continue;
+            app_press(x, y, 0);
+            return;
+        }
+    }
+    vck(0, "その釦がバーに無い");
+}
+
+static int dxf25(void)
+{
+    long n, m;
+    unsigned char *b = slurp("decomp/res/new.jww", &n);
+    unsigned char *out = 0;
+    jw_drawing *d;
+    jw_obj *so;
+    double p3[12], hw, hh, s;
+    int ltype, color, layer, lgroup, i, ok;
+    char lines[30][40];
+    const char *p3df;
+
+    vfail = 0;
+    if (!b)
+        return 1;
+    app_new();
+    app_resize(1264, 741);
+    app_open(b, n);
+    app_command(32937);
+    d = (jw_drawing *)app_drawing();
+    so = jw_add(d, JW_SOLID);
+    so->d[0] = 2000; so->d[1] = 2000;
+    so->d[2] = 2100; so->d[3] = 2000;
+    so->d[4] = 2100; so->d[5] = 2100;
+    so->d[6] = 2000; so->d[7] = 2100;
+    so->color = 3;
+    jw_cmd_bar(d, 1066);                /* アイソメへ（build() が 立体を組む） */
+    vck(jw_d25_nface() == 1, "文字の無いソリッドは 面一つ");
+
+    /* jw_d25_face3: 射影前の四隅は ソリッドの d[] そのまま、高さ 0 */
+    ok = jw_d25_face3(0, p3) != 0;
+    for (i = 0; ok && i < 4; i++) {
+        ok = fabs(p3[3 * i + 0] - so->d[2 * i]) < 1e-9
+             && fabs(p3[3 * i + 1] - so->d[2 * i + 1]) < 1e-9
+             && fabs(p3[3 * i + 2]) < 1e-9;
+    }
+    vck(ok, "  jw_d25_face3 は 射影前の生の座標（z は 0）");
+    ok = jw_d25_face_meta(0, &ltype, &color, &layer, &lgroup) != 0;
+    vck(ok && color == 3 && layer == so->layer && lgroup == so->lgroup,
+        "  jw_d25_face_meta は 色・層・レイヤ・グループをそのまま返す");
+
+    /* jw_d25_dxf_write: 3DFACE が一つ、四隅は (x+半紙)×層の縮尺 */
+    vck(jw_d25_dxf_write(d, &out, &m) != 0, "jw_d25_dxf_write は 書ける");
+    p3df = out ? strstr((const char *)out, "3DFACE") : 0;
+    vck(p3df != 0, "  3DFACE が出る");
+    hw = d->paper_hw;
+    hh = d->paper_hh;
+    s = lgroup >= 0 && lgroup < 16 && d->group[lgroup].scale > 0.0
+        ? d->group[lgroup].scale : 1.0;
+    if (p3df) {
+        lines_after(p3df + strlen("3DFACE\r\n"), lines, 30);
+        ok = 1;
+        for (i = 0; i < 4; i++) {
+            double ex = (p3[3 * i + 0] + hw) * s;
+            double ey = (p3[3 * i + 1] + hh) * s;
+            double ez = p3[3 * i + 2] * s;
+            double gx = atof(lines[6 + 6 * i + 1]);
+            double gy = atof(lines[6 + 6 * i + 3]);
+            double gz = atof(lines[6 + 6 * i + 5]);
+
+            if (fabs(gx - ex) > 1e-6 || fabs(gy - ey) > 1e-6 || fabs(gz - ez) > 1e-6)
+                ok = 0;
+        }
+        vck(ok, "  四隅は (座標＋半紙)×層の縮尺（z は 半紙を足さず 縮尺だけ）");
+    }
+    free(out);
+
+    /* 2554 の釦: app_press がバーで横取りして JW_ACT_SAVE_DXF25D を立てる */
+    press_bar25(2554);
+    vck(app_take_action() == JW_ACT_SAVE_DXF25D, "DXF出力 の釦は JW_ACT_SAVE_DXF25D");
+    out = 0;
+    vck(app_save_dxf25d(&out, &m) != 0 && out && strstr((const char *)out, "3DFACE") != 0,
+        "  app_save_dxf25d も 3DFACE を書く");
+    free(out);
+
+    jw_cmd_bar(d, 1121);                /* ≪ で平面へ */
+    printf("%-4s dxf25\n", vfail ? "BAD" : "ok");
+    return vfail != 0;
+}
+
 /* ---- 勾配の文字 t T d D（FUN_00613c10・FUN_0061c770）。逆コンパイルの読み、
    原典では押していない ---- */
 static int grads(void)
@@ -1148,6 +1277,7 @@ int main(void)
     bad += views();
     bad += arcs();
     bad += faces();
+    bad += dxf25();
     bad += grads();
     bad += gslope();
     bad += csolids();

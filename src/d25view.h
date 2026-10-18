@@ -58,7 +58,18 @@ int  jw_d25_nell(void);
 int  jw_d25_nface(void);
 /* 試験用: i 番目の面の 四隅（3D、底上げ・勾配の面の gx_xf を 既に適用した後の値） */
 int  jw_d25_face(int i, double p[12]);
+/* 2554 の DXF出力（src/dxf.c の jw_d25_dxf_write）用: i 番目の面の
+   射影前の四隅（x y z、底上げ済み・gx_pair/gx_xf を適用する前の値） */
+int  jw_d25_face3(int i, double p[12]);
+/* i 番目の面の ltype・color・layer・lgroup */
+int  jw_d25_face_meta(int i, int *ltype, int *color, int *layer, int *lgroup);
 /* 試験用: 視点などのつまみ（バー +0xe0 +0xe8 +0xf0 +0xf8 +0x100 +0x108） */
 void jw_d25_knobs(double k[6]);
+
+/* 2554（≪ 1121〜1129 のバーで「DXF出力」）: 立体の面を 3DFACE として
+   DXF へ書く。jw_d25_bar が 2554 を受けた時に 呼ぶ（既に段に入っている
+   ことが 前提、すなわち jw_d25_view と同じ fc[] を 読む）。下の
+   src/dxf.c の jw_d25_dxf_write に 出典のコメントがある */
+int  jw_d25_dxf_write(const jw_drawing *d, unsigned char **out, long *n);
 
 #endif
