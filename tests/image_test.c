@@ -404,7 +404,11 @@ int main(void)
     click(330, 380);
     click(430, 300);
     same_pic("トリミング", "decomp/res/img_trim.jww", 0);
-    shot_diff("トリミング", "decomp/res/img_trim.png", 1000);   /* one column short at the right */
+    /* one column short at the right -- pinned to the exact count (924 of 8715,
+       src/draw.c's pic_draw, the trimmed non-turned branch) rather than a round
+       number, so a real fix shows up as this number dropping and a regression
+       shows up as it rising */
+    shot_diff("トリミング", "decomp/res/img_trim.png", 924);
     bar(1336);
     click(380, 340);
     same_pic("トリミング解除", "decomp/res/img_untrim.jww", 0);
@@ -427,7 +431,10 @@ int main(void)
             snprintf(nm, sizeof nm, "トリミング %d", k + 1);
             same_pic(nm, fn, 0);
             snprintf(fn, sizeof fn, "decomp/res/img_tr%d.png", k + 1);
-            shot_diff(nm, fn, k == 1 ? 60 : 0);   /* the second is a row short at the top */
+            /* the second is a row short at the top -- pinned to the exact
+               count (34 of 345, same pic_draw branch as the トリミング case
+               above) rather than a round number */
+            shot_diff(nm, fn, k == 1 ? 34 : 0);
         }
     }
 
