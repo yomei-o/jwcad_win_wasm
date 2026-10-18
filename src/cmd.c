@@ -7688,6 +7688,113 @@ static int clkpt_click(jw_drawing *d, const jw_view *v, double x, double y,
     return 1;
 }
 
+/* 図形を拾って その「仮想関数 11」の点（FUN_004497b0 の読み: 線・文字は二端の中点
+ * FUN_0042a1a0、円は中心 FUN_0042a230、ソリッドは 近い辺の中点 FUN_0042a260
+ * = clkpt_solid_edge、寸法は 部品 1（CDataSen）の中点 FUN_0042af20）。AM 3 の
+ * 離し（jw_cmd_clock_pt の段。FUN_0076ea20 の 無ければの枝）と AM 6 オフセット
+ * （FUN_0076f880 の param_2==2、読取点が無ければの FUN_004497b0 呼び）が
+ * ともにこの拾いを使う（decomp/decomp/all_00732cce.c:24742 ときの読み）。
+ * 0 なら拾えなかった（命令には 何も届かない） */
+static int clkpt_pick_point(const jw_drawing *d, const jw_view *v,
+                            double x, double y, double *outx, double *outy)
+{
+    int i = jw_pick(d, v, x, y, 1);
+    const jw_obj *o;
+
+    if (i < 0)
+        return 0;
+    o = &d->obj[i];
+    if (o->sub && i >= o->sub - 1 && d->obj[i - (o->sub - 1)].sub == 1) {
+        /* 寸法図形（CDataSunpou 仮想関数 11 = FUN_0042af20）: +0x70・+0x78 と +0x80・+0x88、
+           つまり 部品 1（+0x68 の CDataSen）の二端の中点。値や引出線を拾っても 図形の
+           寸法線の中点（移植は 部品を別の要素に並べるので 先頭の部品を引く） */
+        const jw_obj *h = &d->obj[i - (o->sub - 1)];
+
+        *outx = (h->d[0] + h->d[2]) / 2.0;
+        *outy = (h->d[1] + h->d[3]) / 2.0;
+    } else if (o->sub)
+        return 0;
+    else if (o->cls == JW_SEN || o->cls == JW_MOJI) {
+        *outx = (o->d[0] + o->d[2]) / 2.0;
+        *outy = (o->d[1] + o->d[3]) / 2.0;
+    } else if (o->cls == JW_SOLID) {
+        /* FUN_0042a260: 押した点に近い辺の二端の中点（clkpt_solid_edge） */
+        jw_obj e;
+
+        if (!clkpt_solid_edge(o, x, y, &e))
+            return 0;
+        *outx = (e.d[0] + e.d[2]) / 2.0;
+        *outy = (e.d[1] + e.d[3]) / 2.0;
+    } else if (o->cls == JW_ENKO) {
+        *outx = o->d[0];
+        *outy = o->d[1];
+    } else
+        return 0;
+    return 1;
+}
+
+/* 右 AM 6 オフセット（FUN_0076f880 札 10103、離し param_2==2）の 離しの点取り。
+ * 読取点（FUN_00451f30 = jw_read）が有れば それ、無ければ FUN_004497b0 の
+ * 図形拾い（clkpt_pick_point、旗 +0x6324・+0x632c・+0x6338 は 読みだけ・移植は
+ * 立てない）。どちらも 0 なら 0（FUN_0050e070 のあと 何もしない。
+ * decomp/decomp/all_00732cce.c:24742-24756）。1 なら *outx・*outy に その点。
+ * オフセットの窓（dialog 292）を出すのは 呼ぶ側（src/app.c の of_open） */
+int jw_cmd_clock_offset_pick(jw_drawing *d, const jw_view *v, double x, double y,
+                             double *outx, double *outy)
+{
+    if (!d)
+        return 0;
+    if (jw_read(d, v, x, y, outx, outy))
+        return 1;
+    return clkpt_pick_point(d, v, x, y, outx, outy);
+}
+
+/* オフセットの窓（dialog 292, コンボ 1411）の「X,Y」履歴。開くたびに前回の値を
+ * 見せ、OK で書き換える（nokori.md の「コンボ 1411 に「X,Y」履歴」）。
+ * 窓の +0x420・+0x428（decomp/decomp/all_00401000.c:43900, FUN_00451b20 の
+ * param_3 != 0 の枝 FUN_004988c0）に当たる場所は 移植には無い（窓そのものが
+ * 無い）ので、ここに静的に持つ。原典と同じく図面には残らない（軸角と同じ扱い） */
+static double offset_hist_x, offset_hist_y;
+
+void jw_cmd_offset_history(double *dx, double *dy)
+{
+    if (dx)
+        *dx = offset_hist_x;
+    if (dy)
+        *dy = offset_hist_y;
+}
+
+/* オフセットの窓の OK（FUN_00451b20、param_3 != 0 で開いたあとの戻り
+ * 1 の枝。decomp/decomp/all_00401000.c:43927-43948）。dx・dy は コンボ 1411
+ * に打った「X,Y」の実寸（窓の +0x420・+0x428）。
+ *   縮尺で割る（write_scale。+0x2578[+0x256c] と同じ、書込みレイヤグループの縮尺）、
+ *   ｍ単位入力（基本設定 2526、DAT_00a0d62c。mu_on）なら ×1000（DAT_00a0d630。
+ *   jw_cmd_m_input の注にある値）、
+ *   軸角（jw_cmd_axis、+0x17c0）で回す: FUN_005f8b60・FUN_005f8c20 の param_1==0
+ *   の枝（decomp/decomp/all_005c7556.c:24270-24315、原点 (0,0) からの単純な
+ *   回転）で fx = dx*cos(a) - dy*sin(a)、fy = dx*sin(a) + dy*cos(a)、
+ *   点に足す。
+ * 1411 の履歴も ここで書き換える。いつも 1 を返す（原典の local_64 = 1 の枝、
+ * FUN_00451b20 が 窓の戻りが OK（1）のときだけ ここへ来るので） */
+int jw_cmd_offset_apply(const jw_drawing *d, double px, double py,
+                        double dx, double dy, double *outx, double *outy)
+{
+    double a = jw_cmd_axis() * PI / 180.0, c = cos(a), s = sin(a);
+    double fx, fy, mdx = dx / write_scale(d), mdy = dy / write_scale(d);
+
+    if (mu_on) {
+        mdx *= 1000.0;
+        mdy *= 1000.0;
+    }
+    fx = mdx * c - mdy * s;
+    fy = mdx * s + mdy * c;
+    *outx = px + fx;
+    *outy = py + fy;
+    offset_hist_x = dx;
+    offset_hist_y = dy;
+    return 1;
+}
+
 /* 離し（段 2）。hour は 3 か 9、(x, y) は押した点（紙の上）。1 なら 命令へ届ける点が
    *outx・*outy に有る（届けるのは呼ぶ側。AM 12 と同じ後始末のため、左の点として
    jw_cmd_point(…, 0)）。0 なら 何も届かない（二点目待ちに入ったか、拾えなかった） */
@@ -7699,9 +7806,6 @@ int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double 
     if (!d || (hour != 3 && hour != 9))
         return 0;
     if (hour == 3) {
-        int i;
-        const jw_obj *o;
-
         if (jw_read(d, v, x, y, &rx, &ry)) {
             clkpt_mode = 3;
             clkpt_cmd = current;
@@ -7709,35 +7813,7 @@ int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double 
             clkpt_y = ry;
             return 0;
         }
-        i = jw_pick(d, v, x, y, 1);
-        if (i < 0)
-            return 0;
-        o = &d->obj[i];
-        if (o->sub && i >= o->sub - 1 && d->obj[i - (o->sub - 1)].sub == 1) {
-            /* 寸法図形（CDataSunpou 仮想関数 11 = FUN_0042af20）: +0x70・+0x78 と +0x80・+0x88、
-               つまり 部品 1（+0x68 の CDataSen）の二端の中点。値や引出線を拾っても 図形の
-               寸法線の中点（移植は 部品を別の要素に並べるので 先頭の部品を引く） */
-            const jw_obj *h = &d->obj[i - (o->sub - 1)];
-
-            *outx = (h->d[0] + h->d[2]) / 2.0;
-            *outy = (h->d[1] + h->d[3]) / 2.0;
-        } else if (o->sub)
-            return 0;
-        else if (o->cls == JW_SEN || o->cls == JW_MOJI) {
-            *outx = (o->d[0] + o->d[2]) / 2.0;
-            *outy = (o->d[1] + o->d[3]) / 2.0;
-        } else if (o->cls == JW_SOLID) {
-            /* FUN_0042a260: 押した点に近い辺の二端の中点（clkpt_solid_edge） */
-            jw_obj e;
-
-            if (!clkpt_solid_edge(o, x, y, &e))
-                return 0;
-            *outx = (e.d[0] + e.d[2]) / 2.0;
-            *outy = (e.d[1] + e.d[3]) / 2.0;
-        } else if (o->cls == JW_ENKO) {
-            *outx = o->d[0];
-            *outy = o->d[1];
-        } else
+        if (!clkpt_pick_point(d, v, x, y, outx, outy))
             return 0;
         clkpt_mode = 0;
         return 1;

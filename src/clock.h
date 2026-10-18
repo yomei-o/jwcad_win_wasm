@@ -53,7 +53,14 @@
  *   AM/PM +0x9078 を見る）
  * AM 3・9 の離しは src/cmd.c の jw_cmd_clock_pt（FUN_0076ea20・FUN_0076fae0。
  * 点は view+0x85d0 に書かれ 命令の仮想関数 9 が 0x231d で呼ばれる）。
- * 入れていないもの: AM 6 オフセット（FUN_0076f880 のオフセットの窓）、
+ * AM 6 オフセット（FUN_0076f880、下の case 6）は 読取点か 図形の点を
+ * jw_cmd_clock_offset_pick で取り、オフセットの窓（dialog 292、src/app.c の
+ * of_open・of_close）に「X,Y」を打たせ、jw_cmd_offset_apply が 縮尺・ｍ単位
+ * 入力・軸角で 点に足す。常駐（1926・1927、dialog 282。view+0x8f20 が 2 以上
+ * なら AM 3・9 や jw_read の呼び先すべてでもこの窓が出る話）は 入れていない
+ * （jw_read の呼び先が cmd.c に 30 箇所余りあり、この回では AM 6 だけに絞った。
+ * src/app.c の of_open の注に同じ）。
+ * 入れていないもの:
  * PM の円を押したときの 円接線角（札 10040、FUN_00772770 の 3・5・6 と FUN_0045a7f0）、
  * 点 1 のあとの札の番号（逆コンパイルで落ちている）、+0x908c == -1 の枝、
  * （PM の角度・長さ取得 FUN_00772770・FUN_00771030・FUN_007748b0・FUN_00770b60・
@@ -743,8 +750,8 @@ int clk_circle_pt(const jw_obj *o, double px, double py, double axis, int c8,
 
 /* 右の表（FUN_0076d330）。AM（view+0x907c == 0）:
  *   3・9 時は 仮想関数 18・20 の既定（FUN_0076ea20・FUN_0076fae0）の札と 離しの点
- *   （src/cmd.c の jw_cmd_clock_pt）、6 時は FUN_0076f880 の札だけ（10103。
- *   オフセットの窓が移植に無い）
+ *   （src/cmd.c の jw_cmd_clock_pt）、6 時は FUN_0076f880 の札（10103）と
+ *   離しのオフセットの窓（下の case 6）
  *   4 時 戻る（札 0x2779 = 10105、離しで FUN_00504100）、5 時 進む（0x277a、FUN_00503e90）
  *   12 時 仮想関数 21 の既定 FUN_0076efd0: 札 0x2778 = 10104（2099 が入なら 0x278b = 10123）、
  *   離しで 押した点の線・円（FUN_0044a270 の 3）を拾い、円・円弧でなければ
@@ -797,8 +804,19 @@ int clk_rown(int dir, int pm, int run, int *id, const char **s)
         }
         return 1;
     case 6:
+        /* FUN_0076f880 の param_2 == 2（離し）。読取点か 図形の点が拾えたら
+           オフセットの窓（dialog 292）を開く（of_open、src/app.c）。
+           拾えなければ 何もしない（decomp の FUN_0050e070 のあとの枝）。
+           逆コンパイルの読み、原典では押していない */
         *id = 10103;
         *s = JW_STR_10103;
+        if (run && have_drawing) {
+            double mx, my, px, py;
+
+            to_paper(clk_x0, clk_y0, &mx, &my);
+            if (jw_cmd_clock_offset_pick(&drawing, &view, mx, my, &px, &py))
+                of_open(px, py);
+        }
         return 1;
     case 4:
         if (run)

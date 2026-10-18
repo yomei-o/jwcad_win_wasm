@@ -592,6 +592,17 @@ int jw_cmd_clock_get(jw_drawing *d, const jw_view *v, int hour, double x, double
    1 なら *outx・*outy を左の点として命令へ。続きの押しは jw_cmd_point が受ける */
 int jw_cmd_clock_pt(jw_drawing *d, const jw_view *v, int hour, double x, double y,
                     double *outx, double *outy);
+/* 右の時計 AM 6 オフセット（FUN_0076f880 札 10103）の離しの点取り: 読取点
+   （jw_read）が有れば それ、無ければ 図形拾いの仮想関数 11 の点。1 なら
+   *outx・*outy に その点（オフセットの窓を出すのは呼ぶ側） */
+int jw_cmd_clock_offset_pick(jw_drawing *d, const jw_view *v, double x, double y,
+                             double *outx, double *outy);
+/* オフセットの窓（dialog 292）のコンボ 1411「X,Y」の履歴。開けたとき見せる値 */
+void jw_cmd_offset_history(double *dx, double *dy);
+/* オフセットの窓の OK: 打った実寸 dx・dy と 拾った点 px,py から 最終の点
+   *outx・*outy を作り、dx・dy を履歴に書き戻す（src/cmd.c の注） */
+int jw_cmd_offset_apply(const jw_drawing *d, double px, double py,
+                        double dx, double dy, double *outx, double *outy);
 /* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
 void jw_cmd_sen_sizekeep(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */
