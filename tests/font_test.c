@@ -334,6 +334,18 @@ int main(int argc, char **argv)
            "  but Century Gothic is the sans");
         ck(jw_outfont_resolve(PUDG, &pr) == 2 && (pr & 1),
            "BIZ UDＰゴシック is BIZ UD Gothic, proportional");
+        {
+            /* メイリオ, CP932: see src/outfont.c resolve_core -- the
+               original queries the real font (FUN_004e0fa0,
+               decomp/decomp/all_004894cd.c:5218-5245) for
+               tmPitchAndFamily, not a name pattern, and this port
+               approximates it by name as it already does for the
+               "Ｐ"-suffixed MS fonts. */
+            static const char MEIRYO[] = "\x83\x81\x83\x43\x83\x8a\x83\x49";
+
+            ck(jw_outfont_resolve(MEIRYO, &pr) == 0 && (pr & 1),
+               "メイリオ (Meiryo) is the gothic, proportional");
+        }
         ck(jw_outfont_count() == 3 && jw_outfont_find("JwSubSans") < 0,
            "  the stand-ins are not listed, nor found by name");
         ck(jw_outfont_ready(JW_NOUTFONT) && jw_outfont_ready(JW_NOUTFONT + 1),
