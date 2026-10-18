@@ -1468,7 +1468,29 @@ static void one_solid(const jw_drawing *d, const jw_obj *o, double base, int lh,
  * 扁平）の B・A（高さは 奥行）の帯。型 2 で v2 が負なら 裏の面を落とす +0x518。
  * 勾配は 二組（P1P2・P3P4）を 字の末尾の旗（0 でなければ 3、h は 0xf）、has4 で
  * 中心の y。面の線種（f.ltype、下の cs_face）は 1 固定。
- * 2026-10-18 読んだ: `FUN_0041f780`（CDataSolid の実コンストラクタ、`decomp/decomp/all_00401000.c`
+ * 2026-10-18 確定（旗・has4 が「弧と同じ」の 突き合わせ）: `FUN_0060e6d0`
+ * （`decomp/decomp/all_00599e67.c` 55198-55827 行目）を 全文読んだ。55696-55699 行目
+ * `FUN_006109b0(local_49c,local_504,1,local_3d4,uStack_3d0);
+ * FUN_006109b0(local_34c,local_504,1,local_3d4,uStack_3d0);` の param_1（local_49c・
+ * local_34c、宣言は 46 バイトの小さい領域）は Ghidra が 隣の変数までの隙間しか
+ * 見せていないだけで、スタックオフセットを引くと local_49c−0x68=local_434、−0x70=
+ * local_42c、−0x78=local_424、−0x80=local_41c、−0x88=local_414、−0x90=local_40c
+ * （同様に local_34c 側は local_2e4.. local_2bc）に ちょうど一致する——すなわち
+ * FUN_006109b0（=port の gx_xf。+0x68.. +0x90 の 二点 6 個の double を 書き換える
+ * ことは `src/d25view.c` 上の方の FUN_006109b0 の読みで確認済み）は 直前
+ * （55640-55655・55656-55695 行目）に組んだ 面の四隅（局所変数 local_434/42c/424・
+ * local_41c/414/40c と local_2e4../local_2bc）を 直接 その場で書き換えている。
+ * param_3（has4）は リテラルの 1 固定、param_4（local_3d4,uStack_3d0）は 直前
+ * 55402-55407 行目で 円ソリッドの中心と 文字位置を 比べる FUN_0043acd0 呼び出しに
+ * 使われている円ソリッド自身の中心と同じ変数（局所変数の並びから 中心 Y）——これは
+ * port の `cs_face` が すでに書いている `gx_xf(o, &f.p[0][0], fl, 1, o->d[1], -1)` の
+ * has4=1・p4=o->d[1] と 完全に一致する。fl（旗、local_4bc）も 55408-55418 行目の
+ * `local_6a8c`（中心の文字の末尾 v/h 種別、port の tk）から v で 3（1|2）・h で
+ * 0xf（1|2|4|8）と 組まれ、port の `fl = tk==0?0:tk==2?0xf:3` と 一致する。
+ * `tests/d25_test.c` の `cs_slope` に、点が 補助線の y6 より下でも（gx_xf の lean の
+ * 最初の判定が 偽でも）has4 により 円の中心 Y が y6 以上なら 傾く（has4 が 実際に
+ * 効く場面）ことを 具体的な数で 固定した。
+ * 2026-10-18 読んだ（線種の初めの値）: `FUN_0041f780`（CDataSolid の実コンストラクタ、`decomp/decomp/all_00401000.c`
  * 19884-19925 行目）自身は ltype（+0x28）に何も書かない。だが `FUN_0041f760`・`FUN_0041f5f0`
  * （どちらも共通基底 `FUN_0041f2d0`=CData::CData を呼ぶ、同ファイル 19712-19771 行目）が
  * 19746 行目で `in_ECX[0x28] = 1;` と 新規オブジェクト全般（線・円・ソリッド・円ソリッド
@@ -2754,6 +2776,14 @@ int jw_d25_line(int i, double p[6])
     if (i < 0 || i >= nln)
         return 0;
     memcpy(p, ln[i].p, sizeof ln[i].p);
+    return 1;
+}
+
+int jw_d25_face(int i, double p[12])
+{
+    if (i < 0 || i >= nfc)
+        return 0;
+    memcpy(p, fc[i].p, sizeof fc[i].p);
     return 1;
 }
 
