@@ -24209,9 +24209,52 @@ static void tk_curve_attr(jw_drawing *d, int made)
         d->obj[k].id = id;
 }
 
+/* 連続線の鎖歩きが 線・弧のどちらでも端点を取れるように。線は d[0..3] が
+ * そのまま両端。弧は chain_ends（src/cmd.c 16241、原典 FUN_0040f830 の
+ * 端点の取り方そのもの。CDataEnko は仮想関数 13 番 = 始角・始角+開き角の点）
+ * を使う。全円は端点が無い（chain_ends が 0 を返す）ので鎖に入れない。 */
+static int link_ends(const jw_obj *l, double *ax, double *ay, double *bx, double *by)
+{
+    if (l->cls == JW_SEN) {
+        *ax = l->d[0]; *ay = l->d[1];
+        *bx = l->d[2]; *by = l->d[3];
+        return 1;
+    }
+    if (l->cls == JW_ENKO) {
+        double ex[2], ey[2];
+
+        if (!chain_ends(l, ex, ey))
+            return 0;
+        *ax = ex[0]; *ay = ey[0];
+        *bx = ex[1]; *by = ey[1];
+        return 1;
+    }
+    return 0;
+}
+
 /* 任意の 円・連続線指示 (1083)。原典の答え decomp/res/p173_*.jww・p174_*.jww:
    円は ソリッド（線種 101、線形・円周 を入れると 111）に、連続線は つながっている線の頂点
-   を ソリッドに。(L) は元図形を残し (R) は消す */
+   を ソリッドに。(L) は元図形を残し (R) は消す
+
+   連続線の鎖に弧（CDataEnko）が混ざる場合: 原典 FUN_007258d0（decomp/decomp/
+   all_006aa801.c 54920〜55130）の 鎖歩き第一ループ（54983-55006 行目）は
+   CDataSen が来れば頂点を積むが、CDataEnko が来ると +0x128 を数えるだけで
+   頂点配列には何も積まない。そのあと 55067-55073 行目の第二ループが、同じ
+   鎖に含まれる CDataEnko 1 個ごとに FUN_007249c0(…,0) を呼ぶ——このとき
+   +0x128 は 55052 行目で 1 に上書きされているため、FUN_007249c0 内
+   54615-54617 行目 `if (*(this+0x128)==1 && local_137c<10) local_137c=1;`
+   が発火し、箱 1327「弓形」・1328「円外側」の選択を無視して 常に弓形(1)
+   （線形・円周 1326 が有効なら 11）になる（nokori.md「多角形」行に記録済み）。
+   どの配列が最終的に多角形の頂点になるかは FUN_00410380（4650 バイトの鎖
+   構築本体、decomp/decomp/all_00401000.c 10605 行目）の内部に深く依存して
+   おり、そこまでは確定できなかった（創作を避けるため、ここは原典を離れて
+   実装側の判断）。移植では 弧の両端点も鎖の頂点として多角形に組み込み
+   （直線の辺が弦になる）、かつ 弧 1 個につき 既存の単独円ソリッド化コード
+   （24149-24198 行目付近は旧行番号、現在は上の JW_ENKO 分岐）と同じ組み方
+   の ltype=101/111・kind=5（弓形固定）のソリッドを 1 枚 追加する。こうすると
+   多角形（弦で閉じる）＋弓形ソリッド（弦と弧の間を塗る）を足した面積が
+   丸い輪郭の面積に一致し、円ソリッド側の 弓形（kind=5）が「弦で閉じる」と
+   描いている（src/draw.c の round_solid 2764-2767 行目）のと同じ考え方になる。 */
 static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, int button)
 {
     int i = jw_pick(d, v, x, y, 3), n, k, made = 0, ring = jw_cmd_bar_check(1326) > 0;
@@ -24286,25 +24329,28 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
             again = 0;
             for (a = 0; a < d->ndrawn && n < TK_ANY_MAX; a++) {
                 const jw_obj *l = &d->obj[a];
+                double l0, l1, l2, l3;
                 int in = 0;
 
-                if (l->cls != JW_SEN)
+                /* 鎖には 線（JW_SEN）も 弧（JW_ENKO、全円は除く）も入れる。
+                   弧の端点は link_ends（上）が chain_ends で計算する */
+                if (!link_ends(l, &l0, &l1, &l2, &l3))
                     continue;
                 for (k = 0; k < n; k++)
                     if (chain[k] == a)
                         in = 1;
                 if (in)
                     continue;
-                if (fabs(l->d[0] - ex) < 1e-6 && fabs(l->d[1] - ey) < 1e-6) {
-                    chain[n++] = a; ex = l->d[2]; ey = l->d[3]; again = 1;
-                } else if (fabs(l->d[2] - ex) < 1e-6 && fabs(l->d[3] - ey) < 1e-6) {
-                    chain[n++] = a; ex = l->d[0]; ey = l->d[1]; again = 1;
-                } else if (fabs(l->d[2] - sx) < 1e-6 && fabs(l->d[3] - sy) < 1e-6) {
+                if (fabs(l0 - ex) < 1e-6 && fabs(l1 - ey) < 1e-6) {
+                    chain[n++] = a; ex = l2; ey = l3; again = 1;
+                } else if (fabs(l2 - ex) < 1e-6 && fabs(l3 - ey) < 1e-6) {
+                    chain[n++] = a; ex = l0; ey = l1; again = 1;
+                } else if (fabs(l2 - sx) < 1e-6 && fabs(l3 - sy) < 1e-6) {
                     memmove(chain + 1, chain, (size_t)n * sizeof chain[0]);
-                    chain[0] = a; n++; sx = l->d[0]; sy = l->d[1]; again = 1;
-                } else if (fabs(l->d[0] - sx) < 1e-6 && fabs(l->d[1] - sy) < 1e-6) {
+                    chain[0] = a; n++; sx = l0; sy = l1; again = 1;
+                } else if (fabs(l0 - sx) < 1e-6 && fabs(l1 - sy) < 1e-6) {
                     memmove(chain + 1, chain, (size_t)n * sizeof chain[0]);
-                    chain[0] = a; n++; sx = l->d[2]; sy = l->d[3]; again = 1;
+                    chain[0] = a; n++; sx = l2; sy = l3; again = 1;
                 }
             }
         }
@@ -24334,17 +24380,45 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
             vx[m] = cx; vy[m] = cy; m++;
             for (k = 0; k < n; k++) {
                 jw_obj *l = &d->obj[chain[k]];
+                double l0, l1, l2, l3;
 
-                if (fabs(l->d[0] - cx) < 1e-6 && fabs(l->d[1] - cy) < 1e-6) {
-                    cx = l->d[2]; cy = l->d[3];
+                link_ends(l, &l0, &l1, &l2, &l3);
+                if (fabs(l0 - cx) < 1e-6 && fabs(l1 - cy) < 1e-6) {
+                    cx = l2; cy = l3;
                 } else {
-                    double t0 = l->d[0], t1 = l->d[1];
+                    cx = l0; cy = l1;
+                    if (l->cls == JW_SEN) {
+                        double t0 = l->d[0], t1 = l->d[1];
 
-                    cx = l->d[0]; cy = l->d[1];
-                    l->d[0] = l->d[2]; l->d[1] = l->d[3];     /* 向きを揃える */
-                    l->d[2] = t0; l->d[3] = t1;
+                        l->d[0] = l->d[2]; l->d[1] = l->d[3];     /* 向きを揃える */
+                        l->d[2] = t0; l->d[3] = t1;
+                    }
+                    /* 弧（JW_ENKO）は d[0..6] が 中心・半径・角度で、線のように
+                       端点を入れ替えても「向きが揃う」ことにならないので
+                       そのままにする（下の弓形ソリッドは向きに関係なく
+                       弧自身の中心・半径・始角・開きだけで決まる） */
                 }
                 vx[m] = cx; vy[m] = cy; m++;
+                if (l->cls == JW_ENKO) {
+                    /* 弧 1 個につき 弓形ソリッドを 1 枚（nokori.md「多角形」行・
+                       上の tk_pick_solid コメントの出典どおり）。単独の円を
+                       ソリッド化する JW_ENKO 分岐（上）と同じ組み方で、
+                       d[7]=5（弓形固定、1327「弓形」・1328「円外側」は見ない） */
+                    jw_obj *o = jw_add(d, JW_SOLID);
+
+                    if (o) {
+                        o->ltype = ring ? 111 : 101;
+                        o->d[0] = l->d[0];
+                        o->d[1] = l->d[1];
+                        o->d[2] = l->d[2];
+                        o->d[3] = l->d[6] > 0.0 ? l->d[6] : 1.0;
+                        o->d[4] = l->d[5];
+                        o->d[5] = l->d[3];
+                        o->d[6] = l->d[4];
+                        o->d[7] = 5.0;
+                        made++;
+                    }
+                }
             }
             if (ring) {
                 for (k = 0; k + 1 < m; k++) {
@@ -24362,11 +24436,13 @@ static void tk_pick_solid(jw_drawing *d, const jw_view *v, double x, double y, i
                     made++;
                 }
             } else {
+                /* made は ここまでで 鎖に混ざった弧の弓形ソリッドの枚数（0 の
+                   ことが多い）。多角形本体の枚数を その上に 足す（上書きしない） */
                 if (m <= 4) {       /* 三角・四角は そのまま（原典 p174_p1）。五つ以上は 未確認 */
                     tk_solid(d, vx, vy, m);
-                    made = 1;
+                    made += 1;
                 } else
-                    made = tk_solids(d, vx, vy, m);
+                    made += tk_solids(d, vx, vy, m);
             }
             /* 曲線属性化 (1325): 原典 p174_q4・tk_j5（五点の連続線、(L)）で
                二枚のソリッドに、tk_j9（線形 1326 と一緒）で四本の線形
