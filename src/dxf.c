@@ -27,6 +27,7 @@
 #include "jww.h"
 #include "cp932.h"
 #include "text.h"
+#include "d25view.h"
 #include "gen/dxf.h"
 
 /* --- a growing buffer --------------------------------------------------- */
@@ -644,6 +645,205 @@ int jw_dxf_write_opt(const jw_drawing *d, const jw_dxf_opt *opt,
             break;
         default:
             break;
+        }
+    }
+    str_(&o, 0, "ENDSEC");
+    str_(&o, 0, "EOF");
+
+    if (o.bad) {
+        free(o.b);
+        return 0;
+    }
+    *out = o.b;
+    *n = o.n;
+    return 1;
+}
+
+/* ２．５D（32937）の DXF出力（2554）-- CZukei25D の「DXF出力」釦。
+ *
+ * 出典（2026-10-18、全文読んだ）:
+ *   command 2554 は `all_005c7556.c:34264` の 19 バイトの飛び先
+ *   `FUN_006126b0`（0 callers 表示だが 間接のバーの表の飛び先、他の
+ *   command から 同じ形で 006125c0→FUN_0060b020 などへ飛ぶのと 同じ並び）
+ *   を経て `FUN_006172c0`（884 バイト、`all_005c7556.c:35960`・
+ *   `all_00599e67.c:58282`、1 caller）を 呼ぶ。中身:
+ *     FUN_00617f70()       -- 立体を組み直す（port の build()、
+ *                              `src/d25view.c:1814` に 既に 出典あり）
+ *     FUN_007b3573(...)    -- 「名前を付けて保存」のダイアログ
+ *                              （フィルタ "Dxf|*.DXF|"）
+ *     FUN_0049c2c0(doc,flag,uVar2)
+ *                          -- CDxfFile を構築（普通の 2D の DXF書き出し
+ *                              と同じクラス、コンストラクタは
+ *                              `all_004894cd.c:11467`）
+ *     local_32b4 = 1; FUN_004a7410(); local_32b4 = 0;
+ *                          -- HEADER/TABLES/BLOCKS/ENTITIES/ENDSEC を
+ *                              書く（`all_004894cd.c:17243`）。local_32b4
+ *                              はこの関数自身のスタックの並びと数が
+ *                              一致せず（0x9d94 台の変数の後に 0x32b4 が
+ *                              来ている）、何を指しているか 確認できて
+ *                              いない。
+ *   ENTITIES を書く `FUN_004a7970`（`all_004894cd.c:17449`）は、
+ *   CDxfFile の `in_ECX[0x1b2]` が 立っていれば（この関数の中では
+ *   立てていない。どこで立つかも 読み切れていない）通常の CData の
+ *   一覧（`FUN_00572030`/`FUN_00572100`）の代わりに `FUN_00572c70`/
+ *   `FUN_00572cd0` -- `FUN_00617f70`（build()）が 範囲を読むのに使う
+ *   のと 同じ「3D の面・線・楕円の一覧」を 歩き、各要素の 自分の
+ *   WriteDxf（vtable+0xc）を呼ぶだけ。
+ *
+ *   CData3DSolid（port の d25_face、ソリッドの面）の WriteDxf は
+ *   `FUN_00441c10`（decomp/byclass/CData3DSolid.c:85-131）。全文読んだ
+ *   結果、確実なのは:
+ *     文字列 "3DFACE" を group 0 に書く
+ *     四隅 x y z を 10/20/30・11/21/31・12/22/32・13/23/33 の組で、
+ *     +0x258.. +0x2b0 の 12 個の double（3つずつ）から そのまま書く
+ *       -- これは d25_face.p3（射影前の生の 3D 座標、`one_solid`/
+ *          `cs_face` の gx_pair/gx_xf の 直前の値、下の
+ *          jw_d25_face3）と 同じ並びのはず
+ *     8（レイヤ名）・6（線種名）を 書く（FUN_0049dea0・FUN_0049dcf0 の
+ *       呼び方が 変数の使い回しで 読みにくく、色（62）をどこで書くかは
+ *       確認できなかった）
+ *     最後に group 70（FUN_004a7e10(0x46)、辺の見え消し旗）を 書く。
+ *       実際の値（旗の立て方）は 確認できていない。
+ *
+ *   CData3DSen（線）・CData3DEnko（楕円）の WriteDxf は 読んでいない
+ *   （時間の都合）。したがって この port は 面（d25_face、ソリッドの
+ *   4 面体・円ソリッドの面）だけを 3DFACE で書き、立体の輪郭線や
+ *   アイソメの楕円（ln[]・el[]）は まだ 書かない。
+ *
+ *   HEADER の $EXTMIN/$EXTMAX 等は 原典では 立体の実際の範囲（build()
+ *   が 計算する cx/cy/cz・r_x/r_y/r_z に 相当する値）から 来るはずだが、
+ *   その式を読み切る時間が無く、ここでは 通常の 2D 書き出し
+ *   （jw_dxf_write_opt）と 同じ 用紙基準の式を そのまま使っている――
+ *   確認できていない 近似。
+ *
+ *   座標の単位: d25_face.p3 の x・y は 元の CDataSolid の d[] と同じ
+ *   （紙の mm）、z は build() が #lv/#lh の文字から 作った高さで、
+ *   どちらも 同じ縮尺を掛けてよいという 確証は無い。ここでは 他の
+ *   entity と同じ「(値＋半紙)×層の縮尺」を x・y に、z には 半紙を
+ *   加えず 同じ層の縮尺だけを 掛ける、という 等方な近似にした――
+ *   未確認。
+ *
+ *   原典が 書いた 2.5D の DXF サンプルは decomp/res に一つも無く
+ *   （2.5D は原典を動かして確かめる手段が無い）、バイト一致で固定する
+ *   試験は作れない。tests/d25_test.c には 構造だけを固定した試験が
+ *   ある。
+ */
+int jw_d25_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
+{
+    buf_t o;
+    double hw, hh, sc;
+    int i, g, l, wg, nlayer = 0, numbered, nf;
+    char name[128];
+    char used[16][16];
+
+    if (!d || !out || !n)
+        return 0;
+    memset(&o, 0, sizeof o);
+    o.utf8 = 0;
+    numbered = 1;
+    hw = d->paper_hw;
+    hh = d->paper_hh;
+    wg = write_group(d);
+    sc = group_scale(d, wg);
+
+    /* HEADER/VPORT: 2D の書き出しと同じ式（上のコメントの通り、2.5D 固有の
+       範囲の式は未確認の近似） */
+    {
+        double v[8];
+
+        v[0] = 2 * hw * sc;
+        v[1] = 2 * hh * sc;
+        v[2] = v[0];
+        v[3] = v[1];
+        v[4] = sc;
+        v[5] = hw * sc;
+        v[6] = hh * sc;
+        v[7] = 2 * hh * sc;
+        for (i = 0; i < JW_DXF_NPRO; i++) {
+            put(&o, jw_dxf_pro[i].b, jw_dxf_pro[i].n);
+            if (i < 8) {
+                char t[48];
+
+                number(t, v[i]);
+                puts_(&o, t);
+                puts_(&o, "\r\n");
+            }
+        }
+    }
+
+    /* LTYPE と STYLE: 2D の書き出しと同じ、変わらない並び */
+    put(&o, jw_dxf_tables, JW_DXF_NTABLES);
+
+    /* LAYER: 面が持つ層だけ（通常の 2D と同じ組立て） */
+    memset(used, 0, sizeof used);
+    nf = jw_d25_nface();
+    for (i = 0; i < nf; i++) {
+        int ltype, color, layer, lgroup;
+
+        if (!jw_d25_face_meta(i, &ltype, &color, &layer, &lgroup))
+            continue;
+        if (lgroup < 16 && layer < 16 && !used[lgroup][layer]) {
+            used[lgroup][layer] = 1;
+            nlayer++;
+        }
+    }
+    str_(&o, 0, "TABLE");
+    str_(&o, 2, "LAYER");
+    int5(&o, 70, nlayer + 1);
+    for (g = 0; g < 16; g++)
+        for (l = 0; l < 16; l++) {
+            if (!used[g][l])
+                continue;
+            layer_name(d, g, l, name, (int)sizeof name, numbered);
+            str_(&o, 0, "LAYER");
+            str_(&o, 2, name);
+            int5(&o, 70, 64);
+            int5(&o, 62, 7);
+            str_(&o, 6, "CONTINUOUS");
+        }
+    str_(&o, 0, "LAYER");
+    str_(&o, 2, "ADD_LINE");
+    int5(&o, 70, 64);
+    int5(&o, 62, 7);
+    str_(&o, 6, "CONTINUOUS");
+    str_(&o, 0, "ENDTAB");
+    str_(&o, 0, "ENDSEC");
+
+    /* BLOCKS: 空 */
+    str_(&o, 0, "SECTION");
+    str_(&o, 2, "BLOCKS");
+    str_(&o, 0, "ENDSEC");
+
+    /* ENTITIES: 面だけを 3DFACE で（上のコメントの通り、線・楕円は未対応） */
+    str_(&o, 0, "SECTION");
+    str_(&o, 2, "ENTITIES");
+    for (i = 0; i < nf; i++) {
+        double p[12], s;
+        int ltype, color, layer, lgroup, c;
+        jw_obj fake;
+
+        if (!jw_d25_face3(i, p) || !jw_d25_face_meta(i, &ltype, &color, &layer, &lgroup))
+            continue;
+        memset(&fake, 0, sizeof fake);
+        fake.ltype = (unsigned short)ltype;
+        fake.color = (unsigned short)color;
+        s = group_scale(d, lgroup);
+        if ((ltype % 100) == 9)
+            strcpy(name, "ADD_LINE");
+        else
+            layer_name(d, lgroup & 15, layer & 15, name, (int)sizeof name, numbered);
+        str_(&o, 0, "3DFACE");
+        str_(&o, 8, name);
+        str_(&o, 6, ltype_name(&fake));
+        int5(&o, 62, colour_of(&fake));
+        for (c = 0; c < 4; c++) {
+            static const int gx[4] = { 10, 11, 12, 13 };
+            static const int gy[4] = { 20, 21, 22, 23 };
+            static const int gz[4] = { 30, 31, 32, 33 };
+
+            real(&o, gx[c], (p[c * 3 + 0] + hw) * s);
+            real(&o, gy[c], (p[c * 3 + 1] + hh) * s);
+            real(&o, gz[c], p[c * 3 + 2] * s);
         }
     }
     str_(&o, 0, "ENDSEC");

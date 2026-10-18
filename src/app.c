@@ -6419,6 +6419,13 @@ int app_press(int x, int y, int button)
             action = JW_ACT_OPEN_TEXT;
             return 1;
         }
+        if (id == 2554 && jw_cmd() == JW_CMD_25D) {
+            /* ２．５D バーの「DXF出力」: 原典は ここで 名前を付けて保存の
+               窓を出す（FUN_006172c0、src/dxf.c の jw_d25_dxf_write の
+               注）。表側に app_save_dxf25d を呼ばせる */
+            action = JW_ACT_SAVE_DXF25D;
+            return 1;
+        }
         if (id == 1064 && (jw_cmd() == JW_CMD_MOJI || jw_cmd() == JW_CMD_ZOKUHEN)) {
             /* 基点(左下): the button puts up 文字基点設定 */
             mk_open = 1;
@@ -7011,6 +7018,16 @@ int app_save_dxf(unsigned char **out, long *n)
     opt.layer_number = kh_value_tab(7, 2203);
     opt.utf8 = kh_value_tab(7, 2214);
     return jw_dxf_write_opt(&drawing, &opt, out, n);
+}
+
+/* ２．５D バーの 2554「DXF出力」。出典・未確認点は src/dxf.c の
+   jw_d25_dxf_write の注と src/d25view.c の d25_face.p3 の注を見よ。
+   段に入っていなければ（jw_d25_mode()==0）立体が無いので 0 */
+int app_save_dxf25d(unsigned char **out, long *n)
+{
+    if (!have_drawing || !jw_d25_mode())
+        return 0;
+    return jw_d25_dxf_write(&drawing, out, n);
 }
 
 /* 「SFC形式で保存」 (src/sfcwrite.c).  The header carries the name it is

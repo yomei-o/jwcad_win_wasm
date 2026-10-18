@@ -112,7 +112,9 @@ enum { JW_ACT_NONE = 0, JW_ACT_OPEN, JW_ACT_SAVE, JW_ACT_SAVE_AS,
        /* ファイル名変更・削除・属性変更・一括変換 (32979・32980・32984・32977):
           ネイティブの表側がファイルを選んで行う（app_fileops_kind、
           src/fonative.h）。ブラウザでは押せない */
-       JW_ACT_FILEOPS };
+       JW_ACT_FILEOPS,
+       /* ２．５D バーの 2554「DXF出力」: app_save_dxf25d へ */
+       JW_ACT_SAVE_DXF25D };
 
 /* Whether a 新規 or a 開く would lose something: the drawing is not as it
    was when it was opened or last written by app_save. */
@@ -269,6 +271,10 @@ void app_title(const char *name);
 int  app_save(unsigned char **out, long *n);
 /* the same drawing written as DXF (src/dxf.c) */
 int  app_save_dxf(unsigned char **out, long *n);
+/* ２．５D (32937) の バーの 2554「DXF出力」-- 立体の面を 3DFACE で
+   書く（src/dxf.c の jw_d25_dxf_write、出典は そこと src/d25view.c の
+   コメント）。段に入っていない（jw_d25_mode()==0）ときは 0 */
+int  app_save_dxf25d(unsigned char **out, long *n);
 /* 「SFC形式で保存」.  The name goes in the file's own header, so the front end
    has to have asked for it first, and the moment comes off the clock. */
 int  app_save_sfc(const char *name, unsigned char **out, long *n);
