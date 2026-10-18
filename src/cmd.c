@@ -2597,6 +2597,12 @@ static int    clkpt_mode;
 static int    clkpt_cmd;        /* 待っている命令（替われば捨てる） */
 static double clkpt_x, clkpt_y; /* AM 3 の一点目（view+0x9098） */
 static jw_obj clkpt_fig;        /* AM 9 の一図形目（命令の +0x4c） */
+/* view+0x8f20（オフセット常駐）と、AM 3・9 の二点目続きが届ける点の控え。
+   説明は jw_cmd_offset_resident・jw_cmd_offset_pending（本ファイル下のほう）の
+   注を見よ */
+static int    offset_resident;  /* 0・1・2 */
+static double clk_off_px, clk_off_py;
+static int    clk_off_pending;
 static int    get_step;
 static double get_ax, get_ay;   /* the first point of a two-point one */
 static int    have_kata;        /* 角度取得 has given one */
@@ -7639,9 +7645,14 @@ static int cross_obj(const jw_obj *a, const jw_obj *b,
  *    落とし（線は垂線の足、円は中心から外へ。落とせなければ 0）、FUN_00451b20 → 印 →
  *    FUN_0076a130 → 1。
  *
+ * 2026-10-19 追加: FUN_00451b20 の オフセットの窓（view+0x8f20 が 0 でないとき
+ *   AM 3・9 でも出る。ダイアログ 282 の 1926「オフセット常駐」・1927「オフセット
+ *   １回指定」。jw_cmd_offset_resident・src/clock.h の case 3・9・clkpt_click の
+ *   末尾・src/app.c の 通常クリックの jw_cmd_offset_pending の注）は 入れた。
+ *   窓そのもの（view+0x8674 の仮想関数 0x174）の中身は 逆コンパイルに出ないので
+ *   AM 6 と同じく ダイアログ 292 で代える。
+ *
  * 入れていないもの（訊いていない・読み切れていない）:
- *   - FUN_00451b20 の オフセットの窓（view+0x8f20 が 2 以上のときだけ AM 3・9 でも出る。
- *     AM 6 は 1 にして出す。窓は view+0x8674 の仮想関数 0x174 で、移植に無い）
  *   - 点・ブロック・ソリッドを 一点目に拾った AM 3（仮想関数 11: 点・ブロックは
  *     FUN_0042a1a0 =（+8,+0x10 と +0x18,+0x20 の中点）。点（CDataTen）は +8,+0x10 しか
  *     読み書きせず（FUN_0042f340）、コンストラクタ FUN_0041fb60・FUN_0041f2d0 も +0x18・
@@ -7832,7 +7843,16 @@ static int clkpt_click(jw_drawing *d, const jw_view *v, double x, double y,
             return 1;
     }
     clkpt_mode = 0;
-    jw_cmd_point(d, v, px, py, 0);
+    /* FUN_0076ea20 段 6（24429 行目）・FUN_0076fae0 段 6（24676 行目）は ここで
+       FUN_00451b20(…, 0) を 挟んでから 命令へ届ける。常駐・1 回指定が 立って
+       いれば すぐに届けず 控える（jw_cmd_offset_pending の注） */
+    if (offset_resident) {
+        clk_off_px = px;
+        clk_off_py = py;
+        clk_off_pending = 1;
+    } else {
+        jw_cmd_point(d, v, px, py, 0);
+    }
     return 1;
 }
 
@@ -7940,6 +7960,55 @@ int jw_cmd_offset_apply(const jw_drawing *d, double px, double py,
     *outy = py + fy;
     offset_hist_x = dx;
     offset_hist_y = dy;
+    return 1;
+}
+
+/* view+0x8f20（オフセット常駐）そのもの。ダイアログ 282「軸角・目盛・オフセット
+ * 設定」の 1926「オフセット常駐」・1927「オフセット１回指定」はラジオ 2 択
+ * （同じ方をもう一度押すと 0 に戻る）で、押すと その場で この値へ直接 書く
+ * （OK を待たない。DoDataExchange のコミットではない）:
+ *   FUN_004d06c0（1926 のクリック、decomp/byclass/_unassigned.c:92584-92602）
+ *     押す前が 0 なら 8f20=0（はずす）、0 でなければ 1927 のチェックを外して 8f20=2
+ *   FUN_004d0730（1927 のクリック、同 92606-92624）
+ *     押す前が 0 なら 8f20=0、0 でなければ 1926 を外して 8f20=1
+ * ダイアログを開くとき（FUN_004d09b0=OnInitDialog、CJikukakuDialog.c:217-222）は
+ *   8f20==2 なら 1926 を、8f20==1 なら 1927 をチェック済みで出す。
+ * 0=切、1=次の一回だけ（使うと 0 に戻る。FUN_00451b20 の
+ * decomp/decomp/all_00401000.c:43951-43952）、2=常駐（使っても 2 のまま）。
+ * 2026-10-19、原典実機で 確かめた（tools/jwdraw.ps1 の dlgin: で
+ * `dlgin:32842,1926=!` のあと ダイアログを開き直すと 1926 のチェックが残る
+ * ＝ セッション中は保持。`dlgin:32842,1926=!;dlgin:32842,1927=!` のあとは
+ * 1927 だけが付き 1926 は外れる＝排他。同じ方をもう一度押すと 両方 0 に戻る
+ * ことも確認。基本設定ファイルには書かれない：別プロセスで開き直すと 既定の
+ * 0・0 に戻る）。移植は src/app.c の press_jikkaku が 1926・1927 のクリックを
+ * ここへ 直接 取り次ぐ（jk_on[] の見かけは そこで合わせる） */
+int jw_cmd_offset_resident(void)
+{
+    return offset_resident;
+}
+
+void jw_cmd_offset_resident_set(int v)
+{
+    offset_resident = v;
+}
+
+/* AM 3・9 の 二点目の続き（clkpt_click）が届ける点の 控え。常駐・1 回指定が
+ * 立っているとき（offset_resident != 0）、clkpt_click は すぐに jw_cmd_point
+ * を呼ばず ここへ 控えて 1 を返す（呼ぶ側の jw_cmd_point は 何もせず戻る）。
+ * 呼び側（src/app.c の 通常のクリック）は jw_cmd_point を呼んだすぐあとで
+ * これを見て、立っていれば オフセットの窓（dialog 292、of_open）を開く。
+ * FUN_00451b20 の param_3==0 の枝そのもの
+ * （decomp/decomp/all_00732cce.c:24375・24429・24676 の並び）。
+ * 一度取り出すと 0 に戻る */
+int jw_cmd_offset_pending(double *x, double *y)
+{
+    if (!clk_off_pending)
+        return 0;
+    clk_off_pending = 0;
+    if (x)
+        *x = clk_off_px;
+    if (y)
+        *y = clk_off_py;
     return 1;
 }
 

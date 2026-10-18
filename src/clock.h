@@ -56,10 +56,14 @@
  * AM 6 オフセット（FUN_0076f880、下の case 6）は 読取点か 図形の点を
  * jw_cmd_clock_offset_pick で取り、オフセットの窓（dialog 292、src/app.c の
  * of_open・of_close）に「X,Y」を打たせ、jw_cmd_offset_apply が 縮尺・ｍ単位
- * 入力・軸角で 点に足す。常駐（1926・1927、dialog 282。view+0x8f20 が 2 以上
- * なら AM 3・9 や jw_read の呼び先すべてでもこの窓が出る話）は 入れていない
- * （jw_read の呼び先が cmd.c に 30 箇所余りあり、この回では AM 6 だけに絞った。
- * src/app.c の of_open の注に同じ）。
+ * 入力・軸角で 点に足す。常駐（ダイアログ 282 の 1926「オフセット常駐」・
+ * 1927「オフセット１回指定」、view+0x8f20）は 2026-10-19 に AM 3・9 へも
+ * 広げた（下の case 3・9・src/cmd.c の clkpt_click・jw_cmd_offset_resident・
+ * jw_cmd_offset_pending。src/app.c の of_open の注に詳しい）。他の作図命令の
+ * jw_read の呼び先（cmd.c に 50 箇所余り）へは 広げていない――原典実機で
+ * 確かめたところ ふつうの線コマンドの二点クリックでは 窓が出ず、CZukeiSen の
+ * FUN_00451eb0 呼び出しは view+0x9068・0x906c という別の旗が立つ枝（プレビュー
+ * 描画らしい）に限られていて、実際の発動条件を まだ特定できていないため。
  * 入れていないもの:
  * PM の円を押したときの 円接線角（札 10040、FUN_00772770 の 3・5・6 と FUN_0045a7f0）、
  * 点 1 のあとの札の番号（逆コンパイルで落ちている）、+0x908c == -1 の枝、
@@ -792,14 +796,22 @@ int clk_rown(int dir, int pm, int run, int *id, const char **s)
 
             to_paper(clk_x0, clk_y0, &mx, &my);
             if (jw_cmd_clock_pt(&drawing, &view, dir, mx, my, &qx, &qy)) {
-                int was = drawing.ndrawn;
+                /* FUN_0076ea20 段 2 の「無ければ」の枝（24375 行目）が ここで
+                   FUN_00451b20(…, 0) を 挟む。常駐・1 回指定が 立っていれば
+                   すぐに届けず オフセットの窓（dialog 292）を開く（of_open、
+                   AM 6 と同じ。of_close が jw_cmd_point 以下の後始末も行う） */
+                if (jw_cmd_offset_resident()) {
+                    of_open(qx, qy);
+                } else {
+                    int was = drawing.ndrawn;
 
-                jw_cmd_point(&drawing, &view, qx, qy, 0);
-                if (jw_cmd_block_editing() && drawing.ndrawn > was)
-                    jw_cmd_block_take(&drawing, was);
-                gaibu_after();
-                if (jw_cmd_figure_base(&fig_bx, &fig_by))
-                    action = JW_ACT_SAVE_FIG;
+                    jw_cmd_point(&drawing, &view, qx, qy, 0);
+                    if (jw_cmd_block_editing() && drawing.ndrawn > was)
+                        jw_cmd_block_take(&drawing, was);
+                    gaibu_after();
+                    if (jw_cmd_figure_base(&fig_bx, &fig_by))
+                        action = JW_ACT_SAVE_FIG;
+                }
             }
         }
         return 1;

@@ -603,6 +603,14 @@ void jw_cmd_offset_history(double *dx, double *dy);
    *outx・*outy を作り、dx・dy を履歴に書き戻す（src/cmd.c の注） */
 int jw_cmd_offset_apply(const jw_drawing *d, double px, double py,
                         double dx, double dy, double *outx, double *outy);
+/* view+0x8f20（オフセット常駐）。ダイアログ 282 の 1926「オフセット常駐」
+   （2）・1927「オフセット１回指定」（1）・どちらも無し（0）。
+   src/app.c の press_jikkaku が 1926・1927 のクリックで書く */
+int jw_cmd_offset_resident(void);
+void jw_cmd_offset_resident_set(int v);
+/* AM 3・9 の二点目続き（clkpt_click）が 常駐・1 回指定で 控えた点。1 なら
+   *x・*y にその点（呼び側が オフセットの窓 dialog 292 を開く。of_open） */
+int jw_cmd_offset_pending(double *x, double *y);
 /* 基本設定 2493「線コマンドの指定寸法値を保持する」: 切なら 線 に入り直すと 寸法 の箱は空 */
 void jw_cmd_sen_sizekeep(int on);
 /* 基本設定 1522「表示のみレイヤも属性取得」 */
