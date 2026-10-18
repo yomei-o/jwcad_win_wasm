@@ -378,6 +378,30 @@ int main(int argc, char **argv)
         ink("Arial", "W", 0.0, 4.0, 0, &b0, &b1, &t, &f);
         ck(abs((b1 - b0 + 1) * 2 - (a1 - a0 + 1)) <= 3,
            "  and half as wide at 4 mm");
+
+        /* 基線 (baseline, nokori.md「書体」, investigated 2026-10-18):
+           src/outfont.c jw_outfont_run reads the Latin stand-in's own
+           ascent/descent for the baseline it sits an Arial/Times New
+           Roman/etc. text on -- correct only so long as jwsubsans.ttf and
+           jwsubserif.ttf stay metric-compatible with the real Arial and
+           Times New Roman.  Checked against C:\Windows\Fonts\arial.ttf and
+           times.ttf directly (head.unitsPerEm, hhea ascender/descender),
+           not by running the original: both match bit for bit (2048 em;
+           Arial/jwsubsans.ttf 1854/-434; Times/jwsubserif.ttf 1825/-443).
+           This locks that fact down so a future font swap that broke it
+           would be caught here. */
+        {
+            int asc, desc, upem;
+
+            ck(jw_outfont_vmetrics(JW_NOUTFONT, &asc, &desc, &upem)
+               && upem == 2048 && asc == 1854 && desc == -434,
+               "jwsubsans.ttf's ascent/descent (1854/-434 of 2048 upem) are Arial's, "
+               "bit for bit (checked against arial.ttf's head/hhea tables)");
+            ck(jw_outfont_vmetrics(JW_NOUTFONT + 1, &asc, &desc, &upem)
+               && upem == 2048 && asc == 1825 && desc == -443,
+               "jwsubserif.ttf's are Times New Roman's (1825/-443 of 2048), "
+               "likewise (checked against times.ttf)");
+        }
     }
 
     printf("-- 斜体 and 太字\n");

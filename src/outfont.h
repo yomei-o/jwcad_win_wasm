@@ -57,6 +57,9 @@ void jw_outfont_dir(const char *dir);
 int jw_outfont_pending(void);
 int jw_outfont_put(int i, const unsigned char *data, long len);
 void jw_outfont_fail(int i);
+/* For the tests: the font's own ascent/descent/units-per-em (stbtt_GetFontVMetrics,
+   head.unitsPerEm). 0 if i is not ready. */
+int jw_outfont_vmetrics(int i, int *asc, int *desc, int *upem);
 /* bumps whenever a font arrives, so the page knows to repaint */
 int jw_outfont_gen(void);
 
