@@ -26750,7 +26750,6 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
         if (i < 0)
             return 0;
         moji_take_attr(d, &d->obj[i]);
-        line_n = 0;
         line_lead_next = line_drop_trail = 0;
         line_gen++;
         {
@@ -26759,18 +26758,30 @@ int jw_cmd_clock_zokuall(jw_drawing *d, const jw_view *v, double x, double y)
                0x6c4a67）、FUN_00583190（入力欄を "" にする）のあと 箱の変数
                〔バーの +0xbc の +0x490〕に 足して（FUN_00447400 = operator+）
                書き戻す（FUN_005835f0(0) = UpdateData(FALSE)、0x6c4a83〜0x6c4b15）。
-               箱が空のとき 箱 = 押した字の中身。箱に字が入っていたときに
-               変数が同期しているか（"" を入れた時点の通知で UpdateData(TRUE) に
-               なるか）は読み切れていない → 空の箱のときだけ読んだ形（打ちかけは 捨てる）。
-               逆コンパイルの読み、原典では押していない */
+               箱が空のとき 箱 = 押した字の中身。
+               原典で測った（2026-10-18、tools/jwdraw.ps1 の pmr: で）: 箱に
+               打ちかけ（未確定、Enter していない文字列）が入っていた状態で
+               既存の文字図形の上で PM6 を押すと、箱は「打ちかけ＋押した字の
+               中身」になる（上の (b)）。具体的には
+               `cmd:32806;type::ABC;150,150;type::DEF;pmr150,150,0,60;read:1422`
+               で 文字図形を置いた直後に箱へ "DEF" を打ちかけたまま その図形の
+               上で PM6（左押し→右押しで PM→6 時で離す）をすると、箱は
+               "DEFABC" になった（打ちかけが残り、押した字 "ABC" が後ろへ
+               足される）。箱が空のとき（打ちかけ無し）は箱 = 押した字の中身
+               だけ（"ABC"）で、これは元から合っていた。つまり変数は箱と同期
+               していて、空にする通知だけで UpdateData(TRUE) が効くので、
+               移植も「箱の末尾に足す」が正しい（打ちかけを捨てない）。 */
             const char *t = jw_str(d, d->obj[i].text);
             int n = t ? (int)strlen(t) : 0;
+            int room = (int)sizeof line_buf - 2 - line_n;
 
-            if (n > (int)sizeof line_buf - 2)
-                n = (int)sizeof line_buf - 2;
+            if (room < 0)
+                room = 0;
+            if (n > room)
+                n = room;
             if (n > 0) {
-                memcpy(line_buf, t, (size_t)n);
-                line_n = n;
+                memcpy(line_buf + line_n, t, (size_t)n);
+                line_n += n;
             }
         }
         return 1;
