@@ -1172,6 +1172,118 @@ static void dim_radius(void)
     dim_radius_one("decomp/res/sunchokkei.jww", 1066);
 }
 
+/* nokori.md 「寸法」: 半径・直径の引出角の組 -- 原典実測 (2026-10-19).
+ *
+ * decomp/res/sunhankei2.jww is two circles (500,400)-(600,400) and
+ * (800,400)-(900,400) on Test5, with 寸法 の 半径 (1065) pressed once and
+ * then one click on each circle's edge *in the same command activation*
+ * (tools/jwdraw.ps1: '500,400;600,400;800,400;900,400;cmd:32847;btn:1065;
+ * 600,400;900,400').
+ *
+ * Deep decompile reading (nokori.md) had found that 半径・直径 keep a
+ * private list of "候補" points on the command object and copy one of them
+ * into what looked like a document-wide array (doc+0x80) when the command
+ * finishes, and could not settle whether that array is shared across every
+ * 半径／直径 dimension drawn in the document or kept separately per shape --
+ * which would matter if the port ever grew multiple lead-out-angle
+ * candidates per arc.  Driving the real Jw_cad settled it the practical way:
+ * placing a second 半径 dimension on a different circle, in the same
+ * activation, never changes a single coordinate of the first one already on
+ * the sheet (the file's objects for the first dimension -- line, R text, two
+ * end points -- come out byte-for-byte the same whether or not a second
+ * dimension was placed afterward), and nothing in the 寸法 bar or the 寸法設定
+ * dialog (tools/jwdraw.ps1 'bar' / 'dlg:b1071,...') offers any control to
+ * set such a candidate in the first place.  So whatever that array holds
+ * internally, it does not reach the drawing -- the port needs no shared
+ * state for 半径・直径 to match the original, which is what this checks. */
+static void dim_radius_two(void)
+{
+    unsigned char *b;
+    long n;
+    jw_drawing ref, *d;
+    const jw_obj *circ[2];
+    const jw_obj *dsen[2];
+    jw_obj first[4];
+    int i, nc = 0, nd = 0, ndt = 0, before, ok, k;
+
+    b = slurp("decomp/res/sunhankei2.jww", &n);
+    if (!b) {
+        printf("BAD  no decomp/res/sunhankei2.jww -- run tools/refanswers.sh\n");
+        fails++;
+        return;
+    }
+    if (!jw_parse(&ref, b, n)) {
+        printf("BAD  sunhankei2.jww: %s\n", ref.error);
+        fails++;
+        return;
+    }
+    free(b);
+    for (i = 0; i < ref.ndrawn; i++) {
+        const jw_obj *o = &ref.obj[i];
+        if (o->cls == JW_ENKO && nc < 2)
+            circ[nc++] = o;
+        else if (o->cls == JW_SEN && (o->flags & 0x2000) && nd < 2)
+            dsen[nd++] = o;
+        else if (o->cls == JW_MOJI && (o->flags & 0x4000) && ndt < 2)
+            ndt++;
+    }
+    if (nc != 2 || nd != 2 || ndt != 2) {
+        printf("BAD  sunhankei2.jww does not have two circles with two radius dimensions\n");
+        fails++;
+        return;
+    }
+
+    d = fresh();
+    for (i = 0; i < 2; i++) {
+        jw_obj *o = jw_add(d, JW_ENKO);
+        for (k = 0; k < 8; k++)
+            o->d[k] = circ[i]->d[k];
+        o->n = circ[i]->n;
+    }
+    app_fit();
+    jw_cmd_set(JW_CMD_SUNPO);
+    ck(jw_cmd_bar(d, 1065) == 1, "寸法: 半径 can be pressed (two circles)");
+
+    before = d->ndrawn;
+    jw_cmd_point(d, app_view(), dsen[0]->d[2], dsen[0]->d[3], 0);
+    ck(d->ndrawn == before + 4, "  the first circle's click makes four elements");
+    if (d->ndrawn != before + 4) {
+        jw_cmd_bar(d, 1064);
+        jw_free(&ref);
+        return;
+    }
+    ok = near(d->obj[before].d[0], dsen[0]->d[0])
+         && near(d->obj[before].d[1], dsen[0]->d[1])
+         && near(d->obj[before].d[2], dsen[0]->d[2])
+         && near(d->obj[before].d[3], dsen[0]->d[3]);
+    ck(ok, "  its dimension line matches the original");
+    for (k = 0; k < 4; k++)
+        first[k] = d->obj[before + k];
+
+    jw_cmd_point(d, app_view(), dsen[1]->d[2], dsen[1]->d[3], 0);
+    ck(d->ndrawn == before + 8, "  the second circle's click makes four more");
+
+    ok = 1;
+    for (k = 0; k < 4; k++)
+        if (d->obj[before + k].cls != first[k].cls
+            || !near(d->obj[before + k].d[0], first[k].d[0])
+            || !near(d->obj[before + k].d[1], first[k].d[1])
+            || !near(d->obj[before + k].d[2], first[k].d[2])
+            || !near(d->obj[before + k].d[3], first[k].d[3]))
+            ok = 0;
+    ck(ok, "  the first circle's dimension is untouched by the second (原典も同じ、実測)");
+
+    if (d->ndrawn == before + 8) {
+        ok = near(d->obj[before + 4].d[0], dsen[1]->d[0])
+             && near(d->obj[before + 4].d[1], dsen[1]->d[1])
+             && near(d->obj[before + 4].d[2], dsen[1]->d[2])
+             && near(d->obj[before + 4].d[3], dsen[1]->d[3]);
+        ck(ok, "  the second circle's dimension line matches the original");
+    }
+    jw_cmd_bar(d, 1064);
+    jw_free(&ref);
+}
+
 /* Esc lets go of the points taken so far.
  *
  * The original, given a click, an Esc and then two more clicks, drew the
@@ -2512,6 +2624,7 @@ int main(void)
     space_turns_hv();
     escape_drops_the_point();
     dim_radius();
+    dim_radius_two();
     offset_typed();
     line_value();
     circle_half();
