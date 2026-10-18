@@ -1520,6 +1520,119 @@ int main(void)
         app_command(JW_CMD_SEN);
     }
 
+    /* 右 AM 6 オフセット（FUN_0076f880 札 10103。離し param_2 == 2。
+       decomp/decomp/all_00732cce.c:24701-24772）。読取点か 図形の点
+       （clkpt_pick_point、FUN_004497b0 の仮想関数 11）を拾って オフセットの窓
+       （dialog 292、src/app.c の of_open・of_close）を開き、コンボ 1411 に
+       打った「X,Y」を 縮尺・ｍ単位入力（DAT_00a0d62c）・軸角（+0x17c0）で
+       回して 点に足す（FUN_00451b20 の param_3 != 0 の枝、
+       decomp/decomp/all_00401000.c:43897-43948）。窓そのもの（view+0x8674 の
+       仮想関数 0x174）の本体は 逆コンパイルに出ないので、移植は 題名どおりの
+       窓（dialog 292）に 直接 X・Y を打たせる形。常駐（1926・1927）は
+       入れていない（src/clock.h の注）。逆コンパイルの読み、原典では
+       押していない */
+    {
+        int px, py, dx, dy, n, k, ti;
+        jw_drawing *d;
+        jw_obj *o;
+        const jw_view *v;
+#define AMRUN(h, X, Y) do { px = jw_sx(v, (X)); py = jw_sy(v, (Y)); \
+            app_rclock_begin(px, py); at_hour((h), 60, &dx, &dy); \
+            app_clock_move(px + dx, py + dy); app_clock_end(); } while (0)
+
+        jw_cmd_set_axis(0.0);
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_SEN);
+        o->d[0] = 10; o->d[1] = 20; o->d[2] = 200; o->d[3] = 20;
+        o = jw_add(d, JW_ENKO);
+        o->d[0] = 150; o->d[1] = 150; o->d[2] = 30; o->d[3] = 0;
+        o->d[4] = 6.283185307179586; o->d[5] = 0; o->d[6] = 1;
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_TEN);
+
+        /* 何もない所は 窓を開かない（読取点も図形も拾えない＝0） */
+        n = d->ndrawn;
+        AMRUN(6, 300.0, 250.0);
+        ck(app_tdlg_open() < 0 && d->ndrawn == n,
+           "AM 6: 何も無い所は オフセットの窓を開かず 何もしない");
+
+        /* 線の途中 → 中点 (105,20) を拾い 窓 292 が開く。まだ点は入らない */
+        AMRUN(6, 150.0, 21.0);
+        ck(app_tdlg_open() >= 0 && app_tdlg_tpl() == 292,
+           "AM 6: 線の中点 (105,20) を拾うと オフセットの窓 292 が開く");
+        ck(d->ndrawn == n, "AM 6: 窓が開いただけでは まだ点は入らない");
+        ti = ui_tdlg_index(app_tdlg_open(), 1411);
+        ck(ti >= 0 && strcmp(app_tdlg_text(ti), "0,0") == 0,
+           "AM 6: 履歴が無いときの コンボの既定は 0,0");
+        /* 消して 10,5 と打つ */
+        for (k = 0; k < 16; k++)
+            app_key(8);
+        app_key('1'); app_key('0'); app_key(','); app_key('5');
+        app_key('\r');
+        ck(app_tdlg_open() < 0, "AM 6: Enter は OK、窓が下りる");
+        /* 新規図面の書込みレイヤグループの縮尺は 1/100（write_scale の既定。
+           tmp デバッグで実測: dx=10,dy=5 → qx-of_px=0.1, qy-of_py=0.05）。
+           コンボに打つ X・Y は 実寸なので ÷100 して 点に足る
+           （write_scale・jw_cmd_offset_apply の ÷write_scale の枝） */
+        ck(d->ndrawn == n + 1 && d->obj[n].cls == JW_TEN
+           && fabs(d->obj[n].d[0] - 105.1) < 1e-6
+           && fabs(d->obj[n].d[1] - 20.05) < 1e-6,
+           "AM 6: 軸角 0・縮尺 1/100 の中点 (105,20) + (10,5)/100 = (105.1,20.05) に 点");
+
+        /* 窓を開け直すと コンボは 前回の 10,5 を見せる
+           （nokori.md の「コンボ 1411 に「X,Y」履歴」） */
+        n = d->ndrawn;
+        AMRUN(6, 150.0, 21.0);
+        ti = ui_tdlg_index(app_tdlg_open(), 1411);
+        ck(ti >= 0 && strcmp(app_tdlg_text(ti), "10,5") == 0,
+           "AM 6: 窓を開け直すと コンボは 前回の 10,5 を見せる");
+        app_key('\r');
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 105.1) < 1e-6
+           && fabs(d->obj[n].d[1] - 20.05) < 1e-6,
+           "AM 6: そのまま Enter で また (10,5)/100 を足す");
+
+        /* 円 → 中心 (150,150)。(-5,0)/100 を足して (149.95,150) */
+        n = d->ndrawn;
+        AMRUN(6, 150.0 + 30.0 * 0.7071, 150.0 + 30.0 * 0.7071);
+        ck(app_tdlg_open() >= 0 && app_tdlg_tpl() == 292,
+           "AM 6: 円を押すと 中心を拾って 窓が開く");
+        for (k = 0; k < 16; k++)
+            app_key(8);
+        app_key('-'); app_key('5'); app_key(','); app_key('0');
+        app_key('\r');
+        ck(d->ndrawn == n + 1 && fabs(d->obj[n].d[0] - 149.95) < 1e-6
+           && fabs(d->obj[n].d[1] - 150.0) < 1e-6,
+           "AM 6: 円の中心 (150,150) + (-5,0)/100 = (149.95,150)");
+
+        /* Esc は キャンセル: 点は入らない */
+        n = d->ndrawn;
+        AMRUN(6, 150.0, 21.0);
+        app_key(27);
+        ck(app_tdlg_open() < 0 && d->ndrawn == n,
+           "AM 6: Esc は キャンセル、点は入らない");
+
+        /* 軸角 30° で 回る: (10,0)/100 は (0.1cos30°,0.1sin30°) だけ動く
+           （FUN_005f8b60・FUN_005f8c20 の param_1 == 0 の枝、原点 (0,0)
+           からの回転。decomp/decomp/all_005c7556.c:24270-24315） */
+        jw_cmd_set_axis(30.0);
+        n = d->ndrawn;
+        AMRUN(6, 150.0, 21.0);
+        for (k = 0; k < 16; k++)
+            app_key(8);
+        app_key('1'); app_key('0'); app_key(','); app_key('0');
+        app_key('\r');
+        ck(d->ndrawn == n + 1
+           && fabs(d->obj[n].d[0] - (105.0 + 0.1 * cos(30.0 * 3.141592653589793 / 180.0))) < 1e-6
+           && fabs(d->obj[n].d[1] - (20.0 + 0.1 * sin(30.0 * 3.141592653589793 / 180.0))) < 1e-6,
+           "AM 6: 軸角 30° なら (10,0)/100 は (0.1cos30,0.1sin30) だけ動く");
+        jw_cmd_set_axis(0.0);
+        app_command(JW_CMD_SEN);
+#undef AMRUN
+    }
+
     printf("%s\n", fails ? "FAIL" : "all ok");
     return fails != 0;
 }

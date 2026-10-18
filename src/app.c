@@ -3976,6 +3976,68 @@ static void tr_close(int ok)
     }
 }
 
+/* 右 AM 6 オフセット（FUN_0076f880 札 10103。dialog 292「オフセット」）。
+ * 離し（src/clock.h の clk_rown の case 6）で 読取点か 図形の点が拾えたら
+ * (of_px, of_py) に覚え この窓を開く。窓の + コンボ 1411 の初期値は 前回の
+ * 「X,Y」（jw_cmd_offset_history。nokori.md の「コンボ 1411 に「X,Y」履歴」）。
+ * OK で jw_cmd_offset_apply が 縮尺・ｍ単位入力・軸角で 点を作り、AM 3・9 と
+ * 同じ後始末（jw_cmd_point → gaibu_after → 図形基点）を踏む。
+ *
+ * 窓の 1928「【オフセット常駐解除】」・2519「（ｍ）単位入力」は dialog.txt の
+ * ままの固定の字（STATIC、押せない）として出す。原典は 常駐中だけ 1928 を
+ * 出し分けている様子だが、その窓（view+0x8674 の仮想関数 0x174）の本体が
+ * 逆コンパイルに出ないので いつ出し分けるかは読めない → いつも出す。
+ * オフセット常駐（1926・1927、dialog 282 のチェック）が この窓を AM 3・9 や
+ * 他のすべての読取り（jw_read の呼び先すべて）でも開かせる話（view+0x8f20 が
+ * 2 以上）は 入れていない（jw_read の呼び先が cmd.c に 30 箇所余りあり、
+ * どこでも窓を割り込ませる作りは この回では見送った。nokori.md に残す） */
+static double of_px, of_py;
+
+static void of_open(double px, double py)
+{
+    double hx, hy;
+    int i;
+    char t[48];
+
+    if (!td_start(292))
+        return;
+    of_px = px;
+    of_py = py;
+    jw_cmd_offset_history(&hx, &hy);
+    i = ui_tdlg_index(td_t, 1411);
+    if (i >= 0 && i < TD_MAX) {
+        snprintf(t, sizeof t, "%g,%g", hx, hy);
+        snprintf(td_txt[i], sizeof td_txt[i], "%s", t);
+    }
+    td_caret = 1411;
+}
+
+static void of_close(int ok)
+{
+    int i = ui_tdlg_index(td_t, 1411);
+    double dx = 0.0, dy = 0.0, qx, qy;
+    const char *t, *p;
+
+    td_open = 0;
+    if (!ok || i < 0 || i >= TD_MAX || !have_drawing)
+        return;
+    t = td_txt[i];
+    dx = atof(t);
+    p = strchr(t, ',');
+    dy = p ? atof(p + 1) : 0.0;
+    jw_cmd_offset_apply(&drawing, of_px, of_py, dx, dy, &qx, &qy);
+    {
+        int was = drawing.ndrawn;
+
+        jw_cmd_point(&drawing, &view, qx, qy, 0);
+        if (jw_cmd_block_editing() && drawing.ndrawn > was)
+            jw_cmd_block_take(&drawing, was);
+        gaibu_after();
+        if (jw_cmd_figure_base(&fig_bx, &fig_by))
+            action = JW_ACT_SAVE_FIG;
+    }
+}
+
 /* 透過色 (391): three boxes for 赤 緑 青, 0 to 255.  OK puts the colour on
    the picture that was clicked; anything else leaves it. */
 static void gp_close(int ok)
@@ -4237,6 +4299,10 @@ static int press_tdlg(int x, int y)
             um_close(id == 1);
         else if (id == 1491)
             td_caret_set(1491);
+        return 1;
+    }
+    if (td_tpl == 292 && (id == 1 || id == 2)) {    /* オフセット: OK・× */
+        of_close(id == 1);
         return 1;
     }
     if (id == 1 || id == 2) {           /* OK, キャンセル, the × */
@@ -4709,6 +4775,10 @@ static int td_key(int c)
     }
     if ((c == 13 || c == 27) && td_tpl == 275) {
         um_close(c == 13);
+        return 1;
+    }
+    if ((c == 13 || c == 27) && td_tpl == 292) {
+        of_close(c == 13);
         return 1;
     }
     if ((c == 13 || c == 27) && td_tpl == 373 && lyl_ren >= 0) {
