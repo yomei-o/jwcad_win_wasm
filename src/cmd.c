@@ -7096,7 +7096,20 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
 
     /* 分割の 連続点分割 (RR): 原典 FUN_007614c0 の else 枝が、積んだ点を順に結ぶ線と
        最後の点からカーソルまでの線を仮に描く（添え字 1 から +0x4e 個目まで）。
-       画素は未確認（仮表示色の実線で出す） */
+       画素を原典 tools/jwdraw.ps1 実測で確かめた（2026-10-18、m<x,y> でカーソルを
+       動かして shot: で PrintWindow、tmp/bkpix_a.png・tmp/bkpix_b.png）。
+         * 積んだ点どうしを結ぶ線（ループの中、既存の線の上に重ねた分）は
+           実線で XOR され、下の黒い実線が隙間なく全部シアンに変わった
+           （100 画素連続、点線なら 4 画素おきに黒へ戻るはず）── 実線のまま。
+         * 最後の点からカーソルまでの線は 点線2（線種 3）で出る。白地の上の
+           赤い破線を実測すると 点が 4 個ずつの塊（進んだ距離で 3.15）と
+           隙間 5.09 の繰り返し、周期 8.24 ── `src/draw.c` の LTYPE[3]
+           0xc3c3c3c3 がちょうど on4・off4・pitch1 で一致する。
+           decomp/byclass/CZukeiBunkatsu.c FUN_007614c0 の `local_54 = 3;`
+           （ループのあと、最後の分の CDataSen を作る直前）がこれに当たる
+           ── `local_54` はこの関数のスタック上で local_7c から +0x28、
+           CDataSen の 線種 の置き場（上の注、src/cmd.c:1035 と同じ +0x28）。
+           ループの中の分には同じ代入が無く、既定の 実線（線種 1）のまま。 */
     if (current == JW_CMD_BUNKATSU && bk_rr_n > 0) {
         int i, m = 0;
 
@@ -7111,6 +7124,7 @@ int jw_cmd_pending(jw_drawing *d, jw_obj *o, int max)
         if (tracking && m < max) {
             blank(&o[m]);
             o[m].cls = JW_SEN;
+            o[m].ltype = 3;             /* 点線2 -- 原典実測、上の注 */
             o[m].d[0] = bk_rr_x[bk_rr_n];
             o[m].d[1] = bk_rr_y[bk_rr_n];
             o[m].d[2] = tx;
