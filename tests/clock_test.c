@@ -540,6 +540,54 @@ int main(void)
            "PM 6 文字: 字の中身が 空でなければ 箱へ（FUN_006c4840 0x6c4a67〜、読み）");
     }
 
+    /* ---- PM 6【全】属性取得: 文字、箱に打ちかけ（未確定）があるとき ----
+     * 原典で測った（2026-10-18、tools/jwdraw.ps1 の pmr: で）:
+     *   `cmd:32806;type::ABC;150,150;type::DEF;pmr150,150,0,60;read:1422`
+     * 文字図形 "ABC" を置いた直後、箱に "DEF" を打ちかけたまま（Enter してい
+     * ない）その図形の上で PM6（左押し→右押しで PM→6 時で離す）をすると、
+     * 箱は "DEFABC" になった。打ちかけは捨てられず、末尾へ 押した字が足される
+     * （上の分岐の (b)）。空の箱のとき 箱 = 押した字の中身だけ になるのは
+     * すぐ上の試験のとおりで、これは「箱が空のとき 末尾に足す」と同じ形。 */
+    {
+        jw_drawing *d;
+        const jw_view *v;
+        jw_obj *o;
+        int px, py, dx2, dy2;
+        const char *s;
+
+        app_new();
+        d = (jw_drawing *)app_drawing();
+        o = jw_add(d, JW_MOJI);
+        o->d[0] = 0; o->d[1] = 0; o->d[2] = 30; o->d[3] = 0;
+        o->d[4] = 7.0; o->d[5] = 9.0; o->d[6] = 1.5; o->d[7] = 0.0;
+        o->color = 4;
+        o->text = jw_add_str(d, "ABC");
+        app_fit();
+        app_paint();
+        v = app_view();
+        app_command(JW_CMD_MOJI);
+        {   /* the box may still hold what an earlier test left in it */
+            int clr;
+
+            for (clr = 0; clr < 64; clr++)
+                jw_cmd_key(8);
+        }
+        jw_cmd_key('D');
+        jw_cmd_key('E');
+        jw_cmd_key('F');
+        px = jw_sx(v, 15.0);
+        py = jw_sy(v, 0.0);
+        at_hour(6, 60, &dx2, &dy2);
+        app_clock_begin(px, py);
+        app_clock_right();
+        app_clock_move(px + dx2, py + dy2);
+        app_clock_end();
+        s = jw_cmd_line();
+        ck(jw_cmd() == JW_CMD_MOJI, "PM 6 文字 打ちかけ: 命令は文字のまま");
+        ck(strcmp(s, "DEFABC") == 0,
+           "PM 6 文字 打ちかけ: 箱は 打ちかけ＋押した字（原典で測った、捨てない）");
+    }
+
     /* ---- PM 6【全】属性取得: 命令が 点（CZukeiTen 仮想関数 51）のとき 仮点 (1323) を取る ---- */
     {
         jw_drawing *d;
