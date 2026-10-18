@@ -255,14 +255,27 @@ int main(void)
        "AM 4: 範囲選択 の終点待ち（押した点が一つ目）");
     app_press(cx + 100, cy + 100, 0);
     ck(jw_cmd_sel_count(app_drawing()) == 1, "押した点から終点までの箱に線が入る");
-    /* 選択のあとに押し直すと 前の選択は消え 新しい一つ目 */
+    /* 選択のあと（追加・除外図形指示の段、sel_step == 2）に AM 4 を押し直すと、
+       押した点が 要素の上でも空の場所でも 段も選択も変わらない（原典を実機で
+       測った: tools/jwdraw.ps1 で 32771 線 → 32787 範囲選択 → clock AM4 で
+       一つ目の角・左クリックで二つ目の角にして選択を済ませ、そのあとに もう
+       一度 clock AM4 を引いて離しても 状態行「追加・除外図形指示」は変わらず、
+       .jww の選択ビットも変わらなかった。線の上で引いても 空の場所で引いても
+       同じ。src/clock.h の clk_table_run が app_command(JW_CMD_HANI) の前に見て
+       無視する）。空の場所の例: */
     app_clock_begin(cx - 70, cy - 150);
     app_clock_move(cx - 70 + dx, cy - 150 + dy);
     app_clock_end();
-    ck(jw_cmd() == JW_CMD_HANI
-       && jw_cmd_sel_count(app_drawing()) == 0, "選択のあと: 前の選択は消え 新しい一つ目");
-    app_press(cx + 100, cy + 100, 0);
-    ck(jw_cmd_sel_count(app_drawing()) == 0, "押した点が線のあとなら 入らない");
+    ck(jw_cmd() == JW_CMD_HANI && jw_cmd_sel_stage() == 2
+       && jw_cmd_sel_count(app_drawing()) == 1,
+       "選択のあと（空の場所）に AM 4 を押し直しても 段も選択も変わらない");
+    /* 線の上（要素の上）の例 -- 同じく変わらない */
+    app_clock_begin(cx - 50, cy - 60);
+    app_clock_move(cx - 50 + dx, cy - 60 + dy);
+    app_clock_end();
+    ck(jw_cmd() == JW_CMD_HANI && jw_cmd_sel_stage() == 2
+       && jw_cmd_sel_count(app_drawing()) == 1,
+       "選択のあと（線の上）に AM 4 を押し直しても 段も選択も変わらない");
     app_command(JW_CMD_SEN);
 
     /* やめれば何もしない */

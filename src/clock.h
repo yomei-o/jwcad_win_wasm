@@ -998,6 +998,12 @@ static int clk_table_run(int d, int pm)
         return 1;
     }
     if (c > 0) {
+        /* AM 4、すでに 範囲選択 の 選択済み（追加・除外図形指示）の段のときは
+           原典で測った: 何も変わらない（src/cmd.c の jw_cmd_clock_hani のコメント
+           を見よ）。app_command(JW_CMD_HANI) は range_cmd の入り直しで sel_step を
+           無条件に 0 へ戻す（jw_cmd_set）ので、ここで先に見ておかないと間に合わない */
+        if (c == JW_CMD_HANI && cur == JW_CMD_HANI && jw_cmd_sel_stage() == 2)
+            return 1;
         app_command(c);
         if (c == JW_CMD_HANI) {
             /* AM 4: FUN_0040dbb0(0, 押した点) が 箱の一つ目の角を入れる */
