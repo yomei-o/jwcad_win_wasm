@@ -416,6 +416,22 @@ int main(int argc, char **argv)
         }
     }
 
+    /* 2026-10-19: JW_TEXT_ITALIC (0.34) and jw_text_bold_mm's slope/floor
+       (src/outfont.h) were measured directly against real Windows GDI --
+       CreateFontW with the exact argument list FUN_0048b130 uses
+       (decomp/decomp/all_004894cd.c:1116-1119), on ＭＳ ゴシック/ＭＳ 明朝
+       (the two faces of the original's own that carry no italic or bold of
+       their own), drawn into an in-memory bitmap -- tools/gdifont.c:
+       ./tmp/gdifont.exe, no window, no screen read.  Italic lean
+       (dx of lean per dy of rise, top-of-ink to bottom-of-ink) came out
+       0.336-0.341 for ＭＳ ゴシック and 0.336-0.350 for ＭＳ 明朝 across
+       nHeight -30..-400 -- not the same as the 0.3256 FUN_00481d50's box
+       widens by (nokori.md "書体"), so 0.34 (real GDI) replaced it.  Bold
+       stem widening was +1 device px at every nHeight from 12 to 64 (the
+       sizes this test and most on-screen drawing use), growing to +3/+4/+6
+       px by 100/200/400 -- not the height/24 "Wine fake bold" smear this
+       port used to copy (height/24 would already be 2-3x too much by
+       100px). */
     printf("-- 斜体 and 太字\n");
     for (i = 0; i < 2; i++) {
         /* "IIII" upright and italic; bitmap (switched off) and outline */
@@ -427,12 +443,23 @@ int main(int argc, char **argv)
         n1 = ink(MSGOTHIC, "IIII", 30.0, 8.0, 1, &a0, &a1, &t1, &f1);
         lean = (t1 - f1) - (t0 - f0);
         snprintf(msg, sizeof msg,
-                 "%s: italic leans 0.3256 (top vs foot %.1f px, 4..10)",
+                 "%s: italic leans 0.34, real GDI's own (top vs foot %.1f px, 4..10)",
                  i ? "outline" : "bitmap", lean);
         ck(n0 > 100 && n1 > 100 && lean > 4.0 && lean < 10.0, msg);
         n2 = ink(MSGOTHIC, "IIII", 30.0, 8.0, 2, &a0, &a1, &t1, &f1);
         snprintf(msg, sizeof msg, "  bold has more ink (%d > %d)", n2, n0);
         ck(n2 > n0 + n0 / 20, msg);
+    }
+    {
+        /* jw_text_bold_mm itself, against the numbers tools/gdifont.c
+           measured: at 8 mm/0.25 mm-per-px = 32 device px (this test's own
+           v.mmpp, "view" above), real GDI's extra stem width on ＭＳ ゴシッ
+           ク is the +1 device px floor, not a fraction of the height. */
+        double got = jw_text_bold_mm(8.0, 0.25);
+        snprintf(msg, sizeof msg,
+                 "jw_text_bold_mm(8mm, 0.25mm/px) is the 1-device-px floor "
+                 "(0.25mm), not Wine's height/24 (0.33mm): got %.4f", got);
+        ck(fabs(got - 0.25) < 1e-9, msg);
     }
     jw_outfont_enable(0);
     draw(MSGOTHIC, 0.0, 0, 0);

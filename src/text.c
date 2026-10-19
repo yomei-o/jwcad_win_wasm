@@ -387,8 +387,9 @@ void jw_text_run(fb_t *fb, const jw_view *v, const char *s,
 }
 
 /* 斜体 and 太字 in the bitmap font lean and thicken the way the outline
-   ones do (JW_TEXT_ITALIC, JW_TEXT_BOLD in src/outfont.h): the original's
-   CreateFontW gets lfItalic and lfWeight 700 whatever the face. */
+   ones do (JW_TEXT_ITALIC, jw_text_bold_mm in src/outfont.h): the
+   original's CreateFontW gets lfItalic and lfWeight 700 whatever the
+   face. */
 void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
                        double x0, double y0, double x1, double y1,
                        double cw, double ch, unsigned int col, int tate,
@@ -398,7 +399,7 @@ void jw_text_run_style(fb_t *fb, const jw_view *v, const char *s,
     double len = sqrt(dx * dx + dy * dy);
     double ux, uy, vx, vy, step, sw, sh;
     double lean = (style & 1) ? JW_TEXT_ITALIC : 0.0;
-    double bold = (style & 2) ? ch * JW_TEXT_BOLD : 0.0;
+    double bold = (style & 2) ? jw_text_bold_mm(ch, v->mmpp) : 0.0;
     int n = jw_text_count(s), i;
     const unsigned char *p = (const unsigned char *)s;
 
