@@ -8,7 +8,27 @@
  *   TABLES    VPORT, then LTYPE and STYLE (the same bytes every time, so
  *             they are carried in src/gen/dxf.h), then LAYER, which is the
  *             drawing's own
- *   BLOCKS    empty
+ *   BLOCKS    empty -- but only because the three drawings this was read
+ *             off none of them carried a ブロック reference.  2026-10-19,
+ *             tools/jwdraw.ps1 export:32961 on decomp/res/blktxt_base.jww
+ *             (a block reference, mirrored four ways, round a 定義 of five
+ *             字 and some lines/circles/points/solids) wrote a real BLOCKS
+ *             section instead: one BLOCK "-000-BLK" with the 定義's own
+ *             elements at their own, unmirrored, local coordinates (its
+ *             TEXT entities keep their original group-50 angles 0,30,90,
+ *             150,300 regardless of the reference), and four INSERT
+ *             entities in ENTITIES -- one per reference -- carrying the
+ *             insertion point and group 41/42 (x/y scale, e.g. -1/1) that
+ *             do the mirroring.  So "BLOCKS empty" is not a general rule;
+ *             it only held for block-free drawings.  This writer does not
+ *             implement BLOCK/INSERT at all yet (see the ENTITIES loop
+ *             below, which walks d->ndrawn and has no JW_BLOCK case): a
+ *             ブロック reference's contents -- mirrored or not -- are
+ *             simply absent from today's DXF output, a bigger, separate
+ *             gap than the mirrored-字 question nokori.md asks about
+ *             (nokori.md 2-2, 反転した参照の中の字).  tmp/orig_blktxt.dxf
+ *             (kept out of git; reproduce with the command above) is the
+ *             measurement.
  *   ENTITIES  LINE, CIRCLE, ARC, POINT, TEXT, SOLID
  *
  * Coordinates are (the paper point + half the sheet) times the scale of the
@@ -463,7 +483,10 @@ int jw_dxf_write_opt(const jw_drawing *d, const jw_dxf_opt *opt,
     str_(&o, 0, "ENDTAB");
     str_(&o, 0, "ENDSEC");
 
-    /* BLOCKS: nothing in it */
+    /* BLOCKS: nothing in it -- see the file header's 2026-10-19 note.  A
+       ブロック reference's definition (real BLOCK/INSERT, in the original)
+       is not written here; neither is its content as flattened entities
+       (the way src/plot.c's pdf_block does for PDF).  Left as found. */
     str_(&o, 0, "SECTION");
     str_(&o, 2, "BLOCKS");
     str_(&o, 0, "ENDSEC");

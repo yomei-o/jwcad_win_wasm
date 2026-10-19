@@ -570,13 +570,33 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
            thinks.  A CJK font's full-width glyph is one em, so the size
            is the height and the horizontal scale is width over height;
            the spacing goes in as Tc, which PDF scales the same way, so
-           it is divided by that scale first. */
+           it is divided by that scale first.
+         *
+         * 反転した参照の中の字（2026-10-19 原典で測った）: 負の幅・高さは
+         * 左右・上下に裏返した字という旗で、大きさではない（src/text.c の
+         * jw_text_run_style・src/jww.c の blk_text_post の注と同じ約束）。
+         * tools/jwdraw.ps1 で decomp/res/blktxt_base.jww（倍率 (-1,1)・
+         * (1,-1)・(-1,-1)・(1,1) の参照に 角 0..150,-60 の字 5 本ずつ）を
+         * 既定の印刷（Microsoft Print to PDF）で刷った tmp/orig_blktxt.pdf
+         * の中身（GDI の cm 行列、jw_cad 自身の書き出しではないので operator
+         * 列までは比べられないが、行列の向きは比べられる）に 行列式が負の
+         * cm（反転）が実際に出る: 例 "-0.289063 0.000000 0.000000 0.277344"
+         * は a*d - b*c = -0.289063*0.277344 < 0。つまり 反転した参照の中の
+         * 字は 原典の印刷でも 本当に裏返って出る。
+         *   直す前は d[4]・d[5] を「0 より大きければその値、でなければ既定」
+         * で読んでいたため、blk_text_post が負にした幅・高さが default の
+         * 正方形セルに丸められ、Tz・Tm のどちらにも反転が伝わらず 字が
+         * 鏡像にならなかった（PDF だけ画面・DXF と食い違っていたバグ）。
+         * 0 かどうか（未設定）と 符号（反転の旗）を分けて読み、幅の符号は
+         * 元から Tz（th）経由で効くので Tm の a・b は変えず、高さの符号は
+         * Tm の c・d（文字の「上」方向）に掛けて 上下の反転も伝える。 */
         const char *s = jw_umekomi_text(p->d, o,     /* 埋め込み文字 */
                                         jw_str((jw_drawing *)p->d, o->text), 1);
         double dx = o->d[2] - o->d[0], dy = o->d[3] - o->d[1];
         double dir = (dx != 0.0 || dy != 0.0) ? atan2(dy, dx) : 0.0;
-        double h = o->d[5] > 0.0 ? o->d[5] : 3.0;
-        double cw = o->d[4] > 0.0 ? o->d[4] : h;
+        double h = o->d[5] != 0.0 ? fabs(o->d[5]) : 3.0;
+        double shv = o->d[5] < 0.0 ? -1.0 : 1.0;        /* 上下に裏返した字 */
+        double cw = o->d[4] != 0.0 ? o->d[4] : h;       /* 符号は左右の反転の旗 */
         double sp = o->d[6];
         double th = cw / h;
         double r, g, b;
@@ -586,10 +606,9 @@ static void pdf_obj(Pdf *p, const jw_obj *o, int depth)
             break;
         pen_rgb(p->d, pen, p->colour, &r, &g, &b);
         buf_f(p->b, "q %.3f %.3f %.3f rg BT /F1 %.2f Tf %.2f Tz %.3f Tc\n",
-              r, g, b, h * p->mm2pt, th * 100.0,
-              th > 0.0 ? sp / th * p->mm2pt : 0.0);
+              r, g, b, h * p->mm2pt, th * 100.0, sp / th * p->mm2pt);
         buf_f(p->b, "%.4f %.4f %.4f %.4f %.2f %.2f Tm\n",
-              cos(dir), sin(dir), -sin(dir), cos(dir),
+              cos(dir), sin(dir), -sin(dir) * shv, cos(dir) * shv,
               px_(p, o->d[0]), py_(p, o->d[1]));
         buf_put(p->b, "<", -1);
         for (i = 0; s[i]; i++)

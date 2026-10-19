@@ -19,6 +19,22 @@
  *
  * Solids are not written yet: the original turns one into a composite curve
  * and a fill, and those are a piece of their own.
+ *
+ * ブロックの参照は書いていない（下の JW_LIST/JW_BLOCK を飛ばす 3 か所）。
+ * 2026-10-19、tools/jwdraw.ps1 export:32976 で decomp/res/blktxt_base.jww
+ * （反転した参照の中に字がある定義）と decomp/res/blktxt_free.jww（同じ字を
+ * ブロック解除した、参照の無い図面）の両方を 原典に書き出させたところ、
+ * どちらも SXF の feature 一覧（色・線種・幅・使われた文字体・ポリライン・
+ * 字）を書いたところで ENTITIES に当たる並び（sfig_org_feature・配置）へ
+ * 進む前に 唐突に切れていた（4,312 バイト・4,320 バイト、ブロックの有無に
+ * かかわらず）。この書き出しは orig/common_lib.dll がしていて（このファイル
+ * 冒頭の注）、原典（jw_win.exe）側の逆コンパイル済みソースにその実体が無い
+ * ため、これが common_lib.dll 自身の制限（複雑な図面で打ち切る）なのか
+ * こちらの操作手順の不備なのかを 切り分けられなかった。したがって「反転
+ * した参照の中の字」が SFC の配置でどう置かれるか（倍率の符号をどう使うか）
+ * は 原典のこの DLL を動かしても確認できず、未確認のまま。このファイルは
+ * 元からブロックの中身を一切書き出していない（反転の有無にかかわらず）の
+ * で、直すとすればまずブロックの読み・配置自体を実装する必要がある。
  */
 #include <math.h>
 #include <stdio.h>
