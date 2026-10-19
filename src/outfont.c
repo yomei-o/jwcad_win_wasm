@@ -633,8 +633,19 @@ int jw_outfont_resolve(const char *face, int *prop)
  * 量) に対して measured_px = Σ_i advance_i * DAT_009fe124/(asc-desc) であり、
  * DAT_009fe124 は分子・分母で約分されるので、残る式は
  *   幅(mm) * Σ_i advance_i / (そのグリフを持つフォントの asc - desc)
- * になる。Windows の GDI を直接呼ぶと WASM 版で結果が変わってしまうので、
- * ここでは呼ばず、この port が既に持つ stb_truetype の字形データと
+ * になる -- ただし これは IPAexGothic・IPAexMincho・BIZ UDGothic
+ * （F[0..2]、asc-desc == upem == 2048）の話で、Latin 代用書体
+ * （JW_OF_SANS 等、F[3..6]）は asc-desc と upem が違う（jwsubsans.ttf は
+ * asc-desc=2288, upem=2048）ので、下の実装は is_latin(fo) のときだけ
+ * upem で割っている（jw_outfont_run の hy[1] = ch/F[fi].upem と同じ、
+ * Windows の負の lfHeight が upem を |lfHeight| に写すという GDI の
+ * 文書化された仕様どおり）。tools/gditextwidth.c（Jw_win.exe は動かさず
+ * GetTextExtentExPointW を直接呼ぶ自前の計測ツール）で両方を実測し、
+ * IPAexGothic・IPAexMincho は (asc-desc)・upem のどちらで割っても GDI と
+ * 1% 未満で一致し、Latin 代用書体（jwsubsans.ttf）は upem で割った方だけ
+ * 1% 未満で一致する（(asc-desc) だと 10% 前後ずれる）ことを 2026-10-19 に
+ * 確認した。Windows の GDI を直接呼ぶと WASM 版で結果が変わってしまうので
+ * この関数自体は呼ばず、この port が既に持つ stb_truetype の字形データと
  * jw_outfont_run と同じ書体名の振り分け (jw_outfont_resolve, LATIN[]) を
  * 使って同じ量を計算する。原典が lfWeight=400・lfItalic=0 で固定して
  * いるので、太字・斜体フラグはここでは見ない。
@@ -670,8 +681,26 @@ int jw_outfont_text_width(const char *face, const char *s, double cw, double *ou
                 gl = stbtt_FindGlyphIndex(&F[fj].info, u[0]);
         }
         if (gl) {
+            /* fo が Latin 代用書体（JW_OF_SANS 等）のときは upem で、それ
+             * 以外（IPAexGothic・IPAexMincho・BIZ UDGothic）は (asc-desc)
+             * で割る -- jw_outfont_run の hx[0]（cw/(asc-desc)、758-813 行）
+             * と hy[1]（ch/F[fi].upem、814-819 行）の使い分けと同じ。
+             * 2026-10-19、tools/gditextwidth.c（Jw_win.exe は動かさず、
+             * GetTextExtentExPointW を直接呼ぶ自前の計測ツール）で確かめた:
+             * jwsubgothic.ttf・jwsubmincho.ttf は (asc-desc) == upem == 2048
+             * なのでどちらで割っても同じだが、jwsubsans.ttf は
+             * asc=1854 desc=-434 (asc-desc)=2288 upem=2048 と違い、
+             * 実測した GDI.cx は upem で割った値に 1% 未満で一致し
+             * （H=800 で "ABCDE" は GDI 2758・upem*H 2756.25・
+             * diff 0.06%）、(asc-desc) で割った値とは 約 10% 食い違った
+             * （同じ H で diff 10.5%）。この関数は 直すまで すべて
+             * (asc-desc) で割っており、Latin 代用書体の間だけ ここの
+             * バグで約 10% 長さを読み違えていた。 */
+            double denom = is_latin(fo) ? (double)F[fo].upem
+                                        : (double)(F[fo].asc - F[fo].desc);
+
             stbtt_GetGlyphHMetrics(&F[fo].info, gl, &adv, &lsb);
-            sum += (double)adv / (F[fo].asc - F[fo].desc);
+            sum += (double)adv / denom;
         }
         p += w ? 2 : 1;
     }

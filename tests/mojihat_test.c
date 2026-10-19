@@ -127,6 +127,25 @@ int main(void)
         got = jw_cmd_moji_run("ABCDE", 3.0, 0.01);
         ck(jw_outfont_text_width(0, "ABCDE", 3.0, &out) && fabs(got - out) < 1e-9,
            "jw_cmd_moji_run も 間隔 0.01 で同じ枝を通る（書体は既定）");
+
+        /* Latin 代用書体（JW_OF_SANS 等、"Arial" のような名前を
+         * resolve_core が振り分ける先）は asc-desc と upem が違う
+         * （jwsubsans.ttf: asc=1854 desc=-434 (asc-desc)=2288 upem=2048）。
+         * 2026-10-19、tools/gditextwidth.c（Jw_win.exe は動かさず、GDI の
+         * GetTextExtentExPointW を直接呼ぶ自前の計測ツール）で測ると、
+         * jwsubsans.ttf を H=800 で測った実際の GDI.cx は upem で割った
+         * 値に 0.06% 差で一致し、(asc-desc) で割った値とは 10.5% 食い違った
+         * -- jw_outfont_text_width は直すまで Latin 代用書体でも常に
+         * (asc-desc) で割っており、ここだけ約 10% 長さを読み違えていた
+         * （jw_outfont_run の hy[1] = ch/F[fi].upem、758-819 行の注と
+         * 食い違っていた）。is_latin(fo) のときは upem で割るよう直し、
+         * この値で止める。期待値は probe（/tmp/probe_w.c 相当、直した
+         * jw_outfont_text_width をそのまま使う）で読んだ。 */
+        ck(jw_outfont_text_width("Arial", "ABCDE", 3.0, &out)
+           && fabs(out - 10.3359375) < 1e-6,
+           "Latin 代用書体（Arial → JwSubSans）: upem で割る（(asc-desc) なら 9.2517...）");
+        got = jw_cmd_moji_run_face("ABCDE", 3.0, 0.01, "Arial", 0);
+        ck(fabs(got - out) < 1e-9, "  jw_cmd_moji_run_face も同じ");
     }
     printf("%s\n", fails ? "FAILED" : "all ok");
     return fails != 0;
