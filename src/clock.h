@@ -359,7 +359,25 @@ int app_rclock_ready(int x0, int y0, int x, int y)
  * AUTO の下の命令の自前の時計（+0xc4 が非 0 で DAT_00a0c7bc < 2 のとき 先に仮想
  * 関数 0xb8・0xbc）と 2528〜2530、+0x908c != 0 の枝（FUN_00770b60）、DAT_00a0d8f8
  * の釦（AUTO のバー）、DAT_00a0d8ec < 0 のときだけ働く FUN_00778a40（AUTO の覚え
- * = 命令ごとの DAT_00a0dafc・db3c・dbbc の登録）、AM 6 の札 0x148d（+0x94・+0x9c）。 */
+ * = 命令ごとの DAT_00a0dafc・db3c・dbbc の登録）、AM 6 の札 0x148d（+0x94・+0x9c）。
+ *
+ * 2026-10-19 追加調査（どれも見送りのまま）: 2528〜2530 は 基本設定「一般(2)」の
+ * 釦の control ID（decomp/res/dialog.txt:1971-1980、CAPTION「AUTOﾓｰﾄﾞから他ｺﾏﾝﾄﾞに
+ * 移行した場合」）で、レジストリ Clock\AllAuto（= DAT_00a0c7bc、読み書きは
+ * decomp/byclass/_unassigned.c:200673-200928）の 3 択。この値で CZukeiAuto の +0xc4
+ * 委譲（decomp/byclass/CZukeiAuto.c:423,501）と、既定の時計表 FUN_0076c9c0（上の
+ * 左の表）側の「前の命令が AUTO だったか」判定（decomp/byclass/CZukei.c:98,384、
+ * DAT_00a0c7bc != 0）が切り替わる。ただし その判定が読む FUN_0079d98a(&PTR_s_
+ * CZukeiAuto_00977bfc) は 572 callers を持つ __try の定型足場関数と同じ番地
+ * （decomp/byclass/_unassigned.c:339632-339653）で、COMDAT 折り込みの疑いがあり
+ * dynamic_cast 相当の意味をデコンパイルだけでは確定できない。DAT_00a0d8f8 は
+ * 基本設定の AUTO タブ（dialog 337、decomp/res/dialog.txt:1681-1795 を全文確認）に
+ * 対応する釦が無く、別窓 CAutoDialog（decomp/byclass/_unassigned.c:11170-11186 の
+ * FUN_00411a30。0 callers＝MFC メッセージマップ経由で呼ばれ 実窓の control ID は
+ * デコンパイルに出ない）の釦だった――基本設定ではなく AUTO を使っている間だけ
+ * 出る「AUTO のバー」の釦、と裏が取れた。この移植は そのバー窓・番号 100〜199の
+ * 利用者命令・下請け命令オブジェクト（+0xc4）のいずれも持たないため、構造は
+ * 特定できたが実装は見送りのまま。 */
 typedef struct { int wm; int id; const char *s; } clk_ai_t;
 static const clk_ai_t clk_ai[100] = {
     /*  0 */ { 0x0, 0, 0 },
