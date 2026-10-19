@@ -214,6 +214,54 @@ static void one(const char *jww, const char *sfc, int aspens)
     jw_free(&d);
 }
 
+/* ブロック参照 (JW_LIST/JW_BLOCK) の SXF 書き出し: 原典との突き合わせは
+   できない（src/sfcwrite.c 冒頭の注。common_lib.dll が ENTITIES 相当へ
+   進む前に出力を打ち切るため）ので、ここは「逆コンパイルの読みどおりに
+   実装した」ことを見る構造試験——クラッシュせず書けること、定義の figure
+   名 "-%03d-..." と SFIG_LOCATE が実際に出ること、未参照の定義
+   (list[1]==0) のメンバが featureに出ないこと、を確かめる */
+static void block_struct(void)
+{
+    jw_drawing d;
+    jw_obj *p;
+    unsigned char *mine = 0;
+    long m = 0;
+
+    memset(&d, 0, sizeof d);
+    d.group[0].state = 3;
+    d.group[0].scale = 1.0;
+    d.group[0].layer[0].state = 3;
+
+    p = jw_add(&d, JW_BLOCK);          /* 参照: 倍率 2 倍、(10,20) に置く */
+    p->d[0] = 10.0; p->d[1] = 20.0; p->d[2] = 2.0; p->d[3] = 2.0;
+    p->block = 1;
+
+    p = jw_add_def(&d, JW_LIST);       /* 定義 #1: 参照されている (list[1]=1) */
+    p->list[0] = 1;
+    p->list[1] = 1;
+    p->n = 1;
+    p = jw_add_def(&d, JW_SEN);
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 5.0; p->d[3] = 0.0;
+
+    p = jw_add_def(&d, JW_LIST);       /* 定義 #2: 未参照 (list[1]=0) */
+    p->list[0] = 2;
+    p->list[1] = 0;
+    p->n = 1;
+    p = jw_add_def(&d, JW_SEN);
+    p->d[0] = 0.0; p->d[1] = 0.0; p->d[2] = 99.0; p->d[3] = 99.0;
+
+    ck(jw_sfc_write(&d, "t.jww", "2026/10/19 12:00:00", &mine, &m)
+       && m > 0, "ブロックのある図面でも SXF が書ける（クラッシュしない）");
+    ck(mine && strstr((char *)mine, "sfig_locate_feature") != 0,
+       "参照の sfig_locate_feature が出る");
+    ck(mine && strstr((char *)mine, "-001-") != 0,
+       "定義 #1（参照されている）の figure 名が出る");
+    ck(mine && strstr((char *)mine, "99.000000") == 0,
+       "未参照の定義 #2（list[1]==0）のメンバは出ない");
+    free(mine);
+    jw_free(&d);
+}
+
 int main(void)
 {
     one("orig/Test5.jww", "decomp/res/pens.sfc", 1);
@@ -222,6 +270,7 @@ int main(void)
     one("orig/Test6.jww", "decomp/res/sfcw6.sfc", 0);
     /* and a drawing with solids in it, flat ones and 円ソリッド */
     one("decomp/res/hatin.jww", "decomp/res/rsolid.sfc", 0);
+    block_struct();
     printf("%s\n", fails ? "SOME BAD" : "all ok");
     return fails ? 1 : 0;
 }
