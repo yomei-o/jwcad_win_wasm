@@ -104,6 +104,27 @@ static int two_points(const char *s, double *x0, double *y0,
         && sscanf(m + 3, "%lf %lf", x1, y1) == 2;
 }
 
+/* a JW_MOJI run's "BT /F1 <size> Tf <tz> Tz <tc> Tc" and the "Tm" line right
+   after it (src/plot.c's pdf_obj, case JW_MOJI) -- the exact shape those two
+   buf_f calls write */
+static int grab_text_tm(const char *text, double *tz, double *tc, double *m)
+{
+    const char *p = strstr(text, "BT /F1 ");
+    const char *q;
+    double fs;
+
+    if (!p)
+        return 0;
+    if (sscanf(p, "BT /F1 %lf Tf %lf Tz %lf Tc", &fs, tz, tc) != 3)
+        return 0;
+    q = strstr(p, "Tc\n");
+    if (!q)
+        return 0;
+    q += 3;
+    return sscanf(q, "%lf %lf %lf %lf %lf %lf Tm",
+                  &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) == 6;
+}
+
 /* the first line of a PDF, in millimetres from the page's middle */
 static int pdf_line(const jw_drawing *d, const jw_plot_frame *f, double mm2pt,
                     double *x0, double *y0, double *x1, double *y1)
@@ -791,6 +812,92 @@ int main(int argc, char **argv)
         ck(pdf != 0 && plen > 0 && plen < 2000000,
            "線種のついた 1e9 mm の線八本も、PDF はすぐ書ける（用紙の上の破線だけ）");
         free(pdf);
+    }
+    /* 反転した参照の中の字: PDF 書き出し（2026-10-19）。ブロックの参照を
+       内の段から jw_obj_blkput で写すのは src/plot.c の pdf_block がすでに
+       していて（画面と同じ blk_text_post を通る）、反転は d[4]（幅）・
+       d[5]（高さ）の符号という旗で伝わってくる（src/text.c の
+       jw_text_run_style・src/jww.c の blk_text_post の注と同じ約束）。残って
+       いたバグは pdf_obj の JW_MOJI の枝が d[4]・d[5] を「0 より大きいか」
+       で読んでいたことで、負（反転）なら既定の正方形セルに丸めてしまい
+       Tz（横の縮尺）・Tm（向き）のどちらにも反転が伝わらなかった。
+       tools/jwdraw.ps1 で decomp/res/blktxt_base.jww（倍率 (-1,1) ほかの
+       参照の中の字）を既定の印刷（Microsoft Print to PDF）で刷った
+       tmp/orig_blktxt.pdf の中身（GDI の cm 行列。原典は PDF を自分で
+       書き出すわけではないので operator 列までは比べられないが、行列の
+       向きは比べられる）に 行列式が負の cm（反転）が実際に出ており、
+       反転した参照の中の字は 原典の印刷でも 本当に裏返って出ることを
+       確かめた。ここでは 倍率 (-1,1)（左右だけ反転）・(1,-1)（上下だけ
+       反転）の 2 本で、Tz の符号（幅の反転）・Tm の c・d（高さの反転、
+       字の「上」方向）の符号が それぞれ独立に伝わることを 直してから
+       確かめる。 */
+    {
+        jw_drawing d;
+        jw_obj *p;
+        unsigned char *pdf;
+        char *text;
+        long plen;
+        double tz, tc, m[6];
+
+        /* 左右だけ反転 (-1,1) */
+        memset(&d, 0, sizeof d);
+        d.group[0].state = 3;
+        d.group[0].scale = 1.0;
+        d.group[0].layer[0].state = 3;
+        p = jw_add(&d, JW_BLOCK);
+        p->d[2] = -1.0; p->d[3] = 1.0;
+        p->block = 1;
+        p = jw_add_def(&d, JW_LIST);
+        p->list[0] = 1;
+        p->n = 1;
+        p = jw_add_def(&d, JW_MOJI);
+        p->color = 2;
+        p->d[0] = 10.0; p->d[1] = 5.0; p->d[2] = 20.0; p->d[3] = 5.0;
+        p->d[4] = 2.0; p->d[5] = 2.0; p->d[6] = 0.5; p->d[7] = 0.0;
+        p->text = jw_add_str(&d, "T");
+        pdf = jw_plot_pdf(&d, 0, &plen);
+        ck(pdf != 0, "反転ブロックの字: PDF が出る (-1,1)");
+        if (pdf) {
+            text = (char *)malloc((size_t)plen + 1);
+            memcpy(text, pdf, (size_t)plen);
+            text[plen] = 0;
+            ck(grab_text_tm(text, &tz, &tc, m), "  Tz・Tm が読み取れる");
+            ck(tz < 0.0, "  幅だけ反転: Tz が負（左右に裏返る）");
+            cknear(m[2], 0.0, 1e-6, "  高さは反転していないので Tm の c は 0 のまま");
+            cknear(m[3], 1.0, 1e-6, "  同じく d は 1 のまま（上下は向いたまま）");
+            free(text);
+            free(pdf);
+        }
+
+        /* 上下だけ反転 (1,-1) */
+        memset(&d, 0, sizeof d);
+        d.group[0].state = 3;
+        d.group[0].scale = 1.0;
+        d.group[0].layer[0].state = 3;
+        p = jw_add(&d, JW_BLOCK);
+        p->d[2] = 1.0; p->d[3] = -1.0;
+        p->block = 1;
+        p = jw_add_def(&d, JW_LIST);
+        p->list[0] = 1;
+        p->n = 1;
+        p = jw_add_def(&d, JW_MOJI);
+        p->color = 2;
+        p->d[0] = 10.0; p->d[1] = 5.0; p->d[2] = 20.0; p->d[3] = 5.0;
+        p->d[4] = 2.0; p->d[5] = 2.0; p->d[6] = 0.5; p->d[7] = 0.0;
+        p->text = jw_add_str(&d, "T");
+        pdf = jw_plot_pdf(&d, 0, &plen);
+        ck(pdf != 0, "反転ブロックの字: PDF が出る (1,-1)");
+        if (pdf) {
+            text = (char *)malloc((size_t)plen + 1);
+            memcpy(text, pdf, (size_t)plen);
+            text[plen] = 0;
+            ck(grab_text_tm(text, &tz, &tc, m), "  Tz・Tm が読み取れる");
+            ck(tz > 0.0, "  幅は反転していないので Tz は正のまま");
+            cknear(m[2], 0.0, 1e-6, "  高さだけ反転: Tm の c は符号が変わっても 0 のまま");
+            cknear(m[3], -1.0, 1e-6, "  同じく d は -1（上下に裏返る）");
+            free(text);
+            free(pdf);
+        }
     }
     print_command(mm2pt);
     keishiki();
