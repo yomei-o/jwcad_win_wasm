@@ -33972,7 +33972,19 @@ static void gz_point(jw_drawing *d, const jw_view *v, double x, double y, int bu
         return;
     if (v && v->mmpp > 0.0)
         gz_mmpp = v->mmpp;
-    if (button == 1) {                  /* (R) read: a point of the drawing, or nothing */
+    /* (R) read: a point of the drawing, or nothing -- except 透過色設定
+       (GZ_TP), whose own (R) is a different thing (below): the colour under
+       the point, read straight off the picture with no snap at all.  原典の
+       CZukeiGazou の大きな一つの関数（decomp/byclass/CZukeiGazou.c
+       1384〜2042 行、FUN_0066d810）には FUN_00451f30（読取点、jw_read）の
+       呼び出しが一つも無く、透過色の枝（1640〜1648 行）は 押した点をそのまま
+       画素へ丸めて（FUN_004b6d60）GetPixel に渡すだけ。原典を動かして測った
+       （tools/jwdraw.ps1 r<x>,<y>）: 画像のふちから離れた絵の中を右クリック
+       しても 透過色 ダイアログは その場所の色で開く――jw_read のとおり
+       近くに拾える要素が無ければ 0 を返す port の仕様のままでは、この
+       「ふちから離れた所」で早期 return してしまい ダイアログが開かない
+       （tests/image_test.c で確かめた）。 */
+    if (button == 1 && !(gz_mode == GZ_TP && !gz_ins)) {
         double rx, ry;
 
         if (!jw_read(d, v, x, y, &rx, &ry))

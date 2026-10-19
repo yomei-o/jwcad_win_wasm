@@ -59,6 +59,31 @@ static void P(double px, double py, double *x, double *y)
     *y = 26.3265306122 - (py - 300) * 30.0 / 49.0;
 }
 
+/* tools/mkbmp.py's own 24 bpp gradient pattern (used for the 原典 run that
+   confirmed 透過色設定 の (R) below) */
+static unsigned char *mk_bmp_grad(int w, int h, long *n)
+{
+    long stride = ((long)w * 3 + 3) & ~3L, total = 54 + stride * h;
+    unsigned char *b = (unsigned char *)calloc((size_t)total, 1);
+    int x, y;
+
+    b[0] = 'B'; b[1] = 'M';
+    b[2] = (unsigned char)total; b[3] = (unsigned char)(total >> 8); b[4] = (unsigned char)(total >> 16);
+    b[10] = 54; b[14] = 40;
+    b[18] = (unsigned char)w; b[19] = (unsigned char)(w >> 8);
+    b[22] = (unsigned char)h; b[23] = (unsigned char)(h >> 8);
+    b[26] = 1; b[28] = 24;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            unsigned char *p = b + 54 + stride * y + x * 3;
+            p[0] = (unsigned char)((x * 255 / (w - 1)) & 255);
+            p[1] = (unsigned char)((y * 255 / (h - 1)) & 255);
+            p[2] = ((x / 5 + y / 5) % 2) ? 200 : 20;
+        }
+    *n = total;
+    return b;
+}
+
 /* the 40 by 30 pattern of tmp/img/t1.bmp */
 static unsigned char *mk_bmp(int w, int h, long *n)
 {
@@ -504,6 +529,43 @@ int main(void)
     }
     jw_cmd_gazou_tp_set(d, 255, 0, 128);
     same_pic("透過色設定", "decomp/res/img_trans.jww", 0);
+
+    /* ---- 透過色設定 の (R) 色読込: 絵の中を右クリックすると、その場所の
+       画素の色でダイアログが開く（画像の基線を拾う普通の (L) クリックは
+       既定の 255,255,255 のまま）。原典 CZukeiGazou の大きな一つの関数
+       （decomp/byclass/CZukeiGazou.c 1384〜2042 行、FUN_0066d810）の
+       1640〜1648 行: GetPixel をそのまま押した点（FUN_004b6d60 で画素へ
+       丸めただけ）に掛けており、読取点 FUN_00451f30（jw_read）は一度も
+       呼ばれていない。src/cmd.c の gz_point は以前 すべての (R) に
+       jw_read を先に掛けていたため、絵のふちから離れた所（近くに拾える
+       線・点が無い）を右クリックすると jw_read が 0 を返して早期 return
+       し、ダイアログが開かなかった（原典は開く）。原典を動かして
+       確かめた（tools/jwdraw.ps1 r<x>,<y>、tmp/img/t1.bmp を
+       tools/mkbmp.py の勾配の柄で作り直し、300,400 へ基準点、
+       透過色設定 へ、380,340 を右クリック → ダイアログは
+       赤=200 緑=123 青=124）。この試験はその柄・その二点をそのまま使い、
+       移植も同じ画素を読むことを確かめる */
+    d = fresh();
+    enter();
+    {
+        long n;
+        unsigned char *b = mk_bmp_grad(40, 30, &n);
+
+        jw_cmd_gazou_insert(d, "C:\\prog\\claude2\\jwcad_win_wasm\\tmp\\img\\t1.bmp", b, n);
+        free(b);
+    }
+    click(300, 400);
+    bar(1339);
+    {
+        double x, y;
+        int r, g, bl;
+
+        P(380, 340, &x, &y);
+        jw_cmd_point(d, app_view(), x, y, 1);   /* right click, well inside the picture */
+        ck(jw_cmd_gazou_tp_ask(&r, &g, &bl) && r == 200 && g == 123 && bl == 124,
+           "透過色設定 の (R): 絵の中の右クリックは その画素の色でダイアログを開く（原典実機と一致）");
+    }
+    jw_cmd_gazou_tp_set(d, -1, 0, 0);           /* cancel, leave the picture as it was */
 
     d = fresh();
     enter();

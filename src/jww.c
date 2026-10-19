@@ -1569,6 +1569,49 @@ int jw_parse_jws(jw_drawing *d, const unsigned char *b, long n,
             read_objs(&a, d, L, -1);
         lctx_free(L);
     }
+    /* The embedded images (画像同梱), the same tail a .jww carries
+       (jw_parse's `d->version > 0x275` arm just above jw_parse_jws).  原典
+       の CMiniDoc::Serialize（decomp/byclass/CMiniDoc.c の一つの関数
+       FUN_00575010）は ".jws"（584 行の分岐、DAT_00a0b414 に版をしまう）
+       と ".jww"（676 行の分岐、DAT_00a0b3e8）を別の変数で覚えておき、どちら
+       も 同じ形の `0x275 < 版` の枝（1729 行・1832 行）で 画像を読む。
+       figreg.jws（tools/figout.sh）は 版 700 の普通の図形で この枝に
+       入らない空の図形だったため、埋め込み画像を持つ .jws が無く この枝は
+       これまで移植に入っていなかった。原典を動かしては確かめていない
+       （逆コンパイルの読み）。 */
+    if (d->version > 0x275 && a.o < a.n && !a.bad) {
+        int i;
+
+        d->nimage = ar_l(&a);
+        if (d->nimage < 0 || d->nimage > 100000)
+            a.bad = 1;
+        for (i = 0; i < d->nimage && !a.bad; i++) {
+            int uni;
+            long nm = ar_strlen(&a, &uni);
+            const unsigned char *np = ar_raw(&a, uni ? nm * 2 : nm);
+            unsigned len = (unsigned)ar_l(&a);
+            const unsigned char *gp;
+            char name[300];
+
+            if (!np)
+                break;
+            if (uni)
+                nm = jw_from_utf16(np, nm, name + 6, (long)sizeof name - 8);
+            else {
+                if (nm > (long)sizeof name - 8)
+                    nm = (long)sizeof name - 8;
+                memcpy(name + 6, np, (size_t)nm);
+            }
+            memcpy(name, "%temp%", 6);
+            name[6 + nm] = 0;
+            if (nm > 3 && !strcmp(name + 6 + nm - 3, ".gz"))
+                name[6 + nm - 3] = 0;
+            gp = ar_raw(&a, (long)len);
+            if (!gp)
+                break;
+            jw_img_put_gz(name, gp, (long)len);
+        }
+    }
     if (a.bad) {
         if (!d->error)
             d->error = "the figure ends in the middle of a record";
