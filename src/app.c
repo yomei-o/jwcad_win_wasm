@@ -7645,6 +7645,7 @@ static void draw_drawing(void)
     h = mix(h, &jw_draw_reverse, sizeof jw_draw_reverse);
     h = mix(h, &jw_draw_texts_last, sizeof jw_draw_texts_last);
     h = mix(h, &jw_draw_textframe, sizeof jw_draw_textframe);   /* 【文字枠】 */
+    h = mix(h, &jw_draw_textspace, sizeof jw_draw_textspace);   /* 文字のスペースを表示する (2103) */
     h = mix(h, &jw_draw_paper_frame, sizeof jw_draw_paper_frame);   /* 用紙枠 */
     h = mix(h, &jw_draw_text_bg, sizeof jw_draw_text_bg);           /* 1886・1900 */
     h = mix(h, &jw_draw_text_bg_expand, sizeof jw_draw_text_bg_expand);
@@ -7727,8 +7728,10 @@ void app_paint(void)
             draw_d25();                 /* ２．５D の立体（src/d25view.c） */
         else {
             jw_draw_textframe = br_textframe;   /* 画面だけ（印刷は描かない） */
+            jw_draw_textspace = br_textspace;   /* 画面だけ（印刷は描かない） */
             draw_drawing();
             jw_draw_textframe = 0;
+            jw_draw_textspace = 0;
         }
     }
     {

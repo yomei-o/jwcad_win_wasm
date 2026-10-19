@@ -52,6 +52,15 @@ extern double jw_draw_text_bg_expand;
 /* 画面倍率・文字表示 の【文字枠】を表示する (2104, DAT_00a0c794): 文字の
    字に加えて その枠も描く。画面だけで、印刷は描かない（app が描く間だけ立てる） */
 extern int jw_draw_textframe;
+/* 画面倍率・文字表示 の「文字のスペースを表示する」(2103, DAT_00a0c790):
+   画像（"^@BM" の字、src/image.h）は ふだん 画像だけを描いて終わるが、
+   これが立っていると 原典は 画像を描いた後 ふつうの字と同じ経路へ続け、
+   生の文字列（"^@BM<file>,..."）を 字として画像の上に重ねて描く
+   （FUN_00481d50、decomp/byclass/_unassigned.c 58220・58333 行の
+   `DAT_00a0c790 == 0` なら return、立っていれば LAB_004830ca へ落ちて
+   続く）。拾い側は src/pick.h の jw_pick_pic_text（画像でも字の箱で拾う）。
+   画面だけで、印刷は描かない（app が描く間だけ立てる） */
+extern int jw_draw_textspace;
 /* 埋め込み文字（src/umekomi.h）: 0 でなければ 字を描く前にこれを通す。
    plot.c が刷る間と、app が 基本設定 2531 の入っているとき入れる */
 extern const char *(*jw_draw_text_subst)(const jw_drawing *, const jw_obj *,
