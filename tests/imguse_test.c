@@ -490,6 +490,55 @@ int main(void)
         jw_free(&f);
     }
 
+    /* ------------------------------------------------ 画像同梱の図形 (.jws)
+     * .jww の画像同梱（jw_write/jw_parse の `version > 0x275` の枝）と同じ
+     * tail を .jws にも足した（src/jwwrite.c の jw_write_jws、src/jww.c の
+     * jw_parse_jws）。原典の CMiniDoc::Serialize（decomp/byclass/CMiniDoc.c
+     * の一つの関数 FUN_00575010）は ".jws"（584 行、DAT_00a0b414）も
+     * ".jww"（676 行、DAT_00a0b3e8）も 同じ形の `0x275 < 版` の枝（1729 行・
+     * 1832 行）で 画像を読んでおり、.jws だけ埋め込み画像を運べないという
+     * 理由は無い（原典を動かしては確かめていない。figreg.jws を含め
+     * Jw_cad が同梱の図形を書いた例が手元に無い）。ここは 書いて読み直す
+     * 往復だけを確かめる。 */
+    {
+        jw_drawing f, g;
+        unsigned char *jb = 0, *pic = 0;
+        long jn = 0, pn = 0;
+        const unsigned char *got;
+        long gotn = 0;
+        int i;
+
+        pn = 600;
+        pic = (unsigned char *)malloc((size_t)pn);
+        for (i = 0; i < pn; i++)
+            pic[i] = (unsigned char)(i * 37 + 11);
+        jw_img_put("%temp%embed.bmp", pic, pn);
+
+        memset(&f, 0, sizeof f);
+        jw_parse(&f, b, n);
+        while (f.nobj > 0)
+            jw_remove(&f, f.nobj - 1);
+        f.ndrawn = 0;
+        f.version = JW_JWS_VERSION;
+        put_text(&f, "^@BM%temp%embed.bmp,50,40", 10.0, 10.0, 0.0);
+        ck(jw_write_jws(&f, 10.0, 10.0, &jb, &jn) && jb, "画像同梱の図形を書く");
+
+        jw_img_forget();
+        ck(!jw_img_get("%temp%embed.bmp"), "  (消してから) 読む前は画像が無い");
+
+        memset(&g, 0, sizeof g);
+        ck(jw_parse_jws(&g, jb, jn, 0, 0), "  読み直せる");
+        got = jw_img_bytes("%temp%embed.bmp", &gotn);
+        ck(got && gotn == pn && !memcmp(got, pic, (size_t)pn),
+           "  埋め込んだ画像のバイト列がそのまま戻る");
+
+        free(jb);
+        free(pic);
+        jw_free(&f);
+        jw_free(&g);
+        jw_img_forget();
+    }
+
     free(w);
     free(b);
     printf("%s\n", fails ? "FAIL" : "all ok");

@@ -552,6 +552,50 @@ int jw_write_jws(const jw_drawing *d, double bx, double by,
            two bytes are there in the original's file all the same. */
         w_list(&w, d, d->ndrawn, d->nobj, seen, &nload);
     }
+    if (d->version > 0x275) {
+        /* 画像同梱: the same tail jw_write puts after a .jww's two lists
+           (above).  原典の CMiniDoc::Serialize（decomp/byclass/CMiniDoc.c の
+           一つの関数 FUN_00575010）は ".jws" を 584 行の分岐（DAT_00a0b414 に
+           版をしまう）で読み、1729 行の `0x275 < DAT_00a0b414` の枝で
+           画像を読む -- ".jww" の 676 行・1832 行の枝と同じ形。書くほうは
+           読むほうの裏を返しただけ（逆コンパイルの読み、原典では押していない。
+           figreg.jws に埋め込み画像を持つ例が見つからず 原典のバイト列との
+           突き合わせはできていない）。 */
+        char *names[256];
+        unsigned char *gz[256];
+        long gn[256];
+        int nn = 0, k;
+        jw_pic pc;
+
+        for (k = 0; k < d->ndrawn && nn < 256; k++) {
+            int j;
+
+            if (!jw_pic_parse(d, &d->obj[k], &pc) || strncmp(pc.name, "%temp%", 6))
+                continue;
+            for (j = 0; j < nn; j++)
+                if (!strcmp(names[j], pc.name))
+                    break;
+            if (j < nn)
+                continue;
+            if (!jw_img_gz(pc.name, &gz[nn], &gn[nn]))
+                continue;
+            names[nn] = (char *)malloc(strlen(pc.name) + 4);
+            if (!names[nn]) {
+                free(gz[nn]);
+                continue;
+            }
+            sprintf(names[nn], "%s.gz", pc.name + 6);
+            nn++;
+        }
+        w_l(&w, nn);
+        for (k = 0; k < nn; k++) {
+            w_str(&w, names[k], 1);
+            w_l(&w, gn[k]);
+            w_raw(&w, gz[k], gn[k]);
+            free(names[k]);
+            free(gz[k]);
+        }
+    }
     if (w.bad) {
         free(w.b);
         return 0;
