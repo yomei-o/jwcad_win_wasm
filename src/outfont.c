@@ -651,21 +651,35 @@ int jw_outfont_text_width(const char *face, const char *s, double cw, double *ou
     return 1;
 }
 
+/* See src/outfont.h: the 太字 smear distance, measured against real GDI
+   rather than borrowed from Wine.  `ch`'s sign is passed through unchanged
+   (src/text.c's bitmap-font caller relies on that -- it computes this
+   before taking fabs() of its own ch, so a flipped cell keeps a flipped,
+   negative smear). */
+double jw_text_bold_mm(double ch, double mmpp)
+{
+    double px = fabs(ch) / mmpp * JW_TEXT_BOLD_K;
+
+    if (px < 1.0)
+        px = 1.0;
+    return (ch < 0.0 ? -px : px) * mmpp;
+}
+
 /* How the original slants an italic text: FUN_00481d50 widens a text's box
    for 斜体 (+0xdc bit 0) by 0.3256 of the height it rises, e.g.
    `高さ * 0.8 * 0.3256` at the top and `* 0.1 * 0.3256` / `* 0.9 * 0.3256`
    at 0.1 and 0.9 of the height for the part of the box it fills by the
-   fractions at +0xe0 / +0xe8.  That is taken as the slant Windows gives the lfItalic the
-   original asks for; the letters lean about the baseline, as an outline does
-   when it is sheared (the original's box measures from the cell's foot, a
-   few hundredths of the height away -- not followed).  ＭＳ ゴシック has no
-   italic of its own, so Windows slants the upright letters too. */
+   fractions at +0xe0 / +0xe8 -- that much is read from the decompilation.
+   The actual slant real Windows GDI gives the lfItalic the original asks
+   for is JW_TEXT_ITALIC = 0.34, measured directly against GDI rather than
+   guessed from the box (see src/outfont.h for how and the numbers).  ＭＳ
+   ゴシック has no italic of its own, so Windows slants the upright letters
+   too. */
 #define ITALIC JW_TEXT_ITALIC
 /* lfWeight 700 on a face with no bold of its own (ＭＳ ゴシック has none):
    Windows thickens the letters.  How much is not in the original (it only
-   asks); this follows the usual model of it (Wine's fake bold: the em in
-   pixels / 24), as a smear across. */
-#define BOLD JW_TEXT_BOLD
+   asks); jw_text_bold_mm (src/outfont.h, measured against real GDI) gives
+   the smear distance instead of a Wine-style height/24 guess. */
 
 int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
                    double x0, double y0, double x1, double y1,
@@ -818,10 +832,8 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
     if (len > 0.0 && units > 0.0)
         sp = (len - W) / units;         /* the gap the file's ends leave */
     if (style & 2) {
-        double px = ch * BOLD / v->mmpp;
-
-        bold = ch * BOLD;
-        passes = (int)ceil(px) + 1;
+        bold = jw_text_bold_mm(ch, v->mmpp);
+        passes = (int)ceil(bold / v->mmpp) + 1;
         if (passes < 2)
             passes = 2;
         if (passes > 24)

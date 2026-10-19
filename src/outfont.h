@@ -26,12 +26,48 @@
 
 #define JW_NOUTFONT 3
 
-/* 斜体: a point h above the baseline moves h * JW_TEXT_ITALIC along the run
-   (the 0.3256 FUN_00481d50 widens an italic text's box by).  太字: the
-   letters are thickened across by the height * JW_TEXT_BOLD.  Both fonts,
-   outline and bitmap, use them (src/outfont.c has the reading). */
-#define JW_TEXT_ITALIC 0.3256
-#define JW_TEXT_BOLD (1.0 / 24.0)
+/* 斜体: a point h above the baseline moves h * JW_TEXT_ITALIC along the run.
+ * FUN_00481d50 (decomp/decomp/all_00401000.c:66276-68211) only tells us
+ * that it widens an italic text's box by 0.3256 of the height it rises
+ * (nokori.md "書体"); it does not say GDI slants the glyphs by exactly that
+ * much.  2026-10-19: measured directly, with real Windows GDI, what
+ * CreateFontW(lfItalic=1) actually does to ＭＳ ゴシック and ＭＳ 明朝 --
+ * the two faces of the original's own that carry no italic of their own,
+ * the same two the exe sets with it (tools/gdifont.c, which calls GDI with
+ * the exact CreateFontW argument list FUN_0048b130 uses, read at
+ * decomp/decomp/all_004894cd.c:1116-1119, on an in-memory bitmap -- no
+ * window, nothing captured from a screen).  Drawing "III" at nHeight
+ * -30/-60/-100/-200/-400 and comparing the horizontal centre of the topmost
+ * ink row against the bottommost gives a slope (dx of lean per dy of rise)
+ * of 0.336-0.341 for ＭＳ ゴシック and 0.336-0.350 for ＭＳ 明朝 (closer to
+ * 0.34 at the larger, less quantised sizes) -- consistently a little more
+ * than 0.3256, not the same number.  0.34 is what real GDI does; kept here
+ * in place of the box-widening guess.
+ *
+ * 太字: FUN_0048b130 passes lfWeight 700 on a face with no bold of its own
+ * (same two faces).  Measured the same way (tools/gdifont.c), the extra
+ * stroke width GDI's synthesised bold puts on a single stem ('I', also
+ * checked against 'H') is not a fixed fraction of the cell height -- it is
+ * almost always exactly +1 device pixel at every size from 12 to 64 device
+ * px (the sizes this port mostly draws text at: tests/font_test.c's ch=8mm
+ * at 0.25mm/px is 32px), and only grows past that at much larger sizes
+ * (+3px by 100px, +4px by 200px, +6-7px by 400px, both faces, both
+ * letters) -- nowhere close to the height/24 "smear across" a Wine-style
+ * guess gives (height/24 would be +1.25px already at 30px, +16.7px by
+ * 400px, 2-3x too much).  jw_text_bold_mm below is a least-squares line
+ * through the 100/200/400px points (slope 0.018) floored at 1 device
+ * pixel, which matches the small-size run flat and comes within a pixel or
+ * two of the large-size one; GDI's own rounding/hinting is not a smooth
+ * function of size, so no formula fits it exactly, but this is grounded in
+ * what GDI does rather than borrowed from Wine's font engine.  Both fonts,
+ * outline and bitmap, use them (src/outfont.c has the reading). */
+#define JW_TEXT_ITALIC 0.34
+#define JW_TEXT_BOLD_K 0.018
+/* `ch` is the cell height in paper mm (its sign carried through unchanged,
+   as src/text.c's caller relies on); `mmpp` the view's paper mm per device
+   pixel.  Returns the 太字 smear distance in mm: ch's magnitude in device
+   px times JW_TEXT_BOLD_K, floored at 1 device px, with ch's own sign. */
+double jw_text_bold_mm(double ch, double mmpp);
 
 int jw_outfont_count(void);
 /* the face name as a drawing stores it (CP932, in fact ASCII) */
