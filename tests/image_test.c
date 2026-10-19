@@ -24,6 +24,7 @@
 #include "../src/draw.h"
 #include "../src/image.h"
 #include "../src/ui.h"
+#include "../src/gen/bairitsu.h"
 
 static int fails;
 
@@ -170,6 +171,42 @@ static const jw_obj *pic_of(const jw_drawing *d, int nth)
 static int near(double a, double b)
 {
     return fabs(a - b) < 1e-4;
+}
+
+/* 画面倍率・文字表示 (32811) の中の釦を押す。tests/bairitsu_test.c の
+   br() と同じ（2103「文字のスペースを表示する」・1933「設定 OK」を押すのに使う） */
+static void br2103(int id)
+{
+    rect_t r;
+    int i, x, y;
+
+    if (!app_bairitsu_open())
+        app_command(32811);
+    ui_bairitsu_rect(1264, 741, &r);
+    x = y = -1;
+    for (i = 0; i < JW_NBAIRITSU; i++)
+        if (jw_bairitsu[i].id == id) {
+            x = r.x + JW_BR_BORDER + jw_bairitsu[i].x + jw_bairitsu[i].w / 2;
+            y = r.y + JW_BR_CAPTION + jw_bairitsu[i].y + jw_bairitsu[i].h / 2;
+            break;
+        }
+    app_press(x, y, 0);
+}
+
+/* 図面の領域の白でない画素。tests/bairitsu_test.c の inked() と同じ */
+static long inked(void)
+{
+    const fb_t *fb = app_fb();
+    rect_t r;
+    long k = 0;
+    int x, y;
+
+    ui_view_rect(fb->w, fb->h, &r);
+    for (y = r.y; y < r.y + r.h; y++)
+        for (x = r.x; x < r.x + r.w; x++)
+            if ((fb->px[(size_t)y * fb->w + x] & 0xffffffu) != 0xffffffu)
+                k++;
+    return k;
 }
 
 /* the command, in the state a run of the original starts in: 移動, no turn, no 相対パス */
@@ -878,6 +915,49 @@ int main(void)
         jw_cmd_point(d, app_view(), bx, by, 1);
         app_command(32794);
         ck(pic_count(d) == 0, "範囲選択の第二点が (R): 画像も含まれ、消去される");
+    }
+    /* ---- 画面倍率・文字表示 の「文字のスペースを表示する」(2103,
+     * jw_draw_textspace / DAT_00a0c790): 原典の CDataMoji::Draw
+     * (decomp/byclass/_unassigned.c の FUN_00481d50) は 画像（"^@BM" の字）
+     * を描く枝（58150〜58350 行あたり）で、画像の絵を描いたあと
+     * `DAT_00a0c790 == 0` なら return して終わり（58220・58333 行）、
+     * 立っていれば return せずに そのまま ふつうの字と同じ経路
+     * （LAB_004830ca）へ落ちて続き、画像の生の文字列
+     * （"^@BM<file>,..."）を 字として画像の上に重ねて描く。src/draw.c の
+     * JW_MOJI の分岐に同じ形で入れた：jw_is_pic() が真のとき、2103 が
+     * 切れていれば（原典どおり）そこで break、立っていれば break せず
+     * 下の 枠・グリフの描画へ落とす。
+     *
+     * 原典実機（tools/jwdraw.ps1）では 画像に重ねた生の文字列そのものは
+     * 見ていない（画像でない ふつうの文字列の末尾の空白で 2103 の前後を
+     * 比べたところ画素の変化が見えず、nokori.md にそのまま記録した——
+     * local_930/FUN_0048b130 を踏ませる残りの条件を実機でも揃えられ
+     * なかった）。ここは逆コンパイルの読み（FUN_00481d50 の画像の枝、
+     * pick.c の既存コメントと符合）だけを裏付けに、ポートの中で 2103 が
+     * ちゃんと「画像の字も ふつうの字の経路へ落として描く」という
+     * 分岐を踏むこと（off では今までどおり踏まないこと）を確かめる。 */
+    {
+        jw_drawing *d2;
+        long a, b, c;
+
+        d2 = fresh();
+        enter();
+        put_pic(PIC1);
+        click(300, 400);
+        app_key(27);                    /* 移動コマンドから抜ける */
+        app_paint();
+        a = inked();
+        br2103(2103);
+        br2103(1933);
+        app_paint();
+        b = inked();
+        ck(b > a, "設定 OK で 2103 が立つと 画像の生の文字列が重なって描かれ、画素が増える");
+        br2103(2103);
+        br2103(1933);
+        app_paint();
+        c = inked();
+        ck(c == a, "もう一度 OK で 2103 を切ると 画像だけに戻る");
+        (void)d2;
     }
     {   /* gzip: what is written is read by anyone's inflate, and by ours */
         unsigned char data[5000], *g = 0, *u = 0;

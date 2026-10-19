@@ -3376,6 +3376,7 @@ int jw_draw_reverse = 0;
    jw_draw, before the pictures.  Off, they go down in element order. */
 int jw_draw_texts_last = 1;
 int jw_draw_textframe;
+int jw_draw_textspace;
 /* 基本設定 文字 1886「文字の輪郭を背景色で描画」(1)・1900「文字列範囲を背景色で
    描画」(2)、範囲増寸法 1563 (-1〜10 mm)。原典の 文字 の OK FUN_00584920 が
    doc+0x8240（ページの in_ECX[0x30] は doc+0x88 なので +0x82c8 と書く）と
@@ -3734,9 +3735,7 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                 /* the pictures go on last, below; one hanging off the cursor
                    is a dashed outline (four on, four off) and, as for any text,
                    the box of its baseline */
-                if (!jw_draw_kari)
-                    break;
-                {
+                if (jw_draw_kari) {
                     jw_pic pk;
                     double qx[4], qy[4];
                     int kk;
@@ -3748,6 +3747,14 @@ void jw_draw(fb_t *fb, const jw_view *v, const jw_drawing *d)
                                      jw_ux(v, qx[(kk + 1) & 3]), jw_uy(v, qy[(kk + 1) & 3]), col);
                     }
                 }
+                /* 文字のスペースを表示する (2103, jw_draw_textspace) が
+                   切れていれば、画像はここで終わり（原典の
+                   `DAT_00a0c790 == 0` の return）。立っていれば、下の
+                   ふつうの字の描画（枠・グリフ）へそのまま続けて落ち、
+                   画像の生の文字列を字として画像の上に重ねて描く
+                   （draw.h の jw_draw_textspace の注） */
+                if (!jw_draw_kari && !jw_draw_textspace)
+                    break;
             }
             /* A text that is only hanging off the cursor comes out as
              * its **box** and not as its glyphs.  Both ways in say so:
