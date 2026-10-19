@@ -8,28 +8,28 @@
  *   TABLES    VPORT, then LTYPE and STYLE (the same bytes every time, so
  *             they are carried in src/gen/dxf.h), then LAYER, which is the
  *             drawing's own
- *   BLOCKS    empty -- but only because the three drawings this was read
- *             off none of them carried a ブロック reference.  2026-10-19,
- *             tools/jwdraw.ps1 export:32961 on decomp/res/blktxt_base.jww
- *             (a block reference, mirrored four ways, round a 定義 of five
- *             字 and some lines/circles/points/solids) wrote a real BLOCKS
- *             section instead: one BLOCK "-000-BLK" with the 定義's own
- *             elements at their own, unmirrored, local coordinates (its
- *             TEXT entities keep their original group-50 angles 0,30,90,
- *             150,300 regardless of the reference), and four INSERT
- *             entities in ENTITIES -- one per reference -- carrying the
- *             insertion point and group 41/42 (x/y scale, e.g. -1/1) that
- *             do the mirroring.  So "BLOCKS empty" is not a general rule;
- *             it only held for block-free drawings.  This writer does not
- *             implement BLOCK/INSERT at all yet (see the ENTITIES loop
- *             below, which walks d->ndrawn and has no JW_BLOCK case): a
- *             ブロック reference's contents -- mirrored or not -- are
- *             simply absent from today's DXF output, a bigger, separate
- *             gap than the mirrored-字 question nokori.md asks about
- *             (nokori.md 2-2, 反転した参照の中の字).  tmp/orig_blktxt.dxf
- *             (kept out of git; reproduce with the command above) is the
- *             measurement.
- *   ENTITIES  LINE, CIRCLE, ARC, POINT, TEXT, SOLID
+ *   BLOCKS    one BLOCK per ブロックの定義 (JW_LIST) that the original keeps
+ *             a reference to (see the "BLOCKS:" comment in
+ *             jw_dxf_write_opt), named "-%03d-%s" from the 定義's own
+ *             number and name (block_name).  Its members are its own,
+ *             unmirrored, local elements -- a ブロック reference's scale and
+ *             rotation never reach them; they only show up as the group
+ *             41/42/50 of the matching INSERT.
+ *   ENTITIES  LINE, CIRCLE, ARC, POINT, TEXT, SOLID, and now INSERT for a
+ *             ブロック reference (JW_BLOCK) -- one per reference, at its own
+ *             insertion point, naming the BLOCK its ->block points at.
+ *
+ *             Measured 2026-10-19 with tools/jwdraw.ps1 export:32961 on two
+ *             drawings: decomp/res/blktxt_base.jww (one definition, a
+ *             reference mirrored four ways round five 字 and some
+ *             lines/circles/points/solids: one BLOCK "-000-BLK" and four
+ *             INSERT, group 41/42 e.g. -1/1 doing the mirroring, TEXT
+ *             group-50 angles 0,30,90,150,-60 unchanged inside the
+ *             definition) and decomp/res/bt_nest2.jww (three definitions,
+ *             one -- "-001-OUTER" -- holding two nested INSERT "-000-BLK"
+ *             of its own, at local, unshifted coordinates just like any
+ *             other element inside a BLOCK).  tmp/*.dxf from both runs are
+ *             kept out of git; reproduce with the command above.
  *
  * Coordinates are (the paper point + half the sheet) times the scale of the
  * layer group the element is on.  Every line of three drawings came out on
@@ -382,6 +382,314 @@ static void layer_name(const jw_drawing *d, int g, int l, char *out, int n,
               sprintf(out, "_%x-%x_", g & 15, l & 15), n);
 }
 
+/* --- block definitions (BLOCKS/INSERT) ----------------------------------- */
+
+/* A ブロック参照 (JW_BLOCK)'s ->block points at the JW_LIST that carries its
+   own number in list[0] (src/jww.h, src/jww.c's read_block/read_list).  The
+   port's two lists sit in one array, drawn ones first (d->ndrawn of them),
+   then every definition -- see jw_drawing's comment.  -1 if the file is
+   damaged and the number does not match any definition. */
+static int find_def(const jw_drawing *d, int blk)
+{
+    int i;
+
+    for (i = d->ndrawn; i < d->nobj; i++)
+        if (d->obj[i].cls == JW_LIST && d->obj[i].list[0] == blk)
+            return i;
+    return -1;
+}
+
+/* FUN_0049d480 (0x0049d480), the converter CDataList::WriteDxf
+ * (decomp/byclass/CDataList.c:168-249, FUN_0049a810, vtable slot 3) runs a
+ * copy of the definition's own name through before putting it in the BLOCK
+ * name: 全角スペース (0x81 0x40)・半角スペース・'('・')' だけが '_' になる
+ * （原典の逆アセンブル、GetAllocLength を歩いて 0x3000/0x20/0x28/0x29 を
+ * 0x5f に）。layer_name の name_conv と同じ一歩だが、( ) も直す点が違う --
+ * レイヤ名の name_conv は「既定の書き出しを変えない」ため ( ) に触れずに
+ * 残した（上のコメント）が、ブロック名はここで新しく書く経路なので
+ * その制約が無い。 */
+static void block_name_conv(const char *nm, char *out, int n)
+{
+    int k = 0;
+
+    out[0] = 0;
+    if (!nm)
+        return;
+    while (*nm && k < n - 2) {
+        unsigned char c = (unsigned char)nm[0];
+
+        if (c == 0x81 && (unsigned char)nm[1] == 0x40) {
+            out[k++] = '_';
+            nm += 2;
+        } else if (c == ' ' || c == '(' || c == ')') {
+            out[k++] = '_';
+            nm++;
+        } else if (jw_is_lead(c) && nm[1]) {
+            out[k++] = nm[0];
+            out[k++] = nm[1];
+            nm += 2;
+        } else {
+            out[k++] = *nm++;
+        }
+    }
+    out[k] = 0;
+}
+
+/* BLOCK の名前 "-%03d-%s"（FUN_0049a810: `local_48 = CONCAT44(*local_24,
+ * *(undefined4*)(local_14+0x68));` ... `L"-%03d-%s"`）。%03d は定義の own
+ * number（list[0]、+0x68。CDataList::Serialize 0x0049b410 が this+0x68 に
+ * 読む、src/jww.c の JW_LIST の読みと同じ並び）、%s は block_name_conv を
+ * 通した名前。
+ *   原典はファイルから読むとき名前の末尾の "@@SfigorgFlag@@<flag>" を
+ * 切り離して別の欄（+0x78）に持つ（FUN_0049b410 の読み branch、
+ * FUN_00429b90 で印を探し Left/Mid で割る）。移植はその印を割らず
+ * o->text にそのまま持っている（src/jww.c jw_block_scale_xy のコメント
+ * 「移植の違い」）ので、ここで同じ印を探して名前だけを取り出す。
+ *   2026-10-19、tools/jwdraw.ps1 export:32961 で原典に decomp/res/
+ * blktxt_base.jww（定義一つ、list[0]=0 w 名前 "BLK"）と bt_nest2.jww
+ * （定義三つ、list[0]=0,1,2 で名前 "BLK"・"OUTER"・"LN"、OUTER は BLK を
+ * 二つ 入れ子に参照）を書き出させて確かめた: 名前は "-000-BLK"・
+ * "-001-OUTER"・"-002-LN" とちょうど list[0] 昇順に一致した。 */
+static void block_name(const jw_drawing *d, int def_i, char *out, int n)
+{
+    const char *raw = jw_str(d, d->obj[def_i].text);
+    const char *mark = raw ? strstr(raw, "@@SfigorgFlag@@") : 0;
+    char clean[128], conv[128];
+    int m = mark ? (int)(mark - raw) : (int)strlen(raw ? raw : "");
+
+    if (m >= (int)sizeof clean)
+        m = (int)sizeof clean - 1;
+    memcpy(clean, raw ? raw : "", (size_t)m);
+    clean[m] = 0;
+    block_name_conv(clean, conv, (int)sizeof conv);
+    snprintf(out, (size_t)n, "-%03d-%s", d->obj[def_i].list[0], conv);
+}
+
+/* Write one drawn element, or a ブロック参照 as an INSERT.  (ox, oy) is the
+ * paper origin the caller measures from: (hw, hh) -- half the sheet -- for
+ * the ordinary ENTITIES section, but (0, 0) for an element inside a BLOCK
+ * definition, whose own elements (and nested ブロック参照, which become a
+ * nested INSERT) 原典は 半紙を足さない 生の局所座標 のまま書く. 2026-10-19,
+ * decomp/res/blktxt_base.jww (BLOCK "-000-BLK"'s TEXT group-10/20 came out
+ * 0, 2000, 4000 ... -- its own d[0..1] times the scale, no +hw/+hh) and
+ * decomp/res/bt_nest2.jww (BLOCK "-001-OUTER" holds two INSERT "-000-BLK"
+ * at group-10/20 -30000/0 and 30000/0, likewise unshifted: ref->d[0] was
+ * -150/150, times the group's scale 200, nothing added) confirm this for
+ * both plain entities and nested references.  The BLOCK header's own base
+ * point (group 10/20/30) came out "0" every time, consistent with that --
+ * see the comment on BLOCKS below. */
+static void write_entity(buf_t *o, const jw_drawing *d, const jw_dxf_opt *opt,
+                         const jw_obj *e0, double ox, double oy, int numbered)
+{
+    jw_obj round;
+    const jw_obj *e = e0;
+    double s, x0, y0, x1, y1;
+    char name[128];
+
+    if (jw_round_solid(e, &round))
+        e = &round;
+
+    if (e->cls == JW_BLOCK) {
+        /* INSERT -- group 2 is the BLOCK it names, 8 its own layer (the
+           reference's, not the definition's -- decomp/res/blktxt_base.jww's
+           four references sit on "_0-8_..." while the definition's own
+           TEXT/ARC/etc keep "_0-0_..."), 10/20 the insertion point, 41/42
+           the x/y scale (ref->d[2],d[3]; a 0 means 1, and a 0 y means the
+           same as x -- the same default src/jww.c's jw_block_scale_xy reads
+           off a CDataBlock) and 50 the rotation in degrees (ref->d[4],
+           radians, through the same deg() every angle in this file uses). */
+        int def_i = find_def(d, e->block);
+        char bname[160];
+        double sx, sy;
+
+        if (def_i < 0)
+            return;              /* a damaged file: nothing to point at */
+        block_name(d, def_i, bname, (int)sizeof bname);
+        s = group_scale(d, e->lgroup);
+        if ((e->ltype % 100) == 9)
+            strcpy(name, "ADD_LINE");
+        else
+            layer_name(d, e->lgroup & 15, e->layer & 15, name,
+                      (int)sizeof name, numbered);
+        sx = e->d[2] != 0.0 ? e->d[2] : 1.0;
+        sy = e->d[3] != 0.0 ? e->d[3] : sx;
+        str_(o, 0, "INSERT");
+        str_(o, 2, bname);
+        str_(o, 8, name);
+        real(o, 10, (e->d[0] + ox) * s);
+        real(o, 20, (e->d[1] + oy) * s);
+        real(o, 41, sx);
+        real(o, 42, sy);
+        real(o, 50, deg(e->d[4]));
+        return;
+    }
+
+    /* a text with no length to it is not written at all */
+    if (!jw_text_drawn(e))
+        return;
+    s = group_scale(d, e->lgroup);
+    /* a 補助線 goes on the layer the original keeps for them */
+    if ((e->ltype % 100) == 9)
+        strcpy(name, "ADD_LINE");
+    else
+        layer_name(d, e->lgroup & 15, e->layer & 15, name, (int)sizeof name,
+                  numbered);
+    x0 = (e->d[0] + ox) * s;
+    y0 = (e->d[1] + oy) * s;
+    x1 = (e->d[2] + ox) * s;
+    y1 = (e->d[3] + oy) * s;
+    switch (e->cls) {
+    case JW_SEN:
+        str_(o, 0, "LINE");
+        str_(o, 8, name);
+        str_(o, 6, ltype_name(e));
+        int5(o, 62, colour_of(e));
+        real(o, 10, x0);
+        real(o, 20, y0);
+        real(o, 11, x1);
+        real(o, 21, y1);
+        break;
+    case JW_ENKO: {
+        double r = e->d[2] * s, a0 = e->d[3], sw = e->d[4];
+        int full;
+
+        if (e->d[6] != 1.0) {
+            /* DXF R12 has no ellipse, so the original walks it in ten
+             * degree steps of the parameter and writes a line for each,
+             * with a short one at the end.  Read off the twelve of
+             * Ａマンション平面例.jww: every vertex sits at a0 + k * 10
+             * degrees. */
+            double flat = e->d[6], tilt = e->d[5];
+            double ct = cos(tilt), st = sin(tilt);
+            double step = sw < 0.0 ? -10.0 : 10.0;
+            double endt = deg(sw), px = 0, py = 0;
+            int k;
+
+            /* every ten degrees of the parameter, and then the end --
+               always, even when the last step landed on it, which is why
+               a whole turn finishes with a line that goes nowhere */
+            for (k = 0; ; k++) {
+                double t = (double)k * step;
+                int last = (step > 0.0) ? t > endt : t < endt;
+                double a, ux, uy, qx, qy;
+
+                if (last)
+                    t = endt;
+                a = a0 + t * 3.14159265358979323846 / 180.0;
+                ux = e->d[2] * cos(a);
+                uy = e->d[2] * flat * sin(a);
+                /* the centre is put on the sheet first and the ellipse's
+                   own offsets are scaled on their own */
+                qx = (e->d[0] + ox) * s + (ux * ct - uy * st) * s;
+                qy = (e->d[1] + oy) * s + (ux * st + uy * ct) * s;
+                if (k == 0) {
+                    px = qx; /* the first line is a point: the original
+                                starts with its pen already there */
+                    py = qy;
+                }
+                str_(o, 0, "LINE");
+                str_(o, 8, name);
+                str_(o, 6, ltype_name(e));
+                int5(o, 62, colour_of(e));
+                real(o, 10, px);
+                real(o, 20, py);
+                real(o, 11, qx);
+                real(o, 21, qy);
+                px = qx;
+                py = qy;
+                if (last || k > 4000)
+                    break;
+            }
+            break;
+        }
+        /* a whole turn is a CIRCLE, however the drawing writes it:
+           some of them keep 2 pi in the sweep rather than nothing */
+        full = sw == 0.0 || sw >= 6.283185 || sw <= -6.283185;
+        str_(o, 0, full ? "CIRCLE" : "ARC");
+        str_(o, 8, name);
+        str_(o, 6, ltype_name(e));
+        int5(o, 62, colour_of(e));
+        real(o, 10, x0);
+        real(o, 20, y0);
+        real(o, 40, r);
+        if (!full) {
+            /* The tilt turns the whole arc; each part is turned into
+               degrees on its own, which is where the last digit of
+               184.58407592773437 comes from */
+            double d0 = deg(a0) + deg(e->d[5]);
+            double d1 = deg(a0) + deg(sw) + deg(e->d[5]);
+
+            /* a DXF arc always runs anticlockwise, so a negative sweep
+               comes out the other way round and both ends are brought
+               into 0..360 -- the original wrote 270 and 0 where the
+               drawing has 0 and -90 */
+            if (sw < 0.0) {
+                double t = d0;
+
+                d0 = d1;
+                d1 = t;
+            }
+            /* jw_prefold first: the drawing may hold 1e12 radians and
+               a turn at a time would never get there.  See src/jww.h. */
+            d0 = jw_prefold(d0, 360.0);
+            d1 = jw_prefold(d1, 360.0);
+            while (d0 < 0.0) d0 += 360.0;
+            while (d0 >= 360.0) d0 -= 360.0;
+            while (d1 < 0.0) d1 += 360.0;
+            while (d1 >= 360.0) d1 -= 360.0;
+            real(o, 50, d0);
+            real(o, 51, d1);
+        }
+        break;
+    }
+    case JW_TEN:
+        /* 2202 点を円で出力する（DAT_00a0eed4）: 点の書き手
+           FUN_00429a10 は「POINT」の代わりに「CIRCLE」と書き、同じ
+           8・62・10・20 のあとに 40 = 0.4 × 縮尺（FUN_004a93a0） */
+        str_(o, 0, opt->point_circle ? "CIRCLE" : "POINT");
+        str_(o, 8, name);
+        int5(o, 62, colour_of(e));
+        real(o, 10, x0);
+        real(o, 20, y0);
+        if (opt->point_circle)
+            real(o, 40, 0.4 * s);
+        break;
+    case JW_MOJI: {
+        double dx = e->d[2] - e->d[0], dy = e->d[3] - e->d[1];
+        double ang = deg(atan2(dy, dx));
+
+        str_(o, 0, "TEXT");
+        str_(o, 8, name);
+        int5(o, 62, colour_of(e));
+        real(o, 10, x0);
+        real(o, 20, y0);
+        real(o, 40, e->d[5] * s);
+        real(o, 41, e->d[5] != 0.0 ? e->d[4] / e->d[5] : 1.0);
+        real(o, 50, ang);
+        str_(o, 1, jw_str(d, e->text));
+        break;
+    }
+    case JW_SOLID:
+        str_(o, 0, "SOLID");
+        str_(o, 8, name);
+        str_(o, 6, ltype_name(e));
+        int5(o, 62, colour_of(e));
+        real(o, 10, x0);
+        real(o, 20, y0);
+        real(o, 11, x1);
+        real(o, 21, y1);
+        /* DXF wants the last two corners the other way round -- the
+           bowtie order a SOLID is drawn in */
+        real(o, 12, (e->d[6] + ox) * s);
+        real(o, 22, (e->d[7] + oy) * s);
+        real(o, 13, (e->d[4] + ox) * s);
+        real(o, 23, (e->d[5] + oy) * s);
+        break;
+    default:
+        break;
+    }
+}
+
 /* 既定（原典の既定の箱）: 番号 入・点を円で 切・Shift-JIS */
 int jw_dxf_write(const jw_drawing *d, unsigned char **out, long *n)
 {
@@ -483,193 +791,54 @@ int jw_dxf_write_opt(const jw_drawing *d, const jw_dxf_opt *opt,
     str_(&o, 0, "ENDTAB");
     str_(&o, 0, "ENDSEC");
 
-    /* BLOCKS: nothing in it -- see the file header's 2026-10-19 note.  A
-       ブロック reference's definition (real BLOCK/INSERT, in the original)
-       is not written here; neither is its content as flattened entities
-       (the way src/plot.c's pdf_block does for PDF).  Left as found. */
+    /* BLOCKS: one BLOCK per 定義 (JW_LIST) that is written at all, in the
+     * order the file holds them (which is list[0] order in every file this
+     * was measured on).  FUN_004a7690 (decomp/decomp/all_004894cd.c:17330,
+     * the original's BLOCKS-section writer) walks every object of the
+     * second list and writes one only `if (local_c[0x1b] != 0)` --
+     * `local_c + 0x1b` longs in is +0x6c, which is list[1] (CDataList's
+     * middle number, "a flag" -- src/jww.h's comment on jw_obj.list).  Every
+     * definition in the two drawings this was measured on (decomp/res/
+     * blktxt_base.jww, one definition; bt_nest2.jww, three, one nested
+     * inside another) had list[1] == 1 and all were written, so what a 0
+     * there would mean (an unreferenced definition the original keeps
+     * around but leaves out of a DXF, perhaps) is not confirmed -- this
+     * writes the same condition the decompilation has, not the weaker
+     * "defined at all" one the old `BLOCKS empty` comment implied.
+     *   A BLOCK's own base point (group 10/20/30) always came out "0\n0\n0"
+     * in both drawings -- consistent with its members being written at
+     * their own, unshifted local coordinates (write_entity's ox=oy=0; see
+     * its comment) rather than relative to some other origin. */
     str_(&o, 0, "SECTION");
     str_(&o, 2, "BLOCKS");
+    for (i = d->ndrawn; i < d->nobj; i++) {
+        const jw_obj *def = &d->obj[i];
+        char bname[160];
+        int k;
+
+        if (def->cls != JW_LIST || def->list[1] == 0)
+            continue;
+        block_name(d, i, bname, (int)sizeof bname);
+        str_(&o, 0, "BLOCK");
+        str_(&o, 2, bname);
+        int5(&o, 70, 64);
+        real(&o, 10, 0.0);
+        real(&o, 20, 0.0);
+        real(&o, 30, 0.0);
+        for (k = i + 1; k < d->nobj && k <= i + def->n; k++) {
+            if (d->obj[k].cls == JW_LIST)
+                break;           /* not supposed to happen -- a guard */
+            write_entity(&o, d, opt, &d->obj[k], 0.0, 0.0, numbered);
+        }
+        str_(&o, 0, "ENDBLK");
+    }
     str_(&o, 0, "ENDSEC");
 
     /* ENTITIES */
     str_(&o, 0, "SECTION");
     str_(&o, 2, "ENTITIES");
-    for (i = 0; i < d->ndrawn; i++) {
-        const jw_obj *e = &d->obj[i];
-        double s = group_scale(d, e->lgroup);
-        double x0, y0, x1, y1;
-        jw_obj round;
-
-        /* A 円ソリッド comes out as the bare CIRCLE or ARC of its rim: the
-           original drops the fill, and writes no line closing a part of a
-           circle either -- decomp/res/rsolid.dxf has the two of them as one
-           CIRCLE and one ARC and nothing else. */
-        if (jw_round_solid(e, &round))
-            e = &round;
-        /* a text with no length to it is not written at all */
-        if (!jw_text_drawn(e))
-            continue;
-        /* a 補助線 goes on the layer the original keeps for them */
-        if ((e->ltype % 100) == 9)
-            strcpy(name, "ADD_LINE");
-        else
-            layer_name(d, e->lgroup & 15, e->layer & 15, name,
-                       (int)sizeof name, numbered);
-        x0 = (e->d[0] + hw) * s;
-        y0 = (e->d[1] + hh) * s;
-        x1 = (e->d[2] + hw) * s;
-        y1 = (e->d[3] + hh) * s;
-        switch (e->cls) {
-        case JW_SEN:
-            str_(&o, 0, "LINE");
-            str_(&o, 8, name);
-            str_(&o, 6, ltype_name(e));
-            int5(&o, 62, colour_of(e));
-            real(&o, 10, x0);
-            real(&o, 20, y0);
-            real(&o, 11, x1);
-            real(&o, 21, y1);
-            break;
-        case JW_ENKO: {
-            double r = e->d[2] * s, a0 = e->d[3], sw = e->d[4];
-            int full;
-
-            if (e->d[6] != 1.0) {
-                /* DXF R12 has no ellipse, so the original walks it in ten
-                 * degree steps of the parameter and writes a line for each,
-                 * with a short one at the end.  Read off the twelve of
-                 * Ａマンション平面例.jww: every vertex sits at a0 + k * 10
-                 * degrees. */
-                double flat = e->d[6], tilt = e->d[5];
-                double ct = cos(tilt), st = sin(tilt);
-                double step = sw < 0.0 ? -10.0 : 10.0;
-                double endt = deg(sw), px = 0, py = 0;
-                int k;
-
-                /* every ten degrees of the parameter, and then the end --
-                   always, even when the last step landed on it, which is why
-                   a whole turn finishes with a line that goes nowhere */
-                for (k = 0; ; k++) {
-                    double t = (double)k * step;
-                    int last = (step > 0.0) ? t > endt : t < endt;
-                    double a, ux, uy, qx, qy;
-
-                    if (last)
-                        t = endt;
-                    a = a0 + t * 3.14159265358979323846 / 180.0;
-                    ux = e->d[2] * cos(a);
-                    uy = e->d[2] * flat * sin(a);
-                    /* the centre is put on the sheet first and the ellipse's
-                       own offsets are scaled on their own */
-                    qx = (e->d[0] + hw) * s + (ux * ct - uy * st) * s;
-                    qy = (e->d[1] + hh) * s + (ux * st + uy * ct) * s;
-                    if (k == 0) {
-                        px = qx; /* the first line is a point: the original
-                                    starts with its pen already there */
-                        py = qy;
-                    }
-                    str_(&o, 0, "LINE");
-                    str_(&o, 8, name);
-                    str_(&o, 6, ltype_name(e));
-                    int5(&o, 62, colour_of(e));
-                    real(&o, 10, px);
-                    real(&o, 20, py);
-                    real(&o, 11, qx);
-                    real(&o, 21, qy);
-                    px = qx;
-                    py = qy;
-                    if (last || k > 4000)
-                        break;
-                }
-                break;
-            }
-            /* a whole turn is a CIRCLE, however the drawing writes it:
-               some of them keep 2 pi in the sweep rather than nothing */
-            full = sw == 0.0 || sw >= 6.283185 || sw <= -6.283185;
-            str_(&o, 0, full ? "CIRCLE" : "ARC");
-            str_(&o, 8, name);
-            str_(&o, 6, ltype_name(e));
-            int5(&o, 62, colour_of(e));
-            real(&o, 10, x0);
-            real(&o, 20, y0);
-            real(&o, 40, r);
-            if (!full) {
-                /* The tilt turns the whole arc; each part is turned into
-                   degrees on its own, which is where the last digit of
-                   184.58407592773437 comes from */
-                double d0 = deg(a0) + deg(e->d[5]);
-                double d1 = deg(a0) + deg(sw) + deg(e->d[5]);
-
-                /* a DXF arc always runs anticlockwise, so a negative sweep
-                   comes out the other way round and both ends are brought
-                   into 0..360 -- the original wrote 270 and 0 where the
-                   drawing has 0 and -90 */
-                if (sw < 0.0) {
-                    double t = d0;
-
-                    d0 = d1;
-                    d1 = t;
-                }
-                /* jw_prefold first: the drawing may hold 1e12 radians and
-                   a turn at a time would never get there.  See src/jww.h. */
-                d0 = jw_prefold(d0, 360.0);
-                d1 = jw_prefold(d1, 360.0);
-                while (d0 < 0.0) d0 += 360.0;
-                while (d0 >= 360.0) d0 -= 360.0;
-                while (d1 < 0.0) d1 += 360.0;
-                while (d1 >= 360.0) d1 -= 360.0;
-                real(&o, 50, d0);
-                real(&o, 51, d1);
-            }
-            break;
-        }
-        case JW_TEN:
-            /* 2202 点を円で出力する（DAT_00a0eed4）: 点の書き手
-               FUN_00429a10 は「POINT」の代わりに「CIRCLE」と書き、同じ
-               8・62・10・20 のあとに 40 = 0.4 × 縮尺（FUN_004a93a0） */
-            str_(&o, 0, opt->point_circle ? "CIRCLE" : "POINT");
-            str_(&o, 8, name);
-            int5(&o, 62, colour_of(e));
-            real(&o, 10, x0);
-            real(&o, 20, y0);
-            if (opt->point_circle)
-                real(&o, 40, 0.4 * s);
-            break;
-        case JW_MOJI: {
-            double dx = e->d[2] - e->d[0], dy = e->d[3] - e->d[1];
-            double ang = deg(atan2(dy, dx));
-
-            str_(&o, 0, "TEXT");
-            str_(&o, 8, name);
-            int5(&o, 62, colour_of(e));
-            real(&o, 10, x0);
-            real(&o, 20, y0);
-            real(&o, 40, e->d[5] * s);
-            real(&o, 41, e->d[5] != 0.0 ? e->d[4] / e->d[5] : 1.0);
-            real(&o, 50, ang);
-            str_(&o, 1, jw_str(d, e->text));
-            break;
-        }
-        case JW_SOLID:
-            str_(&o, 0, "SOLID");
-            str_(&o, 8, name);
-            str_(&o, 6, ltype_name(e));
-            int5(&o, 62, colour_of(e));
-            real(&o, 10, x0);
-            real(&o, 20, y0);
-            real(&o, 11, x1);
-            real(&o, 21, y1);
-            /* DXF wants the last two corners the other way round -- the
-               bowtie order a SOLID is drawn in */
-            real(&o, 12, (e->d[6] + hw) * s);
-            real(&o, 22, (e->d[7] + hh) * s);
-            real(&o, 13, (e->d[4] + hw) * s);
-            real(&o, 23, (e->d[5] + hh) * s);
-            break;
-        default:
-            break;
-        }
-    }
+    for (i = 0; i < d->ndrawn; i++)
+        write_entity(&o, d, opt, &d->obj[i], hw, hh, numbered);
     str_(&o, 0, "ENDSEC");
     str_(&o, 0, "EOF");
 
