@@ -416,6 +416,108 @@ int main(int argc, char **argv)
         }
     }
 
+    /* Courier New / Calibri (nokori.md「書体」, added 2026-10-19): two more
+       never-listed Latin stand-ins, same mechanism as Arial/Times New Roman
+       above -- Liberation Mono for Courier New (fonts/jwsubmono.ttf),
+       Carlito for Calibri (fonts/jwsubcalibri.ttf; font/PROVENANCE.md).
+       Both are checked against C:\Windows\Fonts\cour.ttf / calibri.ttf
+       directly, not by running the original. */
+    printf("-- Courier New, Calibri: two more Latin stand-ins\n");
+    {
+        int pr, a0, a1, na;
+        double t, f;
+        unsigned long hg;
+
+        ck(jw_outfont_resolve("Courier New", &pr) == JW_NOUTFONT + 2
+           && (pr & 1), "Courier New is the mono stand-in, proportional");
+        ck(jw_outfont_resolve("courier new", &pr) == JW_NOUTFONT + 2,
+           "  whatever the case");
+        ck(jw_outfont_resolve("Calibri", &pr) == JW_NOUTFONT + 3
+           && (pr & 1), "Calibri is its own stand-in, proportional");
+        ck(jw_outfont_count() == 3 && jw_outfont_find("JwSubMono") < 0
+           && jw_outfont_find("JwSubCalibri") < 0,
+           "  neither stand-in is listed, nor found by name");
+        ck(jw_outfont_ready(JW_NOUTFONT + 2) && jw_outfont_ready(JW_NOUTFONT + 3),
+           "  they are read from fonts/ (jwsubmono.ttf, jwsubcalibri.ttf)");
+        ck(!strcmp(jw_outfont_file(JW_NOUTFONT + 2), "jwsubmono.ttf")
+           && !strcmp(jw_outfont_file(JW_NOUTFONT + 3), "jwsubcalibri.ttf"),
+           "  and the page asks for them by that name");
+
+        draw(MSGOTHIC, 0.0, 0, 0);
+        hg = hash();
+        draw("Courier New", 0.0, 0, 0);
+        ck(hash() != hg, "a string in Courier New is not the gothic's picture");
+        draw("Calibri", 0.0, 0, 0);
+        ck(hash() != hg, "  nor is one in Calibri");
+
+        /* their Japanese letters: both named like a Latin sans face (no
+           "明朝"/"Serif" in the name), so IPAexGothic, same as Arial's --
+           src/outfont.c's is_latin()/resolve_core comment. */
+        {
+            static const char JA[] = "\x93\xfa\x96\x7b\x8c\xea\x8a\xbf\x8e\x9a";
+
+            na = ink(MSGOTHIC, JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+            hg = hash();
+            ink("Courier New", JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+            ck(na > 300 && hash() == hg,
+               "  Courier New's Japanese letters are IPAex Gothic too");
+            ink("Calibri", JA, 40.0, 8.0, 0, &a0, &a1, &t, &f);
+            ck(hash() == hg, "  and Calibri's");
+        }
+
+        /* Liberation Mono and Courier New were checked letter by letter
+           (all 95 of 0x20..0x7e), not just the OS/2 average: identical,
+           including the OS/2 xAvgCharWidth itself (1229/2048 of the em,
+           same number for both -- a monospaced face's average is one of
+           its own glyph widths).  So a Courier New letter at cw mm across
+           comes out exactly cw/2 mm wide, the same for every letter. */
+        ink("Courier New", "W", 0.0, 8.0, 0, &a0, &a1, &t, &f);
+        snprintf(msg, sizeof msg, "  a Courier New W 8 mm across is 4.00 mm wide (%d px)",
+                 a1 - a0 + 1);
+        ck(fabs((a1 - a0 + 1) * 0.25 - 4.0) < 0.75, msg);
+
+        /* Calibri/Carlito likewise matched letter by letter (95/95), but
+           Carlito's own OS/2 xAvgCharWidth (1048/2048) differs a little
+           from Calibri's (1067/2048; the table below uses the real
+           Calibri's own 1067, read from calibri.ttf, not Carlito's) -- a W
+           (1822 units, Carlito's own, identical to Calibri's) at 8 mm
+           across is 8/2 * 1822/1067 mm. */
+        ink("Calibri", "W", 0.0, 8.0, 0, &a0, &a1, &t, &f);
+        snprintf(msg, sizeof msg, "  a Calibri W 8 mm across is 6.83 mm wide (%d px)",
+                 a1 - a0 + 1);
+        ck(fabs((a1 - a0 + 1) * 0.25 - 4.0 * 1822 / 1067) < 0.75, msg);
+
+        /* 基線 (baseline): jwsubmono.ttf's ascent/descent match Courier
+           New's bit for bit, same as the Arial/Times New Roman case above
+           (checked against cour.ttf's head/hhea tables directly).
+           jwsubcalibri.ttf's do NOT match Calibri's: stbtt_GetFontVMetrics
+           reads the hhea table, and Carlito's hhea (1950/-550) is not
+           Calibri's own (1536/-512) -- the two only agree in the OS/2
+           "typo" ascender/descender (1536/-512 for both), which Carlito's
+           authors chose to carry so LibreOffice's layout matches Calibri's
+           while deliberately widening hhea's line gap for other uses; this
+           port's stb_truetype reads hhea, not OS/2 typo, so Calibri text's
+           baseline/line-height sits a little off (38/2048 of the em at
+           the descender, under 2 px even at this test's 32 px cell) --
+           same kind of small, left-as-is gap as the Tahoma/Verdana/Georgia
+           note above, just for Calibri specifically rather than a LATIN[]
+           entry with no vertical metric at all (font/PROVENANCE.md). */
+        {
+            int asc, desc, upem;
+
+            ck(jw_outfont_vmetrics(JW_NOUTFONT + 2, &asc, &desc, &upem)
+               && upem == 2048 && asc == 1705 && desc == -615,
+               "jwsubmono.ttf's ascent/descent (1705/-615 of 2048 upem) are "
+               "Courier New's, bit for bit (checked against cour.ttf)");
+            ck(jw_outfont_vmetrics(JW_NOUTFONT + 3, &asc, &desc, &upem)
+               && upem == 2048 && asc == 1950 && desc == -550,
+               "jwsubcalibri.ttf's (1950/-550 of 2048) are Carlito's own hhea, "
+               "NOT Calibri's (1536/-512 hhea, though their OS/2 typo "
+               "ascender/descender, 1536/-512, do match) -- a known, small "
+               "(under 2 px) baseline gap, not fixed (see the long comment)");
+        }
+    }
+
     /* 2026-10-19: JW_TEXT_ITALIC (0.34) and jw_text_bold_mm's slope/floor
        (src/outfont.h) were measured directly against real Windows GDI --
        CreateFontW with the exact argument list FUN_0048b130 uses

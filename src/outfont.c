@@ -30,11 +30,14 @@ typedef struct {
 } ofont_t;
 
 /* The three a drawing can name (JW_NOUTFONT, listed in the 文字種 dialog),
-   then two that are never listed: the Latin stand-ins for Arial and Times
-   New Roman / Century (JW_OF_SANS, JW_OF_SERIF; see jw_outfont_resolve). */
-#define NF (JW_NOUTFONT + 2)
+   then four that are never listed: the Latin stand-ins for Arial and Times
+   New Roman / Century (JW_OF_SANS, JW_OF_SERIF), and for Courier New and
+   Calibri (JW_OF_MONO, JW_OF_CALIBRI; see jw_outfont_resolve). */
+#define NF (JW_NOUTFONT + 4)
 #define JW_OF_SANS JW_NOUTFONT
 #define JW_OF_SERIF (JW_NOUTFONT + 1)
+#define JW_OF_MONO (JW_NOUTFONT + 2)
+#define JW_OF_CALIBRI (JW_NOUTFONT + 3)
 
 /* the aliases are CP932: ゴシック = 83 53 83 56 83 62 83 4E, 明朝 = 96 BE 92 A9 */
 static ofont_t F[NF] = {
@@ -43,6 +46,8 @@ static ofont_t F[NF] = {
     { "BIZ UDGothic", "BIZ UD\x83\x53\x83\x56\x83\x62\x83\x4e", "bizudgothic-sub.ttf", 0 },
     { "JwSubSans",    "",                                      "jwsubsans.ttf", 0 },
     { "JwSubSerif",   "",                                      "jwsubserif.ttf", 0 },
+    { "JwSubMono",    "",                                      "jwsubmono.ttf", 0 },
+    { "JwSubCalibri", "",                                      "jwsubcalibri.ttf", 0 },
 };
 static int fgen;
 static char fdir[260];
@@ -462,8 +467,10 @@ static int is_lead(unsigned char c)
  *
  * The Latin faces a drawing often names (LATIN below) are set in a stand-in
  * with the same advances: Liberation Sans for Arial, Liberation Serif for
- * Times New Roman (fonts/jwsubsans.ttf, jwsubserif.ttf; font/PROVENANCE.md).
- * The original asks Windows for the face itself, FUN_0048b130:
+ * Times New Roman, Liberation Mono for Courier New, Carlito for Calibri
+ * (fonts/jwsubsans.ttf, jwsubserif.ttf, jwsubmono.ttf, jwsubcalibri.ttf;
+ * font/PROVENANCE.md).  The original asks Windows for the face itself,
+ * FUN_0048b130:
  *
  *     CreateFontW(-高さ, 幅/2, 0, 0, 太字 ? 700 : 400, 斜体, …, 字の名前)
  *
@@ -474,16 +481,24 @@ static int is_lead(unsigned char c)
  * squeezed or stretched across until the average of the face it stands for
  * (avg, per 2048 of the em, read from that face's file) is half the width;
  * `wide` is how much wider that face's ASCII is than the stand-in's (1 for
- * the two Liberation was drawn to match).  A letter the stand-in does not
- * have -- kana, kanji, the full-width forms -- is IPAex: Windows' font
- * association sets a Japanese letter of a Latin face in ＭＳ ゴシック, or
- * ＭＳ 明朝 for a roman one, at the cell the fixed-pitch face would give it.
+ * Arial/Liberation Sans, Times New Roman/Liberation Serif, Courier New/
+ * Liberation Mono and Calibri/Carlito, all four checked letter by letter --
+ * all 95 of 0x20..0x7e -- against the real Windows face files and found to
+ * match one for one, not just in the OS/2 average; font/PROVENANCE.md).  A
+ * letter the stand-in does not have -- kana, kanji, the full-width forms --
+ * is IPAex: Windows' font association sets a Japanese letter of a Latin
+ * face in ＭＳ ゴシック, or ＭＳ 明朝 for a roman one, at the cell the
+ * fixed-pitch face would give it.  Courier New and Calibri are both treated
+ * as a sans-serif face for this (ゴシック, like Arial/Tahoma/Verdana): the
+ * original's own faces have no "Courier"/"Calibri" analogue to read a
+ * kanji-association rule from, so IPAexGothic is the same choice already
+ * made for every other Latin-named, non-"明朝"/"Serif" face below.
  *
  * The tests that score against the original leave this off (they link no
  * main), so their pixels are the bitmap font's. */
 static const struct {
     const char *face;
-    int font;           /* JW_OF_SANS or JW_OF_SERIF */
+    int font;           /* JW_OF_SANS, JW_OF_SERIF, JW_OF_MONO or JW_OF_CALIBRI */
     int avg;            /* the face's xAvgCharWidth per 2048 of the em */
     double wide;        /* its 0x20..0x7e advances / the stand-in's */
 } LATIN[] = {
@@ -496,8 +511,21 @@ static const struct {
     { "Century",           JW_OF_SERIF, 951, 1.0937 },
     { "Georgia",           JW_OF_SERIF, 901, 1.0780 },
     { "Bookman Old Style", JW_OF_SERIF, 1008, 1.1243 },
+    { "Courier New",       JW_OF_MONO,  1229, 1.0 },
+    { "Calibri",           JW_OF_CALIBRI, 1067, 1.0 },
 };
 #define NLATIN ((int)(sizeof LATIN / sizeof LATIN[0]))
+
+/* Whether fi is one of the never-listed Latin stand-ins (JW_OF_SANS,
+   JW_OF_SERIF, JW_OF_MONO, JW_OF_CALIBRI) rather than one of the three
+   named fonts or -1.  Courier New and Calibri fall back to IPAexGothic for
+   the kanji/kana their stand-in has not got, same as Arial (see the LATIN
+   comment above). */
+static int is_latin(int fi)
+{
+    return fi == JW_OF_SANS || fi == JW_OF_SERIF
+        || fi == JW_OF_MONO || fi == JW_OF_CALIBRI;
+}
 
 static int enabled;
 
@@ -625,7 +653,7 @@ int jw_outfont_text_width(const char *face, const char *s, double cw, double *ou
         return 1;
     fi = resolve_core(face, 0, 1);
     fj = fi;
-    if (fi == JW_OF_SANS || fi == JW_OF_SERIF)
+    if (is_latin(fi))
         fj = fi == JW_OF_SERIF ? 1 : 0;
     if (!jw_outfont_ready(fj) || (fi != fj && !jw_outfont_ready(fi)))
         return 0;
@@ -696,7 +724,7 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int fi, const char *s,
     int n = 0, i, lat = (prop >> 8) - 1, fj = fi, passes = 1;
 
     prop &= 1;
-    if (fi == JW_OF_SANS || fi == JW_OF_SERIF) {
+    if (is_latin(fi)) {
         /* the IPAex that sets what the stand-in has not got */
         fj = fi == JW_OF_SERIF ? 1 : 0;
         if (lat < 0 || lat >= NLATIN || LATIN[lat].font != fi)
