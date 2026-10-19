@@ -115,11 +115,12 @@ int jw_outfont_run(fb_t *fb, const jw_view *v, int i, const char *s,
    switch it on.  On, ＭＳ ゴシック, ＭＳ Ｐゴシック, a text with no face and
    anything unknown is IPAexGothic, and 明朝 faces are IPAexMincho; a Ｐ face
    sets each letter at its own advance (*prop bit 0).  BIZ UD… faces are BIZ
-   UDGothic.  Arial, Times New Roman, Century and a few more Latin faces are
-   two fonts that are never listed (index JW_NOUTFONT, JW_NOUTFONT + 1:
-   fonts/jwsubsans.ttf, jwsubserif.ttf), sized the way Windows sizes the
-   face, with IPAex for their Japanese letters; *prop then also says which
-   face (bits 8 and up) and must be handed to jw_outfont_run as it is.  The
+   UDGothic.  Arial, Times New Roman, Century, Courier New, Calibri and a
+   few more Latin faces are four fonts that are never listed (index
+   JW_NOUTFONT .. JW_NOUTFONT + 3: fonts/jwsubsans.ttf, jwsubserif.ttf,
+   jwsubmono.ttf, jwsubcalibri.ttf), sized the way Windows sizes the face,
+   with IPAex for their Japanese letters; *prop then also says which face
+   (bits 8 and up) and must be handed to jw_outfont_run as it is.  The
    bitmap font still draws while a file is loading or if it cannot be had. */
 void jw_outfont_enable(int on);
 int jw_outfont_enabled(void);

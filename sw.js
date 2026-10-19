@@ -5,7 +5,8 @@ const CACHE = 'jw-port-v1';
 // everything the page needs, so the first visit is enough: the program, the fonts, the icons
 const FIRST = ['./', 'index.html', 'cmdlist.js', 'jwcad.js', 'jwcad.wasm', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'fonts/jwsubgothic.ttf', 'fonts/jwsubmincho.ttf', 'fonts/bizudgothic-sub.ttf',
-  'fonts/jwsubsans.ttf', 'fonts/jwsubserif.ttf'];
+  'fonts/jwsubsans.ttf', 'fonts/jwsubserif.ttf',
+  'fonts/jwsubmono.ttf', 'fonts/jwsubcalibri.ttf'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FIRST)).then(() => self.skipWaiting()));

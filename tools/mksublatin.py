@@ -1,29 +1,39 @@
 #!/usr/bin/env python
-"""Cut Liberation Sans / Serif down to the Latin letters a CP932 text holds.
+"""Cut Liberation Sans/Serif/Mono and Carlito down to the Latin letters a
+CP932 text holds.
 
-    python tools/mksublatin.py <LiberationSans-Regular.ttf> <LiberationSerif-Regular.ttf> fonts
+    python tools/mksublatin.py <LiberationSans-Regular.ttf> <LiberationSerif-Regular.ttf> \
+        <LiberationMono-Regular.ttf> <Carlito-Regular.ttf> fonts
 
-Writes fonts/jwsubsans.ttf and fonts/jwsubserif.ttf.  Needs fonttools
-(pip install fonttools).
+Writes fonts/jwsubsans.ttf, jwsubserif.ttf, jwsubmono.ttf and
+jwsubcalibri.ttf.  Needs fonttools (pip install fonttools).
 
-They stand in for Arial and Times New Roman / Century (src/outfont.c): the
-original draws a text whose face is Arial with Windows' Arial, which the port
-cannot ship.  Liberation Sans and Serif have Arial's and Times New Roman's
-advance widths.  Only the single-byte half of CP932 that has Latin glyphs
-(0x20..0x7e) is kept; everything else in such a text -- kana, kanji, the
-full-width forms -- is set in IPAex, the way Windows' font association sets
-a Japanese letter of an ANSI face in ＭＳ ゴシック / ＭＳ 明朝.
+They stand in for Arial, Times New Roman / Century, Courier New and Calibri
+(src/outfont.c): the original draws a text whose face is e.g. Arial with
+Windows' Arial, which the port cannot ship.  Liberation Sans/Serif/Mono and
+Carlito have Arial's, Times New Roman's, Courier New's and Calibri's advance
+widths (every one of the 95 ASCII 0x20..0x7e glyphs checked one by one
+against the real Windows face files, not just the OS/2 average -- see
+font/PROVENANCE.md).  Only that Latin range is kept; everything else in such
+a text -- kana, kanji, the full-width forms -- is set in IPAex, the way
+Windows' font association sets a Japanese letter of an ANSI face in
+ＭＳ ゴシック / ＭＳ 明朝.
 
 Liberation is under the SIL OFL 1.1 with the Reserved Font Names
-"Liberation", "Arimo" and "Tinos".  A subset is a Modified Version, so it may
-not carry those names: the subsets are renamed JwSubSans / JwSubSerif (font
-and file names), see font/PROVENANCE.md.
+"Liberation" (Red Hat), "Arimo", "Tinos" and "Cousine" (Google).  Carlito is
+under the SIL OFL 1.1 with the Reserved Font Name "Carlito" (Google).  A
+subset is a Modified Version, so it may not carry those names: the subsets
+are renamed JwSubSans / JwSubSerif / JwSubMono / JwSubCalibri (font and file
+names), see font/PROVENANCE.md.  "Calibri" itself is not an OFL reserved
+name (it is Microsoft's own face, which this file does not contain), so the
+Calibri stand-in's name may still refer to the face it stands in for, the
+way fonts/bizudgothic-sub.ttf keeps "BIZUDGothic" in its name.
 """
 import sys
 from fontTools import subset
 
 
-def cut(src, dst, family):
+def cut(src, dst, family, source_tag):
     opt = subset.Options()
     opt.hinting = False
     opt.layout_features = []
@@ -42,7 +52,7 @@ def cut(src, dst, family):
         if rec.nameID in (1, 4, 16, 21):
             rec.string = family
         elif rec.nameID == 3:
-            rec.string = family + " (subset of Liberation 2.1.5)"
+            rec.string = family + " (subset of " + source_tag + ")"
         elif rec.nameID == 6:
             rec.string = family.replace(" ", "")
         elif rec.nameID == 2:
@@ -51,12 +61,15 @@ def cut(src, dst, family):
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 6:
         print(__doc__)
         return 2
-    out = sys.argv[3].rstrip("/\\")
-    cut(sys.argv[1], out + "/jwsubsans.ttf", "JwSubSans")
-    cut(sys.argv[2], out + "/jwsubserif.ttf", "JwSubSerif")
+    sans, serif, mono, calibri, out = sys.argv[1:6]
+    out = out.rstrip("/\\")
+    cut(sans, out + "/jwsubsans.ttf", "JwSubSans", "Liberation 2.1.5")
+    cut(serif, out + "/jwsubserif.ttf", "JwSubSerif", "Liberation 2.1.5")
+    cut(mono, out + "/jwsubmono.ttf", "JwSubMono", "Liberation 2.1.5")
+    cut(calibri, out + "/jwsubcalibri.ttf", "JwSubCalibri", "Carlito 1.104")
     return 0
 
 
